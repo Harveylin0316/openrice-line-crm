@@ -158,6 +158,38 @@ function createLineWebhookHandler({
         // 文字訊息：關鍵字自動回覆（reply token 一次性；本 webhook 僅此路徑使用 replyToken）
         // 任何失敗 try/catch 吞掉，絕不讓整批 webhook 回 500（同 reward_exception → continue 原則）
         if (event?.type === 'message' && event?.message?.type === 'text' && event?.replyToken) {
+          // 指令 /whatsmyid：回報使用者自己的 LINE user ID（供後台設定 GM_USER_ID、鎖定測試對象用）。
+          // 必須放在關鍵字比對之前短路：① 不會被某條 contains 規則誤攔 ② 省一次 DB 查詢
+          // ③ replyToken 一次性，回覆後 continue，避免下面關鍵字回覆重用同一 token 而被 LINE 回 400。
+          const cmdText = String(event?.message?.text || '').trim().toLowerCase();
+          if (cmdText === '/whatsmyid') {
+            const uid = event?.source?.userId || '';
+            const replyText = uid
+              ? '你的 LINE user ID：\n' + uid + '\n\n（可長按上面這串文字複製）'
+              : '抱歉，這裡取不到你的 user ID（可能是在群組或聊天室中）。請在與官方帳號的一對一聊天視窗再輸入一次 /whatsmyid。';
+            let widSent = false;
+            try {
+              if (linePush && typeof linePush.replyLineMessages === 'function') {
+                widSent = await linePush.replyLineMessages(event.replyToken, [replyText], {
+                  lineUserId: uid || null,
+                  pushType: 'whatsmyid'
+                });
+              }
+            } catch (widErr) {
+              console.error('whatsmyid reply failed:', widErr.message);
+            }
+            // 比照下方關鍵字分支：依實際送出結果記 log，reply 失敗（token 過期／缺 access token／API 錯誤）記 failed，
+            // 避免維運者在 line_webhook_events 看到 replied 卻其實沒送出。
+            await appendWebhookEventLog({
+              eventType: 'message',
+              lineUserId: uid || null,
+              result: !uid ? 'whatsmyid_no_userid' : (widSent ? 'whatsmyid_replied' : 'whatsmyid_reply_failed'),
+              detail: uid || null,
+              eventTimestamp: event?.timestamp,
+              rawEvent: event || {}
+            }).catch(() => {});
+            continue;
+          }
           let krResult = 'keyword_no_match';
           let krDetail = null;
           try {
