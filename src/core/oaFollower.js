@@ -26,4 +26,32 @@ async function verifyOaFollower(lineUserId) {
   }
 }
 
-module.exports = { verifyOaFollower };
+/**
+ * 抓取某 userId 的 LINE 個人檔案（暱稱 + 大頭貼）。
+ *   GET https://api.line.me/v2/bot/profile/{userId}
+ * 回傳 { displayName, pictureUrl, statusMessage } ；無法取得（沒 token / 非好友 / API 錯誤）回 null。
+ * 用途：新好友加入 OA 時把暱稱、大頭貼寫進 users 表（follow webhook 與回補腳本共用）。
+ */
+async function fetchOaProfile(lineUserId) {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
+  const uid = String(lineUserId || '').trim();
+  if (!token || !uid) return null;
+  try {
+    const resp = await fetch('https://api.line.me/v2/bot/profile/' + encodeURIComponent(uid), {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    if (!resp.ok) return null;
+    const j = await resp.json().catch(() => null);
+    if (!j) return null;
+    return {
+      displayName: j.displayName || null,
+      pictureUrl: j.pictureUrl || null,
+      statusMessage: j.statusMessage || null
+    };
+  } catch (e) {
+    console.error('fetchOaProfile error:', e && e.message);
+    return null;
+  }
+}
+
+module.exports = { verifyOaFollower, fetchOaProfile };
