@@ -261,7 +261,7 @@ function registerWebRoutes(app, deps) {
         return renderAdminLogin(res, '請輸入帳號與密碼', nextPath);
       }
 
-      const found = await query('SELECT id, username, password_hash, is_admin FROM users WHERE username = $1', [username]);
+      const found = await query('SELECT id, username, password_hash, is_admin, role, is_active, sess_epoch FROM users WHERE username = $1', [username]);
       if (found.rowCount === 0) {
         await adminLoginThrottle.recordFailure(ipKey);
         return renderAdminLogin(res, '帳號或密碼錯誤', nextPath);
@@ -276,6 +276,11 @@ function registerWebRoutes(app, deps) {
         await adminLoginThrottle.recordFailure(ipKey);
         clearAuthCookie(res);
         return renderAdminLogin(res, '此入口僅提供管理員登入', nextPath);
+      }
+      if (user.is_active === false) {
+        await adminLoginThrottle.recordFailure(ipKey);
+        clearAuthCookie(res);
+        return renderAdminLogin(res, '此帳號已被停用，請聯絡管理員', nextPath);
       }
       await adminLoginThrottle.clearFailures(ipKey);
       const token = signAuthToken(user);

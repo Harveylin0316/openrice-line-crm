@@ -18,10 +18,12 @@ async function run() {
 
   try {
     const hash = await bcrypt.hash(password, 10);
+    // role='admin'、is_active=true：符合 users_admin_role_chk 約束（is_admin=true 必須有角色），
+    // 且讓 CLI 建的帳號一律是可用的管理員。
     const sql =
-      'INSERT INTO users (username, password_hash, draws_left, is_admin) VALUES ($1, $2, 1, true) ' +
-      'ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_admin = true ' +
-      'RETURNING id, username, is_admin';
+      "INSERT INTO users (username, password_hash, draws_left, is_admin, role, is_active) VALUES ($1, $2, 1, true, 'admin', true) " +
+      "ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_admin = true, role = 'admin', is_active = true " +
+      'RETURNING id, username, is_admin, role';
     const result = await pool.query(sql, [username, hash]);
     console.log(JSON.stringify(result.rows[0]));
   } finally {

@@ -1,0 +1,189 @@
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="card">
+      <h1 style="margin:0 0 4px;">帳號管理</h1>
+      <p class="muted" style="margin-top:6px;line-height:1.7;">
+        在這裡新增員工的登入帳號、指派角色、停用離職同事、或幫人重設密碼。<br>
+        <strong>管理員</strong>：全部功能，且能管帳號。<strong>員工</strong>：能做日常營運，但看不到這一頁。
+      </p>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 12px;">新增員工帳號</h2>
+      <div class="acc-form">
+        <div class="acc-field">
+          <label>帳號（登入用）</label>
+          <input type="text" id="new-username" autocomplete="off" placeholder="例如 mary（3–40 字，英數字與 _ . -）" />
+        </div>
+        <div class="acc-field">
+          <label>初始密碼</label>
+          <input type="text" id="new-password" autocomplete="off" placeholder="至少 8 個字，之後對方可自行修改" />
+        </div>
+        <div class="acc-field">
+          <label>角色</label>
+          <select id="new-role">
+            <option value="staff">員工</option>
+            <option value="admin">管理員</option>
+          </select>
+        </div>
+        <div class="acc-field acc-field-btn">
+          <button type="button" class="acc-primary" id="btn-create">新增帳號</button>
+        </div>
+      </div>
+      <div id="create-msg" class="acc-msg"></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 12px;">現有帳號</h2>
+      <div style="overflow-x:auto;">
+        <table class="acc-table" id="acc-table">
+          <thead>
+            <tr><th>帳號</th><th>角色</th><th>狀態</th><th>建立時間</th><th style="text-align:right;">操作</th></tr>
+          </thead>
+          <tbody id="acc-tbody">
+            <tr><td colspan="5" class="muted" style="padding:18px;">載入中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="list-msg" class="acc-msg"></div>
+    </section>
+
+    <style>
+      .acc-form{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;}
+      .acc-field{display:flex;flex-direction:column;gap:5px;}
+      .acc-field label{font-size:12px;color:#6b7280;font-weight:600;}
+      .acc-field input,.acc-field select{padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;font-size:14px;min-width:200px;font-family:inherit;}
+      .acc-field-btn{align-self:flex-end;}
+      .acc-primary{padding:10px 18px;background:#FCC726;color:#1f2937;font-weight:700;border:0;border-radius:8px;cursor:pointer;font-size:14px;}
+      .acc-primary:disabled{opacity:.5;cursor:not-allowed;}
+      .acc-msg{font-size:13px;margin-top:12px;min-height:18px;}
+      .acc-table{width:100%;border-collapse:collapse;font-size:14px;}
+      .acc-table th{text-align:left;font-size:12px;color:#6b7280;font-weight:600;border-bottom:1px solid #ECECEE;padding:10px 12px;white-space:nowrap;}
+      .acc-table td{border-bottom:1px solid #F3F4F6;padding:12px;vertical-align:middle;}
+      .acc-uname{font-weight:600;color:#1f2937;}
+      .acc-self{font-size:11px;color:#6b7280;margin-left:6px;}
+      .acc-pill{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:3px 10px;}
+      .acc-pill.admin{background:#FFFBEB;color:#92400e;border:1px solid #FCC726;}
+      .acc-pill.staff{background:#F3F4F6;color:#374151;border:1px solid #E5E7EB;}
+      .acc-pill.on{background:#dcfce7;color:#15803d;}
+      .acc-pill.off{background:#FEE2E2;color:#b91c1c;}
+      .acc-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
+      .acc-btn{font-size:12px;padding:6px 11px;border:1px solid #ECECEE;background:#fff;border-radius:7px;cursor:pointer;color:#374151;}
+      .acc-btn:hover{border-color:#1f2937;}
+      .acc-btn.danger:hover{border-color:#b91c1c;color:#b91c1c;}
+      .acc-btn:disabled{opacity:.4;cursor:not-allowed;}
+    </style>
+
+    <script>
+      (function(){
+        var CURRENT_UID = ${currentUid};
+        var $ = function(id){ return document.getElementById(id); };
+        function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+        function fmtTime(iso){
+          if(!iso) return '—';
+          try { var d = new Date(iso); if(isNaN(d.getTime())) return '—';
+            return d.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+          } catch(e){ return '—'; }
+        }
+        function post(url, payload){
+          return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload||{})})
+            .then(function(r){ return r.json().then(function(j){ return {status:r.status, body:j}; }); });
+        }
+        function showMsg(el, text, ok){
+          el.innerHTML = text ? ('<span style="color:'+(ok?'#15803d':'#b91c1c')+';font-weight:600;">'+esc(text)+'</span>') : '';
+        }
+
+        function rowHtml(a){
+          var roleLabel = a.role === 'admin' ? '管理員' : '員工';
+          var rolePill = '<span class="acc-pill '+(a.role==='admin'?'admin':'staff')+'">'+roleLabel+'</span>';
+          var statePill = a.isActive ? '<span class="acc-pill on">使用中</span>' : '<span class="acc-pill off">已停用</span>';
+          var self = a.isSelf ? '<span class="acc-self">（你自己）</span>' : '';
+          var toRole = a.role === 'admin' ? 'staff' : 'admin';
+          var toRoleLabel = a.role === 'admin' ? '設為員工' : '設為管理員';
+          var actions = '';
+          actions += '<button class="acc-btn" data-act="role" data-id="'+a.id+'" data-to="'+toRole+'"'+(a.isSelf?' disabled title="不能改自己的角色"':'')+'>'+toRoleLabel+'</button>';
+          if(a.isActive){
+            actions += '<button class="acc-btn danger" data-act="active" data-id="'+a.id+'" data-to="0"'+(a.isSelf?' disabled title="不能停用自己"':'')+'>停用</button>';
+          } else {
+            actions += '<button class="acc-btn" data-act="active" data-id="'+a.id+'" data-to="1">啟用</button>';
+          }
+          actions += '<button class="acc-btn" data-act="pw" data-id="'+a.id+'" data-name="'+esc(a.username)+'">重設密碼</button>';
+          return '<tr>'+
+            '<td><span class="acc-uname">'+esc(a.username)+'</span>'+self+'</td>'+
+            '<td>'+rolePill+'</td>'+
+            '<td>'+statePill+'</td>'+
+            '<td class="muted">'+fmtTime(a.createdAt)+'</td>'+
+            '<td><div class="acc-actions">'+actions+'</div></td>'+
+          '</tr>';
+        }
+
+        function load(){
+          fetch('/admin/accounts/api/list').then(function(r){return r.json();}).then(function(d){
+            var tb = $('acc-tbody');
+            if(!d.ok){ tb.innerHTML = '<tr><td colspan="5" class="muted" style="padding:18px;">載入失敗：'+esc(d.detail||d.error||'')+'</td></tr>'; return; }
+            if(!d.accounts || !d.accounts.length){ tb.innerHTML = '<tr><td colspan="5" class="muted" style="padding:18px;">目前沒有帳號</td></tr>'; return; }
+            tb.innerHTML = d.accounts.map(rowHtml).join('');
+            bindRowButtons();
+          }).catch(function(e){ $('acc-tbody').innerHTML = '<tr><td colspan="5" class="muted" style="padding:18px;">載入錯誤：'+esc(e.message)+'</td></tr>'; });
+        }
+
+        function bindRowButtons(){
+          Array.prototype.forEach.call(document.querySelectorAll('#acc-tbody .acc-btn'), function(b){
+            b.addEventListener('click', function(){
+              var act = b.getAttribute('data-act');
+              var id = Number(b.getAttribute('data-id'));
+              if(act === 'role'){
+                var to = b.getAttribute('data-to');
+                if(!confirm('確定把這個帳號改成「'+(to==='admin'?'管理員':'員工')+'」？')) return;
+                post('/admin/accounts/api/update-role', {id:id, role:to}).then(function(r){
+                  if(!r.body.ok){ showMsg($('list-msg'), r.body.detail||r.body.error, false); return; }
+                  showMsg($('list-msg'), '已更新角色', true); load();
+                });
+              } else if(act === 'active'){
+                var toActive = b.getAttribute('data-to') === '1';
+                if(!toActive && !confirm('確定停用這個帳號？停用後對方無法登入。')) return;
+                post('/admin/accounts/api/set-active', {id:id, active:toActive}).then(function(r){
+                  if(!r.body.ok){ showMsg($('list-msg'), r.body.detail||r.body.error, false); return; }
+                  showMsg($('list-msg'), toActive?'已啟用':'已停用', true); load();
+                });
+              } else if(act === 'pw'){
+                var name = b.getAttribute('data-name');
+                var np = window.prompt('幫「'+name+'」設定新密碼（至少 8 個字）：');
+                if(np === null) return;
+                if(String(np).length < 8){ showMsg($('list-msg'), '密碼至少 8 個字', false); return; }
+                post('/admin/accounts/api/reset-password', {id:id, password:np}).then(function(r){
+                  if(!r.body.ok){ showMsg($('list-msg'), r.body.detail||r.body.error, false); return; }
+                  showMsg($('list-msg'), '已重設「'+name+'」的密碼', true);
+                });
+              }
+            });
+          });
+        }
+
+        $('btn-create').addEventListener('click', function(){
+          var username = ($('new-username').value||'').trim();
+          var password = $('new-password').value||'';
+          var role = $('new-role').value||'staff';
+          showMsg($('create-msg'), '', true);
+          if(!username){ showMsg($('create-msg'), '請輸入帳號', false); return; }
+          if(password.length < 8){ showMsg($('create-msg'), '初始密碼至少 8 個字', false); return; }
+          $('btn-create').disabled = true;
+          post('/admin/accounts/api/create', {username:username, password:password, role:role}).then(function(r){
+            $('btn-create').disabled = false;
+            if(!r.body.ok){ showMsg($('create-msg'), r.body.detail||r.body.error, false); return; }
+            showMsg($('create-msg'), '已新增帳號「'+username+'」', true);
+            $('new-username').value=''; $('new-password').value=''; $('new-role').value='staff';
+            load();
+          }).catch(function(e){ $('btn-create').disabled=false; showMsg($('create-msg'), e.message, false); });
+        });
+
+        load();
+      })();
+    </script>
+    `
+  })
+%>

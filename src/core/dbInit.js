@@ -101,6 +101,10 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
   await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS line_display_name TEXT');
   await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS line_picture_url TEXT');
   await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code TEXT');
+  // 後台帳號角色/停用/session 版本（正式環境由 Supabase migration 建立；此處供本機 legacy 初始化保持一致）
+  await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT');
+  await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true');
+  await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS sess_epoch INTEGER NOT NULL DEFAULT 0');
 
   await query(`CREATE TABLE IF NOT EXISTS prizes (
     id SERIAL PRIMARY KEY,
@@ -425,7 +429,8 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
       throw new Error('Missing or weak ADMIN_PASSWORD. Use at least 8 characters.');
     }
     const adminHash = await bcrypt.hash(adminPassword, 10);
-    await query('INSERT INTO users (username, password_hash, draws_left, is_admin) VALUES ($1, $2, 1, true)', [
+    // role='admin'、is_active=true：符合 users_admin_role_chk（is_admin=true 必須有角色），與 upsert-admin.js 一致
+    await query("INSERT INTO users (username, password_hash, draws_left, is_admin, role, is_active) VALUES ($1, $2, 1, true, 'admin', true)", [
       adminUsername,
       adminHash
     ]);

@@ -97,6 +97,15 @@
               <a href="/admin/liff/random-rice">活動頁面數據</a>
             </div>
           </div>
+          <div class="navgrp">
+            <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">設定 <span class="navgrp-caret">▾</span></button>
+            <div class="navgrp-menu">
+              <% if (typeof currentRole !== 'undefined' && currentRole === 'admin') { %>
+              <a href="/admin/accounts">帳號管理</a>
+              <% } %>
+              <a href="/admin/account/password">改密碼</a>
+            </div>
+          </div>
           <% } %>
           <form action="/logout" method="post" class="inline-form topbar-logout">
             <button type="submit">登出</button>
