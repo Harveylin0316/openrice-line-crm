@@ -106,6 +106,21 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
   await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true');
   await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS sess_epoch INTEGER NOT NULL DEFAULT 0');
 
+  // 第二個 LINE OA（新 provider）只收集 userId 的名單，與 users 完全隔離（正式環境亦由 Supabase migration 建立，此處保持 in-tree 一致）
+  await query(`CREATE TABLE IF NOT EXISTS oa_contacts (
+    id BIGSERIAL PRIMARY KEY,
+    oa_key TEXT NOT NULL,
+    line_user_id TEXT NOT NULL,
+    display_name TEXT,
+    picture_url TEXT,
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_event_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    blocked_at TIMESTAMPTZ,
+    profile_tried_at TIMESTAMPTZ,
+    UNIQUE (oa_key, line_user_id)
+  )`);
+  await query('CREATE INDEX IF NOT EXISTS oa_contacts_last_event_idx ON oa_contacts (oa_key, last_event_at DESC)');
+
   await query(`CREATE TABLE IF NOT EXISTS prizes (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,

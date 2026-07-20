@@ -1,0 +1,75 @@
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="card">
+      <h1 style="margin:0 0 4px;">新 OA 名單</h1>
+      <p class="muted" style="margin-top:6px;line-height:1.7;">
+        第二個 LINE 官方帳號（新 provider）加好友／傳訊息的人，會自動被收錄在這裡。<br>
+        這份名單與主帳號的會員檔案<strong>完全分開</strong>——跨 provider 的 user ID 是不同的，兩邊不能互相對應。
+      </p>
+      <div id="oc-stats" class="oc-stats">
+        <div class="oc-stat"><div class="oc-num" id="oc-total">—</div><div class="oc-lbl">總收錄</div></div>
+        <div class="oc-stat"><div class="oc-num" id="oc-active">—</div><div class="oc-lbl">目前好友</div></div>
+        <div class="oc-stat"><div class="oc-num" id="oc-blocked">—</div><div class="oc-lbl">已封鎖/退追</div></div>
+      </div>
+      <div style="margin-top:14px;">
+        <a class="oc-primary" href="/admin/oa-contacts/export.csv">下載 CSV</a>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">名單（最近活動排序）</h2>
+      <p class="muted" id="oc-note" style="font-size:12px;margin-bottom:12px;"></p>
+      <div style="overflow-x:auto;">
+        <table class="oc-table">
+          <thead><tr><th></th><th>暱稱</th><th>user ID</th><th>最後互動</th><th>狀態</th></tr></thead>
+          <tbody id="oc-tbody"><tr><td colspan="5" class="muted" style="padding:18px;">載入中…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <style>
+      .oc-stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:16px;}
+      .oc-stat{background:#FAFAFA;border:1px solid #ECECEE;border-radius:12px;padding:14px 20px;min-width:120px;}
+      .oc-num{font-size:26px;font-weight:800;color:#1f2937;line-height:1.1;}
+      .oc-lbl{font-size:12px;color:#6b7280;margin-top:4px;}
+      .oc-primary{display:inline-block;padding:9px 16px;background:#FCC726;color:#1f2937;font-weight:700;border-radius:8px;text-decoration:none;font-size:14px;}
+      .oc-table{width:100%;border-collapse:collapse;font-size:14px;}
+      .oc-table th{text-align:left;font-size:12px;color:#6b7280;font-weight:600;border-bottom:1px solid #ECECEE;padding:10px 12px;white-space:nowrap;}
+      .oc-table td{border-bottom:1px solid #F3F4F6;padding:10px 12px;vertical-align:middle;}
+      .oc-av{width:32px;height:32px;border-radius:50%;object-fit:cover;background:#EEE;display:inline-block;}
+      .oc-id{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#6b7280;word-break:break-all;}
+      .oc-pill{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:3px 10px;}
+      .oc-pill.on{background:#dcfce7;color:#15803d;}
+      .oc-pill.off{background:#FEE2E2;color:#b91c1c;}
+    </style>
+
+    <script>
+      (function(){
+        var $ = function(id){ return document.getElementById(id); };
+        function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+        function fmt(iso){ if(!iso) return '—'; try{ var d=new Date(iso); if(isNaN(d.getTime())) return '—';
+          return d.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}); }catch(e){ return '—'; } }
+        function rowHtml(c){
+          var av = c.pictureUrl ? '<img class="oc-av" src="'+esc(c.pictureUrl)+'" alt="">' : '<span class="oc-av"></span>';
+          var st = c.blocked ? '<span class="oc-pill off">已封鎖</span>' : '<span class="oc-pill on">好友</span>';
+          return '<tr><td>'+av+'</td><td>'+esc(c.displayName||'（未取得）')+'</td>'+
+            '<td class="oc-id">'+esc(c.lineUserId)+'</td><td class="muted">'+fmt(c.lastEventAt)+'</td><td>'+st+'</td></tr>';
+        }
+        fetch('/admin/oa-contacts/api/list').then(function(r){return r.json();}).then(function(d){
+          if(!d.ok){ $('oc-tbody').innerHTML='<tr><td colspan="5" class="muted" style="padding:18px;">載入失敗</td></tr>'; return; }
+          $('oc-total').textContent = d.stats.total;
+          $('oc-active').textContent = d.stats.active;
+          $('oc-blocked').textContent = d.stats.blocked;
+          if(!d.contacts.length){ $('oc-tbody').innerHTML='<tr><td colspan="5" class="muted" style="padding:18px;">還沒有人。等新 OA 有人加好友或傳訊息就會出現在這裡。</td></tr>'; return; }
+          $('oc-tbody').innerHTML = d.contacts.map(rowHtml).join('');
+          if(d.stats.total > d.limit){ $('oc-note').textContent = '共 '+d.stats.total+' 筆，這裡顯示最近 '+d.limit+' 筆；完整名單請用「下載 CSV」。'; }
+        }).catch(function(e){ $('oc-tbody').innerHTML='<tr><td colspan="5" class="muted" style="padding:18px;">錯誤：'+esc(e.message)+'</td></tr>'; });
+      })();
+    </script>
+    `
+  })
+%>

@@ -38,6 +38,8 @@ const { registerAdminAccountsRoutes } = require('./routes/adminAccounts');
 const { buildLiffPermanentUrl } = require('./core/liffPermalink');
 const { buildPushImageBaseCandidates } = require('./core/linePushImageResolve');
 const { createLineWebhookHandler } = require('./routes/lineWebhook');
+const { createOaContactsWebhookHandler } = require('./routes/oaContactsWebhook');
+const { registerAdminOaContactsRoutes } = require('./routes/adminOaContacts');
 const { createLinePushService } = require('./core/linePush');
 const { createEmailProvider } = require('./core/emailProvider');
 const { createSureNotifyProvider } = require('./core/emailProviderSureNotify');
@@ -77,6 +79,10 @@ const _liffLotteryBuilt = buildLiffPermanentUrl(LIFF_ID, '/liff/lottery', '/liff
 const LIFF_LOTTERY_PUSH_URL = /^https:\/\/liff\.line\.me\//i.test(_liffLotteryBuilt) ? _liffLotteryBuilt : '';
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || '';
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
+// 第二個 LINE OA（新 provider）：只收集 userId，完全獨立於主 OA
+const LINE2_CHANNEL_SECRET = process.env.LINE2_CHANNEL_SECRET || '';
+const LINE2_CHANNEL_ACCESS_TOKEN = process.env.LINE2_CHANNEL_ACCESS_TOKEN || '';
+const LINE2_OA_KEY = process.env.LINE2_OA_KEY || 'oa2';
 const LINE_OFFICIAL_ADD_FRIEND_URL_RAW = process.env.LINE_OFFICIAL_ADD_FRIEND_URL || '';
 
 /**
@@ -415,6 +421,18 @@ app.post(
     flowEngine
   })
 );
+// 第二個 OA 的 webhook：只收集 userId 寫進 oa_contacts，完全獨立（自己的 secret/token）。
+// 必須與主 webhook 一樣用 express.raw 取原始 body 驗簽，且掛在全域 express.json 之前。
+app.post(
+  '/webhooks/line2',
+  express.raw({ type: 'application/json' }),
+  createOaContactsWebhookHandler({
+    pool,
+    channelSecret: LINE2_CHANNEL_SECRET,
+    channelAccessToken: LINE2_CHANNEL_ACCESS_TOKEN,
+    oaKey: LINE2_OA_KEY
+  })
+);
 // 上限調高：RFM 名單分塊上傳一批可達數百 KB（預設 100KB 會 request entity too large）
 app.use(express.json({ limit: '8mb' }));
 app.use(express.urlencoded({ extended: false, limit: '2mb' }));
@@ -582,6 +600,8 @@ registerGamesRoutes(app, { query, pool });
 registerAdminRecipientListsRoutes(app, { query, pool, authCore, flowEngine });
 
 registerAdminAccountsRoutes(app, { query, pool, authCore });
+
+registerAdminOaContactsRoutes(app, { query, authCore, oaKey: LINE2_OA_KEY });
 
 registerLiffRoutes(app, {
   query,
