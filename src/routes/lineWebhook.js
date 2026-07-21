@@ -43,6 +43,34 @@ function createLineWebhookHandler({
     );
   }
 
+  /**
+   * 由「訊息事件」收人進 users 會員表（follow 事件之外的第二個入口）。
+   * xmax = 0 可判斷這次是 INSERT（新收）還是 ON CONFLICT 的 UPDATE（既有），
+   * 只有新收或還沒暱稱時才去打 LINE profile API，避免每則訊息都多打一次。
+   */
+  async function captureUserFromMessage(lineUserId) {
+    const ins = await pool.query(
+      `INSERT INTO users (username, password_hash, line_user_id, blocked_at, created_at)
+       VALUES ($1, '', $2, NULL, now())
+       ON CONFLICT (line_user_id) DO UPDATE SET blocked_at = NULL
+       RETURNING (xmax = 0) AS inserted, line_display_name`,
+      ['line_' + lineUserId, lineUserId]
+    );
+    const row = ins.rows[0];
+    if (!row) return;
+    if (row.inserted || !row.line_display_name) {
+      const prof = await fetchOaProfile(lineUserId);
+      if (prof && (prof.displayName || prof.pictureUrl)) {
+        await pool.query(
+          `UPDATE users SET line_display_name = COALESCE($2, line_display_name),
+             line_picture_url = COALESCE($3, line_picture_url)
+           WHERE line_user_id = $1`,
+          [lineUserId, prof.displayName, prof.pictureUrl]
+        );
+      }
+    }
+  }
+
   async function rewardInviteForFollow(lineUserId, eventTimestamp) {
     const client = await pool.connect();
     try {
@@ -154,6 +182,14 @@ function createLineWebhookHandler({
             detail: '用戶封鎖 OA', eventTimestamp: event?.timestamp, rawEvent: event || {}
           });
           continue;
+        }
+        // 任何 message 事件（含圖片/貼圖）都先把人收進 users 會員表。
+        // 為什麼需要：LINE 只在「加好友當下」送 follow 事件，在本 webhook 建立之前就已經加過好友的
+        // 舊好友永遠不會再有 follow 事件；若只靠 follow 收人，他們就算天天傳訊息也永遠不在會員表，
+        // 不會出現在名單與群發受眾裡（實際案例：只傳過訊息、從無 follow 事件的用戶）。
+        if (event?.type === 'message' && event?.source?.userId) {
+          try { await captureUserFromMessage(event.source.userId); }
+          catch (e) { console.error('capture user from message failed:', e.message); }
         }
         // 文字訊息：關鍵字自動回覆（reply token 一次性；本 webhook 僅此路徑使用 replyToken）
         // 任何失敗 try/catch 吞掉，絕不讓整批 webhook 回 500（同 reward_exception → continue 原則）
