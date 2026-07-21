@@ -121,6 +121,17 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
   )`);
   await query('CREATE INDEX IF NOT EXISTS oa_contacts_last_event_idx ON oa_contacts (oa_key, last_event_at DESC)');
 
+  // 加好友來源歸因：LINE follow 事件不帶來源，故由 LIFF 落地頁先記下 (userId → 來源)，
+  // follow 進來時反查決定要跑哪一條歡迎流程。last-touch：每次點新連結覆蓋。
+  // 正式環境亦由 Supabase migration `create_line_follow_sources` 建立（已套用）；此處供本機初始化保持一致。
+  await query(`CREATE TABLE IF NOT EXISTS line_follow_sources (
+    line_user_id TEXT PRIMARY KEY,
+    source_key TEXT NOT NULL,
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await query('CREATE INDEX IF NOT EXISTS line_follow_sources_source_idx ON line_follow_sources (source_key)');
+
   await query(`CREATE TABLE IF NOT EXISTS prizes (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,

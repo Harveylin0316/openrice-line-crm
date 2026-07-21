@@ -109,7 +109,33 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
   async function triggerFollow(lineUserId, userId) {
     try {
       const flows = await getActiveFlowsByTrigger('follow');
-      for (const f of flows) await enrollUser(f, lineUserId, { userId, context: { trigger: 'follow' } });
+      // LINE 的 follow 事件不帶來源，來源是 LIFF 落地頁事先寫進 line_follow_sources 的。
+      let sourceKey = null;
+      try {
+        // 30 天有效期：避免「三月點的活動連結，十二月封鎖後重加好友時又被當成該活動來源」而重播舊歡迎訊息
+        const rs = await query(
+          `SELECT source_key FROM line_follow_sources
+           WHERE line_user_id = $1 AND updated_at > now() - interval '30 days'`,
+          [String(lineUserId || '').trim()]
+        );
+        if (rs.rowCount > 0) sourceKey = rs.rows[0].source_key || null;
+      } catch (e) {
+        // 查不到來源不該讓整個 follow 觸發失效：退回「只跑通用流程」
+        console.error('flow triggerFollow source lookup failed:', e && e.message);
+      }
+      for (const f of flows) {
+        const cfgSource =
+          f.trigger_config && typeof f.trigger_config.source_key === 'string'
+            ? f.trigger_config.source_key.trim().toLowerCase()
+            : '';
+        // 來源留空 = 通用流程，對所有新好友觸發（維持既有行為，例如「自動名單：新好友」）
+        // 有填來源 = 只對該來源進來的新好友觸發（沒來源的人不會收到）
+        if (cfgSource && cfgSource !== sourceKey) continue;
+        await enrollUser(f, lineUserId, {
+          userId,
+          context: { trigger: 'follow', source_key: sourceKey || null }
+        });
+      }
     } catch (err) {
       console.error('flow triggerFollow error:', err.message);
     }

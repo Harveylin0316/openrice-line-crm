@@ -372,6 +372,10 @@
                 '<option value="list"'+(c.audience&&c.audience.type==='list'?' selected':'')+'>某個名單</option>'+
               '</select></div>'+
               '<div class="fl-field" id="tc-aud-list-wrap" '+(c.audience&&c.audience.type==='list'?'':'hidden')+'><span>名單</span><select id="tc-aud-list">'+optionsHtml(OPT.lists,c.audience&&c.audience.list_id,'請選名單')+'</select></div>';
+          }else if(t==='follow'){
+            h='<p class="muted" style="font-size:13px;margin:0 0 8px;">有人加你 LINE 好友時觸發。<br><strong>來源留空</strong>＝所有新好友都跑這條；<strong>填了來源</strong>＝只有從該連結進來的新好友才跑。</p>'+
+              '<div class="fl-field"><span>來源代號</span><input type="text" id="tc-source" value="'+esc(c.source_key||'')+'" placeholder="留空＝所有新好友" pattern="[A-Za-z0-9_-]{1,40}" title="只能用英數字、底線、減號"></div>'+
+              '<p class="muted" style="font-size:12px;margin:6px 0 0;line-height:1.6;">行銷連結請用 <code>https://liff.line.me/&lt;你的LIFF_ID&gt;/s/來源代號</code><br>例：來源填 <code>fb_ad</code> → 連結 <code>.../s/fb_ad</code>。僅限英數字、底線、減號。</p>';
           }else{
             h='<p class="muted" style="font-size:13px;margin:0 0 8px;">任何人加你 LINE 好友時觸發。</p>';
           }
@@ -389,6 +393,7 @@
           else if(t==='game_play'){c.activity_id=Number($('tc-activity')&&$('tc-activity').value)||null;c.prize_only=!!($('tc-prizeonly')&&$('tc-prizeonly').checked);}
           else if(t==='broadcast_click'){/* 無設定 */}
           else if(t==='restaurant_click'){var cz=($('tc-cuisine')&&$('tc-cuisine').value)||'';if(cz)c.cuisine=cz;}
+          else if(t==='follow'){var sk=((($('tc-source')&&$('tc-source').value)||'')+'').trim();if(sk)c.source_key=sk;}
           else if(t==='inactivity'){c.days=Number($('tc-inact-days')&&$('tc-inact-days').value)||60;c.batch_limit=Number($('tc-inact-batch')&&$('tc-inact-batch').value)||50;}
           else if(t==='streak_risk'){c.min_streak=Number($('tc-streak-min')&&$('tc-streak-min').value)||2;c.batch_limit=Number($('tc-streak-batch')&&$('tc-streak-batch').value)||50;}
           else if(t==='event'){c.event_name=($('tc-event')&&$('tc-event').value)||'';}
@@ -538,7 +543,7 @@
             }).catch(function(e){$('fl-save').disabled=false;$('fl-save-activate').disabled=false;$('fl-save-status').textContent='錯誤：'+e.message;});
         }
         function errMsg(code){
-          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息或加入名單）',branch_must_be_last:'條件分支必須是流程的最後一步',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',list_join_needs_list:'請選名單',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',flow_has_no_steps:'流程至少要有一個步驟才能啟用'};
+          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息或加入名單）',branch_must_be_last:'條件分支必須是流程的最後一步',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',list_join_needs_list:'請選名單',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',flow_has_no_steps:'流程至少要有一個步驟才能啟用',follow_source_invalid:'來源代號只能用英數字、底線、減號（不能填中文或空格），最多 40 字'};
           return m[code]||code||'';
         }
         function isDirty(){return !$('fl-editor').hidden&&initialSnapshot!==JSON.stringify(collectFlow());}

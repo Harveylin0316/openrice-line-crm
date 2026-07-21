@@ -165,6 +165,19 @@ function registerAdminFlowsRoutes(app, deps) {
     const tCfg = trigger.config || {};
     if (tType === 'list_join' && !(Number(tCfg.list_id) > 0)) return { ok: false, error: 'list_join_needs_list' };
     if (tType === 'event' && !String(tCfg.event_name || '').trim()) return { ok: false, error: 'event_needs_name' };
+    if (tType === 'follow') {
+      // 來源代號：空 = 通用流程（對所有新好友觸發）；有值 = 只對該來源的新好友觸發。
+      // 必須嚴格擋下「非空但含不合法字元」（例如填中文）：若靜默過濾成空字串，
+      // 這條「某活動專屬」流程會悄悄變成通用流程 → 對每個新好友都發，
+      // 直接違反「無來源者不發歡迎訊息」的設定，且後台完全沒有提示。
+      const raw = String(tCfg.source_key || '').trim();
+      if (raw) {
+        if (!/^[A-Za-z0-9_-]{1,40}$/.test(raw)) return { ok: false, error: 'follow_source_invalid' };
+        tCfg.source_key = raw.toLowerCase();
+      } else {
+        delete tCfg.source_key;
+      }
+    }
     // game_play / broadcast_click：無必填設定（活動可選任一、推播點擊任意）
     if (tType === 'restaurant_click') {
       // cuisine 白名單正規化（空值 = 不限種類，任何餐廳都觸發）

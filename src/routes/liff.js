@@ -424,10 +424,44 @@ function registerLiffRoutes(app, deps) {
     return res.redirect('/liff/login');
   });
 
+  /**
+   * 記錄「這位使用者是從哪個連結/來源進來的」。
+   * LINE 的 follow webhook 完全不帶來源欄位，唯一可行解就是：在 LIFF 落地頁先拿到 userId 記下來源，
+   * follow 事件進來時再用同一個 userId 反查（與 line_invites 相同的配對邏輯）。
+   * 歸因規則：last-touch —— 每次點到新連結都覆蓋舊來源。
+   * source_key 一律正規化成 [a-z0-9_-]，與後台流程設定的來源欄位規則一致，確保比對得到。
+   */
+  async function recordFollowSource(lineUserId, sourceKey) {
+    const luid = String(lineUserId || '').trim();
+    const src = String(sourceKey || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
+    if (!luid || !src) return;
+    try {
+      await query(
+        `INSERT INTO line_follow_sources (line_user_id, source_key, first_seen_at, updated_at)
+         VALUES ($1, $2, now(), now())
+         ON CONFLICT (line_user_id) DO UPDATE SET source_key = EXCLUDED.source_key, updated_at = now()`,
+        [luid, src]
+      );
+    } catch (e) {
+      console.error('recordFollowSource failed:', e && e.message);
+    }
+  }
+
   async function handleInviteLanding(req, res, next) {
     try {
       const refUserId = await resolveInviterUserId(req.params.refUserId);
       const bindResult = await bindInviteIntent(refUserId, Number(req.authUser.uid));
+      // 只有「確實綁定成功」才把來源記為 mgm_invite。
+      // 關鍵：/liff/:refUserId 是單段 catch-all，任何無效連結（打錯代碼、過期邀請、甚至 /liff/s）
+      // 都會落到這個 handler；若無條件記錄，last-touch 會把使用者原本真實的行銷來源（如 fb_ad）覆蓋掉。
+      if (bindResult === 'bound' || bindResult === 'already_bound') {
+        try {
+          const inviteeUser = await getLineLinkedUser(req.authUser.uid);
+          if (inviteeUser && inviteeUser.line_user_id) {
+            await recordFollowSource(inviteeUser.line_user_id, 'mgm_invite');
+          }
+        } catch (e) { /* 記來源失敗不影響邀請綁定 */ }
+      }
       if (bindResult === 'bound') {
         return res.render('liff_invite_confirm', {
           user: req.authUser.un,
@@ -630,6 +664,26 @@ function registerLiffRoutes(app, deps) {
       next(err);
     } finally {
       client.release();
+    }
+  });
+
+  /**
+   * 來源落地頁：所有行銷連結/QR 一律指向 https://liff.line.me/{LIFF_ID}/s/<來源代號>
+   * 例：/s/fb_ad_0721、/s/store_qr、/s/edm_july
+   * 流程：LINE 內開啟 → LIFF 登入拿到 userId → 記下來源 → 導去加好友。
+   * 之後 follow webhook 進來時，就能依來源決定發哪一則歡迎訊息。
+   * 註：兩段路徑不會被下面單段的 /liff/:refUserId 吃掉，但仍放在其之前以策安全。
+   */
+  app.get('/liff/s/:sourceKey', requireLiffLogin, async (req, res, next) => {
+    try {
+      const lineUser = await getLineLinkedUser(req.authUser.uid);
+      if (lineUser && lineUser.line_user_id) {
+        await recordFollowSource(lineUser.line_user_id, req.params.sourceKey);
+      }
+      if (lineOfficialAddFriendUrl) return res.redirect(lineOfficialAddFriendUrl);
+      return res.redirect('/liff/lottery');
+    } catch (err) {
+      return next(err);
     }
   });
 
