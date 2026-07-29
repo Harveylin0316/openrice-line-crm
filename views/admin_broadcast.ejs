@@ -144,7 +144,7 @@
                 <input type="checkbox" id="all-members" />
                 <span>發送給全部會員</span>
               </label>
-              <div class="muted" style="font-size:12px;margin-top:4px;">勾選後忽略下方的獎品／邀請／刮獎／活動頁行為條件（可搭配「加入時間」一起用）。</div>
+              <div class="muted" style="font-size:12px;margin-top:4px;">勾選後忽略下方的獎品／邀請／刮獎／活動頁行為／訂位來源條件（可搭配「加入時間」一起用）。</div>
               <div class="broadcast-inline-field" style="margin-top:10px;">
                 <span>加入時間</span>
                 <select id="joined-within" style="width:160px;">
@@ -252,6 +252,32 @@
                 <span class="muted">天</span>
               </label>
               <div class="muted" style="font-size:12px;margin:2px 0 0;">挑出以前玩過、後來就沒再出現的人，適合發喚回優惠把他們找回來。</div>
+            </div>
+
+            <div class="broadcast-field" id="booking-source-conditions">
+              <div class="broadcast-field-label">訂位來源</div>
+              <div class="muted" style="font-size:12px;margin:0 0 6px;">兩格都選「不限」＝不套用。這是會員在聊天室裡回答過的「上次訂餐廳是從哪裡訂的」。</div>
+              <div class="muted" style="font-size:12px;margin:0 0 12px;">這份調查多半是舊帳號時期收集的，換新帳號後能發送的人數會少很多，之後會慢慢累積。人數很少是正常的，不是篩選壞掉。</div>
+
+              <label class="broadcast-inline-field">
+                <span>訂位來源</span>
+                <select id="booking-source" style="width:200px;">
+                  <option value="">不限</option>
+                  <option value="openrice">透過 OpenRice 訂位</option>
+                  <option value="google">透過 Google 預訂</option>
+                </select>
+              </label>
+              <div class="muted" style="font-size:12px;margin:2px 0 14px;">只發給上次是這樣訂位的人，訊息可以講得更貼近他們的習慣。</div>
+
+              <label class="broadcast-inline-field">
+                <span>是否回答過</span>
+                <select id="booking-source-answered" style="width:200px;">
+                  <option value="">不限</option>
+                  <option value="true">回答過的人</option>
+                  <option value="false">還沒回答過的人</option>
+                </select>
+              </label>
+              <div class="muted" style="font-size:12px;margin:2px 0 0;">選「還沒回答過的人」，就可以再問一次沒回答的人，把資料補起來。</div>
             </div>
 
             </div><!-- /audience-pane-conditions -->

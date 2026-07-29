@@ -3,15 +3,21 @@
  *
  *   GET  /admin/users                         頁面（搜尋 + 列表 + 檔案）
  *   GET  /admin/users/api/list?search=&offset= 用戶列表
- *   GET  /admin/users/api/profile/:lineUserId  單一用戶：基本資料 + 行為統計 + 餐廳興趣 + 活動頁行為 + 時間軸
+ *   GET  /admin/users/api/profile/:lineUserId  單一用戶：基本資料 + 行為統計 + 餐廳興趣 + 活動頁行為 + 訂位來源 + 時間軸
  */
 
 const { LIFECYCLE_STAGE_SQL, LAST_ACTIVITY_SQL, LIFF_EVENTS_SOURCE } = require('../core/broadcastAudience');
+
+// 訂位來源資料來源：已經整理成「每人最新一筆」的檢視，不要自己去接原始回答表。
+const BOOKING_SOURCE_SOURCE = 'member_booking_source';
 
 // 活動頁行為一次最多統計幾筆（避免單一重度使用者把查詢拖慢）
 const LIFF_SCAN_LIMIT = 5000;
 // 面板上「最近做了什麼」列幾筆
 const LIFF_RECENT_LIMIT = 10;
+// 「最近看過的餐廳」最多列幾間，以及往回翻幾筆行為來湊出這幾間
+const LIFF_RESTAURANT_LIMIT = 5;
+const LIFF_RESTAURANT_SCAN = 300;
 
 function registerAdminUsersRoutes(app, deps) {
   const { query, authCore } = deps;
@@ -137,14 +143,24 @@ function registerAdminUsersRoutes(app, deps) {
       // 活動頁行為（好康地圖／擲骰子選餐廳）
       // 用已經把行為對應到會員的檢視，不要自己去接原始行為表。
       // 檢視若還沒建好或查詢失敗，就當作沒有資料，不要害整份檔案打不開。
+      // 活動頁在 07-08 改版換過一批行為代號，統計一律新舊都算，
+      // 否則改版後才來的會員會全部顯示 0。
+      //   幫我決定：新 map_decide_click / map_decide_result，舊 submit_draw / result_shown
+      //   重抽    ：新 map_decide_redraw，舊 redraw
+      //   點餐廳  ：地圖上三種圖釘 + 清單裡點的都算，舊 restaurant_click
+      // 「幫我決定」取按鈕與結果兩邊的較大值，避免同一次決定被算成兩次。
       let liff = null;
       try {
         const liffAgg = (await query(
           `SELECT COUNT(*)::int AS total,
                   COUNT(*) FILTER (WHERE event_name = 'app_open')::int AS opens,
-                  COUNT(*) FILTER (WHERE event_name = 'map_pin_click')::int AS restaurant_clicks,
+                  COUNT(*) FILTER (WHERE event_name IN ('map_pin_click','map_ext_pin_click','map_star_pin_click','map_sheet_item_click','restaurant_click'))::int AS restaurant_clicks,
                   COUNT(*) FILTER (WHERE event_name = 'map_booking_click')::int AS booking_clicks,
-                  COUNT(*) FILTER (WHERE event_name IN ('submit_draw','redraw'))::int AS draws,
+                  GREATEST(
+                    COUNT(*) FILTER (WHERE event_name IN ('map_decide_click','submit_draw')),
+                    COUNT(*) FILTER (WHERE event_name IN ('map_decide_result','result_shown'))
+                  )::int AS draws,
+                  COUNT(*) FILTER (WHERE event_name IN ('map_decide_redraw','redraw'))::int AS redraws,
                   MAX(created_at) AS last_at
            FROM (
              SELECT event_name, created_at FROM ${LIFF_EVENTS_SOURCE}
@@ -159,19 +175,60 @@ function registerAdminUsersRoutes(app, deps) {
            ORDER BY created_at DESC LIMIT ${LIFF_RECENT_LIMIT}`,
           [luid]
         )).rows;
+        // 最近對哪幾間餐廳有興趣：從最近幾筆行為裡把餐廳名挑出來去重，
+        // 其中有按過訂位的另外標記，後台一眼看得出誰快要成交。
+        const liffRestaurants = (await query(
+          `SELECT name, MAX(at) AS last_at, BOOL_OR(booked) AS booked FROM (
+             SELECT NULLIF(BTRIM(properties->>'name'), '') AS name,
+                    created_at AS at,
+                    (event_name = 'map_booking_click') AS booked
+             FROM ${LIFF_EVENTS_SOURCE}
+             WHERE line_user_id = $1
+               AND event_name IN ('map_pin_click','map_restaurant_view','map_sheet_item_click','map_booking_click')
+             ORDER BY created_at DESC LIMIT ${LIFF_RESTAURANT_SCAN}
+           ) r
+           WHERE name IS NOT NULL
+           GROUP BY name
+           ORDER BY last_at DESC
+           LIMIT ${LIFF_RESTAURANT_LIMIT}`,
+          [luid]
+        )).rows;
         liff = {
           total: Number(liffAgg.total || 0),
           opens: Number(liffAgg.opens || 0),
           restaurant_clicks: Number(liffAgg.restaurant_clicks || 0),
           booking_clicks: Number(liffAgg.booking_clicks || 0),
           draws: Number(liffAgg.draws || 0),
+          redraws: Number(liffAgg.redraws || 0),
           last_at: liffAgg.last_at || null,
           capped: Number(liffAgg.total || 0) >= LIFF_SCAN_LIMIT,
-          recent: liffRecent
+          recent: liffRecent,
+          restaurants: liffRestaurants
         };
       } catch (err) {
         console.error('user profile liff error:', err && err.message);
         liff = null;
+      }
+
+      // 訂位來源：這位會員在 LINE 上回答過「透過哪裡訂位」的最新一筆。
+      // 沒回答過就是 null，前端直接不顯示這一項。
+      let bookingSource = null;
+      try {
+        const bsRow = (await query(
+          `SELECT source_key, source_label, answered_at
+           FROM ${BOOKING_SOURCE_SOURCE} WHERE line_user_id = $1 LIMIT 1`,
+          [luid]
+        )).rows[0];
+        if (bsRow && String(bsRow.source_label || '').trim()) {
+          bookingSource = {
+            key: bsRow.source_key || null,
+            label: String(bsRow.source_label).trim(),
+            answered_at: bsRow.answered_at || null
+          };
+        }
+      } catch (err) {
+        console.error('user profile booking source error:', err && err.message);
+        bookingSource = null;
       }
 
       // 時間軸（多來源 union）
@@ -194,7 +251,7 @@ function registerAdminUsersRoutes(app, deps) {
         tlParams
       )).rows;
 
-      return res.json({ ok: true, profile, counts, interest, preference, lists, timeline, rfm, liff });
+      return res.json({ ok: true, profile, counts, interest, preference, lists, timeline, rfm, liff, booking_source: bookingSource });
     } catch (err) {
       return jsonErr(res, 500, 'profile_failed', { detail: err && err.message });
     }

@@ -56,7 +56,8 @@ function registerAdminDashboardRoutes(app, deps) {
         broadcasts_failed: Number(a.broadcasts_failed || 0)
       };
       const liff = await loadLiffStats(query);
-      return res.json({ ok: true, stats: rs.rows[0], lastBroadcast: lastRs.rows[0] || null, alerts, liff });
+      const booking = await loadBookingSource(query);
+      return res.json({ ok: true, stats: rs.rows[0], lastBroadcast: lastRs.rows[0] || null, alerts, liff, booking });
     } catch (err) {
       return res.status(500).json({ ok: false, error: 'dashboard_failed', detail: err && err.message });
     }
@@ -104,6 +105,53 @@ async function loadLiffStats(query) {
     };
   } catch (err) {
     console.error('dashboard liff stats failed:', err && err.message);
+    return null;
+  }
+}
+
+/**
+ * 訂位來源調查：會員在官方帳號的圖文選單回答「平常都從哪裡訂位」的結果。
+ *
+ * 直接讀現成的 member_booking_source（每個人只留最新一筆回答），
+ * 不要自己去翻 booking_source_answers 原始表，免得同一個人改過答案被重複計算。
+ *
+ * 回傳兩個口徑，前端要並排標清楚：
+ * - total    回答過的總人數（含舊官方帳號時期回答的人）
+ * - current  其中是「現在這個官方帳號的好友」的人數
+ *
+ * 這份調查大多是在舊官方帳號時期做的，所以 current 會遠小於 total，這是正常的。
+ * current 的認定與本頁其他數字一致：archived_at IS NULL（排除舊官方帳號留下的歷史會員）
+ * 且非管理員。users.line_user_id 有唯一性，LEFT JOIN 不會讓某一列被算成兩次。
+ *
+ * 這段刻意獨立 try/catch：訂位來源是加值資訊，讀不到也不該讓整個首頁掛掉。
+ */
+async function loadBookingSource(query) {
+  try {
+    const rs = await query(`
+      SELECT
+        b.source_label AS label,
+        COUNT(*)::int AS total,
+        COUNT(u.id)::int AS current_members
+      FROM member_booking_source b
+      LEFT JOIN users u
+        ON u.line_user_id = b.line_user_id
+       AND u.archived_at IS NULL
+       AND u.is_admin = false
+      GROUP BY b.source_label
+      ORDER BY COUNT(*) DESC, b.source_label ASC
+    `);
+    const items = (rs.rows || []).map((r) => ({
+      label: String(r.label == null ? '' : r.label).trim() || '沒寫來源',
+      total: Number(r.total || 0),
+      current: Number(r.current_members || 0)
+    }));
+    return {
+      items,
+      total: items.reduce((sum, it) => sum + it.total, 0),
+      current: items.reduce((sum, it) => sum + it.current, 0)
+    };
+  } catch (err) {
+    console.error('dashboard booking source failed:', err && err.message);
     return null;
   }
 }

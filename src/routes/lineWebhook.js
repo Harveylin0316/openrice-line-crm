@@ -71,6 +71,28 @@ function createLineWebhookHandler({
     }
   }
 
+  /**
+   * 訂位來源調查：解析「透過 X 訂位」「透過 X 預訂」句型並記錄。
+   * 用句型比對而非寫死選項，日後圖文選單新增來源（例如「透過 Uber Eats 訂位」）不必改程式。
+   * 提問句「您是透過哪裡預訂的？」不是以「透過」開頭，不會被誤判為答案。
+   */
+  const BOOKING_SOURCE_RE = /^透過\s*(.+?)\s*(?:訂位|預訂)\s*$/;
+  async function captureBookingSource(lineUserId, text, eventTimestamp) {
+    const m = BOOKING_SOURCE_RE.exec(String(text || '').trim());
+    if (!m) return false;
+    const label = String(m[1] || '').trim();
+    if (!label || label.length > 40) return false;
+    const key = label.toLowerCase().replace(/\s+/g, '');
+    await pool.query(
+      `INSERT INTO booking_source_answers (line_user_id, source_key, source_label, raw_text, answered_at)
+       VALUES ($1, $2, $3, $4,
+         CASE WHEN $5::double precision > 0 THEN TO_TIMESTAMP($5::double precision / 1000.0) ELSE now() END)
+       ON CONFLICT DO NOTHING`,
+      [lineUserId, key, label, String(text || '').slice(0, 300), Number(eventTimestamp || 0)]
+    );
+    return true;
+  }
+
   async function rewardInviteForFollow(lineUserId, eventTimestamp) {
     const client = await pool.connect();
     try {
@@ -190,6 +212,12 @@ function createLineWebhookHandler({
         if (event?.type === 'message' && event?.source?.userId) {
           try { await captureUserFromMessage(event.source.userId); }
           catch (e) { console.error('capture user from message failed:', e.message); }
+          // 訂位來源調查：使用者點圖文選單的「透過 OpenRice 訂位／透過 Google 預訂」等選項時記下來。
+          // 記錄後不中斷流程，關鍵字回覆等後續邏輯照常運作。
+          if (event?.message?.type === 'text') {
+            try { await captureBookingSource(event.source.userId, event.message.text, event.timestamp); }
+            catch (e) { console.error('capture booking source failed:', e.message); }
+          }
         }
         // 文字訊息：關鍵字自動回覆（reply token 一次性；本 webhook 僅此路徑使用 replyToken）
         // 任何失敗 try/catch 吞掉，絕不讓整批 webhook 回 500（同 reward_exception → continue 原則）

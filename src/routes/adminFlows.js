@@ -23,14 +23,37 @@
 
 const { recordRestaurantClick } = require('../core/restaurantLinkParse');
 
+// 「流程觸發事件」下拉：使用者在好康地圖活動頁做的動作。
+// 同時用在兩個地方 —— 觸發條件「活動頁互動」的事件選單，以及條件分支裡的「做了某動作」選單。
+//
+// 活動頁改版後動作名稱整批換過，舊名稱最後一次有紀錄的日期：
+//   submit_draw 07-08、result_shown 07-08、restaurant_click 06-18
+//   （redraw、ad_shown 也一起停了，但這兩個本來就沒放進選單，所以不列）
+// 也就是說，用舊名稱建立的流程從那天起就再也不會被觸發，數字永遠是 0。
+//
+// 排序：現行的排前面（員工預設會選到對的）；舊的留在最後並標「已停用」。
+// 為什麼不直接刪掉舊的三筆：後台可能已經有流程（或分支條件）存著這些值，
+// 選項一消失，下拉會找不到對應項而顯示空白，員工只要再按一次儲存就會把原本的設定洗掉。
+// 等確認沒有任何流程還在用這三個值之後，才可以安全移除。
 const KNOWN_EVENTS = [
-  { value: 'app_open', label: '開啟今天吃什麼' },
-  { value: 'submit_draw', label: '抽了一次餐廳' },
-  { value: 'result_shown', label: '看到抽籤結果' },
-  { value: 'restaurant_click', label: '點了餐廳訂位' }
+  // 現行（活動頁還在持續產生）
+  { value: 'map_booking_click', label: '點了訂位' },
+  { value: 'map_pin_click', label: '點了地圖上的餐廳' },
+  { value: 'map_restaurant_view', label: '看了餐廳的詳細內容' },
+  { value: 'map_decide_click', label: '按了「幫我決定」' },
+  { value: 'map_decide_result', label: '抽到一間餐廳' },
+  { value: 'map_favorite_toggle', label: '收藏了餐廳' },
+  { value: 'map_share_click', label: '按了分享' },
+  { value: 'app_open', label: '開啟活動頁' },
+  // 舊版（活動頁改版後就不會再發生，只保留給既有流程顯示用）
+  { value: 'submit_draw', label: '抽了一次餐廳（已停用，不會再觸發）' },
+  { value: 'result_shown', label: '看到抽籤結果（已停用，不會再觸發）' },
+  { value: 'restaurant_click', label: '點了餐廳訂位（已停用，不會再觸發）' }
 ];
 
-// restaurant_click 觸發的餐廳種類白名單（與餐廳目錄 restaurant_catalog.cuisine 一致）
+// 觸發條件「點了訊息裡的餐廳連結」可選的餐廳種類白名單（與餐廳目錄 restaurant_catalog.cuisine 一致）。
+// 注意：這個觸發條件代號剛好也叫 restaurant_click，但它跟上面那個已停用的活動頁動作無關 ——
+// 它看的是「使用者點了我們自己發出去的餐廳連結」（user_restaurant_clicks），現在仍正常運作，不要一起改掉。
 const FLOW_CUISINES = ['日式', '韓式', '台菜中式', '港式', '泰式東南亞', '義式', '美式', '火鍋', '燒肉', '甜點咖啡', '早午餐', '其他'];
 
 function registerAdminFlowsRoutes(app, deps) {

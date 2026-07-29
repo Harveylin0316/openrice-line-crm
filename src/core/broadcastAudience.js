@@ -13,7 +13,11 @@
  *   // 活動頁（好康地圖／擲骰子）行為條件
  *   playedLiffWithinDays: number | null,     // 最近 N 天內開過活動頁、或在裡面做過任何動作
  *   clickedBookingWithinDays: number | null, // 最近 N 天內點過訂位
- *   liffInactiveDays: number | null          // 以前玩過活動頁、但最近 N 天都沒再來（沉睡玩家）
+ *   liffInactiveDays: number | null,         // 以前玩過活動頁、但最近 N 天都沒再來（沉睡玩家）
+ *
+ *   // 訂位來源（用戶在官方帳號選單回答「透過 OpenRice 訂位」「透過 Google 預訂」）
+ *   bookingSource: string | null,            // 只發給最新一次回答是這個來源的人（例：'openrice'、'google'）
+ *   bookingSourceAnswered: boolean | null    // true = 回答過的人; false = 從來沒回答過的人（可以再問一次）
  * }
  *
  * 共用過濾：line_user_id 非空、非管理員。
@@ -28,6 +32,21 @@ const LIFF_EVENTS_SOURCE = 'member_liff_events';
 // 「點過訂位」對應的行為代號。
 const LIFF_EVENT_BOOKING_CLICK = 'map_booking_click';
 
+// 訂位來源資料來源：每個人只留「最新一次回答」的檢視，
+// 所以一個人不會因為回答很多次而重複出現，也不必自己排序取最新。
+const BOOKING_SOURCE_VIEW = 'member_booking_source';
+// 來源代號的長度上限（與官方帳號那邊記錄時的上限一致）。
+const BOOKING_SOURCE_MAX_LEN = 40;
+
+// 訂位來源代號的共用寫法：去頭尾空白、轉小寫、拿掉中間所有空白，
+// 太長或空白一律視為沒填（和記錄回答時的處理方式一致，才對得起來）。
+function parseBookingSource(value) {
+  if (value == null) return null;
+  const key = String(value).trim().toLowerCase().replace(/\s+/g, '');
+  if (!key || key.length > BOOKING_SOURCE_MAX_LEN) return null;
+  return key;
+}
+
 // 天數輸入的共用檢查：必須是 1 ~ 3650 的整數，否則視為沒填。
 function parseDays(value) {
   const n = Number(value);
@@ -40,15 +59,17 @@ const LIFECYCLE_ACTIVE_DAYS = 30;    // 活躍：last_activity <= 30 天（且�
 const LIFECYCLE_LOST_DAYS = 90;      // 流失：last_activity > 90 天；沉睡 = 30~90 天
 const LIFECYCLE_STAGES = ['new', 'active', 'sleeping', 'lost'];
 
-// 可重用的 last_activity SQL 片段（子查詢，以 u 為 alias）。
+// 可重用的 last_activity SQL 片段（子查詢，以 u 為 alias，需可取得 u.id 與 u.line_user_id）。
 // 口徑：GREATEST(加好友時間, 各互動表最後時間) — 與 flowEngine 完全相同。
+// 活動頁那一項用 member_liff_events 以會員編號比對：舊寫法只比對明碼的 LINE 識別碼，
+// 07-17 之後改成雜湊型態的紀錄會全部漏掉，導致這些人的最後活動時間偏舊、被誤判成沉睡。
 const LAST_ACTIVITY_SQL = `GREATEST(
   u.created_at,
   (SELECT MAX(w.event_timestamp) FROM line_webhook_events w WHERE w.line_user_id = u.line_user_id),
   (SELECT MAX(p.played_at) FROM activity_plays p WHERE p.line_user_id = u.line_user_id),
   (SELECT MAX(b.clicked_at) FROM admin_broadcast_clicks b WHERE b.line_user_id = u.line_user_id),
   (SELECT MAX(rc.clicked_at) FROM user_restaurant_clicks rc WHERE rc.line_user_id = u.line_user_id),
-  (SELECT MAX(ue.created_at) FROM user_events ue WHERE ue.line_id = u.line_user_id)
+  (SELECT MAX(mle.created_at) FROM ${LIFF_EVENTS_SOURCE} mle WHERE mle.user_id = u.id)
 )`;
 
 // 階段判定 SQL（回傳 'new' | 'active' | 'sleeping' | 'lost'），給 profile 查詢與篩選共用。
@@ -96,6 +117,8 @@ function normalizeConditions(raw) {
     playedLiffWithinDays: null,
     clickedBookingWithinDays: null,
     liffInactiveDays: null,
+    bookingSource: null,
+    bookingSourceAnswered: null,
     savedListId: null
   };
 
@@ -123,6 +146,14 @@ function normalizeConditions(raw) {
   out.playedLiffWithinDays = parseDays(safe.playedLiffWithinDays);
   out.clickedBookingWithinDays = parseDays(safe.clickedBookingWithinDays);
   out.liffInactiveDays = parseDays(safe.liffInactiveDays);
+
+  // 訂位來源（沒填或填了怪東西就維持 null，完全不影響原本的篩選結果）
+  out.bookingSource = parseBookingSource(safe.bookingSource);
+  if (safe.bookingSourceAnswered === true || safe.bookingSourceAnswered === 'true') {
+    out.bookingSourceAnswered = true;
+  } else if (safe.bookingSourceAnswered === false || safe.bookingSourceAnswered === 'false') {
+    out.bookingSourceAnswered = false;
+  }
 
   if (safe.prizeFilter && typeof safe.prizeFilter === 'object') {
     const mode = ['any', 'all', 'none'].includes(safe.prizeFilter.mode) ? safe.prizeFilter.mode : 'any';
@@ -162,7 +193,9 @@ function hasAnyCondition(conds) {
     conds.drewInCampaign !== null ||
     conds.playedLiffWithinDays !== null ||
     conds.clickedBookingWithinDays !== null ||
-    conds.liffInactiveDays !== null
+    conds.liffInactiveDays !== null ||
+    conds.bookingSource !== null ||
+    conds.bookingSourceAnswered !== null
   );
 }
 
@@ -266,6 +299,30 @@ function buildWhere(conds) {
         WHERE le.user_id = u.id
           AND le.created_at >= now() - ($${params.length}::int * interval '1 day')
       )
+    )`);
+  }
+
+  // 訂位來源：只看每個人「最新一次」的回答（member_booking_source 每人只留最新一筆，
+  // 所以同一個人不會因為回答過很多次而重複出現）。
+  if (conds.bookingSource !== null) {
+    params.push(conds.bookingSource);
+    where.push(`EXISTS (
+      SELECT 1 FROM ${BOOKING_SOURCE_VIEW} bs
+      WHERE bs.line_user_id = u.line_user_id
+        AND bs.source_key = $${params.length}::text
+    )`);
+  }
+
+  // 有沒有回答過訂位來源：true = 回答過任何一種; false = 從來沒回答過（可以再問一次）
+  if (conds.bookingSourceAnswered === true) {
+    where.push(`EXISTS (
+      SELECT 1 FROM ${BOOKING_SOURCE_VIEW} bs
+      WHERE bs.line_user_id = u.line_user_id
+    )`);
+  } else if (conds.bookingSourceAnswered === false) {
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM ${BOOKING_SOURCE_VIEW} bs
+      WHERE bs.line_user_id = u.line_user_id
     )`);
   }
 
@@ -408,6 +465,8 @@ module.exports = {
   LIFECYCLE_LOST_DAYS,
   LIFF_EVENTS_SOURCE,
   LIFF_EVENT_BOOKING_CLICK,
+  BOOKING_SOURCE_VIEW,
+  BOOKING_SOURCE_MAX_LEN,
   LAST_ACTIVITY_SQL,
   LIFECYCLE_STAGE_SQL,
   lifecycleWhereSql,

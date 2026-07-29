@@ -237,6 +237,14 @@
     var clickedBookingWithinDays = readDaysField('liff-booking-days');
     var liffInactiveDays = readDaysField('liff-inactive-days');
 
+    // 訂位來源：選「不限」＝不套用
+    var bookingSourceRaw = $('booking-source') ? $('booking-source').value : '';
+    var bookingSource = bookingSourceRaw ? bookingSourceRaw : null;
+    var answeredRaw = $('booking-source-answered') ? $('booking-source-answered').value : '';
+    var bookingSourceAnswered = null;
+    if (answeredRaw === 'true') bookingSourceAnswered = true;
+    else if (answeredRaw === 'false') bookingSourceAnswered = false;
+
     return {
       joinedWithinDays: joinedWithinDays,
       lifecycleStages: lifecycleStages,
@@ -245,7 +253,9 @@
       drewInCampaign: drewInCampaign,
       playedLiffWithinDays: playedLiffWithinDays,
       clickedBookingWithinDays: clickedBookingWithinDays,
-      liffInactiveDays: liffInactiveDays
+      liffInactiveDays: liffInactiveDays,
+      bookingSource: bookingSource,
+      bookingSourceAnswered: bookingSourceAnswered
     };
   }
 
@@ -259,6 +269,8 @@
       if (bc) { bc.style.opacity = on ? '0.4' : '1'; bc.style.pointerEvents = on ? 'none' : 'auto'; }
       var lb = $('liff-behavior-conditions');
       if (lb) { lb.style.opacity = on ? '0.4' : '1'; lb.style.pointerEvents = on ? 'none' : 'auto'; }
+      var bs = $('booking-source-conditions');
+      if (bs) { bs.style.opacity = on ? '0.4' : '1'; bs.style.pointerEvents = on ? 'none' : 'auto'; }
       state.audiencePreviewedTotal = null;
       var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
       updateSendButton();
@@ -271,15 +283,19 @@
     });
   })();
 
-  // 活動頁行為欄位一改動，之前預覽出來的人數就作廢，要重新按「預覽收件人」
-  ['liff-played-days', 'liff-booking-days', 'liff-inactive-days'].forEach(function (id) {
+  // 活動頁行為／訂位來源欄位一改動，之前預覽出來的人數就作廢，要重新按「預覽收件人」
+  ['liff-played-days', 'liff-booking-days', 'liff-inactive-days',
+    'booking-source', 'booking-source-answered'].forEach(function (id) {
     var el = $(id);
     if (!el) return;
-    el.addEventListener('input', function () {
+    function invalidatePreview() {
       state.audiencePreviewedTotal = null;
       var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
       updateSendButton();
-    });
+    }
+    el.addEventListener('input', invalidatePreview);
+    // 下拉選單在部分瀏覽器只發 change，不發 input，兩個都掛才不會漏掉
+    el.addEventListener('change', invalidatePreview);
   });
 
   // ------------------------------------------------------------------
@@ -2243,7 +2259,7 @@
   // ------------------------------------------------------------------
   // 9. draft（localStorage 自動草稿）
   //    存：模板各欄位 + flex JSON + 測試收件人 + hero media id/url + tab mode
-  //        + 活動頁行為的三個天數欄位
+  //        + 活動頁行為的三個天數欄位 + 訂位來源的兩個下拉選單
   //    不存：file binary、其他 audience 條件、訊息預覽結果
   // ------------------------------------------------------------------
   var DRAFT_KEY = 'broadcast_draft_v1';
@@ -2255,7 +2271,9 @@
     'b-tpl-title', 'b-tpl-subtitle', 'b-tpl-coupon-code', 'b-tpl-disclaimer',
     'b-tpl-cta-label', 'b-tpl-cta-url', 'b-tpl-alt', 'b-flex-json',
     // 活動頁行為（好康地圖／擲骰子選餐廳）
-    'liff-played-days', 'liff-booking-days', 'liff-inactive-days'
+    'liff-played-days', 'liff-booking-days', 'liff-inactive-days',
+    // 訂位來源
+    'booking-source', 'booking-source-answered'
   ];
   var draftSaveTimer = null;
 
@@ -2296,6 +2314,10 @@
           playedDays: ($('liff-played-days') ? $('liff-played-days').value : ''),
           bookingDays: ($('liff-booking-days') ? $('liff-booking-days').value : ''),
           inactiveDays: ($('liff-inactive-days') ? $('liff-inactive-days').value : '')
+        },
+        bookingSource: {
+          source: ($('booking-source') ? $('booking-source').value : ''),
+          answered: ($('booking-source-answered') ? $('booking-source-answered').value : '')
         },
         _t: Date.now()
       };
@@ -2350,6 +2372,14 @@
       Object.keys(lbMap).forEach(function (id) {
         if (lbMap[id] != null && $(id)) $(id).value = lbMap[id];
       });
+      var bsDraft = d.bookingSource || {};
+      var bsMap = {
+        'booking-source': bsDraft.source,
+        'booking-source-answered': bsDraft.answered
+      };
+      Object.keys(bsMap).forEach(function (id) {
+        if (bsMap[id] != null && $(id)) $(id).value = bsMap[id];
+      });
       if (d.abEnabled && $('ab-test-enable') && !$('ab-test-enable').checked) {
         $('ab-test-enable').checked = true;
         $('ab-test-enable').dispatchEvent(new Event('change'));
@@ -2388,7 +2418,7 @@
     var fi = $('hero-file');
     if (fi) fi.value = '';
     renderHeroStatus(false);
-    // 活動頁行為的天數也被清掉了 → 之前預覽的人數作廢
+    // 活動頁行為的天數、訂位來源的下拉選單也被清回「不限」→ 之前預覽的人數作廢
     state.audiencePreviewedTotal = null;
     var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
     updateSendButton();
@@ -2433,6 +2463,11 @@
   DRAFT_FIELDS.forEach(function (id) {
     var el = $(id);
     if (el) el.addEventListener('input', scheduleSave);
+  });
+  // 下拉選單在部分瀏覽器只發 change，不發 input，補掛一次才不會漏存草稿
+  ['booking-source', 'booking-source-answered'].forEach(function (id) {
+    var el = $(id);
+    if (el) el.addEventListener('change', scheduleSave);
   });
   var btnClearDraft = $('btn-clear-draft');
   if (btnClearDraft) btnClearDraft.addEventListener('click', clearDraft);

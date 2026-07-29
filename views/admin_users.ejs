@@ -60,6 +60,7 @@
       .us-pref-chip{background:#FFFBEB;border:1px solid #FCC726;color:#1F2937;font-weight:600;}
       .us-lifecycle-chip{background:#FFFBEB;border:1px solid #FCC726;color:#1F2937;font-weight:600;margin:0;}
       .us-chip-tag{color:#9ca3af;font-size:11px;margin-left:4px;}
+      .us-booking-src{font-size:14px;color:#1f2937;margin:0;}
       .us-tl{border-left:2px solid #e5e7eb;padding-left:14px;margin-top:8px;}
       .us-tl-item{position:relative;padding:6px 0;font-size:13px;}
       .us-tl-item .k{font-weight:600;color:#1f2937;}
@@ -82,6 +83,8 @@
         var $=function(id){return document.getElementById(id);};
         function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
         function fmt(ts){if(!ts)return'';var d=new Date(ts);return isNaN(d.getTime())?'':d.toLocaleString('sv-SE',{timeZone:'Asia/Taipei'}).slice(0,16);}
+        // 只要月日，用在「訂位來源」這種一句話帶過的地方
+        function fmtDay(ts){var s=fmt(ts);return s?s.slice(5,10):'';}
         function shortUid(u){return u?(u.slice(0,7)+'…'+u.slice(-4)):'';}
         // 複製 user ID（事件委派：右側檔案面板每次重繪都不用重新綁定）
         document.addEventListener('click',function(e){
@@ -93,22 +96,56 @@
         });
         var KIND={follow:'加好友',unfollow:'封鎖了',message:'傳訊息給你',game_play:'玩了遊戲',restaurant_click:'點了餐廳',broadcast_click:'點了推播',liff:'今天吃什麼',invite_rewarded:'邀請成功'};
         // 活動頁的行為代號翻成白話（沒對到的就照原樣顯示）
+        // 上半段是目前活動頁還在用的，下半段是舊版留下來的歷史紀錄。
         var LIFF_ACT={
           app_open:'開啟活動頁',
           analytics_session_start:'開始一次瀏覽',
           map_open:'打開好康地圖',
-          map_pin_click:'點餐廳',
-          map_sheet_open:'打開餐廳介紹',
-          map_booking_click:'點訂位',
           map_locate:'用定位找附近',
+          map_location_primer_choice:'回答定位詢問',
+          map_pin_click:'在地圖上點餐廳',
+          map_ext_pin_click:'點地圖上其他餐廳',
+          map_star_pin_click:'點地圖上精選餐廳',
+          map_restaurant_view:'看餐廳介紹',
+          map_photo_open:'看餐廳照片',
+          map_sheet_open:'展開餐廳清單',
+          map_sheet_full:'把餐廳清單拉到最大',
+          map_sheet_close:'收起餐廳清單',
+          map_sheet_item_click:'從清單點餐廳',
+          map_sheet_sort:'換一種排序看',
+          map_booking_click:'點訂位',
+          map_decide_click:'按「幫我決定」',
+          map_decide_result:'幫他決定了一間',
+          map_decide_redraw:'不滿意再抽一次',
+          map_dice_quota_exhausted:'今天的次數用完了',
+          map_daikichi:'抽到大吉',
+          map_favorite_toggle:'收藏餐廳',
+          map_search:'搜尋餐廳',
+          map_search_select:'從搜尋結果挑一個',
+          map_cat_chip:'挑餐廳類型',
+          map_filter_budget:'挑預算',
           map_filter_toggle:'調整篩選條件',
+          map_filters_clear:'清掉篩選條件',
           map_parking_shown:'看到停車資訊',
-          map_decide_result:'在地圖上選好餐廳',
+          map_parking_layer:'打開停車場圖層',
+          map_parking_layer_pin:'點停車場',
+          map_parking_nav_click:'點停車場導航',
+          map_share_click:'分享給朋友',
+          map_navigation_click:'點導航',
+          map_nav_click:'切到其他頁面',
+          map_longpress_anchor:'長按地圖選位置',
+          map_theme_toggle:'換深色或淺色畫面',
+          map_textsize_toggle:'調整字體大小',
           map_streak:'連續來訪',
-          submit_draw:'抽餐廳',
-          redraw:'重抽',
-          result_shown:'看到結果',
-          ad_shown:'看到廣告'
+          submit_draw:'按「幫我決定」',
+          redraw:'不滿意再抽一次',
+          result_shown:'幫他決定了一間',
+          restaurant_click:'點餐廳',
+          ad_shown:'看到廣告',
+          ad_video_played:'看了廣告影片',
+          ad_video_unmute:'把廣告影片聲音打開',
+          ad_video_mute:'把廣告影片轉靜音',
+          ad_video_reel_click:'點了廣告影片'
         };
         function liffAct(n){return LIFF_ACT[n]||n||'';}
         // 生命週期階段 chip 文字（門檻與群發、沉睡喚醒口徑一致）
@@ -253,6 +290,14 @@
             if(d.lists&&d.lists.length){
               h+='<div class="us-sec-title">在這些名單裡</div><div>'+d.lists.map(function(l){return '<span class="us-chip">'+esc(l.name)+'</span>';}).join('')+'</div>';
             }
+            // 訂位來源：他在 LINE 上回答的最新一次。沒回答過就整段不出現。
+            var bs=d.booking_source;
+            if(bs&&bs.label){
+              var bsDay=fmtDay(bs.answered_at);
+              h+='<div class="us-sec-title">訂位來源</div>'+
+                '<p class="us-booking-src">'+esc(bs.label)+
+                (bsDay?('<span class="us-chip-tag">'+esc(bsDay)+' 回答</span>'):'')+'</p>';
+            }
             // 活動頁行為：他在 LINE 裡打開活動頁之後實際做了什麼
             var lf=d.liff;
             if(lf){
@@ -262,11 +307,19 @@
               }else{
                 h+='<div class="us-stats">'+
                   stat(lf.opens,'開啟過活動頁')+stat(lf.restaurant_clicks,'點過餐廳')+
-                  stat(lf.booking_clicks,'點過訂位')+stat(lf.draws,'抽過餐廳')+'</div>';
+                  stat(lf.booking_clicks,'點過訂位')+stat(lf.draws,'按過幫我決定')+
+                  stat(lf.redraws,'不滿意再抽')+'</div>';
                 h+='<p class="muted" style="font-size:12px;margin:0 0 6px;">最近一次使用：'+(fmt(lf.last_at)||'不清楚')+
                   ' · 一共留下 '+lf.total+' 筆紀錄'+(lf.capped?'（只算最近的部分）':'')+'</p>';
+                if(lf.restaurants&&lf.restaurants.length){
+                  h+='<p class="muted" style="font-size:12px;margin:10px 0 4px;">最近對這幾間有興趣：</p><div>'+
+                    lf.restaurants.map(function(r){
+                      return '<span class="us-chip">'+esc(r.name)+
+                        (r.booked?'<span class="us-chip-tag">點過訂位</span>':'')+'</span>';
+                    }).join('')+'</div>';
+                }
                 if(lf.recent&&lf.recent.length){
-                  h+='<p class="muted" style="font-size:12px;margin:0 0 4px;">最近做了這些事：</p>'+
+                  h+='<p class="muted" style="font-size:12px;margin:10px 0 4px;">最近做了這些事：</p>'+
                     '<div class="us-tl">'+lf.recent.map(function(e){
                       return '<div class="us-tl-item"><span class="k">'+esc(liffAct(e.event_name))+'</span>'+
                         '<div class="t">'+fmt(e.created_at)+'</div></div>';

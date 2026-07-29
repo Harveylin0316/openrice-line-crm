@@ -39,6 +39,17 @@
     </section>
 
     <section class="card">
+      <h2 style="margin:0 0 4px;">訂位來源</h2>
+      <p class="muted" style="font-size:13px;margin:0;">會員在官方帳號回答「平常都從哪裡訂位」的結果。同一個人回答很多次，只算最新那一次。</p>
+      <div class="db-stats" id="db-src-stats" hidden>
+        <div class="db-stat"><div class="v" id="st-src-total">—</div><div class="k">回答過的人（含舊帳號時期）</div></div>
+        <div class="db-stat"><div class="v" id="st-src-current">—</div><div class="k">其中是你現在的 LINE 好友</div></div>
+      </div>
+      <div class="db-src-list" id="db-src-list" hidden></div>
+      <p class="db-src-foot" id="db-src-foot" hidden></p>
+    </section>
+
+    <section class="card">
       <h2 style="margin:0 0 4px;">發一則訊息給會員，只要三步</h2>
       <p class="muted" style="font-size:13px;margin-bottom:14px;">第一次用？照順序點下面三張卡就能完成。</p>
       <div class="db-steps">
@@ -125,6 +136,17 @@
       #db-liff-stats[hidden]{display:none !important;}
       .db-liff-foot{font-size:13px;color:#6B6B70;line-height:1.8;margin:14px 0 0;}
       .db-liff-foot[hidden]{display:none !important;}
+      #db-src-stats[hidden]{display:none !important;}
+      .db-src-list{margin-top:16px;border-top:1px solid #ECECEE;}
+      .db-src-list[hidden]{display:none !important;}
+      .db-src-row{display:flex;align-items:center;gap:12px;padding:11px 2px;border-bottom:1px solid #ECECEE;}
+      .db-src-name{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px;}
+      .db-src-name .t{font-size:14px;font-weight:600;color:#1f2937;overflow-wrap:anywhere;}
+      .db-src-name .s{font-size:12px;color:#9ca3af;}
+      .db-src-n{font-size:14px;color:#1f2937;font-variant-numeric:tabular-nums;white-space:nowrap;}
+      .db-src-pct{width:48px;text-align:right;font-size:14px;color:#6B6B70;font-variant-numeric:tabular-nums;white-space:nowrap;}
+      .db-src-foot{font-size:13px;color:#6B6B70;line-height:1.8;margin:14px 0 0;}
+      .db-src-foot[hidden]{display:none !important;}
       .db-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;}
       .db-step{display:flex;flex-direction:column;gap:10px;border:1px solid #ECECEE;border-radius:12px;padding:18px;text-decoration:none;color:inherit;background:#fff;transition:border-color .15s, box-shadow .15s;}
       .db-step:hover{border-color:#FCC726;box-shadow:0 4px 14px rgba(0,0,0,.06);text-decoration:none;}
@@ -146,6 +168,7 @@
       (function(){
         function $(id){return document.getElementById(id);}
         function num(v){return Number(v||0).toLocaleString();}
+        function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
         fetch('/admin/api/dashboard').then(function(r){return r.json();}).then(function(d){
           if(!d.ok){return;}
           var s=d.stats||{};
@@ -163,7 +186,51 @@
           }
           renderAlerts(d.alerts||{});
           renderLiff(d.liff);
+          renderBookingSource(d.booking);
         }).catch(function(){});
+
+        // 訂位來源：兩個口徑要一起看。上面兩個大數字是「總共回答過幾個人」跟
+        // 「其中幾個是現在的好友」，清單是各來源的人數與佔比（佔比以總人數為分母）。
+        function renderBookingSource(bs){
+          var box=$('db-src-stats'); var list=$('db-src-list'); var foot=$('db-src-foot');
+          if(!bs){
+            box.hidden=true; list.hidden=true; foot.hidden=false;
+            foot.textContent='目前讀不到訂位來源的資料，等一下重新整理看看。';
+            return;
+          }
+          var items=bs.items||[];
+          var total=Number(bs.total||0);
+          var current=Number(bs.current||0);
+          if(!items.length||total===0){
+            box.hidden=true; list.hidden=true; foot.hidden=false;
+            foot.textContent='還沒有人回答過訂位來源。等會員在官方帳號的選單上回答之後，這裡就會出現數字。';
+            return;
+          }
+          box.hidden=false; list.hidden=false;
+          $('st-src-total').textContent=num(total);
+          $('st-src-current').textContent=num(current);
+          list.innerHTML=items.map(function(it){
+            var n=Number(it.total||0);
+            var cur=Number(it.current||0);
+            var pct=total>0?Math.round(n*100/total):0;
+            var sub=cur>0?'<span class="s">其中現在的好友 '+num(cur)+' 人</span>':'';
+            return '<div class="db-src-row">'+
+              '<div class="db-src-name"><span class="t">'+esc(it.label)+'</span>'+sub+'</div>'+
+              '<div class="db-src-n">'+num(n)+' 人</div>'+
+              '<div class="db-src-pct">'+pct+'%</div>'+
+              '</div>';
+          }).join('');
+          // 這份調查大多是舊官方帳號時期做的，兩個數字差很多是正常的，要講白話讓人不會誤會
+          if(current===0){
+            foot.hidden=false;
+            foot.textContent='這 '+num(total)+' 個人都是在舊的官方帳號時期回答的，現在都不在你的好友名單裡，發不到訊息給他們。';
+          }else if(current<total){
+            foot.hidden=false;
+            foot.textContent='這 '+num(total)+' 個人裡，只有 '+num(current)+' 位現在還是你的好友；其他人是在舊的官方帳號時期回答的，現在發不到訊息給他們。';
+          }else{
+            foot.hidden=true; foot.textContent='';
+          }
+        }
 
         // 活動頁近 7 天：沒資料時不要留一排 0，直接用一句話說明
         function renderLiff(lf){

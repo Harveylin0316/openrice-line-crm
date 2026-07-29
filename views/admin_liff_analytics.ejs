@@ -8,7 +8,7 @@
       <div class="liff-hero-inner">
         <h1>今天吃什麼 — 用戶行為分析</h1>
         <p class="muted" style="margin-top:6px;">
-          Random Rice LIFF 的即時概覽、核心轉換漏斗與每日趨勢。資料源同步自 Supabase user_events 表。
+          好康地圖活動頁的即時概覽、轉換漏斗與每日趨勢。看的是同一批人從點進活動頁，一路到按下訂位的整段過程。
         </p>
         <div class="liff-hero-meta">
           <span class="liff-meta-pill">即時更新</span>
@@ -20,14 +20,14 @@
 
     <section class="card">
       <h2>今日即時概覽</h2>
-      <div class="muted" style="font-size:12px;margin-bottom:12px;">以台灣時區 00:00 為起點計算。</div>
+      <div class="muted" style="font-size:12px;margin-bottom:12px;">以台灣時間 00:00 為起點計算。</div>
       <div class="liff-kpi-grid">
         <div class="liff-kpi-card">
-          <div class="liff-kpi-title">打開 LIFF</div>
+          <div class="liff-kpi-title">開啟活動頁</div>
           <div class="liff-kpi-split">
             <div class="liff-kpi-half">
               <div class="liff-kpi-sublabel">次</div>
-              <div class="liff-kpi-value" id="kpi-open-sessions">—</div>
+              <div class="liff-kpi-value" id="kpi-open-events">—</div>
             </div>
             <div class="liff-kpi-divider"></div>
             <div class="liff-kpi-half">
@@ -35,23 +35,39 @@
               <div class="liff-kpi-value" id="kpi-open-users">—</div>
             </div>
           </div>
-          <div class="liff-kpi-hint">次 = distinct session_id；人 = distinct line_id</div>
+          <div class="liff-kpi-hint">從 LINE 或連結點進活動頁就算一次</div>
         </div>
 
         <div class="liff-kpi-card">
-          <div class="liff-kpi-title">抽選</div>
+          <div class="liff-kpi-title">打開地圖</div>
           <div class="liff-kpi-split">
             <div class="liff-kpi-half">
               <div class="liff-kpi-sublabel">次</div>
-              <div class="liff-kpi-value" id="kpi-draw-events">—</div>
+              <div class="liff-kpi-value" id="kpi-map-events">—</div>
             </div>
             <div class="liff-kpi-divider"></div>
             <div class="liff-kpi-half">
               <div class="liff-kpi-sublabel">人</div>
-              <div class="liff-kpi-value" id="kpi-draw-users">—</div>
+              <div class="liff-kpi-value" id="kpi-map-users">—</div>
             </div>
           </div>
-          <div class="liff-kpi-hint">submit_draw + redraw</div>
+          <div class="liff-kpi-hint">真的進到地圖畫面開始找店</div>
+        </div>
+
+        <div class="liff-kpi-card">
+          <div class="liff-kpi-title">看餐廳</div>
+          <div class="liff-kpi-split">
+            <div class="liff-kpi-half">
+              <div class="liff-kpi-sublabel">次</div>
+              <div class="liff-kpi-value" id="kpi-view-events">—</div>
+            </div>
+            <div class="liff-kpi-divider"></div>
+            <div class="liff-kpi-half">
+              <div class="liff-kpi-sublabel">人</div>
+              <div class="liff-kpi-value" id="kpi-view-users">—</div>
+            </div>
+          </div>
+          <div class="liff-kpi-hint">點地圖上的餐廳、點清單裡的餐廳、看餐廳詳情都算</div>
         </div>
 
         <div class="liff-kpi-card">
@@ -59,19 +75,19 @@
           <div class="liff-kpi-split">
             <div class="liff-kpi-half">
               <div class="liff-kpi-sublabel">次</div>
-              <div class="liff-kpi-value" id="kpi-click-events">—</div>
+              <div class="liff-kpi-value" id="kpi-booking-events">—</div>
             </div>
             <div class="liff-kpi-divider"></div>
             <div class="liff-kpi-half">
               <div class="liff-kpi-sublabel">人</div>
-              <div class="liff-kpi-value" id="kpi-click-users">—</div>
+              <div class="liff-kpi-value" id="kpi-booking-users">—</div>
             </div>
           </div>
-          <div class="liff-kpi-hint">restaurant_click（核心轉換）</div>
+          <div class="liff-kpi-hint">按下訂位按鈕，最接近真的上門吃飯</div>
         </div>
 
         <div class="liff-kpi-card liff-kpi-card--highlight">
-          <div class="liff-kpi-title">抽 → 點訂位 轉換率</div>
+          <div class="liff-kpi-title">看餐廳 → 點訂位</div>
           <div class="liff-kpi-split">
             <div class="liff-kpi-half">
               <div class="liff-kpi-sublabel">次</div>
@@ -83,9 +99,13 @@
               <div class="liff-kpi-value" id="kpi-conv-user">—</div>
             </div>
           </div>
-          <div class="liff-kpi-hint">次 = clicks/shown 事件數；人 = 有點過的人/有看過結果的人</div>
+          <div class="liff-kpi-hint">看了餐廳之後，有多少比例真的按下訂位</div>
         </div>
       </div>
+      <p class="liff-note" id="kpi-note">載入中…</p>
+      <p class="liff-note liff-note--dim">
+        「人」只算得出有留下身分的人。不是從 LINE 裡面打開活動頁的人算不出是誰，所以「人」一定會比「次」保守很多，兩個一起看比較準。
+      </p>
     </section>
 
     <section class="card">
@@ -126,8 +146,7 @@
             <tr>
               <th>會員</th>
               <th style="text-align:right;">開啟過活動頁</th>
-              <th style="text-align:right;">擲過骰子</th>
-              <th style="text-align:right;">點過餐廳</th>
+              <th style="text-align:right;">看過餐廳</th>
               <th style="text-align:right;">點過訂位</th>
               <th>最後一次來</th>
             </tr>
@@ -141,7 +160,8 @@
       <div class="liff-section-head">
         <h2>核心轉換漏斗</h2>
         <div class="liff-range-toggle">
-          <label><input type="radio" name="funnel-metric" value="users" checked /> 以人數</label>
+          <label><input type="radio" name="funnel-metric" value="sessions" checked /> 以來訪</label>
+          <label><input type="radio" name="funnel-metric" value="users" /> 以人數</label>
           <label><input type="radio" name="funnel-metric" value="events" /> 以次數</label>
         </div>
         <div class="liff-range-toggle">
@@ -149,35 +169,66 @@
           <label><input type="radio" name="funnel-days" value="30" /> 30 天</label>
         </div>
       </div>
-      <div class="muted" style="font-size:12px;margin-bottom:12px;">打開 LIFF → 首次抽選 → 看到結果 → 點訂位。「人數」= distinct line_id；「次數」= 事件總數。表格同時顯示兩者方便比對。</div>
-      <div class="liff-funnel-wrap">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;">
+        開啟活動頁 → 打開地圖 → 看餐廳 → 點訂位。最後一步「點訂位」才是真正想看的成果，其他都是過程。
+        「來訪」＝來一趟算一次，中間點幾下不重複算；「人」＝認得出身分的人數；「次數」＝每個動作各算一次。
+        沒從 LINE 裡面開的人算不出身分，所以看「來訪」最穩。
+      </div>
+      <p class="liff-empty" id="funnel-empty" hidden></p>
+      <div class="liff-funnel-wrap" id="funnel-wrap">
         <canvas id="funnel-chart"></canvas>
       </div>
-      <table class="liff-funnel-table">
-        <thead>
-          <tr>
-            <th rowspan="2">步驟</th>
-            <th colspan="3" class="liff-col-group">人數</th>
-            <th colspan="3" class="liff-col-group">次數</th>
-          </tr>
-          <tr>
-            <th style="text-align:right;">人</th>
-            <th style="text-align:right;">相對上一步</th>
-            <th style="text-align:right;">相對首步</th>
-            <th style="text-align:right;">次</th>
-            <th style="text-align:right;">相對上一步</th>
-            <th style="text-align:right;">相對首步</th>
-          </tr>
-        </thead>
-        <tbody id="funnel-tbody">
-          <tr><td colspan="7" class="muted" style="text-align:center;padding:18px 0;">載入中…</td></tr>
-        </tbody>
-      </table>
+      <div class="table-wrap" id="funnel-table-wrap">
+        <table class="liff-funnel-table">
+          <thead>
+            <tr>
+              <th>步驟</th>
+              <th style="text-align:right;">來訪</th>
+              <th style="text-align:right;">人</th>
+              <th style="text-align:right;">次數</th>
+              <th style="text-align:right;" id="funnel-th-prev">比上一步</th>
+              <th style="text-align:right;" id="funnel-th-first">比第一步</th>
+            </tr>
+          </thead>
+          <tbody id="funnel-tbody">
+            <tr><td colspan="6" class="muted" style="text-align:center;padding:18px 0;">載入中…</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section class="card">
       <div class="liff-section-head">
-        <h2>玩過的用戶</h2>
+        <h2>最多人看的餐廳</h2>
+        <div class="liff-range-toggle">
+          <label><input type="radio" name="rest-days" value="7" /> 7 天</label>
+          <label><input type="radio" name="rest-days" value="30" checked /> 30 天</label>
+          <label><input type="radio" name="rest-days" value="3650" /> 全部</label>
+        </div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-bottom:12px;">
+        大家在地圖上點開哪幾間看。被看很多次但沒人按訂位，跟被看不多卻一直有人訂位，是兩種完全不同的合作對象，談約前值得先看這張表。
+      </div>
+      <div class="table-wrap">
+        <table class="liff-users-table liff-rest-table">
+          <thead>
+            <tr>
+              <th>餐廳</th>
+              <th style="text-align:right;">被看次數</th>
+              <th style="text-align:right;">幾個人看</th>
+              <th style="text-align:right;">點訂位</th>
+            </tr>
+          </thead>
+          <tbody id="rest-tbody">
+            <tr><td colspan="4" class="muted" style="text-align:center;padding:18px 0;">載入中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="liff-section-head">
+        <h2>用過的人</h2>
         <div class="liff-range-toggle">
           <label><input type="radio" name="users-days" value="1" /> 今日</label>
           <label><input type="radio" name="users-days" value="7" checked /> 7 天</label>
@@ -185,17 +236,17 @@
         </div>
       </div>
       <div class="muted" style="font-size:12px;margin-bottom:12px;">
-        顯示有抽過或打開過 LIFF 的真實用戶。「已在 CRM」表示這位有過 LINE login 紀錄（可對到顯示名稱）；「未在 CRM」可能是新訪客或測試帳號。點 line_id 可複製。
+        有打開過活動頁、而且留得下身分的人。「已在名單」表示這個人在你的會員名單裡對得到名字；「不在名單」可能是新客人，也可能是同事自己測試。點下面那串代碼可以複製。
       </div>
       <div class="table-wrap">
         <table class="liff-users-table">
           <thead>
             <tr>
               <th>用戶</th>
-              <th style="text-align:right;">Session</th>
-              <th style="text-align:right;">抽次</th>
+              <th style="text-align:right;">來過幾次</th>
+              <th style="text-align:right;">看餐廳</th>
               <th style="text-align:right;">點訂位</th>
-              <th style="text-align:right;">轉換率</th>
+              <th style="text-align:right;">看了會訂位的比例</th>
               <th>最後活動</th>
             </tr>
           </thead>
@@ -214,8 +265,11 @@
           <label><input type="radio" name="trend-days" value="30" checked /> 30 天</label>
         </div>
       </div>
-      <div class="muted" style="font-size:12px;margin-bottom:12px;">DAU 與點訂位以左側 Y 軸；轉換率（%）以右側 Y 軸。</div>
-      <div class="liff-trend-wrap">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;">
+        來訪、看餐廳、點訂位看左邊的刻度；轉換率（%）看右邊。轉換率＝當天點訂位次數 ÷ 當天看餐廳次數。
+      </div>
+      <p class="liff-empty" id="trend-empty" hidden></p>
+      <div class="liff-trend-wrap" id="trend-wrap">
         <canvas id="trend-chart"></canvas>
       </div>
     </section>
@@ -227,6 +281,12 @@
 
       var funnelChart = null;
       var trendChart = null;
+
+      var INK = '#1f2937';
+      var GRAY = '#9ca3af';
+      var GRAY_LIGHT = '#cbd5e1';
+      var GRAY_MID = '#6b7280';
+      var BRAND = '#FCC726';
 
       function fmt(n) {
         if (n == null) return '—';
@@ -245,13 +305,31 @@
           String(d.getDate()).padStart(2, '0') + ' ' +
           hh + ':' + mm;
       }
+      function escapeHtml(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+      }
+      function fmtTime(ts) {
+        if (!ts) return '—';
+        var d = new Date(ts);
+        if (isNaN(d.getTime())) return String(ts);
+        var pad = function (n) { return String(n).padStart(2, '0'); };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+               ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      }
+      function shortUid(uid) {
+        if (!uid) return '';
+        return uid.slice(0, 6) + '…' + uid.slice(-4);
+      }
 
       // ---------------- 今日即時概覽 ----------------
       var overviewIds = [
-        'kpi-open-sessions', 'kpi-open-users',
-        'kpi-draw-events',   'kpi-draw-users',
-        'kpi-click-events',  'kpi-click-users',
-        'kpi-conv-event',    'kpi-conv-user'
+        'kpi-open-events',    'kpi-open-users',
+        'kpi-map-events',     'kpi-map-users',
+        'kpi-view-events',    'kpi-view-users',
+        'kpi-booking-events', 'kpi-booking-users',
+        'kpi-conv-event',     'kpi-conv-user'
       ];
       function loadOverview() {
         return fetch('/admin/liff/random-rice/api/overview')
@@ -259,24 +337,50 @@
           .then(function (resp) {
             if (!resp.ok) throw new Error(resp.detail || 'overview failed');
             var d = resp.data || {};
-            var open = d.open || {}, draw = d.draw || {}, click = d.click || {}, conv = d.conv || {};
-            $('kpi-open-sessions').textContent = fmt(open.sessions);
-            $('kpi-open-users').textContent    = fmt(open.users);
-            $('kpi-draw-events').textContent   = fmt(draw.events);
-            $('kpi-draw-users').textContent    = fmt(draw.users);
-            $('kpi-click-events').textContent  = fmt(click.events);
-            $('kpi-click-users').textContent   = fmt(click.users);
-            $('kpi-conv-event').textContent    = fmtPct(conv.by_event_pct);
-            $('kpi-conv-user').textContent     = fmtPct(conv.by_user_pct);
+            var open = d.open || {}, map = d.map || {}, view = d.view || {};
+            var booking = d.booking || {}, conv = d.conv || {}, decide = d.decide || {};
+            $('kpi-open-events').textContent    = fmt(open.events);
+            $('kpi-open-users').textContent     = fmt(open.users);
+            $('kpi-map-events').textContent     = fmt(map.events);
+            $('kpi-map-users').textContent      = fmt(map.users);
+            $('kpi-view-events').textContent    = fmt(view.events);
+            $('kpi-view-users').textContent     = fmt(view.users);
+            $('kpi-booking-events').textContent = fmt(booking.events);
+            $('kpi-booking-users').textContent  = fmt(booking.users);
+            $('kpi-conv-event').textContent     = fmtPct(conv.by_event_pct);
+            $('kpi-conv-user').textContent      = fmtPct(conv.by_user_pct);
+            renderOverviewNote(open, decide);
           })
           .catch(function (e) {
             console.error('overview load failed:', e);
-            overviewIds.forEach(function (id) { $(id).textContent = '錯誤'; });
+            overviewIds.forEach(function (id) { $(id).textContent = '—'; });
+            $('kpi-note').textContent = '今天的數字讀不到，按右上角的重新整理再試一次。';
           });
+      }
+
+      function renderOverviewNote(open, decide) {
+        var visits = Number(open.visits || 0);
+        var click = Number(decide.click || 0);
+        var result = Number(decide.result || 0);
+        var redraw = Number(decide.redraw || 0);
+        var parts = [];
+        if (visits > 0) {
+          parts.push('今天共 ' + fmt(visits) + ' 趟來訪。');
+        } else {
+          parts.push('今天還沒有人打開活動頁。');
+        }
+        if (click > 0 || result > 0) {
+          parts.push('「幫我決定」被按了 ' + fmt(click) + ' 次，出現 ' + fmt(result) + ' 次結果，重抽 ' + fmt(redraw) + ' 次。');
+        } else {
+          parts.push('今天還沒有人用「幫我決定」。');
+        }
+        $('kpi-note').textContent = parts.join(' ');
       }
 
       // ---------------- 核心漏斗 ----------------
       var lastFunnelSteps = [];
+      var METRIC_NAMES = { sessions: '來訪', users: '人數', events: '次數' };
+
       function loadFunnel(days) {
         return fetch('/admin/liff/random-rice/api/funnel?days=' + encodeURIComponent(days))
           .then(function (r) { return r.json(); })
@@ -287,24 +391,52 @@
           })
           .catch(function (e) {
             console.error('funnel load failed:', e);
-            $('funnel-tbody').innerHTML = '<tr><td colspan="7" class="muted" style="text-align:center;padding:18px 0;">載入失敗</td></tr>';
+            lastFunnelSteps = [];
+            $('funnel-wrap').hidden = true;
+            $('funnel-table-wrap').hidden = true;
+            $('funnel-empty').hidden = false;
+            $('funnel-empty').textContent = '這段數字讀不到，按右上角的重新整理再試一次。';
           });
       }
 
       function currentFunnelMetric() {
-        return (document.querySelector('input[name="funnel-metric"]:checked') || {}).value || 'users';
+        return (document.querySelector('input[name="funnel-metric"]:checked') || {}).value || 'sessions';
+      }
+
+      // 區間內完全沒動靜時，四步全是 0、第一步還會寫 100%，看起來像壞掉。
+      // 這種時候整組圖表收起來，只留一句白話。
+      function funnelHasData(steps) {
+        return steps.some(function (s) {
+          return Number(s.events || 0) > 0 || Number(s.sessions || 0) > 0 || Number(s.users || 0) > 0;
+        });
       }
 
       function renderFunnel() {
-        renderFunnelChart(lastFunnelSteps, currentFunnelMetric());
-        renderFunnelTable(lastFunnelSteps);
+        var metric = currentFunnelMetric();
+        var hasData = lastFunnelSteps.length > 0 && funnelHasData(lastFunnelSteps);
+        $('funnel-wrap').hidden = !hasData;
+        $('funnel-table-wrap').hidden = !hasData;
+        $('funnel-empty').hidden = hasData;
+        if (!hasData) {
+          $('funnel-empty').textContent = '這段時間還沒有人打開活動頁，所以還沒有數字可以看。';
+          return;
+        }
+        renderFunnelChart(lastFunnelSteps, metric);
+        renderFunnelTable(lastFunnelSteps, metric);
+      }
+
+      function stepValue(step, metric) {
+        if (metric === 'users') return step.users;
+        if (metric === 'events') return step.events;
+        return step.sessions;
       }
 
       function renderFunnelChart(steps, metric) {
-        var isUsers = metric === 'users';
         var labels = steps.map(function (s) { return s.label; });
-        var counts = steps.map(function (s) { return isUsers ? s.users : s.events; });
-        var datasetLabel = isUsers ? '人數（distinct line_id）' : '事件次數';
+        var counts = steps.map(function (s) { return stepValue(s, metric); });
+        var colors = steps.map(function (s, i) {
+          return i === steps.length - 1 ? BRAND : '#d1d5db';
+        });
         var ctx = $('funnel-chart').getContext('2d');
         if (funnelChart) funnelChart.destroy();
         funnelChart = new Chart(ctx, {
@@ -312,31 +444,30 @@
           data: {
             labels: labels,
             datasets: [{
-              label: datasetLabel,
+              label: METRIC_NAMES[metric] || '來訪',
               data: counts,
-              backgroundColor: isUsers
-                ? ['#bfdbfe','#93c5fd','#60a5fa','#3b82f6']
-                : ['#fde68a','#fcd34d','#fbbf24','#FCC726'],
-              borderColor: isUsers ? '#2563eb' : '#facc15',
+              backgroundColor: colors,
+              borderColor: '#9ca3af',
               borderWidth: 1,
-              borderRadius: 6
+              borderRadius: 4
             }]
           },
           options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-              legend: { display: true, position: 'bottom' },
+              legend: { display: false },
               tooltip: {
                 callbacks: {
-                  afterLabel: function (ctx) {
-                    var step = steps[ctx.dataIndex];
+                  afterLabel: function (c) {
+                    var step = steps[c.dataIndex];
                     if (!step) return '';
-                    var fromPrev = isUsers ? step.users_from_prev_pct : step.events_from_prev_pct;
-                    var fromFirst = isUsers ? step.users_from_first_pct : step.events_from_first_pct;
+                    var fromPrev = step[metric + '_from_prev_pct'];
+                    var fromFirst = step[metric + '_from_first_pct'];
                     var lines = [];
-                    if (fromPrev != null) lines.push('相對上一步: ' + fromPrev.toFixed(2) + '%');
-                    if (fromFirst != null) lines.push('相對首步: ' + fromFirst.toFixed(2) + '%');
+                    if (fromPrev != null) lines.push('比上一步: ' + Number(fromPrev).toFixed(2) + '%');
+                    if (fromFirst != null) lines.push('比第一步: ' + Number(fromFirst).toFixed(2) + '%');
+                    if (step.note) lines.push(step.note);
                     return lines;
                   }
                 }
@@ -350,26 +481,58 @@
         });
       }
 
-      function renderFunnelTable(steps) {
+      function renderFunnelTable(steps, metric) {
         var tbody = $('funnel-tbody');
-        if (!steps.length) {
-          tbody.innerHTML = '<tr><td colspan="7" class="muted" style="text-align:center;padding:18px 0;">區間內沒有資料</td></tr>';
+        var name = METRIC_NAMES[metric] || '來訪';
+        $('funnel-th-prev').textContent = '比上一步（' + name + '）';
+        $('funnel-th-first').textContent = '比第一步（' + name + '）';
+        tbody.innerHTML = steps.map(function (s, i) {
+          var prev = s[metric + '_from_prev_pct'];
+          var first = s[metric + '_from_first_pct'];
+          var isLast = i === steps.length - 1;
+          return '<tr' + (isLast ? ' class="liff-funnel-goal"' : '') + '>' +
+            '<td><div class="liff-step-label">' + escapeHtml(s.label) + '</div>' +
+              '<div class="liff-step-note">' + escapeHtml(s.note || '') + '</div></td>' +
+            '<td style="text-align:right;">' + fmt(s.sessions) + '</td>' +
+            '<td style="text-align:right;">' + fmt(s.users) + '</td>' +
+            '<td style="text-align:right;">' + fmt(s.events) + '</td>' +
+            '<td style="text-align:right;">' + (prev == null ? '—' : fmtPct(prev)) + '</td>' +
+            '<td style="text-align:right;">' + (first == null ? '—' : fmtPct(first)) + '</td>' +
+            '</tr>';
+        }).join('');
+      }
+
+      // ---------------- 最多人看的餐廳 ----------------
+      function loadRestaurants(days) {
+        return fetch('/admin/liff/random-rice/api/restaurants?days=' + encodeURIComponent(days) + '&limit=10')
+          .then(function (r) { return r.json(); })
+          .then(function (resp) {
+            if (!resp.ok) throw new Error(resp.detail || 'restaurants failed');
+            renderRestaurants(resp.data || []);
+          })
+          .catch(function (e) {
+            console.error('restaurants load failed:', e);
+            $('rest-tbody').innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center;padding:18px 0;">這段數字讀不到，按右上角的重新整理再試一次。</td></tr>';
+          });
+      }
+
+      function renderRestaurants(rows) {
+        var tbody = $('rest-tbody');
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center;padding:18px 0;">這段時間還沒有人點開任何一間餐廳。</td></tr>';
           return;
         }
-        tbody.innerHTML = steps.map(function (s) {
-          var uPrev = (s.users_from_prev_pct == null) ? '—' : fmtPct(s.users_from_prev_pct);
-          var uFirst = (s.users_from_first_pct == null) ? '—' : fmtPct(s.users_from_first_pct);
-          var ePrev = (s.events_from_prev_pct == null) ? '—' : fmtPct(s.events_from_prev_pct);
-          var eFirst = (s.events_from_first_pct == null) ? '—' : fmtPct(s.events_from_first_pct);
+        tbody.innerHTML = rows.map(function (r, i) {
+          var tier = r.tier_label ? '<span class="liff-rest-tier">' + escapeHtml(r.tier_label) + '</span>' : '';
           return '<tr>' +
-            '<td>' + s.label + '<span class="liff-step-key">' + s.key + '</span></td>' +
-            '<td style="text-align:right;font-weight:600;color:#2563eb;">' + fmt(s.users) + '</td>' +
-            '<td style="text-align:right;">' + uPrev + '</td>' +
-            '<td style="text-align:right;">' + uFirst + '</td>' +
-            '<td style="text-align:right;font-weight:600;color:#b45309;">' + fmt(s.events) + '</td>' +
-            '<td style="text-align:right;">' + ePrev + '</td>' +
-            '<td style="text-align:right;">' + eFirst + '</td>' +
-            '</tr>';
+            '<td>' +
+              '<div class="liff-rest-name"><span class="liff-rank">' + (i + 1) + '</span>' + escapeHtml(r.name) + '</div>' +
+              tier +
+            '</td>' +
+            '<td style="text-align:right;">' + fmt(r.views) + '</td>' +
+            '<td style="text-align:right;">' + fmt(r.people) + '</td>' +
+            '<td style="text-align:right;font-weight:600;">' + fmt(r.bookings) + '</td>' +
+          '</tr>';
         }).join('');
       }
 
@@ -454,8 +617,7 @@
         if (!memberPeople) { box.hidden = true; box.innerHTML = ''; return; }
         var items = [
           ['開啟過活動頁', acts.open],
-          ['擲過骰子選餐廳', acts.draw],
-          ['點過餐廳', acts.pin],
+          ['看過餐廳', acts.view],
           ['點過訂位', acts.booking]
         ];
         box.innerHTML = items.map(function (it) {
@@ -481,13 +643,12 @@
                 avatarHtml +
                 '<div class="liff-user-meta">' +
                   '<div class="liff-user-name">' + name + '</div>' +
-                  '<div class="liff-aud-since">共來過 ' + fmt(m.sessions) + ' 次</div>' +
+                  '<div class="liff-aud-since">共來過 ' + fmt(m.visits) + ' 次</div>' +
                 '</div>' +
               '</div>' +
             '</td>' +
             '<td style="text-align:right;">' + fmt(m.opens) + '</td>' +
-            '<td style="text-align:right;">' + fmt(m.draws) + '</td>' +
-            '<td style="text-align:right;">' + fmt(m.pins) + '</td>' +
+            '<td style="text-align:right;">' + fmt(m.views) + '</td>' +
             '<td style="text-align:right;font-weight:600;">' + fmt(m.bookings) + '</td>' +
             '<td>' + fmtTime(m.last_seen) + '</td>' +
           '</tr>';
@@ -495,7 +656,7 @@
         wrap.hidden = false;
       }
 
-      // ---------------- 玩過的用戶清單 ----------------
+      // ---------------- 用過的人清單 ----------------
       function loadUsers(days) {
         return fetch('/admin/liff/random-rice/api/users?days=' + encodeURIComponent(days))
           .then(function (r) { return r.json(); })
@@ -505,61 +666,47 @@
           })
           .catch(function (e) {
             console.error('users load failed:', e);
-            $('users-tbody').innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:18px 0;">載入失敗</td></tr>';
+            $('users-tbody').innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:18px 0;">這段數字讀不到，按右上角的重新整理再試一次。</td></tr>';
           });
       }
-      function escapeHtml(s) {
-        return String(s == null ? '' : s)
-          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-      }
-      function fmtTime(ts) {
-        if (!ts) return '—';
-        var d = new Date(ts);
-        if (isNaN(d.getTime())) return String(ts);
-        var pad = function (n) { return String(n).padStart(2, '0'); };
-        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
-               ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-      }
-      function shortUid(uid) {
-        if (!uid) return '';
-        return uid.slice(0, 6) + '…' + uid.slice(-4);
-      }
+
       function renderUsersTable(rows) {
         var tbody = $('users-tbody');
         if (!rows.length) {
-          tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:18px 0;">區間內沒有用戶</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:18px 0;">這段時間沒有留得下身分的人打開活動頁。</td></tr>';
           return;
         }
         tbody.innerHTML = rows.map(function (u) {
-          var displayName = u.display_name || '<span class="liff-user-anon">未在 CRM 用戶表</span>';
-          var convPct = u.shown > 0 ? (Math.round(u.clicks / u.shown * 10000) / 100).toFixed(2) + '%' : '—';
+          var displayName = u.display_name
+            ? escapeHtml(u.display_name)
+            : '<span class="liff-user-anon">名單裡對不到這個人</span>';
+          var convPct = u.views > 0 ? (Math.round(u.bookings / u.views * 10000) / 100).toFixed(2) + '%' : '—';
           var avatarHtml = u.picture_url
             ? '<img src="' + escapeHtml(u.picture_url) + '" alt="" class="liff-user-avatar" />'
             : '<div class="liff-user-avatar liff-user-avatar--blank">' + escapeHtml((u.display_name || '?').slice(0, 1)) + '</div>';
           var crmBadge = u.in_crm
-            ? '<span class="liff-user-badge liff-user-badge--in">已在 CRM</span>'
-            : '<span class="liff-user-badge liff-user-badge--out">未在 CRM</span>';
+            ? '<span class="liff-user-badge">已在名單</span>'
+            : '<span class="liff-user-badge liff-user-badge--out">不在名單</span>';
           return '<tr>' +
             '<td class="liff-user-cell">' +
               '<div class="liff-user-row">' +
                 avatarHtml +
                 '<div class="liff-user-meta">' +
                   '<div class="liff-user-name">' + displayName + ' ' + crmBadge + '</div>' +
-                  '<button type="button" class="liff-user-uid" data-uid="' + escapeHtml(u.line_id) + '" title="點擊複製完整 line_id">' +
+                  '<button type="button" class="liff-user-uid" data-uid="' + escapeHtml(u.line_id) + '" title="點一下複製完整代碼">' +
                     escapeHtml(shortUid(u.line_id)) +
                   '</button>' +
                 '</div>' +
               '</div>' +
             '</td>' +
-            '<td style="text-align:right;">' + fmt(u.sessions) + '</td>' +
-            '<td style="text-align:right;">' + fmt(u.draws) + '</td>' +
-            '<td style="text-align:right;font-weight:600;">' + fmt(u.clicks) + '</td>' +
+            '<td style="text-align:right;">' + fmt(u.visits) + '</td>' +
+            '<td style="text-align:right;">' + fmt(u.views) + '</td>' +
+            '<td style="text-align:right;font-weight:600;">' + fmt(u.bookings) + '</td>' +
             '<td style="text-align:right;">' + convPct + '</td>' +
             '<td>' + fmtTime(u.last_seen) + '</td>' +
           '</tr>';
         }).join('');
-        // wire up uid copy
+        // 點一下複製完整代碼
         tbody.querySelectorAll('.liff-user-uid').forEach(function (btn) {
           btn.addEventListener('click', function () {
             var uid = btn.getAttribute('data-uid');
@@ -572,7 +719,7 @@
                 btn.textContent = orig;
                 btn.classList.remove('copied');
               }, 1200);
-            }).catch(function () { alert('line_id: ' + uid); });
+            }).catch(function () { alert(uid); });
           });
         });
       }
@@ -587,13 +734,27 @@
           })
           .catch(function (e) {
             console.error('trend load failed:', e);
+            $('trend-wrap').hidden = true;
+            $('trend-empty').hidden = false;
+            $('trend-empty').textContent = '這段數字讀不到，按右上角的重新整理再試一次。';
           });
       }
 
       function renderTrendChart(rows) {
+        // 整段都是 0 的話畫出來是一條貼底的線，不如直接講一句
+        var hasData = rows.some(function (r) {
+          return Number(r.visits || 0) > 0 || Number(r.views || 0) > 0 || Number(r.bookings || 0) > 0;
+        });
+        $('trend-wrap').hidden = !hasData;
+        $('trend-empty').hidden = hasData;
+        if (!hasData) {
+          $('trend-empty').textContent = '這段時間還沒有人打開活動頁，所以畫不出趨勢。';
+          return;
+        }
         var labels = rows.map(function (r) { return r.day; });
-        var dau = rows.map(function (r) { return r.dau; });
-        var clicks = rows.map(function (r) { return r.clicks; });
+        var visits = rows.map(function (r) { return r.visits; });
+        var views = rows.map(function (r) { return r.views; });
+        var bookings = rows.map(function (r) { return r.bookings; });
         var conv = rows.map(function (r) { return r.conversion_rate_pct; });
         var ctx = $('trend-chart').getContext('2d');
         if (trendChart) trendChart.destroy();
@@ -602,18 +763,23 @@
             labels: labels,
             datasets: [
               {
-                type: 'line', label: 'DAU', data: dau,
-                borderColor: '#1f2937', backgroundColor: 'rgba(31,41,55,0.08)',
-                fill: true, tension: 0.3, yAxisID: 'y'
+                type: 'line', label: '來訪', data: visits,
+                borderColor: GRAY_LIGHT, backgroundColor: 'transparent',
+                fill: false, tension: 0.3, yAxisID: 'y', pointRadius: 2
               },
               {
-                type: 'line', label: '點訂位', data: clicks,
-                borderColor: '#facc15', backgroundColor: 'rgba(252,204,38,0.12)',
-                fill: true, tension: 0.3, yAxisID: 'y'
+                type: 'line', label: '看餐廳', data: views,
+                borderColor: GRAY_MID, backgroundColor: 'transparent',
+                fill: false, tension: 0.3, yAxisID: 'y', pointRadius: 2
+              },
+              {
+                type: 'line', label: '點訂位', data: bookings,
+                borderColor: BRAND, backgroundColor: 'rgba(252,199,38,0.14)',
+                borderWidth: 3, fill: true, tension: 0.3, yAxisID: 'y', pointRadius: 2
               },
               {
                 type: 'line', label: '轉換率 %', data: conv,
-                borderColor: '#dc2626', borderDash: [4, 4],
+                borderColor: INK, borderDash: [4, 4],
                 backgroundColor: 'transparent', fill: false,
                 tension: 0.3, yAxisID: 'y1', pointRadius: 2
               }
@@ -642,18 +808,19 @@
       }
 
       // ---------------- 觸發 + 互動 ----------------
+      function pick(name, fallback) {
+        return (document.querySelector('input[name="' + name + '"]:checked') || {}).value || fallback;
+      }
+
       function refreshAll() {
         $('liff-last-updated').textContent = '載入中…';
-        var funnelDays = (document.querySelector('input[name="funnel-days"]:checked') || {}).value || 7;
-        var trendDays = (document.querySelector('input[name="trend-days"]:checked') || {}).value || 30;
-        var usersDays = (document.querySelector('input[name="users-days"]:checked') || {}).value || 7;
-        var audDays = (document.querySelector('input[name="aud-days"]:checked') || {}).value || 7;
         Promise.all([
           loadOverview(),
-          loadAudience(audDays),
-          loadFunnel(funnelDays),
-          loadUsers(usersDays),
-          loadTrend(trendDays)
+          loadAudience(pick('aud-days', 7)),
+          loadFunnel(pick('funnel-days', 7)),
+          loadRestaurants(pick('rest-days', 30)),
+          loadUsers(pick('users-days', 7)),
+          loadTrend(pick('trend-days', 30))
         ]).then(function () {
           $('liff-last-updated').textContent = '最後更新: ' + nowLabel();
         });
@@ -664,6 +831,9 @@
       });
       document.querySelectorAll('input[name="funnel-metric"]').forEach(function (el) {
         el.addEventListener('change', function () { renderFunnel(); });
+      });
+      document.querySelectorAll('input[name="rest-days"]').forEach(function (el) {
+        el.addEventListener('change', function () { loadRestaurants(el.value); });
       });
       document.querySelectorAll('input[name="trend-days"]').forEach(function (el) {
         el.addEventListener('change', function () { loadTrend(el.value); });
@@ -756,8 +926,19 @@
         font-weight: 700;
         color: #1f2937;
         line-height: 1.1;
+        font-variant-numeric: tabular-nums;
       }
-      .liff-kpi-hint { font-size: 11px; color: #9ca3af; margin-top: 8px; }
+      .liff-kpi-hint { font-size: 11px; color: #9ca3af; margin-top: 8px; line-height: 1.6; }
+
+      .liff-note { font-size: 13px; color: #4b5563; line-height: 1.8; margin: 14px 0 0; }
+      .liff-note--dim { color: #9ca3af; font-size: 12px; margin-top: 6px; }
+
+      /* 沒資料時只留一句白話，不要留一排 0 讓人以為壞掉 */
+      .liff-empty { font-size: 13px; color: #6b7280; line-height: 1.8; margin: 4px 0 0; }
+      .liff-empty[hidden] { display: none !important; }
+      .liff-funnel-wrap[hidden],
+      .liff-trend-wrap[hidden],
+      #funnel-table-wrap[hidden] { display: none !important; }
 
       /* 會員視角：純文字為主，不用色塊，數字用粗體與深色字強調 */
       .liff-aud-lead {
@@ -832,29 +1013,37 @@
       .liff-funnel-wrap { height: 240px; margin-bottom: 12px; }
       .liff-funnel-table {
         width: 100%;
+        min-width: 620px;
         border-collapse: collapse;
         font-size: 13px;
       }
       .liff-funnel-table th,
       .liff-funnel-table td {
-        padding: 8px 10px;
+        padding: 9px 10px;
         border-bottom: 1px solid #f3f4f6;
       }
-      .liff-funnel-table th { color: #6b7280; font-weight: 600; font-size: 12px; }
-      .liff-funnel-table .liff-col-group {
-        text-align: center;
-        border-bottom: 1px solid #e5e7eb;
+      .liff-funnel-table th {
+        color: #6b7280;
+        font-weight: 600;
+        font-size: 12px;
+        text-align: left;
         background: #fafafa;
+        white-space: nowrap;
       }
-      .liff-funnel-table thead tr:first-child .liff-col-group:nth-child(2) { color: #1d4ed8; }
-      .liff-funnel-table thead tr:first-child .liff-col-group:nth-child(3) { color: #b45309; }
-      .liff-step-key {
-        display: block;
-        font-size: 11px;
+      .liff-funnel-table td { font-variant-numeric: tabular-nums; }
+      .liff-funnel-table .liff-funnel-goal td { font-weight: 600; color: #1f2937; }
+      .liff-step-label { font-weight: 600; color: #1f2937; }
+      .liff-step-note { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+
+      .liff-rest-name { font-weight: 600; color: #1f2937; display: flex; align-items: baseline; gap: 8px; }
+      .liff-rank {
+        font-size: 12px;
         color: #9ca3af;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        margin-top: 2px;
+        font-variant-numeric: tabular-nums;
+        min-width: 18px;
       }
+      .liff-rest-tier { font-size: 11px; color: #9ca3af; margin-left: 26px; }
+      .liff-rest-table td { font-variant-numeric: tabular-nums; }
 
       .liff-trend-wrap { height: 320px; }
 
@@ -876,6 +1065,7 @@
         font-size: 12px;
         text-align: left;
         background: #fafafa;
+        white-space: nowrap;
       }
       .liff-user-cell { min-width: 240px; }
       .liff-user-row {
@@ -888,8 +1078,8 @@
         height: 36px;
         border-radius: 50%;
         object-fit: cover;
-        background: #fde68a;
-        color: #1f2937;
+        background: #f3f4f6;
+        color: #4b5563;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -914,9 +1104,10 @@
         border-radius: 4px;
         font-weight: 600;
         letter-spacing: 0.02em;
+        background: #f3f4f6;
+        color: #4b5563;
       }
-      .liff-user-badge--in { background: #d1fae5; color: #065f46; }
-      .liff-user-badge--out { background: #f3f4f6; color: #6b7280; }
+      .liff-user-badge--out { color: #9ca3af; }
       .liff-user-uid {
         background: none;
         border: none;
