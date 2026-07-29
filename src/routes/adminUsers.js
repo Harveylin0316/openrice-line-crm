@@ -40,7 +40,7 @@ function registerAdminUsersRoutes(app, deps) {
       const likeParam = searchRaw ? ['%' + search + '%'] : [];
       const listParams = likeParam.concat([limit, offset]);
       const rs = await query(
-        `SELECT id, line_user_id, line_display_name, username, created_at, blocked_at
+        `SELECT id, line_user_id, line_display_name, username, created_at, blocked_at, archived_at
          FROM users WHERE ${baseWhere}${searchWhere}
          ORDER BY created_at DESC NULLS LAST, id DESC
          LIMIT $${likeParam.length + 1} OFFSET $${likeParam.length + 2}`,

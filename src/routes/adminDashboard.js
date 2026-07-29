@@ -22,12 +22,14 @@ function registerAdminDashboardRoutes(app, deps) {
     try {
       const rs = await query(`
         SELECT
+          -- archived_at IS NULL：只算現行 OA 的好友。已封存＝舊 OA 的歷史會員，
+          -- 其 line_user_id 對現行 OA 無效、推不到，計入會讓儀表板數字失真。
           (SELECT COUNT(*)::int FROM users
             WHERE line_user_id IS NOT NULL AND BTRIM(line_user_id) <> ''
-              AND is_admin = false AND blocked_at IS NULL) AS friends,
+              AND is_admin = false AND blocked_at IS NULL AND archived_at IS NULL) AS friends,
           (SELECT COUNT(*)::int FROM users
             WHERE line_user_id IS NOT NULL AND BTRIM(line_user_id) <> ''
-              AND is_admin = false AND blocked_at IS NULL
+              AND is_admin = false AND blocked_at IS NULL AND archived_at IS NULL
               AND created_at > now() - interval '7 days') AS friends_7d,
           (SELECT COUNT(*)::int FROM activities WHERE status = 'active') AS active_activities,
           (SELECT COUNT(*)::int FROM admin_flows WHERE status = 'active') AS active_flows,

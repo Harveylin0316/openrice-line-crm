@@ -42,6 +42,7 @@
       .us-uid-copy{font-size:11px;padding:2px 8px;border:1px solid #e5e7eb;background:#fff;border-radius:6px;cursor:pointer;color:#374151;margin-left:6px;}
       .us-uid-copy:hover{border-color:#1f2937;}
       .us-blocked{color:#b91c1c;font-size:11px;font-weight:700;}
+      .us-archived{color:#8d6e63;font-size:11px;font-weight:700;}
       .us-more-btn{width:100%;padding:9px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;font-size:13px;color:#374151;cursor:pointer;}
       .us-more-btn:hover:not(:disabled){background:#f9fafb;border-color:#d1d5db;}
       .us-more-btn:disabled{color:#9ca3af;cursor:default;}
@@ -112,7 +113,7 @@
           var nm=u.line_display_name||u.username||'（未命名）';
           var av=u.line_display_name?esc(nm.slice(0,1)):'?';
           return '<div class="us-row" data-uid="'+esc(u.line_user_id)+'"><div class="av">'+av+'</div>'+
-            '<div class="us-row-body"><div class="nm">'+esc(nm)+(u.blocked_at?' <span class="us-blocked">已封鎖</span>':'')+'</div>'+
+            '<div class="us-row-body"><div class="nm">'+esc(nm)+(u.blocked_at?' <span class="us-blocked">已封鎖</span>':'')+(u.archived_at?' <span class="us-archived">舊帳號</span>':'')+'</div>'+
             '<div class="uid">'+esc(u.line_user_id||'')+'</div>'+
             '<div class="sub">'+(fmt(u.created_at)||'—')+'</div></div></div>';
         }

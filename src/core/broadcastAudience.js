@@ -147,7 +147,10 @@ function buildWhere(conds) {
     'u.line_user_id IS NOT NULL',
     "BTRIM(u.line_user_id) <> ''",
     "u.is_admin = false",
-    'u.blocked_at IS NULL'
+    'u.blocked_at IS NULL',
+    // 已封存＝屬於已停用的舊 OA，其 line_user_id 對現行 OA 無效（跨 provider 不通用），
+    // 推播必定失敗，故一律排除於受眾之外。資料本身保留可查。
+    'u.archived_at IS NULL'
   ];
 
   // allMembers = 全部會員（不套用其他行為條件，但加入時間仍可疊加）
@@ -237,7 +240,7 @@ async function previewAudience(query, rawConditions, { channel = 'line' } = {}) 
   // 來源：已儲存名單
   if (conds.savedListId) {
     // LINE 通道：只算有 line_user_id 的成員（email-only 成員不能用 LINE 發），並排除已封鎖
-    const LINE_FILTER = `AND m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id) <> '' AND (u.blocked_at IS NULL OR u.id IS NULL)`;
+    const LINE_FILTER = `AND m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id) <> '' AND (u.blocked_at IS NULL OR u.id IS NULL) AND (u.archived_at IS NULL OR u.id IS NULL)`;
     const total = await query(
       `SELECT COUNT(*)::int AS n FROM admin_recipient_list_members m
        LEFT JOIN users u ON u.line_user_id = m.line_user_id
@@ -309,6 +312,7 @@ async function fetchAudienceRecipients(query, rawConditions, { limit = MAX_RECIP
        LEFT JOIN users u ON u.line_user_id = m.line_user_id
        WHERE m.list_id = $1 AND m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id) <> ''
          AND (u.blocked_at IS NULL OR u.id IS NULL)
+         AND (u.archived_at IS NULL OR u.id IS NULL)
        ORDER BY m.id ASC
        LIMIT $2`,
       [conds.savedListId, cappedLimit]
