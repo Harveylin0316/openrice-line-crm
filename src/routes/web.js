@@ -222,10 +222,11 @@ function registerWebRoutes(app, deps) {
     });
   }
 
-  app.get('/', (req, res) => {
-    if (req.authUser && req.authUser.adm) return res.redirect('/admin');
-    return res.status(404).send('Not found');
-  });
+  // 根目錄一律導向後台：已登入 → 儀表板；未登入 → requireAdmin 會再導到登入頁。
+  // 原本未登入時回 404（隱藏後台存在），但那層遮蔽早已無效——未登入打 /admin 本來就會
+  // 302 到 hiddenAdminLoginPath，路徑一樣會曝光。改成直接導向不會多洩漏任何資訊，
+  // 卻能讓人直接輸入網域就進得來，不必記那串隨機登入路徑。
+  app.get('/', (_req, res) => res.redirect('/admin'));
 
   app.get('/register', (_req, res) => {
     return res.status(404).send('網頁版功能已關閉，請使用 LINE 活動頁。');
