@@ -183,6 +183,16 @@
   // ------------------------------------------------------------------
   // 2. condition collection
   // ------------------------------------------------------------------
+  // 讀一個「天數」輸入框：留空 / 不是正整數 → null（＝不套用這個條件）
+  function readDaysField(id) {
+    var el = $(id);
+    if (!el) return null;
+    var raw = String(el.value == null ? '' : el.value).trim();
+    if (raw === '') return null;
+    var n = parseInt(raw, 10);
+    return (Number.isInteger(n) && n > 0) ? n : null;
+  }
+
   function collectConditions() {
     if (state.audienceSource === 'saved_list') {
       var sel = $('saved-list-select').value;
@@ -221,7 +231,22 @@
     var drewInCampaign = null;
     if (drewRaw === 'true') drewInCampaign = true;
     else if (drewRaw === 'false') drewInCampaign = false;
-    return { joinedWithinDays: joinedWithinDays, lifecycleStages: lifecycleStages, prizeFilter: prizeFilter, inviteCompletedMin: inviteCompletedMin, drewInCampaign: drewInCampaign };
+
+    // 活動頁行為（好康地圖／擲骰子選餐廳）：留空＝不套用
+    var playedLiffWithinDays = readDaysField('liff-played-days');
+    var clickedBookingWithinDays = readDaysField('liff-booking-days');
+    var liffInactiveDays = readDaysField('liff-inactive-days');
+
+    return {
+      joinedWithinDays: joinedWithinDays,
+      lifecycleStages: lifecycleStages,
+      prizeFilter: prizeFilter,
+      inviteCompletedMin: inviteCompletedMin,
+      drewInCampaign: drewInCampaign,
+      playedLiffWithinDays: playedLiffWithinDays,
+      clickedBookingWithinDays: clickedBookingWithinDays,
+      liffInactiveDays: liffInactiveDays
+    };
   }
 
   // 全部會員 toggle：勾選時把行為條件變灰、重置預覽
@@ -232,6 +257,8 @@
       var on = amEl && amEl.checked;
       var bc = $('behavior-conditions');
       if (bc) { bc.style.opacity = on ? '0.4' : '1'; bc.style.pointerEvents = on ? 'none' : 'auto'; }
+      var lb = $('liff-behavior-conditions');
+      if (lb) { lb.style.opacity = on ? '0.4' : '1'; lb.style.pointerEvents = on ? 'none' : 'auto'; }
       state.audiencePreviewedTotal = null;
       var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
       updateSendButton();
@@ -243,6 +270,17 @@
       updateSendButton();
     });
   })();
+
+  // 活動頁行為欄位一改動，之前預覽出來的人數就作廢，要重新按「預覽收件人」
+  ['liff-played-days', 'liff-booking-days', 'liff-inactive-days'].forEach(function (id) {
+    var el = $(id);
+    if (!el) return;
+    el.addEventListener('input', function () {
+      state.audiencePreviewedTotal = null;
+      var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
+      updateSendButton();
+    });
+  });
 
   // ------------------------------------------------------------------
   // 3. audience preview
@@ -2205,7 +2243,8 @@
   // ------------------------------------------------------------------
   // 9. draft（localStorage 自動草稿）
   //    存：模板各欄位 + flex JSON + 測試收件人 + hero media id/url + tab mode
-  //    不存：file binary、audience 條件、訊息預覽結果
+  //        + 活動頁行為的三個天數欄位
+  //    不存：file binary、其他 audience 條件、訊息預覽結果
   // ------------------------------------------------------------------
   var DRAFT_KEY = 'broadcast_draft_v1';
   var DRAFT_FIELDS = [
@@ -2214,7 +2253,9 @@
     // 通知文字 / Email / A/B 版本 B —— 也要在輸入時觸發自動存草稿
     'msg-alt-text', 'email-subject', 'email-from-name', 'email-from-address',
     'b-tpl-title', 'b-tpl-subtitle', 'b-tpl-coupon-code', 'b-tpl-disclaimer',
-    'b-tpl-cta-label', 'b-tpl-cta-url', 'b-tpl-alt', 'b-flex-json'
+    'b-tpl-cta-label', 'b-tpl-cta-url', 'b-tpl-alt', 'b-flex-json',
+    // 活動頁行為（好康地圖／擲骰子選餐廳）
+    'liff-played-days', 'liff-booking-days', 'liff-inactive-days'
   ];
   var draftSaveTimer = null;
 
@@ -2250,6 +2291,11 @@
           ctaUrl: ($('b-tpl-cta-url') ? $('b-tpl-cta-url').value : ''),
           altText: ($('b-tpl-alt') ? $('b-tpl-alt').value : ''),
           flexJson: ($('b-flex-json') ? $('b-flex-json').value : '')
+        },
+        liffBehavior: {
+          playedDays: ($('liff-played-days') ? $('liff-played-days').value : ''),
+          bookingDays: ($('liff-booking-days') ? $('liff-booking-days').value : ''),
+          inactiveDays: ($('liff-inactive-days') ? $('liff-inactive-days').value : '')
         },
         _t: Date.now()
       };
@@ -2295,6 +2341,15 @@
       Object.keys(vbMap).forEach(function (id) {
         if (vbMap[id] != null && $(id)) $(id).value = vbMap[id];
       });
+      var lb = d.liffBehavior || {};
+      var lbMap = {
+        'liff-played-days': lb.playedDays,
+        'liff-booking-days': lb.bookingDays,
+        'liff-inactive-days': lb.inactiveDays
+      };
+      Object.keys(lbMap).forEach(function (id) {
+        if (lbMap[id] != null && $(id)) $(id).value = lbMap[id];
+      });
       if (d.abEnabled && $('ab-test-enable') && !$('ab-test-enable').checked) {
         $('ab-test-enable').checked = true;
         $('ab-test-enable').dispatchEvent(new Event('change'));
@@ -2333,6 +2388,10 @@
     var fi = $('hero-file');
     if (fi) fi.value = '';
     renderHeroStatus(false);
+    // 活動頁行為的天數也被清掉了 → 之前預覽的人數作廢
+    state.audiencePreviewedTotal = null;
+    var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
+    updateSendButton();
     var ds = $('draft-status-time');
     if (ds) ds.textContent = '已清除草稿';
   }

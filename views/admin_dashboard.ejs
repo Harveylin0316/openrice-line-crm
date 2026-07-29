@@ -25,6 +25,20 @@
     </section>
 
     <section class="card">
+      <div class="db-liff-head">
+        <h2 style="margin:0;">活動頁（好康地圖、擲骰子選餐廳）</h2>
+        <a class="db-liff-link" href="/admin/liff/random-rice">看完整分析</a>
+      </div>
+      <p class="muted" style="font-size:13px;margin:6px 0 0;">最近 7 天，有多少人在活動頁上動作，其中又有幾個是你的 LINE 好友。</p>
+      <div class="db-stats" id="db-liff-stats">
+        <div class="db-stat"><div class="v" id="st-liff-opens">—</div><div class="k">近 7 天開啟次數</div></div>
+        <div class="db-stat"><div class="v" id="st-liff-users">—</div><div class="k">近 7 天用過的人</div></div>
+        <div class="db-stat"><div class="v" id="st-liff-members">—</div><div class="k">其中是你的 LINE 好友</div></div>
+      </div>
+      <p class="db-liff-foot" id="db-liff-foot" hidden></p>
+    </section>
+
+    <section class="card">
       <h2 style="margin:0 0 4px;">發一則訊息給會員，只要三步</h2>
       <p class="muted" style="font-size:13px;margin-bottom:14px;">第一次用？照順序點下面三張卡就能完成。</p>
       <div class="db-steps">
@@ -105,6 +119,12 @@
       .db-stat .v{font-size:26px;font-weight:700;color:#1f2937;font-variant-numeric:tabular-nums;letter-spacing:-0.02em;}
       .db-stat .k{font-size:12px;color:#6B6B70;margin-top:4px;}
       .db-stat-wide{grid-column:span 2;min-width:200px;}
+      .db-liff-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+      .db-liff-link{font-size:13px;font-weight:600;color:#1f2937;text-decoration:none;border-bottom:1px solid #d1d5db;padding-bottom:1px;}
+      .db-liff-link:hover{border-color:#1f2937;text-decoration:none;}
+      #db-liff-stats[hidden]{display:none !important;}
+      .db-liff-foot{font-size:13px;color:#6B6B70;line-height:1.8;margin:14px 0 0;}
+      .db-liff-foot[hidden]{display:none !important;}
       .db-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;}
       .db-step{display:flex;flex-direction:column;gap:10px;border:1px solid #ECECEE;border-radius:12px;padding:18px;text-decoration:none;color:inherit;background:#fff;transition:border-color .15s, box-shadow .15s;}
       .db-step:hover{border-color:#FCC726;box-shadow:0 4px 14px rgba(0,0,0,.06);text-decoration:none;}
@@ -142,7 +162,38 @@
             $('st-last').textContent='還沒發過訊息';
           }
           renderAlerts(d.alerts||{});
+          renderLiff(d.liff);
         }).catch(function(){});
+
+        // 活動頁近 7 天：沒資料時不要留一排 0，直接用一句話說明
+        function renderLiff(lf){
+          var box=$('db-liff-stats'); var foot=$('db-liff-foot');
+          if(!lf){
+            box.hidden=true; foot.hidden=false;
+            foot.textContent='目前讀不到活動頁的資料，等一下重新整理看看。';
+            return;
+          }
+          var opens=Number(lf.opens_7d||0), users=Number(lf.users_7d||0);
+          var members=Number(lf.members_7d||0), anon=Number(lf.anon_7d||0);
+          if(opens===0&&users===0&&anon===0){
+            box.hidden=true; foot.hidden=false;
+            foot.textContent='最近 7 天還沒有人打開活動頁。';
+            return;
+          }
+          box.hidden=false;
+          $('st-liff-opens').textContent=num(opens);
+          $('st-liff-users').textContent=num(users);
+          $('st-liff-members').textContent=num(members);
+          var notes=[];
+          if(members===0&&users>0){
+            notes.push('這 7 天玩的人，目前都還不是你現在的 LINE 好友。');
+          }
+          if(anon>0){
+            notes.push('另有 '+num(anon)+' 筆使用紀錄沒帶身分（不是從 LINE 裡面打開的），看不出是誰。');
+          }
+          if(notes.length){ foot.hidden=false; foot.textContent=notes.join(' '); }
+          else { foot.hidden=true; foot.textContent=''; }
+        }
 
         function renderAlerts(al){
           var items=[];

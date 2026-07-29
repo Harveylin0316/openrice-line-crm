@@ -92,6 +92,25 @@
             b.textContent='已複製';setTimeout(function(){b.textContent='複製';},1200);}catch(err){}
         });
         var KIND={follow:'加好友',unfollow:'封鎖了',message:'傳訊息給你',game_play:'玩了遊戲',restaurant_click:'點了餐廳',broadcast_click:'點了推播',liff:'今天吃什麼',invite_rewarded:'邀請成功'};
+        // 活動頁的行為代號翻成白話（沒對到的就照原樣顯示）
+        var LIFF_ACT={
+          app_open:'開啟活動頁',
+          analytics_session_start:'開始一次瀏覽',
+          map_open:'打開好康地圖',
+          map_pin_click:'點餐廳',
+          map_sheet_open:'打開餐廳介紹',
+          map_booking_click:'點訂位',
+          map_locate:'用定位找附近',
+          map_filter_toggle:'調整篩選條件',
+          map_parking_shown:'看到停車資訊',
+          map_decide_result:'在地圖上選好餐廳',
+          map_streak:'連續來訪',
+          submit_draw:'抽餐廳',
+          redraw:'重抽',
+          result_shown:'看到結果',
+          ad_shown:'看到廣告'
+        };
+        function liffAct(n){return LIFF_ACT[n]||n||'';}
         // 生命週期階段 chip 文字（門檻與群發、沉睡喚醒口徑一致）
         function lifecycleChip(stage,days){
           var d=(days==null||isNaN(days))?null:Math.max(0,Math.floor(days));
@@ -234,10 +253,33 @@
             if(d.lists&&d.lists.length){
               h+='<div class="us-sec-title">在這些名單裡</div><div>'+d.lists.map(function(l){return '<span class="us-chip">'+esc(l.name)+'</span>';}).join('')+'</div>';
             }
+            // 活動頁行為：他在 LINE 裡打開活動頁之後實際做了什麼
+            var lf=d.liff;
+            if(lf){
+              h+='<div class="us-sec-title">活動頁行為</div>';
+              if(!lf.total){
+                h+='<p class="muted" style="font-size:13px;">這位會員還沒使用過活動頁</p>';
+              }else{
+                h+='<div class="us-stats">'+
+                  stat(lf.opens,'開啟過活動頁')+stat(lf.restaurant_clicks,'點過餐廳')+
+                  stat(lf.booking_clicks,'點過訂位')+stat(lf.draws,'抽過餐廳')+'</div>';
+                h+='<p class="muted" style="font-size:12px;margin:0 0 6px;">最近一次使用：'+(fmt(lf.last_at)||'不清楚')+
+                  ' · 一共留下 '+lf.total+' 筆紀錄'+(lf.capped?'（只算最近的部分）':'')+'</p>';
+                if(lf.recent&&lf.recent.length){
+                  h+='<p class="muted" style="font-size:12px;margin:0 0 4px;">最近做了這些事：</p>'+
+                    '<div class="us-tl">'+lf.recent.map(function(e){
+                      return '<div class="us-tl-item"><span class="k">'+esc(liffAct(e.event_name))+'</span>'+
+                        '<div class="t">'+fmt(e.created_at)+'</div></div>';
+                    }).join('')+'</div>';
+                }
+              }
+            }
             h+='<div class="us-sec-title">行為時間軸</div>';
             if(!d.timeline||!d.timeline.length){h+='<p class="muted" style="font-size:13px;">尚無紀錄</p>';}
             else{h+='<div class="us-tl">'+d.timeline.map(function(t){
-              return '<div class="us-tl-item"><span class="k">'+esc(KIND[t.kind]||t.kind)+'</span> <span class="l">'+esc((t.label||'').slice(0,60))+'</span><div class="t">'+fmt(t.at)+'</div></div>';
+              // 活動頁那幾筆的行為代號也翻成白話，其他來源照舊
+              var lb=(t.kind==='liff')?liffAct(t.label):(t.label||'');
+              return '<div class="us-tl-item"><span class="k">'+esc(KIND[t.kind]||t.kind)+'</span> <span class="l">'+esc(String(lb).slice(0,60))+'</span><div class="t">'+fmt(t.at)+'</div></div>';
             }).join('')+'</div>';}
             box.innerHTML=h;
             if(p.line_user_id){bindProfileActions(p.line_user_id);}

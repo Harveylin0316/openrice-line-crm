@@ -8,7 +8,12 @@
  *     prizeNames: string[]               // 用 prize_name 字串比對（與 draw_logs 一致）
  *   } | null,
  *   inviteCompletedMin: number | null,  // 邀請成功 rewarded 數 ≥ N
- *   drewInCampaign: boolean | null      // true = 活動期間刮過; false = 從未刮過
+ *   drewInCampaign: boolean | null,     // true = 活動期間刮過; false = 從未刮過
+ *
+ *   // 活動頁（好康地圖／擲骰子）行為條件
+ *   playedLiffWithinDays: number | null,     // 最近 N 天內開過活動頁、或在裡面做過任何動作
+ *   clickedBookingWithinDays: number | null, // 最近 N 天內點過訂位
+ *   liffInactiveDays: number | null          // 以前玩過活動頁、但最近 N 天都沒再來（沉睡玩家）
  * }
  *
  * 共用過濾：line_user_id 非空、非管理員。
@@ -16,6 +21,18 @@
 
 const MAX_RECIPIENTS_PER_BROADCAST = 5000;
 const PREVIEW_SAMPLE_LIMIT = 10;
+
+// 活動頁行為資料來源：已把行為紀錄對應到會員的檢視（明碼與雜湊兩種 line_id 都涵蓋），
+// 直接用它就好，不要自己去接原始行為表。
+const LIFF_EVENTS_SOURCE = 'member_liff_events';
+// 「點過訂位」對應的行為代號。
+const LIFF_EVENT_BOOKING_CLICK = 'map_booking_click';
+
+// 天數輸入的共用檢查：必須是 1 ~ 3650 的整數，否則視為沒填。
+function parseDays(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 && n <= 3650 ? n : null;
+}
 
 // 生命週期階段門檻（天）— 與 flowEngine.runInactivityTriggers 的 last_activity 口徑一致。
 const LIFECYCLE_NEW_DAYS = 14;       // 新客：加入 <= 14 天（優先判定）
@@ -76,6 +93,9 @@ function normalizeConditions(raw) {
     prizeFilter: null,
     inviteCompletedMin: null,
     drewInCampaign: null,
+    playedLiffWithinDays: null,
+    clickedBookingWithinDays: null,
+    liffInactiveDays: null,
     savedListId: null
   };
 
@@ -97,10 +117,12 @@ function normalizeConditions(raw) {
     }
   }
 
-  const jwd = Number(safe.joinedWithinDays);
-  if (Number.isInteger(jwd) && jwd > 0 && jwd <= 3650) {
-    out.joinedWithinDays = jwd;
-  }
+  out.joinedWithinDays = parseDays(safe.joinedWithinDays);
+
+  // 活動頁行為條件（都是天數，沒填就維持 null、完全不影響原本的篩選結果）
+  out.playedLiffWithinDays = parseDays(safe.playedLiffWithinDays);
+  out.clickedBookingWithinDays = parseDays(safe.clickedBookingWithinDays);
+  out.liffInactiveDays = parseDays(safe.liffInactiveDays);
 
   if (safe.prizeFilter && typeof safe.prizeFilter === 'object') {
     const mode = ['any', 'all', 'none'].includes(safe.prizeFilter.mode) ? safe.prizeFilter.mode : 'any';
@@ -137,7 +159,10 @@ function hasAnyCondition(conds) {
     conds.savedListId ||
     conds.prizeFilter ||
     conds.inviteCompletedMin !== null ||
-    conds.drewInCampaign !== null
+    conds.drewInCampaign !== null ||
+    conds.playedLiffWithinDays !== null ||
+    conds.clickedBookingWithinDays !== null ||
+    conds.liffInactiveDays !== null
   );
 }
 
@@ -201,6 +226,47 @@ function buildWhere(conds) {
     where.push(`EXISTS (SELECT 1 FROM draw_logs d WHERE d.user_id = u.id)`);
   } else if (conds.drewInCampaign === false) {
     where.push(`NOT EXISTS (SELECT 1 FROM draw_logs d WHERE d.user_id = u.id)`);
+  }
+
+  // 以下三個都用 EXISTS／NOT EXISTS 子查詢，一個人只會算一次，不會因為玩很多次就重複出現。
+
+  // 最近 N 天內開過活動頁、或在活動頁裡做過任何動作
+  if (conds.playedLiffWithinDays !== null) {
+    params.push(conds.playedLiffWithinDays);
+    where.push(`EXISTS (
+      SELECT 1 FROM ${LIFF_EVENTS_SOURCE} le
+      WHERE le.user_id = u.id
+        AND le.created_at >= now() - ($${params.length}::int * interval '1 day')
+    )`);
+  }
+
+  // 最近 N 天內點過訂位
+  if (conds.clickedBookingWithinDays !== null) {
+    params.push(LIFF_EVENT_BOOKING_CLICK);
+    const bookingParam = `$${params.length}::text`;
+    params.push(conds.clickedBookingWithinDays);
+    where.push(`EXISTS (
+      SELECT 1 FROM ${LIFF_EVENTS_SOURCE} le
+      WHERE le.user_id = u.id
+        AND le.event_name = ${bookingParam}
+        AND le.created_at >= now() - ($${params.length}::int * interval '1 day')
+    )`);
+  }
+
+  // 沉睡玩家：以前玩過活動頁，但最近 N 天都沒再來
+  if (conds.liffInactiveDays !== null) {
+    params.push(conds.liffInactiveDays);
+    where.push(`(
+      EXISTS (
+        SELECT 1 FROM ${LIFF_EVENTS_SOURCE} le
+        WHERE le.user_id = u.id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM ${LIFF_EVENTS_SOURCE} le
+        WHERE le.user_id = u.id
+          AND le.created_at >= now() - ($${params.length}::int * interval '1 day')
+      )
+    )`);
   }
 
   return { whereSql: where.join(' AND '), params };
@@ -340,6 +406,8 @@ module.exports = {
   LIFECYCLE_NEW_DAYS,
   LIFECYCLE_ACTIVE_DAYS,
   LIFECYCLE_LOST_DAYS,
+  LIFF_EVENTS_SOURCE,
+  LIFF_EVENT_BOOKING_CLICK,
   LAST_ACTIVITY_SQL,
   LIFECYCLE_STAGE_SQL,
   lifecycleWhereSql,

@@ -3,10 +3,15 @@
  *
  *   GET  /admin/users                         頁面（搜尋 + 列表 + 檔案）
  *   GET  /admin/users/api/list?search=&offset= 用戶列表
- *   GET  /admin/users/api/profile/:lineUserId  單一用戶：基本資料 + 行為統計 + 餐廳興趣 + 時間軸
+ *   GET  /admin/users/api/profile/:lineUserId  單一用戶：基本資料 + 行為統計 + 餐廳興趣 + 活動頁行為 + 時間軸
  */
 
-const { LIFECYCLE_STAGE_SQL, LAST_ACTIVITY_SQL } = require('../core/broadcastAudience');
+const { LIFECYCLE_STAGE_SQL, LAST_ACTIVITY_SQL, LIFF_EVENTS_SOURCE } = require('../core/broadcastAudience');
+
+// 活動頁行為一次最多統計幾筆（避免單一重度使用者把查詢拖慢）
+const LIFF_SCAN_LIMIT = 5000;
+// 面板上「最近做了什麼」列幾筆
+const LIFF_RECENT_LIMIT = 10;
 
 function registerAdminUsersRoutes(app, deps) {
   const { query, authCore } = deps;
@@ -129,6 +134,46 @@ function registerAdminUsersRoutes(app, deps) {
         [luid]
       )).rows;
 
+      // 活動頁行為（好康地圖／擲骰子選餐廳）
+      // 用已經把行為對應到會員的檢視，不要自己去接原始行為表。
+      // 檢視若還沒建好或查詢失敗，就當作沒有資料，不要害整份檔案打不開。
+      let liff = null;
+      try {
+        const liffAgg = (await query(
+          `SELECT COUNT(*)::int AS total,
+                  COUNT(*) FILTER (WHERE event_name = 'app_open')::int AS opens,
+                  COUNT(*) FILTER (WHERE event_name = 'map_pin_click')::int AS restaurant_clicks,
+                  COUNT(*) FILTER (WHERE event_name = 'map_booking_click')::int AS booking_clicks,
+                  COUNT(*) FILTER (WHERE event_name IN ('submit_draw','redraw'))::int AS draws,
+                  MAX(created_at) AS last_at
+           FROM (
+             SELECT event_name, created_at FROM ${LIFF_EVENTS_SOURCE}
+             WHERE line_user_id = $1
+             ORDER BY created_at DESC LIMIT ${LIFF_SCAN_LIMIT}
+           ) e`,
+          [luid]
+        )).rows[0] || {};
+        const liffRecent = (await query(
+          `SELECT event_name, created_at FROM ${LIFF_EVENTS_SOURCE}
+           WHERE line_user_id = $1
+           ORDER BY created_at DESC LIMIT ${LIFF_RECENT_LIMIT}`,
+          [luid]
+        )).rows;
+        liff = {
+          total: Number(liffAgg.total || 0),
+          opens: Number(liffAgg.opens || 0),
+          restaurant_clicks: Number(liffAgg.restaurant_clicks || 0),
+          booking_clicks: Number(liffAgg.booking_clicks || 0),
+          draws: Number(liffAgg.draws || 0),
+          last_at: liffAgg.last_at || null,
+          capped: Number(liffAgg.total || 0) >= LIFF_SCAN_LIMIT,
+          recent: liffRecent
+        };
+      } catch (err) {
+        console.error('user profile liff error:', err && err.message);
+        liff = null;
+      }
+
       // 時間軸（多來源 union）
       const tlParams = userId ? [luid, userId] : [luid, -1];
       const timeline = (await query(
@@ -149,7 +194,7 @@ function registerAdminUsersRoutes(app, deps) {
         tlParams
       )).rows;
 
-      return res.json({ ok: true, profile, counts, interest, preference, lists, timeline, rfm });
+      return res.json({ ok: true, profile, counts, interest, preference, lists, timeline, rfm, liff });
     } catch (err) {
       return jsonErr(res, 500, 'profile_failed', { detail: err && err.message });
     }

@@ -144,7 +144,7 @@
                 <input type="checkbox" id="all-members" />
                 <span>發送給全部會員</span>
               </label>
-              <div class="muted" style="font-size:12px;margin-top:4px;">勾選後忽略下方的獎品/邀請/刮獎條件（可搭配「加入時間」一起用）。</div>
+              <div class="muted" style="font-size:12px;margin-top:4px;">勾選後忽略下方的獎品／邀請／刮獎／活動頁行為條件（可搭配「加入時間」一起用）。</div>
               <div class="broadcast-inline-field" style="margin-top:10px;">
                 <span>加入時間</span>
                 <select id="joined-within" style="width:160px;">
@@ -226,6 +226,32 @@
                   <option value="false">從未刮過</option>
                 </select>
               </label>
+            </div>
+
+            <div class="broadcast-field" id="liff-behavior-conditions">
+              <div class="broadcast-field-label">活動頁行為</div>
+              <div class="muted" style="font-size:12px;margin:0 0 12px;">三格都留空＝不套用。這裡的「活動頁」是指會員在 LINE 裡打開的好康地圖、擲骰子選餐廳那一頁。</div>
+
+              <label class="broadcast-inline-field">
+                <span>最近幾天內用過活動頁</span>
+                <input type="number" id="liff-played-days" min="1" max="365" placeholder="留空 = 不限" style="width:120px;" />
+                <span class="muted">天</span>
+              </label>
+              <div class="muted" style="font-size:12px;margin:2px 0 14px;">挑出最近還有在玩的人，推新活動、新優惠給他們最有反應。</div>
+
+              <label class="broadcast-inline-field">
+                <span>最近幾天內點過訂位</span>
+                <input type="number" id="liff-booking-days" min="1" max="365" placeholder="留空 = 不限" style="width:120px;" />
+                <span class="muted">天</span>
+              </label>
+              <div class="muted" style="font-size:12px;margin:2px 0 14px;">挑出看完餐廳後真的按了訂位的人，想吃的意願最高。</div>
+
+              <label class="broadcast-inline-field">
+                <span>用過活動頁但最近幾天沒回來</span>
+                <input type="number" id="liff-inactive-days" min="1" max="365" placeholder="留空 = 不限" style="width:120px;" />
+                <span class="muted">天</span>
+              </label>
+              <div class="muted" style="font-size:12px;margin:2px 0 0;">挑出以前玩過、後來就沒再出現的人，適合發喚回優惠把他們找回來。</div>
             </div>
 
             </div><!-- /audience-pane-conditions -->

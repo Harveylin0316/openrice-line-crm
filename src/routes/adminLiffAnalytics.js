@@ -12,6 +12,8 @@
  * - GET /admin/liff/random-rice                       dashboard 頁面
  * - GET /admin/liff/random-rice/api/overview         今日 4 指標
  * - GET /admin/liff/random-rice/api/funnel?days=N    核心 4 步漏斗（含流失率）
+ * - GET /admin/liff/random-rice/api/users?days=N     玩過的用戶清單
+ * - GET /admin/liff/random-rice/api/audience?days=N  會員視角（玩的人裡面有幾個是現行 OA 的好友）
  * - GET /admin/liff/random-rice/api/trend?days=N     每日趨勢（DAU、submit_draw、restaurant_click、轉換率）
  */
 
@@ -197,6 +199,149 @@ function registerAdminLiffAnalyticsRoutes(app, deps) {
     } catch (err) {
       console.error('liff users error:', err && err.message);
       res.status(500).json({ ok: false, error: 'users_failed', detail: String(err.message || '').slice(0, 300) });
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // API 2.6: 會員視角 — 玩活動頁的人裡面，有幾個是「現在這個官方帳號的好友」
+  //
+  // 分成四桶（後台文案一律講白話，不要把下面這些代號寫進畫面）：
+  //   member  現行會員：users.archived_at IS NULL 且非管理員 → 現在發得到訊息的人
+  //   old     舊官方帳號的人：只對得到已封存(archived_at IS NOT NULL)的舊會員 → 認得是誰但推不到
+  //   unknown 對不到任何會員的人
+  //   anon    事件沒帶身分（不是從 LINE 裡面開的），連是誰都不知道
+  //
+  // 會員那一桶直接吃現成的 member_liff_events（已處理明碼 / 雜湊兩種 line_id 對應），
+  // 再 JOIN users 過濾封存與管理員，口徑與儀表板「可發送好友」一致。
+  // ------------------------------------------------------------------
+  app.get('/admin/liff/random-rice/api/audience', requireAdmin, async (req, res) => {
+    try {
+      const days = clampInt(req.query.days, 1, 3650, 7);
+      const limit = clampInt(req.query.limit, 1, 200, 50);
+
+      const bucketSql = `
+        WITH ev AS (
+          SELECT ue.id, ue.line_id, ue.session_id, ue.event_name
+          FROM user_events ue
+          WHERE ue.created_at > NOW() - ($1 || ' days')::INTERVAL
+        ),
+        mem_ev AS (
+          SELECT m.event_id, m.user_id
+          FROM member_liff_events m
+          JOIN users u ON u.id = m.user_id
+          WHERE u.archived_at IS NULL
+            AND u.is_admin = false
+            AND m.created_at > NOW() - ($1 || ' days')::INTERVAL
+        ),
+        tagged AS (
+          SELECT ev.id, ev.line_id, ev.session_id, ev.event_name, mem_ev.user_id
+          FROM ev
+          LEFT JOIN mem_ev ON mem_ev.event_id = ev.id
+        ),
+        id_class AS (
+          SELECT
+            t.line_id,
+            BOOL_OR(t.user_id IS NOT NULL) AS is_member,
+            EXISTS (
+              SELECT 1 FROM users u2
+              WHERE (u2.line_user_id = t.line_id OR u2.line_id_hash = t.line_id)
+                AND u2.archived_at IS NOT NULL
+            ) AS was_old
+          FROM tagged t
+          WHERE t.line_id IS NOT NULL
+          GROUP BY t.line_id
+        )
+        SELECT
+          (SELECT COUNT(DISTINCT user_id) FROM tagged WHERE user_id IS NOT NULL)::int AS member_people,
+          (SELECT COUNT(*) FROM tagged WHERE user_id IS NOT NULL)::int AS member_events,
+          (SELECT COUNT(*) FROM id_class WHERE NOT is_member AND was_old)::int AS old_people,
+          (SELECT COUNT(*) FROM tagged t JOIN id_class c ON c.line_id = t.line_id
+             WHERE NOT c.is_member AND c.was_old)::int AS old_events,
+          (SELECT COUNT(*) FROM id_class WHERE NOT is_member AND NOT was_old)::int AS unknown_people,
+          (SELECT COUNT(*) FROM tagged t JOIN id_class c ON c.line_id = t.line_id
+             WHERE NOT c.is_member AND NOT c.was_old)::int AS unknown_events,
+          (SELECT COUNT(DISTINCT session_id) FROM tagged WHERE line_id IS NULL)::int AS anon_sessions,
+          (SELECT COUNT(*) FROM tagged WHERE line_id IS NULL)::int AS anon_events,
+          (SELECT COUNT(*) FROM tagged)::int AS total_events,
+          (SELECT COUNT(DISTINCT user_id) FROM tagged
+             WHERE user_id IS NOT NULL AND event_name = 'app_open')::int AS act_open,
+          (SELECT COUNT(DISTINCT user_id) FROM tagged
+             WHERE user_id IS NOT NULL AND event_name IN ('submit_draw','redraw'))::int AS act_draw,
+          (SELECT COUNT(DISTINCT user_id) FROM tagged
+             WHERE user_id IS NOT NULL AND event_name IN ('map_pin_click','restaurant_click'))::int AS act_pin,
+          (SELECT COUNT(DISTINCT user_id) FROM tagged
+             WHERE user_id IS NOT NULL AND event_name = 'map_booking_click')::int AS act_booking
+      `;
+
+      const memberSql = `
+        SELECT
+          u.id AS user_id,
+          u.line_user_id,
+          u.line_display_name,
+          u.line_picture_url,
+          COUNT(*)::int AS events,
+          COUNT(DISTINCT m.session_id)::int AS sessions,
+          COUNT(*) FILTER (WHERE m.event_name = 'app_open')::int AS opens,
+          COUNT(*) FILTER (WHERE m.event_name IN ('submit_draw','redraw'))::int AS draws,
+          COUNT(*) FILTER (WHERE m.event_name IN ('map_pin_click','restaurant_click'))::int AS pins,
+          COUNT(*) FILTER (WHERE m.event_name = 'map_booking_click')::int AS bookings,
+          MAX(m.created_at) AS last_seen
+        FROM member_liff_events m
+        JOIN users u ON u.id = m.user_id
+        WHERE u.archived_at IS NULL
+          AND u.is_admin = false
+          AND m.created_at > NOW() - ($1 || ' days')::INTERVAL
+        GROUP BY u.id, u.line_user_id, u.line_display_name, u.line_picture_url
+        ORDER BY COUNT(*) DESC, MAX(m.created_at) DESC
+        LIMIT $2
+      `;
+
+      const [bucketRs, memberRs] = await Promise.all([
+        query(bucketSql, [String(days)]),
+        query(memberSql, [String(days), limit])
+      ]);
+
+      const b = bucketRs.rows[0] || {};
+      const memberPeople = Number(b.member_people || 0);
+      const oldPeople = Number(b.old_people || 0);
+      const unknownPeople = Number(b.unknown_people || 0);
+
+      const members = memberRs.rows.map(r => ({
+        line_user_id: r.line_user_id,
+        display_name: r.line_display_name || null,
+        picture_url: r.line_picture_url || null,
+        events: Number(r.events || 0),
+        sessions: Number(r.sessions || 0),
+        opens: Number(r.opens || 0),
+        draws: Number(r.draws || 0),
+        pins: Number(r.pins || 0),
+        bookings: Number(r.bookings || 0),
+        last_seen: r.last_seen
+      }));
+
+      res.json({
+        ok: true,
+        days,
+        data: {
+          member:  { people: memberPeople,  events: Number(b.member_events || 0) },
+          old:     { people: oldPeople,     events: Number(b.old_events || 0) },
+          unknown: { people: unknownPeople, events: Number(b.unknown_events || 0) },
+          anon:    { sessions: Number(b.anon_sessions || 0), events: Number(b.anon_events || 0) },
+          // 有留下身分、可以算成「一個人」的總數（不含完全沒帶身分的紀錄）
+          people_with_id: memberPeople + oldPeople + unknownPeople,
+          total_events: Number(b.total_events || 0),
+          member_actions: {
+            open:    Number(b.act_open || 0),
+            draw:    Number(b.act_draw || 0),
+            pin:     Number(b.act_pin || 0),
+            booking: Number(b.act_booking || 0)
+          },
+          members
+        }
+      });
+    } catch (err) {
+      console.error('liff audience error:', err && err.message);
+      res.status(500).json({ ok: false, error: 'audience_failed', detail: String(err.message || '').slice(0, 300) });
     }
   });
 

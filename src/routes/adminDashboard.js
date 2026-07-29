@@ -55,11 +55,57 @@ function registerAdminDashboardRoutes(app, deps) {
         push_failed_24h: Number(a.push_failed_24h || 0),
         broadcasts_failed: Number(a.broadcasts_failed || 0)
       };
-      return res.json({ ok: true, stats: rs.rows[0], lastBroadcast: lastRs.rows[0] || null, alerts });
+      const liff = await loadLiffStats(query);
+      return res.json({ ok: true, stats: rs.rows[0], lastBroadcast: lastRs.rows[0] || null, alerts, liff });
     } catch (err) {
       return res.status(500).json({ ok: false, error: 'dashboard_failed', detail: err && err.message });
     }
   });
+}
+
+/**
+ * 活動頁（好康地圖 / 擲骰子選餐廳）近 7 天的三個數字。
+ *
+ * - opens_7d   開啟次數（app_open 事件）
+ * - users_7d   用過的人：同一個人多次使用只算一次（只能算有帶身分的）
+ * - members_7d 其中是「現在這個官方帳號的好友」的人數
+ * - anon_7d    沒帶身分、算不出是誰的使用筆數（不是從 LINE 裡面打開的）
+ *
+ * 口徑與上面的「可發送好友」一致：archived_at IS NULL（排除舊官方帳號留下的歷史會員）
+ * 且非管理員，避免把推不到訊息的人算進來。
+ *
+ * 這段刻意獨立 try/catch：活動頁資料是加值資訊，讀不到也不該讓整個首頁掛掉。
+ */
+async function loadLiffStats(query) {
+  try {
+    const rs = await query(`
+      WITH ev AS (
+        SELECT line_id, event_name
+        FROM user_events
+        WHERE created_at > NOW() - interval '7 days'
+      )
+      SELECT
+        (SELECT COUNT(*) FROM ev WHERE event_name = 'app_open')::int AS opens_7d,
+        (SELECT COUNT(DISTINCT line_id) FROM ev WHERE line_id IS NOT NULL)::int AS users_7d,
+        (SELECT COUNT(*) FROM ev WHERE line_id IS NULL)::int AS anon_7d,
+        (SELECT COUNT(DISTINCT m.user_id)
+           FROM member_liff_events m
+           JOIN users u ON u.id = m.user_id
+          WHERE u.archived_at IS NULL
+            AND u.is_admin = false
+            AND m.created_at > NOW() - interval '7 days')::int AS members_7d
+    `);
+    const r = rs.rows[0] || {};
+    return {
+      opens_7d: Number(r.opens_7d || 0),
+      users_7d: Number(r.users_7d || 0),
+      anon_7d: Number(r.anon_7d || 0),
+      members_7d: Number(r.members_7d || 0)
+    };
+  } catch (err) {
+    console.error('dashboard liff stats failed:', err && err.message);
+    return null;
+  }
 }
 
 module.exports = { registerAdminDashboardRoutes };

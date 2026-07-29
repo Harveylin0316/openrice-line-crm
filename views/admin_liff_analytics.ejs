@@ -90,6 +90,55 @@
 
     <section class="card">
       <div class="liff-section-head">
+        <h2>玩的人裡面，有幾個是你的會員</h2>
+        <div class="liff-range-toggle">
+          <label><input type="radio" name="aud-days" value="7" checked /> 近 7 天</label>
+          <label><input type="radio" name="aud-days" value="30" /> 近 30 天</label>
+          <label><input type="radio" name="aud-days" value="3650" /> 全部</label>
+        </div>
+      </div>
+      <p class="liff-aud-lead" id="aud-lead">載入中…</p>
+      <div class="liff-aud-grid" id="aud-grid" hidden>
+        <div class="liff-aud-item">
+          <div class="liff-aud-k">你現在的 LINE 好友</div>
+          <div class="liff-aud-v" id="aud-member-people">—</div>
+          <div class="liff-aud-sub" id="aud-member-events">—</div>
+          <div class="liff-aud-note">加了現在這個官方帳號、你發訊息找得到的人。</div>
+        </div>
+        <div class="liff-aud-item">
+          <div class="liff-aud-k">舊官方帳號時期的人</div>
+          <div class="liff-aud-v" id="aud-old-people">—</div>
+          <div class="liff-aud-sub" id="aud-old-events">—</div>
+          <div class="liff-aud-note">看得出是誰，但他加的是換掉的那個舊帳號，現在發訊息找不到他。</div>
+        </div>
+        <div class="liff-aud-item">
+          <div class="liff-aud-k">還不認識的人</div>
+          <div class="liff-aud-v" id="aud-unknown-people">—</div>
+          <div class="liff-aud-sub" id="aud-unknown-events">—</div>
+          <div class="liff-aud-note">有玩過，但對不到你名單裡的任何一個人。</div>
+        </div>
+      </div>
+      <p class="liff-aud-foot" id="aud-foot" hidden></p>
+      <div class="liff-aud-actions" id="aud-actions" hidden></div>
+      <div class="table-wrap" id="aud-table-wrap" hidden>
+        <table class="liff-users-table liff-aud-table">
+          <thead>
+            <tr>
+              <th>會員</th>
+              <th style="text-align:right;">開啟過活動頁</th>
+              <th style="text-align:right;">擲過骰子</th>
+              <th style="text-align:right;">點過餐廳</th>
+              <th style="text-align:right;">點過訂位</th>
+              <th>最後一次來</th>
+            </tr>
+          </thead>
+          <tbody id="aud-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="liff-section-head">
         <h2>核心轉換漏斗</h2>
         <div class="liff-range-toggle">
           <label><input type="radio" name="funnel-metric" value="users" checked /> 以人數</label>
@@ -324,6 +373,128 @@
         }).join('');
       }
 
+      // ---------------- 會員視角：玩的人裡面有幾個是我的會員 ----------------
+      function rangeLabel(days) {
+        var n = Number(days);
+        if (n === 7) return '近 7 天';
+        if (n === 30) return '近 30 天';
+        return '目前為止';
+      }
+
+      function loadAudience(days) {
+        return fetch('/admin/liff/random-rice/api/audience?days=' + encodeURIComponent(days))
+          .then(function (r) { return r.json(); })
+          .then(function (resp) {
+            if (!resp.ok) throw new Error(resp.detail || 'audience failed');
+            renderAudience(resp.data || {}, days);
+          })
+          .catch(function (e) {
+            console.error('audience load failed:', e);
+            hideAudienceDetail();
+            $('aud-lead').textContent = '這段數字讀不到，按右上角的重新整理再試一次。';
+          });
+      }
+
+      function hideAudienceDetail() {
+        $('aud-grid').hidden = true;
+        $('aud-foot').hidden = true;
+        $('aud-actions').hidden = true;
+        $('aud-table-wrap').hidden = true;
+      }
+
+      function renderAudience(d, days) {
+        var member = d.member || {}, old = d.old || {}, unknown = d.unknown || {}, anon = d.anon || {};
+        var label = rangeLabel(days);
+        var people = Number(d.people_with_id || 0);
+        var memberPeople = Number(member.people || 0);
+        var anonEvents = Number(anon.events || 0);
+
+        // 完全沒資料：講一句話，不要留一排 0 讓人以為壞掉
+        if (!people && !anonEvents) {
+          hideAudienceDetail();
+          $('aud-lead').textContent = label + '沒有人打開過活動頁，所以還沒有數字可以看。';
+          return;
+        }
+
+        var lead = label + '有 <b>' + fmt(people) + '</b> 個人用過活動頁，' +
+                   '其中 <b>' + fmt(memberPeople) + '</b> 位是你現在的 LINE 好友。';
+        if (people > 0 && memberPeople === 0) {
+          lead += ' 也就是說，現在玩的人你都還發不到訊息。';
+        }
+        $('aud-lead').innerHTML = lead;
+
+        $('aud-grid').hidden = false;
+        $('aud-member-people').textContent = fmt(memberPeople) + ' 人';
+        $('aud-member-events').textContent = '共 ' + fmt(Number(member.events || 0)) + ' 次使用';
+        $('aud-old-people').textContent = fmt(Number(old.people || 0)) + ' 人';
+        $('aud-old-events').textContent = '共 ' + fmt(Number(old.events || 0)) + ' 次使用';
+        $('aud-unknown-people').textContent = fmt(Number(unknown.people || 0)) + ' 人';
+        $('aud-unknown-events').textContent = '共 ' + fmt(Number(unknown.events || 0)) + ' 次使用';
+
+        var notes = [];
+        if (anonEvents > 0) {
+          notes.push('另外有 ' + fmt(anonEvents) + ' 次使用沒有留下身分（不是從 LINE 裡面打開的），這些算不出是誰。');
+        }
+        if (memberPeople > 0) {
+          notes.push('會員的部分你可以直接發訊息追，其他人要先想辦法讓他加好友。');
+        }
+        if (notes.length) {
+          $('aud-foot').hidden = false;
+          $('aud-foot').textContent = notes.join(' ');
+        } else {
+          $('aud-foot').hidden = true;
+        }
+
+        renderAudienceActions(d.member_actions || {}, memberPeople);
+        renderAudienceMembers(d.members || []);
+      }
+
+      function renderAudienceActions(acts, memberPeople) {
+        var box = $('aud-actions');
+        if (!memberPeople) { box.hidden = true; box.innerHTML = ''; return; }
+        var items = [
+          ['開啟過活動頁', acts.open],
+          ['擲過骰子選餐廳', acts.draw],
+          ['點過餐廳', acts.pin],
+          ['點過訂位', acts.booking]
+        ];
+        box.innerHTML = items.map(function (it) {
+          return '<span class="liff-aud-act"><b>' + fmt(Number(it[1] || 0)) + '</b> 位會員' + it[0] + '</span>';
+        }).join('');
+        box.hidden = false;
+      }
+
+      function renderAudienceMembers(rows) {
+        var wrap = $('aud-table-wrap');
+        var tbody = $('aud-tbody');
+        if (!rows.length) { wrap.hidden = true; tbody.innerHTML = ''; return; }
+        tbody.innerHTML = rows.map(function (m) {
+          var name = m.display_name
+            ? escapeHtml(m.display_name)
+            : '<span class="liff-user-anon">還沒抓到名字</span>';
+          var avatarHtml = m.picture_url
+            ? '<img src="' + escapeHtml(m.picture_url) + '" alt="" class="liff-user-avatar" />'
+            : '<div class="liff-user-avatar liff-user-avatar--blank">' + escapeHtml((m.display_name || '?').slice(0, 1)) + '</div>';
+          return '<tr>' +
+            '<td class="liff-user-cell">' +
+              '<div class="liff-user-row">' +
+                avatarHtml +
+                '<div class="liff-user-meta">' +
+                  '<div class="liff-user-name">' + name + '</div>' +
+                  '<div class="liff-aud-since">共來過 ' + fmt(m.sessions) + ' 次</div>' +
+                '</div>' +
+              '</div>' +
+            '</td>' +
+            '<td style="text-align:right;">' + fmt(m.opens) + '</td>' +
+            '<td style="text-align:right;">' + fmt(m.draws) + '</td>' +
+            '<td style="text-align:right;">' + fmt(m.pins) + '</td>' +
+            '<td style="text-align:right;font-weight:600;">' + fmt(m.bookings) + '</td>' +
+            '<td>' + fmtTime(m.last_seen) + '</td>' +
+          '</tr>';
+        }).join('');
+        wrap.hidden = false;
+      }
+
       // ---------------- 玩過的用戶清單 ----------------
       function loadUsers(days) {
         return fetch('/admin/liff/random-rice/api/users?days=' + encodeURIComponent(days))
@@ -476,8 +647,10 @@
         var funnelDays = (document.querySelector('input[name="funnel-days"]:checked') || {}).value || 7;
         var trendDays = (document.querySelector('input[name="trend-days"]:checked') || {}).value || 30;
         var usersDays = (document.querySelector('input[name="users-days"]:checked') || {}).value || 7;
+        var audDays = (document.querySelector('input[name="aud-days"]:checked') || {}).value || 7;
         Promise.all([
           loadOverview(),
+          loadAudience(audDays),
           loadFunnel(funnelDays),
           loadUsers(usersDays),
           loadTrend(trendDays)
@@ -497,6 +670,9 @@
       });
       document.querySelectorAll('input[name="users-days"]').forEach(function (el) {
         el.addEventListener('change', function () { loadUsers(el.value); });
+      });
+      document.querySelectorAll('input[name="aud-days"]').forEach(function (el) {
+        el.addEventListener('change', function () { loadAudience(el.value); });
       });
       $('btn-liff-refresh').addEventListener('click', refreshAll);
 
@@ -582,6 +758,59 @@
         line-height: 1.1;
       }
       .liff-kpi-hint { font-size: 11px; color: #9ca3af; margin-top: 8px; }
+
+      /* 會員視角：純文字為主，不用色塊，數字用粗體與深色字強調 */
+      .liff-aud-lead {
+        font-size: 14px;
+        color: #374151;
+        line-height: 1.8;
+        margin: 0 0 14px;
+      }
+      .liff-aud-lead b {
+        font-size: 20px;
+        font-weight: 700;
+        color: #1f2937;
+        font-variant-numeric: tabular-nums;
+      }
+      .liff-aud-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px;
+      }
+      .liff-aud-grid[hidden] { display: none !important; }
+      .liff-aud-item {
+        padding: 14px 16px;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #fff;
+      }
+      .liff-aud-k { font-size: 13px; font-weight: 600; color: #1f2937; }
+      .liff-aud-v {
+        font-size: 26px;
+        font-weight: 700;
+        color: #1f2937;
+        line-height: 1.2;
+        margin-top: 6px;
+        font-variant-numeric: tabular-nums;
+      }
+      .liff-aud-sub { font-size: 12px; color: #6b7280; margin-top: 2px; }
+      .liff-aud-note { font-size: 11px; color: #9ca3af; margin-top: 10px; line-height: 1.7; }
+      .liff-aud-foot { font-size: 13px; color: #6b7280; line-height: 1.8; margin: 14px 0 0; }
+      .liff-aud-foot[hidden] { display: none !important; }
+      .liff-aud-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 22px;
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid #f3f4f6;
+        font-size: 13px;
+        color: #4b5563;
+      }
+      .liff-aud-actions[hidden] { display: none !important; }
+      .liff-aud-act b { color: #1f2937; font-weight: 700; font-variant-numeric: tabular-nums; }
+      #aud-table-wrap { margin-top: 14px; }
+      .liff-aud-since { font-size: 11px; color: #9ca3af; margin-top: 2px; }
 
       .liff-section-head {
         display: flex;
