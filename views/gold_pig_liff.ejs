@@ -65,7 +65,9 @@
     <section class="card hidden" id="errorCard" aria-live="polite">
       <h2 id="errorTitle">暫時無法完成</h2>
       <p class="message" id="errorMessage">請稍後重新開啟付款完成頁的綁定連結。</p>
-      <button class="action secondary" id="retry" type="button">重新嘗試</button>
+      <a class="action" id="bookingHelp" href="https://line.me/R/oaMessage/%40openricetw/?%E6%88%91%E7%9A%84%E8%A8%82%E4%BD%8D%E7%B6%81%E5%AE%9A%E9%80%A3%E7%B5%90%E5%A4%B1%E6%95%88%EF%BC%8C%E8%AB%8B%E5%8D%94%E5%8A%A9%E6%9F%A5%E8%A9%A2"><span class="line-badge">LINE</span>請 OpenRice 協助查詢</a>
+      <button class="action secondary" id="retry" type="button">重新讀取訂位連結</button>
+      <p class="note">若重新讀取後仍無法完成，請直接傳送上方訊息；客服可接續協助，不需要重複付款。</p>
       <p class="errorCode" id="errorCode"></p>
     </section>
 
@@ -75,18 +77,33 @@
     (function () {
       var liffId = <%- JSON.stringify(liffId || '') %>;
       var addFriendUrl = <%- JSON.stringify(addFriendUrl || '') %>;
-      var tokenFromUrl = new URLSearchParams(location.search).get('token') || '';
       var tokenStoreKey = 'gold_pig_booking_token';
-      if (tokenFromUrl) {
-        try { sessionStorage.setItem(tokenStoreKey, tokenFromUrl); } catch (_) {}
-        history.replaceState(null, '', location.pathname);
-      }
-      var token = tokenFromUrl;
-      if (!token) {
-        try { token = sessionStorage.getItem(tokenStoreKey) || ''; } catch (_) {}
-      }
+      var token = '';
+      var liffInitPromise = null;
       var cards = ['loadingCard', 'successCard', 'friendCard', 'errorCard'];
       function show(id) { cards.forEach(function (card) { document.getElementById(card).classList.toggle('hidden', card !== id); }); }
+      function isBookingToken(value) { return /^[a-f0-9]{64}$/i.test(value || ''); }
+      function readBookingTokenAfterInit() {
+        // LIFF restores path/query data from liff.state only after liff.init() resolves.
+        // Reading or rewriting location before then can destroy the original booking link.
+        var fromUrl = new URLSearchParams(location.search).get('token') || '';
+        if (isBookingToken(fromUrl)) {
+          try { sessionStorage.setItem(tokenStoreKey, fromUrl); } catch (_) {}
+          return fromUrl;
+        }
+        try { return sessionStorage.getItem(tokenStoreKey) || ''; } catch (_) { return ''; }
+      }
+      function removeTokenFromAddressBar() {
+        try {
+          var cleanUrl = new URL(location.href);
+          cleanUrl.searchParams.delete('token');
+          history.replaceState(null, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+        } catch (_) {}
+      }
+      function initLiff() {
+        if (!liffInitPromise) liffInitPromise = liff.init({ liffId: liffId });
+        return liffInitPromise;
+      }
       function fail(code) {
         var map = {
           invalid_booking_link: ['連結格式不正確', '請回到付款完成頁，重新點選「綁定這筆訂位」。'],
@@ -115,16 +132,19 @@
       }
       async function bind() {
         show('loadingCard');
-        if (!token || !/^[a-f0-9]{64}$/i.test(token)) return fail('invalid_booking_link');
         if (!liffId || typeof liff === 'undefined') return fail('liff_not_configured');
         try {
-          await liff.init({ liffId: liffId });
+          await initLiff();
+          token = readBookingTokenAfterInit();
+          if (!isBookingToken(token)) return fail('invalid_booking_link');
           if (!liff.isLoggedIn()) {
+            // Keep the restored token in redirectUri until LINE Login has completed.
             liff.login({ redirectUri: location.href });
             return;
           }
           var idToken = liff.getIDToken();
           if (!idToken) return fail('line_login_invalid');
+          removeTokenFromAddressBar();
           var response = await fetch('/api/gold-pig/bind', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
