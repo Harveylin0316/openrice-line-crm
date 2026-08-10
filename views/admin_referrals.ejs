@@ -91,8 +91,8 @@
             Object.keys(byAct).forEach(function(aid){
               var g=byAct[aid];
               h+='<div class="rf-act-block"><div class="rf-act-head">'+esc(g.name)+'</div>'+
-                '<table class="rf-table"><thead><tr><th></th><th>邀請人</th><th style="text-align:right;">成功邀請數</th></tr></thead><tbody>'+
-                g.rows.map(function(r,i){return '<tr><td class="rf-rank">'+(i+1)+'</td><td>'+esc(r.inviter_name)+'<br><span class="muted" style="font-size:11px;">'+esc(shortUid(r.inviter_line))+'</span></td><td class="num"><strong>'+r.referrals+'</strong></td></tr>';}).join('')+
+                '<table class="rf-table"><thead><tr><th></th><th>邀請人</th><th style="text-align:right;">成功邀請</th><th style="text-align:right;">其中新加入</th></tr></thead><tbody>'+
+                g.rows.map(function(r,i){var nm=(r.new_members==null?'—':r.new_members);return '<tr><td class="rf-rank">'+(i+1)+'</td><td>'+esc(r.inviter_name)+'<br><span class="muted" style="font-size:11px;">'+esc(shortUid(r.inviter_line))+'</span></td><td class="num"><strong>'+r.referrals+'</strong></td><td class="num">'+nm+'</td></tr>';}).join('')+
                 '</tbody></table></div>';
             });
           }else{

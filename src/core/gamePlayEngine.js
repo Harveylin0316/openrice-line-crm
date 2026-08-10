@@ -383,9 +383,14 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
   if (inviteeId === inviterId) {
     return { error: { status: 400, code: 'self_referral', detail: '不能邀請自己' } };
   }
+  // inviter 來自網址的 ?ref=，前端可任意竄改 → 至少要求格式正確且真的是本 OA 的會員，
+  // 否則任何人都能把別人（或亂打的 id）灌成邀請人。
+  if (!/^U[0-9a-f]{32}$/i.test(String(inviterId))) {
+    return { error: { status: 400, code: 'bad_inviter', detail: '邀請連結無效' } };
+  }
   const { rows: act } = await query(
-    `SELECT id, referral_bonus_per, referral_bonus_max, liff_id_override FROM activities
-     WHERE slug = $1 AND game_type = $2 LIMIT 1`,
+    `SELECT id, status, start_at, end_at, referral_bonus_per, referral_bonus_max, liff_id_override
+     FROM activities WHERE slug = $1 AND game_type = $2 LIMIT 1`,
     [activitySlug, gameType]
   );
   if (act.length === 0) return { error: { status: 404, code: 'activity_not_found' } };
@@ -393,17 +398,48 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
   if (!a.referral_bonus_per || a.referral_bonus_per <= 0) {
     return { error: { status: 400, code: 'mgm_disabled', detail: '此活動未啟用邀請機制' } };
   }
+  // 活動期間外不該累積邀請數：原本完全沒檢查，草稿階段與活動結束後都還能灌，
+  // 導致活動一開跑就有人已經滿配額。
+  const nowMs = Date.now();
+  if (a.status !== 'active') {
+    return { error: { status: 400, code: 'activity_not_active', detail: '活動尚未開始或已結束' } };
+  }
+  if (a.start_at && nowMs < new Date(a.start_at).getTime()) {
+    return { error: { status: 400, code: 'activity_not_started', detail: '活動尚未開始' } };
+  }
+  if (a.end_at && nowMs > new Date(a.end_at).getTime()) {
+    return { error: { status: 400, code: 'activity_ended', detail: '活動已結束' } };
+  }
+  // 邀請人必須是本 OA 的現行會員（archived = 舊 OA 的歷史會員，其 id 對現行 OA 無效）
+  const { rows: inv } = await query(
+    `SELECT 1 FROM users WHERE line_user_id = $1 AND archived_at IS NULL LIMIT 1`,
+    [inviterId]
+  );
+  if (inv.length === 0) {
+    return { error: { status: 400, code: 'inviter_not_member', detail: '邀請連結無效' } };
+  }
   // 只認「真實加 OA 好友的被邀者」：擋偽造假 id 灌配額、確保邀請真的長 OA、獎勵對應真實獲客
   const invFollows = await verifyOaFollower(inviteeId);
   if (invFollows === false) {
     return { error: { status: 400, code: 'invitee_not_follower', detail: '被邀請的人要先加官方帳號好友，邀請才算成功。' } };
   }
+  // 被邀請人「在這次邀請之前」是不是已經是會員？照樣算邀請成功（剛好已追蹤就判無效，
+  // 客訴大於效益），但記下來，報表才分得出「真的拉到新客」與「邀既有好友」。
+  let inviteeWasExisting = null;
+  try {
+    const { rows: ex } = await query(
+      `SELECT 1 FROM users WHERE line_user_id = $1 AND archived_at IS NULL LIMIT 1`,
+      [inviteeId]
+    );
+    inviteeWasExisting = ex.length > 0;
+  } catch (e) { /* 判斷失敗就記 NULL，不影響邀請本身 */ }
+
   const ins = await query(
-    `INSERT INTO activity_referrals (activity_id, inviter_line_user_id, invitee_line_user_id)
-     VALUES ($1, $2, $3)
+    `INSERT INTO activity_referrals (activity_id, inviter_line_user_id, invitee_line_user_id, invitee_was_existing)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (activity_id, invitee_line_user_id) DO NOTHING
      RETURNING id`,
-    [a.id, inviterId, inviteeId]
+    [a.id, inviterId, inviteeId, inviteeWasExisting]
   );
   const counted = ins.rows.length > 0;
   if (counted) {

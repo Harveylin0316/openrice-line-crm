@@ -51,10 +51,14 @@ function registerAdminReferralsRoutes(app, deps) {
 
       // 活動框架 activity_referrals per-activity per-inviter
       const activity = (await query(
+        // new_members / existing_members：邀進來的人裡有幾個是「這次才加入」的。
+        // 邀既有好友一樣算邀請成功（剛好已追蹤就判無效會造成客訴），但成效要分得出真假獲客。
         `SELECT a.id AS activity_id, a.name AS activity_name,
                 ar.inviter_line_user_id AS inviter_line,
                 COALESCE(u.line_display_name, u.username, '—') AS inviter_name,
-                COUNT(*)::int AS referrals
+                COUNT(*)::int AS referrals,
+                COUNT(*) FILTER (WHERE ar.invitee_was_existing IS FALSE)::int AS new_members,
+                COUNT(*) FILTER (WHERE ar.invitee_was_existing IS TRUE)::int AS existing_members
          FROM activity_referrals ar
          JOIN activities a ON a.id = ar.activity_id
          LEFT JOIN users u ON LOWER(TRIM(u.line_user_id)) = LOWER(TRIM(ar.inviter_line_user_id))
