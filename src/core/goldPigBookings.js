@@ -19,10 +19,15 @@ function formatMoney(value) {
   return 'NT$' + Number(value || 0).toLocaleString('zh-TW');
 }
 
+function formatDateValue(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  const text = String(value || '');
+  const match = /^\d{4}-\d{2}-\d{2}/.exec(text);
+  return match ? match[0] : text.slice(0, 10);
+}
+
 function formatBooking(row) {
-  const date = row.session_date instanceof Date
-    ? row.session_date.toISOString().slice(0, 10)
-    : String(row.session_date || '').slice(0, 10);
+  const date = formatDateValue(row.session_date);
   const time = String(row.session_time || '').slice(0, 5);
   const tables = [
     Number(row.tables_4 || 0) ? `4 人桌 × ${Number(row.tables_4)}` : '',
@@ -128,7 +133,7 @@ function createGoldPigBookingService({ pool }) {
     const bookingNo = cancelMatch[1] ? normalizeBookingNo(cancelMatch[1]) : '';
     const outcome = await requestCancellation(lineUserId, bookingNo);
     if (outcome.kind === 'choose') {
-      const numbers = outcome.bookings.map(row => `・${row.booking_no}｜${String(row.session_date).slice(0, 10)}`).join('\n');
+      const numbers = outcome.bookings.map(row => `・${row.booking_no}｜${formatDateValue(row.session_date)}`).join('\n');
       return {
         result: 'gold_pig_cancel_choose',
         messages: [`你有多筆有效訂位，請指定訂位編號：\n\n${numbers}\n\n例如：取消訂位 GP12345678`]
@@ -160,6 +165,7 @@ function createGoldPigBookingService({ pool }) {
 module.exports = {
   ACTIVE_STATUSES,
   createGoldPigBookingService,
+  formatDateValue,
   formatBooking,
   generateBookingToken,
   hashBookingToken,

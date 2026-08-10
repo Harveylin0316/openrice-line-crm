@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 const { fetchOaProfile, verifyOaFollower } = require('../core/oaFollower');
-const { generateBookingToken, hashBookingToken } = require('../core/goldPigBookings');
+const { formatDateValue, generateBookingToken, hashBookingToken } = require('../core/goldPigBookings');
 
 function safeEqualText(leftValue, rightValue) {
   const left = Buffer.from(String(leftValue || ''), 'utf8');
@@ -29,7 +29,7 @@ function serializeBooking(row) {
   return {
     bookingNo: row.booking_no,
     status: row.status,
-    date: String(row.session_date || '').slice(0, 10),
+    date: formatDateValue(row.session_date),
     time: String(row.session_time || '').slice(0, 5),
     tables4: Number(row.tables_4 || 0),
     tables6: Number(row.tables_6 || 0),

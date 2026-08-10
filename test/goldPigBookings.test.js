@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   createGoldPigBookingService,
+  formatDateValue,
   generateBookingToken,
   hashBookingToken,
   normalizeBookingNo
@@ -29,6 +30,11 @@ test('booking input accepts one or two tables and rejects impossible orders', ()
 test('booking number normalization is strict', () => {
   assert.equal(normalizeBookingNo(' gp260828abc123 '), 'GP260828ABC123');
   assert.equal(normalizeBookingNo('bad number!'), '');
+});
+
+test('database date values serialize as ISO dates', () => {
+  assert.equal(formatDateValue(new Date('2026-08-28T00:00:00.000Z')), '2026-08-28');
+  assert.equal(formatDateValue('2026-09-25'), '2026-09-25');
 });
 
 test('query command returns linked bookings without contact data', async () => {

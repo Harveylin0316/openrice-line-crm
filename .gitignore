@@ -10,3 +10,6 @@ npm-debug.log*
 .env.migrate
 supabase_backup.dump
 supabase_restore.log
+
+# Local Netlify folder
+.netlify
