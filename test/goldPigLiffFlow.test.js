@@ -24,4 +24,5 @@ test('failed booking links offer a LINE support handoff instead of a retry loop 
   assert.match(template, /id="bookingHelp"/);
   assert.match(template, /請 OpenRice 協助查詢/);
   assert.match(template, /不需要重複付款/);
+  assert.doesNotMatch(template, /請回到付款完成頁/);
 });

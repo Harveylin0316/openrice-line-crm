@@ -64,7 +64,7 @@
 
     <section class="card hidden" id="errorCard" aria-live="polite">
       <h2 id="errorTitle">暫時無法完成</h2>
-      <p class="message" id="errorMessage">請稍後重新開啟付款完成頁的綁定連結。</p>
+      <p class="message" id="errorMessage">請先重新讀取訂位連結；若仍無法完成，可直接請 OpenRice 協助。</p>
       <a class="action" id="bookingHelp" href="https://line.me/R/oaMessage/%40openricetw/?%E6%88%91%E7%9A%84%E8%A8%82%E4%BD%8D%E7%B6%81%E5%AE%9A%E9%80%A3%E7%B5%90%E5%A4%B1%E6%95%88%EF%BC%8C%E8%AB%8B%E5%8D%94%E5%8A%A9%E6%9F%A5%E8%A9%A2"><span class="line-badge">LINE</span>請 OpenRice 協助查詢</a>
       <button class="action secondary" id="retry" type="button">重新讀取訂位連結</button>
       <p class="note">若重新讀取後仍無法完成，請直接傳送上方訊息；客服可接續協助，不需要重複付款。</p>
@@ -106,15 +106,15 @@
       }
       function fail(code) {
         var map = {
-          invalid_booking_link: ['連結格式不正確', '請回到付款完成頁，重新點選「綁定這筆訂位」。'],
-          booking_link_not_found: ['找不到這筆訂位連結', '請確認使用付款完成頁提供的原始連結。'],
+          invalid_booking_link: ['沒有收到完整訂位資料', '請先重新讀取訂位連結；若仍無法完成，可直接請 OpenRice 協助。'],
+          booking_link_not_found: ['找不到這筆訂位連結', '這個連結可能不完整；請直接請 OpenRice 協助查詢。'],
           booking_link_expired: ['綁定連結已逾期', '為保護訂位資料，連結有效期為 72 小時。請聯絡 OpenRice 客服協助。'],
           booking_link_used: ['這個連結已使用', '這筆訂位已綁定到另一個 LINE 帳號；如需協助請聯絡客服。'],
           booking_bound_other: ['這筆訂位已綁定', '這筆訂位已連結到另一個 LINE 帳號；如需協助請聯絡客服。'],
           line_login_invalid: ['LINE 登入逾時', '請重新嘗試登入並完成綁定。'],
           friend_check_unavailable: ['暫時無法確認好友狀態', 'LINE 服務目前忙碌，請稍後重新嘗試。']
         };
-        var copy = map[code] || ['暫時無法完成', '請稍後重新開啟付款完成頁的綁定連結。'];
+        var copy = map[code] || ['暫時無法完成', '請先重新讀取訂位連結；若仍無法完成，可直接請 OpenRice 協助。'];
         document.getElementById('errorTitle').textContent = copy[0];
         document.getElementById('errorMessage').textContent = copy[1];
         document.getElementById('errorCode').textContent = code ? '錯誤代碼：' + code : '';
