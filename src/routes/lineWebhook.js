@@ -72,6 +72,57 @@ function createLineWebhookHandler({
   }
 
   /**
+   * 九月訂位抽獎的資格登記：使用者在 OA 輸入「訂位時用的手機號碼」。
+   * 為什麼要這樣做：訂位系統只有姓名/電話，CRM 對不回 LINE（RFM 51,883 筆只有 12 筆有 lineId），
+   * 所以只能讓使用者自己來綁，10 月再用電話跟出席名單比對。
+   * 只在活動期間收；期間改變就改這兩個常數（一行 + 部署，一次性活動不值得做設定 UI）。
+   */
+  const BOOKING_CAMPAIGN_KEY = 'sep-booking';
+  const BOOKING_REG_START = new Date('2026-09-01T00:00:00+08:00');
+  const BOOKING_REG_END   = new Date('2026-10-05T23:59:59+08:00'); // 給用餐後幾天的補登期
+
+  /** 台灣手機正規化：吃 0912-345-678 / +886912345678 / 全形數字 / 夾空白，輸出 09xxxxxxxx；不合格回 null */
+  function normalizeTwMobile(text) {
+    let t = String(text || '').trim();
+    // 全形數字轉半形
+    t = t.replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+    t = t.replace(/[\s\-()（）.]/g, '');
+    if (/^\+?886/.test(t)) t = '0' + t.replace(/^\+?886/, '');
+    return /^09\d{8}$/.test(t) ? t : null;
+  }
+
+  async function captureBookingPhone(lineUserId, text, replyToken) {
+    const phone = normalizeTwMobile(text);
+    if (!phone) return false;
+    const now = new Date();
+    if (now < BOOKING_REG_START || now > BOOKING_REG_END) return false; // 期間外不收，也不回覆
+    let saved = false;
+    try {
+      const r = await pool.query(
+        `INSERT INTO campaign_phone_registrations (campaign_key, line_user_id, phone_normalized, phone_raw)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (campaign_key, line_user_id, phone_normalized) DO NOTHING
+         RETURNING id`,
+        [BOOKING_CAMPAIGN_KEY, lineUserId, phone, String(text || '').slice(0, 60)]
+      );
+      saved = r.rowCount > 0;
+    } catch (e) {
+      console.error('booking phone register failed:', e.message);
+      return false;
+    }
+    const masked = phone.slice(0, 4) + '***' + phone.slice(-3);
+    const msg = saved
+      ? '登記成功\n\n手機：' + masked + '\n\n九月在合作餐廳訂位並完成用餐，就有抽獎資格。得獎名單十月公布，會用這個官方帳號通知你。'
+      : '這支手機已經登記過了\n\n手機：' + masked + '\n\n不用重複登記，得獎名單十月公布。';
+    try {
+      if (replyToken && linePush && typeof linePush.replyLineMessages === 'function') {
+        await linePush.replyLineMessages(replyToken, [msg], { lineUserId, pushType: 'booking_reg' });
+      }
+    } catch (e) { console.error('booking reg reply failed:', e.message); }
+    return true;
+  }
+
+  /**
    * 訂位來源調查：解析「透過 X 訂位」「透過 X 預訂」句型並記錄。
    * 用句型比對而非寫死選項，日後圖文選單新增來源（例如「透過 Uber Eats 訂位」）不必改程式。
    * 提問句「您是透過哪裡預訂的？」不是以「透過」開頭，不會被誤判為答案。
@@ -251,6 +302,17 @@ function createLineWebhookHandler({
               detail: uid || null,
               eventTimestamp: event?.timestamp,
               rawEvent: event || {}
+            }).catch(() => {});
+            continue;
+          }
+          // 訂位抽獎資格登記：使用者直接輸入手機號碼就當作登記。
+          // 放在關鍵字比對之前短路，避免被某條 contains 規則吃掉；回覆後 continue
+          // （replyToken 一次性，不 continue 會被下面的關鍵字回覆重用而被 LINE 回 400）。
+          if (await captureBookingPhone(event.source.userId, event.message.text, event.replyToken)) {
+            await appendWebhookEventLog({
+              eventType: 'message', lineUserId: event.source.userId,
+              result: 'booking_phone_registered', detail: null,
+              eventTimestamp: event?.timestamp, rawEvent: event || {}
             }).catch(() => {});
             continue;
           }
