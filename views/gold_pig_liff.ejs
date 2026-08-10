@@ -75,7 +75,16 @@
     (function () {
       var liffId = <%- JSON.stringify(liffId || '') %>;
       var addFriendUrl = <%- JSON.stringify(addFriendUrl || '') %>;
-      var token = new URLSearchParams(location.search).get('token') || '';
+      var tokenFromUrl = new URLSearchParams(location.search).get('token') || '';
+      var tokenStoreKey = 'gold_pig_booking_token';
+      if (tokenFromUrl) {
+        try { sessionStorage.setItem(tokenStoreKey, tokenFromUrl); } catch (_) {}
+        history.replaceState(null, '', location.pathname);
+      }
+      var token = tokenFromUrl;
+      if (!token) {
+        try { token = sessionStorage.getItem(tokenStoreKey) || ''; } catch (_) {}
+      }
       var cards = ['loadingCard', 'successCard', 'friendCard', 'errorCard'];
       function show(id) { cards.forEach(function (card) { document.getElementById(card).classList.toggle('hidden', card !== id); }); }
       function fail(code) {
@@ -95,6 +104,7 @@
         show('errorCard');
       }
       function renderBooking(booking) {
+        try { sessionStorage.removeItem(tokenStoreKey); } catch (_) {}
         document.getElementById('bookingNo').textContent = booking.bookingNo;
         document.getElementById('bookingDate').textContent = booking.date + ' ' + booking.time;
         var items = [];
