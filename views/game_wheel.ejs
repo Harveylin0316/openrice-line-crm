@@ -3,800 +3,199 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#FAFAFA" />
+  <meta name="theme-color" content="#FBF8F5" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#211713" media="(prefers-color-scheme: dark)" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    :root {
-      --bg:         #FAFAFA;
-      --surface:    #FFFFFF;
-      --or-yellow:  #FCC726;
-      --or-yellow-d: #E8B400;
-      --or-red:     #E11D27;
-      --ink:        #0F0F10;
-      --ink-2:      #6B6B70;
-      --ink-3:      #A0A0A6;
-      --border:     #ECECEE;
-      --border-2:   #E0E0E4;
+    /* ── OpenRice 九月轉盤 ─────────────────────────────────────────
+       設計準據：openrice-september-wheel-ready-state-v1.png
+       紙感暖底、黃銅轉盤、手繪食物線稿、活版印刷按鈕。
+       禁用：紫藍漸層 / 毛玻璃 / 光暈球 / 漸層標題 / emoji / 紙花 / 滿頁陰影。 */
+    :root{
+      --ink:#3E2723; --ink2:#8D6E63; --paper:#FBF8F5; --surface:#FFFDFB;
+      --orange:#F15A22; --yellow:#F9C73B; --line:#E4DAD2;
+      --brass1:#C9A227; --brass2:#8A6A2F; --brass3:#5E4620;
     }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    html, body { margin: 0; padding: 0; }
-    body {
+    /* 深色模式：LINE webview 跟系統走，所以主力是 media query；
+       data-theme 保留給日後後台切換用，兩者要一致。 */
+    @media (prefers-color-scheme: dark){
+      :root:not([data-theme="light"]){
+        --ink:#F7EFE7; --ink2:#BCAAA4; --paper:#211713; --surface:#30221C; --line:#4A3630;
+      }
+    }
+    [data-theme="dark"]{
+      --ink:#F7EFE7; --ink2:#BCAAA4; --paper:#211713; --surface:#30221C; --line:#4A3630;
+    }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    /* display:flex/block 會蓋掉瀏覽器預設的 [hidden]，JS 藏不掉元素 */
+    [hidden]{display:none !important}
+    html,body{margin:0;padding:0}
+    body{
+      background:var(--paper); color:var(--ink);
+      font-family:"PingFang TC","Heiti TC","Microsoft JhengHei",sans-serif;
+      -webkit-font-smoothing:antialiased;
+      padding-bottom:env(safe-area-inset-bottom);
+    }
+    /* 紙質顆粒：純 CSS，很淡（AI 感的解藥，但不能重） */
+    body::before{
+      content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.045;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    .page{position:relative;z-index:1;max-width:520px;margin:0 auto;padding:14px 18px 28px}
+
+    /* ── 品牌列 ── */
+    .brand-bar{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+    .logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--ink)}
+    .logo .o{color:var(--orange)}
+    .chip{font-size:11px;font-weight:700;border:1.5px solid var(--ink);border-radius:5px;padding:1px 7px;color:var(--ink)}
+
+    /* ── 標題 ── */
+    .hero{position:relative;margin:6px 0 18px}
+    .hero h1{
+      margin:0;font-size:34px;line-height:1.15;font-weight:900;letter-spacing:-.01em;
+      max-width:76%;
+    }
+    /* 手寫感底線：兩段不等長，避免電腦畫出來的死板 */
+    .hero .rule{margin-top:7px;max-width:76%}
+    .hero p{margin:9px 0 0;font-size:13px;color:var(--ink2);line-height:1.65;max-width:76%}
+    .hero .art{position:absolute;top:-6px;right:-6px;width:104px;opacity:.72;pointer-events:none}
+    [data-theme="dark"] .hero .art{opacity:.5}
+
+    /* ── 轉盤 ── */
+    .stage-wrap{margin:4px 0 0;display:flex;justify-content:center}
+    .stage{position:relative;width:min(88vw,330px);aspect-ratio:1;}
+    .ring{position:absolute;inset:0;pointer-events:none;z-index:3}
+    .canvas-wrap{position:absolute;inset:7.5%;border-radius:50%;overflow:hidden}
+    #wheel{width:100%;height:100%;display:block}
+    /* 指針：有重量的實體物件，不是三角形 */
+    .pointer{position:absolute;left:50%;top:-9px;transform:translateX(-50%);z-index:5;filter:drop-shadow(0 3px 4px rgba(62,39,35,.34))}
+    /* 中心轂 */
+    .hub{
+      position:absolute;left:50%;top:50%;width:19%;aspect-ratio:1;transform:translate(-50%,-50%);
+      border-radius:50%;z-index:4;border:0;padding:0;cursor:pointer;
       background:
-        radial-gradient(640px 360px at 88% -80px, rgba(252, 199, 38, 0.20), transparent 70%),
-        radial-gradient(520px 300px at -10% 240px, rgba(252, 199, 38, 0.08), transparent 70%),
-        linear-gradient(180deg, #FFFBEB 0%, var(--bg) 360px);
-      color: var(--ink);
-      min-height: 100vh;
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-        "Inter", "PingFang TC", "Microsoft JhengHei", sans-serif;
-      letter-spacing: -0.011em;
-      -webkit-font-smoothing: antialiased;
+        radial-gradient(circle at 50% 50%, transparent 0 52%, rgba(74,53,23,.55) 52% 56%, transparent 56%),
+        linear-gradient(158deg, #E2C777 0%, var(--brass1) 44%, var(--brass2) 78%, var(--brass3) 100%);
+      box-shadow:inset 0 1.5px 0 rgba(255,246,220,.6), inset 0 -2px 3px rgba(48,32,10,.45), 0 2px 5px rgba(62,39,35,.3);
+      border:1.5px solid #4A3517;
+      font-size:0;color:transparent;
     }
+    .hub:disabled{cursor:default}
+    #wheel.windup{transition:transform .32s cubic-bezier(.34,.02,.72,.24)}
+    .stage.spinning #wheel{transition:transform 4.05s cubic-bezier(.12,.74,.14,1)}
+    .stage.landed .hub{animation:hubKnock .42s ease-out}
+    @keyframes hubKnock{0%{transform:translate(-50%,-50%) scale(1)}30%{transform:translate(-50%,-50%) scale(.93)}100%{transform:translate(-50%,-50%) scale(1)}}
 
-    .page {
-      max-width: 480px;
-      margin: 0 auto;
-      padding: 16px 16px 56px;
-    }
+    /* ── 狀態行：數字是主角 ── */
+    .status-row{margin:20px 0 0;text-align:center}
+    .status-row .big{font-size:22px;font-weight:900;letter-spacing:-.01em;line-height:1.1}
+    .status-row .n{font-size:46px;color:var(--orange);margin:0 5px;vertical-align:-4px;display:inline-block}
+    .status-row .sub{margin-top:5px;font-size:13px;color:var(--ink2);line-height:1.5;min-height:19px}
+    .status-row .sub .name{font-weight:800;color:var(--ink)}
+    .status-row.ready .sub{color:var(--ink)}
+    .status-row.done .big{font-size:19px;color:var(--ink2)}
+    .status-row.done .n{display:none}
+    @keyframes statPop{0%{transform:scale(1)}34%{transform:scale(1.32)}100%{transform:scale(1)}}
+    .pop{animation:statPop .42s cubic-bezier(.2,1.4,.4,1)}
 
-    /* ========== 進場動畫（staggered fade + up）========== */
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(14px); }
-      to   { opacity: 1; transform: translateY(0); }
+    /* ── 主行動：活版印刷，實心位移陰影不是柔光 ── */
+    .cta{
+      display:block;width:100%;margin:14px 0 0;padding:16px 20px;border:0;border-radius:9px;
+      background:var(--orange);color:#fff;font-size:20px;font-weight:900;font-family:inherit;
+      letter-spacing:.04em;cursor:pointer;box-shadow:0 4px 0 #B8401A;transition:transform .1s, box-shadow .1s;
     }
-    .brand-bar, .hero, .stats, .invite-card, .stage-card, .section, .foot {
-      animation: rise 0.38s cubic-bezier(0.22, 0.9, 0.3, 1) both;
-    }
-    .hero       { animation-delay: 0.05s; }
-    .stats      { animation-delay: 0.11s; }
-    .invite-card{ animation-delay: 0.17s; }
-    .stage-card { animation-delay: 0.23s; }
-    .section    { animation-delay: 0.31s; }
-    .foot       { animation-delay: 0.38s; }
+    .cta:active{transform:translateY(3px);box-shadow:0 1px 0 #B8401A}
+    .cta:disabled{background:var(--line);color:var(--paper);box-shadow:0 4px 0 rgba(0,0,0,.18);cursor:default}
+    .cta.ghost{background:transparent;color:var(--orange);border:2px solid var(--orange);box-shadow:none}
+    .cta.ghost:active{transform:translateY(1px)}
 
-    /* ========== Brand bar ========== */
-    .brand-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 6px 0 16px;
-    }
-    .brand-bar .logo {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-      color: var(--ink);
-    }
-    .brand-bar .logo .dot {
-      width: 18px; height: 18px; border-radius: 6px;
-      background: var(--or-yellow);
-      display: inline-block;
-      position: relative;
-      flex-shrink: 0;
-    }
-    .brand-bar .logo .dot::after {
-      content: '';
-      position: absolute;
-      inset: 4px;
-      border-radius: 50%;
-      background: var(--ink);
-    }
-    .brand-bar .chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 11px;
-      font-weight: 500;
-      color: var(--ink-2);
-      background: var(--surface);
-      border: 1px solid var(--border);
-      padding: 5px 10px;
-      border-radius: 999px;
-    }
-    .brand-bar .chip::before {
-      content: '';
-      width: 5px; height: 5px;
-      border-radius: 50%;
-      background: #22C55E;
-      box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15);
-    }
+    /* ── 分隔：虛線，不是實線卡片邊 ── */
+    .dash{border:0;border-top:1.5px dashed var(--line);margin:20px 0}
 
-    /* ========== Hero card ========== */
-    .hero {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 22px 22px 24px;
-      position: relative;
-      overflow: hidden;
-      box-shadow: 0 10px 28px -16px rgba(15, 15, 16, 0.12);
+    /* ── 邀請區：刻意不做成又一張圓角卡片 ── */
+    .invite-card{display:flex;align-items:center;gap:13px}
+    .invite-card.maxed{opacity:.62}
+    .invite-art{width:52px;flex:0 0 auto;opacity:.85}
+    .invite-left{flex:1;min-width:0}
+    .invite-title{font-size:16px;font-weight:800;line-height:1.35}
+    .invite-title .n{color:var(--orange);font-size:19px;margin:0 2px}
+    .invite-sub{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.5}
+    .invite-meta{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.5}
+    .invite-meta .n{font-size:16px;font-weight:900;color:var(--orange);margin:0 2px;display:inline-block}
+    .invite-card.maxed .invite-meta .n{color:var(--ink2)}
+    .invite-btn{
+      flex:0 0 auto;padding:11px 17px;border:2px solid var(--ink);border-radius:8px;background:transparent;
+      color:var(--ink);font-size:15px;font-weight:800;font-family:inherit;cursor:pointer;
     }
-    .hero::before {
-      content: '';
-      position: absolute;
-      top: -40px;
-      right: -40px;
-      width: 180px;
-      height: 180px;
-      background: radial-gradient(circle, rgba(252, 199, 38, 0.18), transparent 70%);
-      pointer-events: none;
-    }
-    .hero-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      color: var(--or-red);
-      text-transform: uppercase;
-      margin-bottom: 14px;
-    }
-    .hero-tag::before {
-      content: '';
-      width: 6px; height: 6px;
-      background: var(--or-red);
-      border-radius: 50%;
-    }
-    .hero h1 {
-      margin: 0 0 8px;
-      font-size: 26px;
-      font-weight: 700;
-      letter-spacing: -0.028em;
-      line-height: 1.2;
-    }
-    .hero p {
-      margin: 0;
-      font-size: 14px;
-      line-height: 1.55;
-      color: var(--ink-2);
-    }
-    .hero-cover {
-      width: calc(100% + 44px);
-      margin: 18px -22px -24px;
-      aspect-ratio: 16 / 9;
-      object-fit: cover;
-      display: block;
-      border-top: 1px solid var(--border);
-    }
+    .invite-btn:active{transform:translateY(1px)}
+    .invite-card.maxed .invite-btn{border-color:var(--line);color:var(--ink2)}
 
-    /* ========== Stats strip ========== */
-    .stats {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 8px;
-      margin-top: 12px;
+    /* ── 結果：由下往上推的 bottom sheet ── */
+    .modal{position:fixed;inset:0;z-index:60;display:none}
+    .modal.shown{display:block}
+    .modal::before{content:'';position:absolute;inset:0;background:rgba(45,28,22,.55);opacity:0;transition:opacity .26s}
+    .modal.open::before{opacity:1}
+    .sheet{
+      position:absolute;left:0;right:0;bottom:0;background:var(--surface);
+      border-radius:22px 22px 0 0;padding:22px 22px calc(24px + env(safe-area-inset-bottom));
+      text-align:center;transform:translateY(102%);transition:transform .38s cubic-bezier(.16,.9,.24,1);
+      max-height:88vh;overflow-y:auto;box-shadow:0 -3px 0 var(--orange);
     }
-    .stat {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 12px 12px;
-      box-shadow: 0 4px 14px -8px rgba(15, 15, 16, 0.08);
+    .modal.open .sheet{transform:translateY(0)}
+    .modal.grand .sheet{background:var(--yellow);box-shadow:0 -3px 0 #D9A800}
+    .ornament{display:flex;align-items:center;justify-content:center;gap:9px;color:var(--orange);margin-bottom:11px}
+    .ornament i{display:block;width:38px;height:1.5px;background:currentColor;opacity:.55}
+    .ornament b{font-size:15px;font-style:normal;line-height:1}
+    .modal.grand .ornament{color:#7A5B00}
+    .modal-eyebrow{font-size:14px;font-weight:800;color:var(--ink);margin-bottom:7px}
+    .modal-img-wrap{margin:0 0 8px;min-height:0}
+    .modal-img-wrap img{max-width:130px;max-height:104px;border-radius:8px}
+    .modal-prize{font-size:31px;font-weight:900;line-height:1.2;color:var(--orange);letter-spacing:-.01em}
+    .modal.grand .modal-prize{color:#3E2723;font-size:33px}
+    .modal.noprize .modal-prize{color:var(--ink);font-size:25px}
+    .modal.noprize .ornament{color:var(--ink2)}
+    .modal-desc{font-size:13.5px;color:var(--ink2);margin-top:8px;line-height:1.6}
+    .modal.grand .modal-desc{color:#6B5200}
+    .modal-btn{
+      display:block;width:100%;margin-top:17px;padding:15px;border:0;border-radius:9px;
+      background:var(--orange);color:#fff;font-size:17px;font-weight:900;font-family:inherit;cursor:pointer;
+      box-shadow:0 4px 0 #B8401A;
     }
-    .stat .v {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      line-height: 1;
-      font-variant-numeric: tabular-nums;
-      transform-origin: left center;
-    }
-    /* 次數變化時的 pop（scale 1.3 → 1） */
-    @keyframes stat-pop {
-      0%   { transform: scale(1.3); color: var(--or-yellow-d); }
-      100% { transform: scale(1); }
-    }
-    .stat .v.pop {
-      animation: stat-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
-    }
-    .stat .v .unit { font-size: 11px; font-weight: 500; color: var(--ink-2); margin-left: 2px; }
-    .stat .k {
-      font-size: 11px;
-      color: var(--ink-2);
-      margin-top: 5px;
-      font-weight: 500;
-    }
+    .modal-btn:active{transform:translateY(3px);box-shadow:0 1px 0 #B8401A}
+    .modal.grand .modal-btn{background:#3E2723;box-shadow:0 4px 0 #241512}
+    .modal.grand .modal-btn:active{box-shadow:0 1px 0 #241512}
+    .sheet-dismiss{display:block;margin:13px auto 0;border:0;background:transparent;font-family:inherit;
+      font-size:13.5px;font-weight:700;color:var(--ink2);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+    .modal-prize.pop{animation:statPop .46s cubic-bezier(.2,1.4,.4,1)}
+    .wallet-link{display:inline-block;margin-top:13px;font-size:13.5px;font-weight:800;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+    .modal-foot{font-size:12.5px;color:var(--ink2);margin-top:11px;line-height:1.6}
+    .modal-foot .n{color:var(--orange);font-weight:900;font-size:15px;margin:0 2px}
 
-    /* ========== Invite card（MGM 主視覺：品牌黃）========== */
-    .invite-card {
-      margin-top: 8px;
-      background: linear-gradient(135deg, #FFDC6B 0%, var(--or-yellow) 52%, #F3B913 100%);
-      border-radius: 18px;
-      padding: 16px 18px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      position: relative;
-      overflow: hidden;
-      color: var(--ink);
-      box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.5) inset,
-        0 12px 26px -14px rgba(232, 180, 0, 0.65);
-    }
-    .invite-card::before {
-      content: '';
-      position: absolute;
-      top: -48px;
-      right: -28px;
-      width: 144px; height: 144px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.30);
-      pointer-events: none;
-    }
-    .invite-card::after {
-      content: '';
-      position: absolute;
-      bottom: -62px;
-      right: 42px;
-      width: 112px; height: 112px;
-      border-radius: 50%;
-      background: rgba(31, 41, 55, 0.06);
-      pointer-events: none;
-    }
-    .invite-left { flex: 1; min-width: 0; z-index: 1; }
-    .invite-eyebrow {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: rgba(31, 41, 55, 0.62);
-      margin-bottom: 4px;
-    }
-    .invite-title {
-      font-size: 16px;
-      font-weight: 800;
-      letter-spacing: -0.015em;
-      line-height: 1.3;
-    }
-    .invite-sub {
-      font-size: 11.5px;
-      font-weight: 500;
-      color: rgba(31, 41, 55, 0.72);
-      margin-top: 3px;
-    }
-    .invite-btn {
-      flex-shrink: 0;
-      background: var(--ink);
-      color: #fff;
-      border: none;
-      border-radius: 999px;
-      padding: 10px 18px;
-      font-family: inherit;
-      font-weight: 700;
-      font-size: 13px;
-      cursor: pointer;
-      letter-spacing: -0.005em;
-      z-index: 1;
-      transition: background 0.15s ease, transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
-      display: inline-flex;
-      align-items: center;
-      box-shadow: 0 6px 14px -6px rgba(15, 15, 16, 0.5);
-    }
-    .invite-btn:hover { background: #000; }
-    .invite-btn:active { transform: scale(0.96); }
-    .invite-card.maxed { opacity: 0.6; box-shadow: none; }
-    .invite-card.maxed .invite-btn { background: var(--ink-3); cursor: default; pointer-events: none; box-shadow: none; }
+    /* ── 優惠碼：橘框盒 + 複製 ── */
+    .coupon-block{margin-top:15px;border:2px solid var(--orange);border-radius:10px;display:flex;align-items:stretch;overflow:hidden}
+    .coupon-code{flex:1;padding:13px 12px;font-size:21px;font-weight:800;letter-spacing:.05em;color:var(--ink);
+      font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all;display:flex;align-items:center;justify-content:center}
+    .coupon-copy{flex:0 0 auto;width:70px;border:0;border-left:2px solid var(--orange);background:transparent;
+      color:var(--ink);font-family:inherit;font-size:11px;font-weight:800;cursor:pointer;display:flex;
+      flex-direction:column;align-items:center;justify-content:center;gap:3px}
+    .coupon-oos{margin-top:13px;font-size:13px;color:var(--ink2);line-height:1.6}
+    .modal.grand .coupon-block{border-color:#7A5B00}
+    .modal.grand .coupon-copy{border-left-color:#7A5B00;color:#3E2723}
+    .modal.grand .coupon-code{color:#3E2723}
+    .modal.grand .wallet-link{color:#3E2723}
+    /* 大獎彈窗永遠是黃底，所以文字一律鎖深棕，不能跟著深色模式變淺 */
+    .modal.grand .modal-eyebrow{color:#3E2723}
+    .modal.grand .coupon-oos{color:#6B5200}
+    .modal.grand .sheet-dismiss{color:#6B5200}
+    .modal.grand .modal-foot{color:#6B5200}
+    .modal.grand .modal-foot .n{color:#7A5B00}
 
-    /* ========== Stage card ========== */
-    .stage-card {
-      margin-top: 12px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 24px 20px 20px;
-      position: relative;
-      overflow: hidden;
-      box-shadow: 0 14px 32px -18px rgba(15, 15, 16, 0.14);
-    }
-    .stage-card::before {
-      content: '';
-      position: absolute;
-      bottom: -80px;
-      left: -60px;
-      width: 240px; height: 240px;
-      background: radial-gradient(circle, rgba(225, 29, 39, 0.05), transparent 70%);
-      pointer-events: none;
-    }
-    .stage-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-      position: relative;
-    }
-    .stage-head .label {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--ink-3);
-    }
-    .stage-head .count {
-      font-size: 11px;
-      color: var(--ink-2);
-      font-weight: 500;
-      font-variant-numeric: tabular-nums;
-    }
-    .stage-wrap {
-      display: flex;
-      justify-content: center;
-      padding: 8px 0 4px;
-      position: relative;
-    }
-    .stage {
-      position: relative;
-      width: min(76vw, 300px);
-      aspect-ratio: 1;
-    }
-    .pointer {
-      position: absolute;
-      top: -6px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 5;
-    }
-    .pointer svg { display: block; transform-origin: 50% 20%; }
-    /* 轉動中：指針細微 tick 抖動（模擬撞釘） */
-    @keyframes ptr-tick {
-      from { transform: rotate(2deg); }
-      to   { transform: rotate(-8deg); }
-    }
-    .stage.spinning .pointer svg {
-      animation: ptr-tick 0.12s linear infinite alternate;
-    }
-    /* 停止瞬間：指針 bounce */
-    @keyframes ptr-bounce {
-      0%   { transform: rotate(-11deg); }
-      40%  { transform: rotate(7deg); }
-      70%  { transform: rotate(-3deg); }
-      100% { transform: rotate(0deg); }
-    }
-    .stage.landed .pointer svg {
-      animation: ptr-bounce 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
-    }
-    .canvas-wrap {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      overflow: hidden;
-      box-shadow:
-        0 0 0 1px rgba(15, 15, 16, 0.06),
-        0 12px 36px -8px rgba(15, 15, 16, 0.18),
-        0 4px 12px -2px rgba(15, 15, 16, 0.08);
-    }
-    #wheel {
-      width: 100%;
-      height: 100%;
-      display: block;
-      /* 期待感曲線：長尾 ease-out，最後一格慢慢滑過去 */
-      transition: transform 5.2s cubic-bezier(0.12, 0.8, 0.2, 1);
-    }
-    /* 按下後先反向蓄力一小段 */
-    #wheel.windup {
-      transition: transform 0.3s cubic-bezier(0.45, 0, 0.55, 1);
-    }
-
-    /* 中央按鈕 — 黃色 + 微陰影，現代 web product 風 */
-    .center {
-      position: absolute;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      width: 27%;
-      height: 27%;
-      z-index: 4;
-    }
-    .center::before {
-      content: '';
-      position: absolute;
-      inset: -5px;
-      border-radius: 50%;
-      background: var(--surface);
-      box-shadow:
-        0 0 0 1px var(--border),
-        0 6px 16px -4px rgba(15, 15, 16, 0.12);
-      z-index: -1;
-    }
-    .spin-btn {
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      border: none;
-      background: var(--or-yellow);
-      color: var(--ink);
-      font-family: inherit;
-      font-weight: 700;
-      font-size: 15px;
-      letter-spacing: 0.08em;
-      cursor: pointer;
-      transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
-                  background 0.15s ease;
-      position: relative;
-    }
-    .spin-btn:hover:not(:disabled) { background: var(--or-yellow-d); }
-    .spin-btn:active:not(:disabled) { transform: scale(0.93); }
-    .spin-btn:disabled {
-      background: #F0F0F2;
-      color: var(--ink-3);
-      cursor: default;
-    }
-    /* 可以玩的時候：黃色呼吸光暈 */
-    @keyframes breathe {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(252, 199, 38, 0.55); }
-      55%      { box-shadow: 0 0 0 13px rgba(252, 199, 38, 0); }
-      56%      { box-shadow: 0 0 0 0 rgba(252, 199, 38, 0); }
-    }
-    .spin-btn:not(:disabled) {
-      animation: breathe 1.9s ease-out infinite;
-    }
-
-    /* ========== Status line ========== */
-    .status-row {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      margin-top: 18px;
-      font-size: 13px;
-      color: var(--ink-2);
-      min-height: 22px;
-    }
-    .status-row .arrow {
-      color: var(--ink-3);
-      font-size: 14px;
-      animation: bounce 1.4s ease-in-out infinite;
-    }
-    @keyframes bounce {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-3px); }
-    }
-    .status-row.ready .arrow { display: inline-block; }
-    .status-row:not(.ready) .arrow { display: none; }
-    .status-row .name {
-      color: var(--ink);
-      font-weight: 600;
-    }
-
-    /* ========== Prize section ========== */
-    .section {
-      margin-top: 24px;
-    }
-    .section-head {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      padding: 0 4px;
-      margin-bottom: 10px;
-    }
-    .section-head h2 {
-      margin: 0;
-      font-size: 17px;
-      font-weight: 700;
-      letter-spacing: -0.015em;
-    }
-    .section-head .meta {
-      font-size: 11px;
-      color: var(--ink-2);
-      font-weight: 500;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .prize-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-    }
-    .prize-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 14px;
-      position: relative;
-      transition: transform 0.15s ease, border-color 0.15s ease;
-      box-shadow: 0 4px 14px -10px rgba(15, 15, 16, 0.10);
-    }
-    .prize-card:active { transform: scale(0.98); }
-    .prize-card.grand {
-      grid-column: span 2;
-      border-color: var(--or-red);
-      background: linear-gradient(180deg, rgba(225, 29, 39, 0.04), transparent);
-    }
-    .prize-card .top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 8px;
-    }
-    .prize-card .icon {
-      width: 32px; height: 32px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, #FFF7DA, var(--or-yellow));
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--ink);
-      font-weight: 700;
-      font-size: 14px;
-      font-variant-numeric: tabular-nums;
-      flex-shrink: 0;
-    }
-    .prize-card.grand .icon {
-      background: var(--or-red);
-      color: #fff;
-    }
-    .prize-card .badge {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      padding: 3px 8px;
-      border-radius: 999px;
-      background: var(--or-red);
-      color: #fff;
-    }
-    .prize-card .name {
-      font-size: 14px;
-      font-weight: 600;
-      letter-spacing: -0.005em;
-      line-height: 1.35;
-      color: var(--ink);
-    }
-    .prize-card .desc {
-      margin-top: 3px;
-      font-size: 12px;
-      color: var(--ink-2);
-      line-height: 1.4;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
-
-    /* ========== Footer ========== */
-    .foot {
-      margin-top: 28px;
-      padding: 14px 16px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 12px;
-      color: var(--ink-2);
-    }
-    .foot .l { display: flex; align-items: center; gap: 8px; }
-    .foot .i {
-      width: 20px; height: 20px;
-      border-radius: 6px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      color: var(--ink-2);
-    }
-    .foot .r {
-      font-weight: 600;
-      color: var(--ink);
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* ========== Modal ========== */
-    .modal {
-      position: fixed;
-      inset: 0;
-      z-index: 100;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.3s ease;
-      background: rgba(15, 15, 16, 0.55);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      display: flex;
-      align-items: flex-end;
-      justify-content: center;
-    }
-    .modal.open { opacity: 1; pointer-events: auto; }
-    .sheet {
-      width: 100%;
-      max-width: 480px;
-      background: var(--surface);
-      border-radius: 28px 28px 0 0;
-      padding: 14px 24px 32px;
-      padding-bottom: max(32px, env(safe-area-inset-bottom));
-      transform: translateY(100%);
-      transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
-    }
-    .modal.open .sheet { transform: translateY(0); }
-    .handle {
-      width: 36px; height: 5px;
-      border-radius: 999px;
-      background: var(--border-2);
-      margin: 0 auto 22px;
-    }
-    .modal-eyebrow {
-      text-align: center;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--or-red);
-      margin-bottom: 16px;
-    }
-    .modal-img-wrap {
-      width: 88px; height: 88px;
-      margin: 0 auto 16px;
-      border-radius: 22px;
-      background: linear-gradient(135deg, #FFF7DA, var(--or-yellow));
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-    }
-    .modal.grand .modal-img-wrap {
-      background: linear-gradient(135deg, var(--or-red), #B61118);
-    }
-    .modal-img-wrap img { width: 100%; height: 100%; object-fit: cover; }
-    .modal-img-wrap .glyph {
-      font-size: 36px;
-      font-weight: 700;
-      color: var(--ink);
-    }
-    .modal.grand .modal-img-wrap .glyph { color: #fff; }
-    .modal-prize {
-      text-align: center;
-      font-size: 26px;
-      font-weight: 700;
-      letter-spacing: -0.025em;
-      color: var(--ink);
-      margin-bottom: 8px;
-      line-height: 1.15;
-    }
-    .modal-desc {
-      text-align: center;
-      color: var(--ink-2);
-      font-size: 14px;
-      line-height: 1.55;
-      margin-bottom: 24px;
-    }
-    .modal-btn {
-      display: block;
-      width: 100%;
-      padding: 15px;
-      background: var(--ink);
-      color: #fff;
-      border: none;
-      border-radius: 14px;
-      font-size: 15px;
-      font-weight: 600;
-      font-family: inherit;
-      letter-spacing: -0.005em;
-      cursor: pointer;
-      transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
-    }
-    .modal-btn:active { transform: scale(0.98); }
-
-    /* ========== 優惠序號區塊 ========== */
-    .coupon-block {
-      background: #FFFBEB;
-      border: 1px solid var(--or-yellow);
-      border-radius: 16px;
-      padding: 16px 18px 18px;
-      margin-bottom: 16px;
-      text-align: center;
-    }
-    .coupon-label {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.1em;
-      color: var(--ink-2);
-      text-transform: uppercase;
-      margin-bottom: 8px;
-    }
-    .coupon-code {
-      font-size: 26px;
-      font-weight: 800;
-      letter-spacing: 0.04em;
-      color: var(--ink);
-      line-height: 1.2;
-      word-break: break-all;
-      font-variant-numeric: tabular-nums;
-      -webkit-user-select: all;
-      user-select: all;
-    }
-    .coupon-hint {
-      font-size: 12.5px;
-      color: var(--ink-2);
-      line-height: 1.5;
-      margin-top: 10px;
-    }
-    .coupon-oos {
-      background: var(--bg);
-      border: 1px solid var(--border-2);
-      border-radius: 14px;
-      padding: 14px 16px;
-      margin-bottom: 16px;
-      text-align: center;
-      font-size: 13px;
-      color: var(--ink-2);
-      line-height: 1.5;
-    }
-    .wallet-link {
-      display: block;
-      text-align: center;
-      margin-top: 14px;
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--ink-2);
-      text-decoration: none;
-      letter-spacing: -0.005em;
-    }
-    .wallet-link:active { opacity: 0.6; }
-
-    /* ========== 揭曉節奏：停頓 → 彈跳放大 → 慶祝 ========== */
-    .modal .modal-img-wrap,
-    .modal .modal-prize,
-    .modal .modal-desc {
-      opacity: 0;
-    }
-    @keyframes reveal-pop {
-      0%   { transform: scale(0.35); opacity: 0; }
-      62%  { transform: scale(1.1);  opacity: 1; }
-      82%  { transform: scale(0.96); }
-      100% { transform: scale(1);    opacity: 1; }
-    }
-    @keyframes reveal-rise {
-      from { transform: translateY(10px) scale(0.94); opacity: 0; }
-      to   { transform: translateY(0)    scale(1);    opacity: 1; }
-    }
-    .modal.open .modal-img-wrap {
-      animation: reveal-pop 0.5s 0.16s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-    }
-    .modal.open .modal-prize {
-      animation: reveal-pop 0.5s 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-    }
-    .modal.open .modal-desc {
-      animation: reveal-rise 0.4s 0.46s ease-out forwards;
-    }
-    /* 銘謝惠顧類：溫和動效、不彈跳不慶祝 */
-    @keyframes reveal-soft {
-      from { transform: scale(0.94); opacity: 0; }
-      to   { transform: scale(1);    opacity: 1; }
-    }
-    .modal.noprize .modal-img-wrap {
-      background: linear-gradient(135deg, #F4F4F6, #E8E8EC);
-    }
-    .modal.noprize .modal-img-wrap .glyph { color: var(--ink-3); }
-    .modal.noprize .modal-eyebrow { color: var(--ink-3); }
-    .modal.noprize.open .modal-img-wrap,
-    .modal.noprize.open .modal-prize {
-      animation-name: reveal-soft;
-      animation-timing-function: ease-out;
-    }
-
-    /* ========== Reduced motion：關閉大型動畫 ========== */
-    @media (prefers-reduced-motion: reduce) {
-      .brand-bar, .hero, .stats, .invite-card, .stage-card, .section, .foot {
-        animation: none;
-      }
-      .spin-btn:not(:disabled) { animation: none; }
-      .stage.spinning .pointer svg,
-      .stage.landed .pointer svg { animation: none; }
-      .status-row .arrow { animation: none; }
-      .stat .v.pop { animation: none; }
-      #wheel { transition-duration: 1.1s; }
-      .modal.open .modal-img-wrap,
-      .modal.open .modal-prize,
-      .modal.open .modal-desc {
-        animation: reveal-soft 0.25s ease-out forwards;
-      }
+    @media (prefers-reduced-motion: reduce){
+      #wheel.windup,.stage.spinning #wheel{transition:transform .2s linear}
+      .sheet{transition:opacity .2s}
+      .stage.landed .hub{animation:none}
+      .cta,.modal-btn{transition:none}
     }
   </style>
 </head>
@@ -804,142 +203,117 @@
   <div class="page">
 
     <header class="brand-bar">
-      <div class="logo">
-        <span class="dot"></span>
-        OpenRice
-      </div>
-      <div class="chip">活動進行中</div>
+      <!-- 正式上線請換成專案內的官方 OpenRice Logo 資產 -->
+      <div class="logo"><span class="o">Open</span>Rice</div>
+      <div class="chip">台灣</div>
     </header>
 
     <section class="hero">
-      <div class="hero-tag">幸運抽獎</div>
       <h1><%= activity.name %></h1>
-      <% if (activity.description) { %>
-        <p><%= activity.description %></p>
-      <% } %>
-      <% if (activity.cover_image_url) { %>
-        <img class="hero-cover" src="<%= activity.cover_image_url %>" alt="" />
-      <% } %>
+      <svg class="rule" height="9" viewBox="0 0 240 9" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M2 6 C 40 2, 96 8, 150 4 C 186 1.6, 214 5, 236 3" stroke="#F15A22" stroke-width="4" fill="none" stroke-linecap="round"/>
+      </svg>
+      <% if (activity.description) { %><p><%= activity.description %></p><% } %>
+      <!-- 台式火鍋線稿：單色、低透明，題材具體到台灣 -->
+      <svg class="art" viewBox="0 0 100 88" fill="none" stroke="#F15A22" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M17 42 h66 a4 4 0 0 1 4 4 l-5 26 a8 8 0 0 1-8 7 H26 a8 8 0 0 1-8-7 l-5-26 a4 4 0 0 1 4-4z"/>
+        <path d="M13 50 H5 M87 50 h8"/>
+        <path d="M24 42 v-9 M34 42 V26 M44 42 V31 M54 42 V24 M64 42 v-13 M74 42 v-7"/>
+        <path d="M31 20 c4-4 0-8 3-11 M47 17 c4-4 0-8 3-11 M63 21 c4-4 0-8 3-11" opacity=".72"/>
+        <circle cx="38" cy="57" r="4"/><circle cx="56" cy="61" r="4"/><circle cx="68" cy="55" r="3"/>
+      </svg>
     </section>
 
-    <section class="stats">
-      <div class="stat">
-        <div class="v" id="stat-remaining">—</div>
-        <div class="k">剩餘次數</div>
+    <div class="stage-wrap">
+      <div class="stage" id="stage">
+        <!-- 黃銅指針：有厚度、有鉚釘 -->
+        <div class="pointer">
+          <svg width="40" height="46" viewBox="0 0 40 46" aria-hidden="true">
+            <defs><linearGradient id="brassP" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#E8D08A"/><stop offset=".42" stop-color="#C9A227"/>
+              <stop offset=".78" stop-color="#8A6A2F"/><stop offset="1" stop-color="#5E4620"/>
+            </linearGradient></defs>
+            <rect x="4" y="2" width="32" height="13" rx="3" fill="url(#brassP)" stroke="#4A3517" stroke-width="1.4"/>
+            <path d="M8 15 L20 43 L32 15 Z" fill="url(#brassP)" stroke="#4A3517" stroke-width="1.4" stroke-linejoin="round"/>
+            <circle cx="9.5" cy="8.5" r="1.9" fill="#5E4620"/><circle cx="30.5" cy="8.5" r="1.9" fill="#5E4620"/>
+            <circle cx="20" cy="20" r="3.6" fill="#6E5322" stroke="#3E2C12" stroke-width="1"/>
+          </svg>
+        </div>
+        <div class="canvas-wrap"><canvas id="wheel" width="720" height="720"></canvas></div>
+        <!-- 黃銅外框 + 鉚釘（覆蓋在 canvas 上） -->
+        <svg class="ring" viewBox="0 0 200 200" aria-hidden="true">
+          <defs>
+            <linearGradient id="brassR" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#E8D08A"/><stop offset=".3" stop-color="#C9A227"/>
+              <stop offset=".62" stop-color="#7C5F2A"/><stop offset="1" stop-color="#4E3A1B"/>
+            </linearGradient>
+          </defs>
+          <circle cx="100" cy="100" r="92.5" fill="none" stroke="url(#brassR)" stroke-width="13"/>
+          <circle cx="100" cy="100" r="99" fill="none" stroke="#4A3517" stroke-width="1.6" opacity=".85"/>
+          <circle cx="100" cy="100" r="86" fill="none" stroke="#4A3517" stroke-width="1.6" opacity=".85"/>
+          <g fill="#5E4620">
+            <circle cx="100" cy="7.5" r="2.4"/><circle cx="165.4" cy="34.6" r="2.4"/>
+            <circle cx="192.5" cy="100" r="2.4"/><circle cx="165.4" cy="165.4" r="2.4"/>
+            <circle cx="100" cy="192.5" r="2.4"/><circle cx="34.6" cy="165.4" r="2.4"/>
+            <circle cx="7.5" cy="100" r="2.4"/><circle cx="34.6" cy="34.6" r="2.4"/>
+          </g>
+        </svg>
+        <button type="button" id="spin-btn" class="hub" aria-label="開始轉">SPIN</button>
       </div>
-      <div class="stat">
-        <div class="v" id="stat-referrals">—</div>
-        <div class="k">已邀請</div>
-      </div>
-      <div class="stat">
-        <div class="v"><%= prizes && prizes.length || 0 %><span class="unit">種</span></div>
-        <div class="k">獎品</div>
-      </div>
-    </section>
+    </div>
+
+    <div class="status-row done" id="status-row">
+      <div class="big"><span id="stat-lead">準備中</span><span class="n" id="stat-remaining">—</span><span id="stat-unit"></span></div>
+      <div class="sub" id="status">正在確認你的身分</div>
+    </div>
+
+    <button type="button" class="cta" id="cta-spin">開始轉</button>
+
+    <hr class="dash" />
 
     <section class="invite-card" id="invite-card">
+      <svg class="invite-art" viewBox="0 0 60 52" fill="none" stroke="#8D6E63" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="16" cy="14" r="7"/><path d="M4 47 c0-9 5.6-14 12-14 s12 5 12 14"/>
+        <circle cx="43" cy="17" r="6"/><path d="M33 47 c0-8 4.6-12 10-12 s10 4 10 12"/>
+        <path d="M30 6 h18 a3 3 0 0 1 3 3 v7 a3 3 0 0 1-3 3 h-11 l-5 4 v-4 h-2 a3 3 0 0 1-3-3 V9 a3 3 0 0 1 3-3z" stroke="#F15A22"/>
+      </svg>
       <div class="invite-left">
-        <div class="invite-eyebrow">好友加碼</div>
         <% if (activity.referral_bonus_per && activity.referral_bonus_per > 0) { %>
-          <div class="invite-title">邀 1 位朋友，立刻 +<%= activity.referral_bonus_per %> 次</div>
-          <div class="invite-sub" id="invite-sub">最多可加 <%= activity.referral_bonus_max %> 次，分享就有</div>
+          <div class="invite-title">找朋友一起，多一次機會</div>
+          <div class="invite-sub" id="invite-sub">邀 1 位朋友多 <%= activity.referral_bonus_per %> 次，最多加 <%= activity.referral_bonus_max %> 次</div>
+          <div class="invite-meta">已邀 <span class="n" id="stat-referrals">0</span> 人</div>
         <% } else { %>
           <div class="invite-title">分享給朋友一起玩</div>
           <div class="invite-sub" id="invite-sub">把這個活動傳出去</div>
+          <div class="invite-meta" hidden>已邀 <span class="n" id="stat-referrals">0</span> 人</div>
         <% } %>
       </div>
-      <button type="button" class="invite-btn" id="invite-btn">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;vertical-align:-2px;">
-          <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-          <polyline points="16 6 12 2 8 6"/>
-          <line x1="12" y1="2" x2="12" y2="15"/>
-        </svg>分享
-      </button>
+      <button type="button" class="invite-btn" id="invite-btn">找朋友</button>
     </section>
-
-    <section class="stage-card">
-      <div class="stage-head">
-        <span class="label">轉盤</span>
-        <span class="count">準備好按下中央按鈕</span>
-      </div>
-      <div class="stage-wrap">
-        <div class="stage" id="stage">
-          <div class="pointer">
-            <svg width="22" height="26" viewBox="0 0 22 26" fill="none">
-              <path d="M11 26 L1 8 Q1 1 11 1 Q21 1 21 8 Z" fill="#0F0F10"/>
-              <circle cx="11" cy="9" r="3" fill="#FCC726"/>
-            </svg>
-          </div>
-          <div class="canvas-wrap">
-            <canvas id="wheel" width="720" height="720"></canvas>
-          </div>
-          <div class="center">
-            <button type="button" id="spin-btn" class="spin-btn">SPIN</button>
-          </div>
-        </div>
-      </div>
-      <div class="status-row" id="status-row">
-        <span id="status">準備中</span>
-      </div>
-    </section>
-
-    <% if (prizes && prizes.length > 0) { %>
-    <section class="section">
-      <div class="section-head">
-        <h2>本次獎項</h2>
-        <span class="meta"><%= prizes.length %> 種</span>
-      </div>
-      <div class="prize-grid">
-        <% prizes.forEach(function (p, i) { %>
-          <div class="prize-card <%= p.is_grand_prize ? 'grand' : '' %>">
-            <div class="top">
-              <div class="icon"><%= String(i + 1).padStart(2, '0') %></div>
-              <% if (p.is_grand_prize) { %>
-                <span class="badge">頭獎</span>
-              <% } %>
-            </div>
-            <div class="name"><%= p.name %></div>
-            <% if (p.description) { %>
-              <div class="desc"><%= p.description %></div>
-            <% } %>
-          </div>
-        <% }); %>
-      </div>
-    </section>
-    <% } %>
-
-    <div class="foot">
-      <div class="l">
-        <span class="i">i</span>
-        <span>遊戲規則</span>
-      </div>
-      <span class="r">公平隨機</span>
-    </div>
 
   </div>
 
-  <!-- Result -->
   <div id="modal" class="modal" aria-hidden="true">
     <div class="sheet">
-      <div class="handle"></div>
-      <div class="modal-eyebrow" id="modal-eyebrow">恭喜抽中</div>
-      <div class="modal-img-wrap" id="modal-img-wrap">
-        <img id="modal-img" alt="" hidden />
-        <span class="glyph" id="modal-glyph">★</span>
-      </div>
+      <div class="ornament"><i></i><b id="modal-glyph">◆</b><i></i></div>
+      <div class="modal-eyebrow" id="modal-eyebrow">你抽到了</div>
+      <div class="modal-img-wrap" id="modal-img-wrap"><img id="modal-img" alt="" hidden /></div>
       <div class="modal-prize" id="modal-prize">—</div>
       <div class="modal-desc" id="modal-desc"></div>
       <div class="coupon-block" id="coupon-block" hidden>
-        <div class="coupon-label">優惠序號</div>
         <div class="coupon-code" id="coupon-code">—</div>
-        <div class="coupon-hint">請到店出示此畫面或序號給店員核銷</div>
+        <button type="button" class="coupon-copy" id="coupon-copy">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+          複製
+        </button>
       </div>
-      <div class="coupon-oos" id="coupon-oos" hidden>此獎品序號暫時發完，請洽客服</div>
-      <button type="button" class="modal-btn" id="modal-close">完成</button>
-      <a class="wallet-link" id="wallet-link" href="#">我的優惠券</a>
+      <div class="coupon-oos" id="coupon-oos" hidden>這份券剛好發完了，請稍後到我的優惠券確認</div>
+      <button type="button" class="modal-btn" id="modal-close">收進我的券</button>
+      <a class="wallet-link" id="wallet-link" href="#">看我的券</a>
+      <button type="button" class="sheet-dismiss" id="modal-dismiss" hidden>先不用</button>
+      <div class="modal-foot" id="modal-foot" hidden></div>
     </div>
   </div>
-
   <script>
     (function () {
       var slug = <%- JSON.stringify(activity.slug) %>;
@@ -973,65 +347,6 @@
         }
       }
 
-      // ----- 輕量 canvas 紙花（黃 / 墨 / 白，~80 顆，自動清理）-----
-      function fireConfetti() {
-        if (REDUCED) return;
-        var c = document.createElement('canvas');
-        c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:300;';
-        var dpr = Math.min(window.devicePixelRatio || 1, 2);
-        var vw = window.innerWidth, vh = window.innerHeight;
-        c.width = vw * dpr;
-        c.height = vh * dpr;
-        document.body.appendChild(c);
-        var cc = c.getContext('2d');
-        cc.scale(dpr, dpr);
-        var colors = ['#FCC726', '#1F2937', '#FFFFFF'];
-        var parts = [];
-        for (var i = 0; i < 80; i++) {
-          parts.push({
-            x: vw / 2 + (Math.random() - 0.5) * vw * 0.55,
-            y: vh * 0.3 + (Math.random() - 0.5) * 50,
-            vx: (Math.random() - 0.5) * 7,
-            vy: -(Math.random() * 8 + 4),
-            size: Math.random() * 6 + 4,
-            color: colors[i % 3],
-            round: Math.random() < 0.35,
-            rot: Math.random() * Math.PI,
-            vr: (Math.random() - 0.5) * 0.3
-          });
-        }
-        var t0 = null;
-        var LIFE = 1700;
-        function tick(ts) {
-          if (t0 === null) t0 = ts;
-          var t = ts - t0;
-          cc.clearRect(0, 0, vw, vh);
-          cc.globalAlpha = t > LIFE - 400 ? Math.max(0, (LIFE - t) / 400) : 1;
-          for (var j = 0; j < parts.length; j++) {
-            var p = parts[j];
-            p.vy += 0.28; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
-            cc.save();
-            cc.translate(p.x, p.y);
-            cc.rotate(p.rot);
-            cc.fillStyle = p.color;
-            if (p.round) {
-              cc.beginPath();
-              cc.arc(0, 0, p.size / 2, 0, Math.PI * 2);
-              cc.fill();
-            } else {
-              cc.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
-            }
-            cc.restore();
-          }
-          if (t < LIFE) requestAnimationFrame(tick);
-          else c.remove();
-        }
-        requestAnimationFrame(tick);
-      }
-
-      // ===========================================================
-      // 畫輪盤 — 純色配色（黃白交替、紅大獎）+ 細邊分隔
-      // ===========================================================
       function drawWheel(highlightIdx, pulse) {
         var W = canvas.width;
         var H = canvas.height;
@@ -1050,8 +365,12 @@
           ctx.moveTo(cx, cy);
           ctx.arc(cx, cy, R, start, end);
           ctx.closePath();
-          if (p.is_grand_prize) ctx.fillStyle = '#E11D27';
-          else ctx.fillStyle = (i % 2 === 0) ? '#FFFFFF' : '#FCC726';
+          // 設計配色：米白 / 品牌黃 / 橘，三色輪替；大獎固定橘。
+          // n % 3 === 1 時最後一格會跟第一格同色且相鄰，往後推一格避開。
+          var ci = i % 3;
+          if (i === n - 1 && n > 2 && ci === 0) ci = 1;
+          if (p.is_grand_prize) ctx.fillStyle = '#F15A22';
+          else ctx.fillStyle = ['#F6EFE4', '#F9C73B', '#E8873F'][ci];
           ctx.fill();
         });
 
@@ -1061,38 +380,69 @@
           ctx.beginPath();
           ctx.moveTo(cx, cy);
           ctx.lineTo(cx + Math.cos(angle) * R, cy + Math.sin(angle) * R);
-          ctx.lineWidth = 1.5;
-          ctx.strokeStyle = 'rgba(15, 15, 16, 0.1)';
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = 'rgba(78, 58, 27, 0.5)';
           ctx.stroke();
         });
 
         // 外圈細線
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = '#0F0F10';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(78, 58, 27, 0.55)';
         ctx.stroke();
 
-        // 文字 — sans-serif 粗體，水平擺放
+        // 文字 — 沿半徑排版。獎名實務上 12–16 字（例「柒息地串燒居酒屋 折價 100 元」），
+        // 用字數估寬會把英數字切壞，所以一律用 measureText 實測。
+        var baseFs = Math.round(R * 0.105);
+        var inner = R * 0.22, outer = R * 0.92;
+        var maxW = outer - inner;                   // 一行可用的徑向長度
+
+        function setFont(px) {
+          ctx.font = '800 ' + px + 'px "PingFang TC","Heiti TC","Microsoft JhengHei",sans-serif';
+        }
+        function ellipsize(t) {
+          if (ctx.measureText(t).width <= maxW) return t;
+          while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+          return t + '…';
+        }
+        // 回傳 { fs, lines }：先試單行，再在空白處切成兩段（餐廳名／獎品內容），
+        // 然後縮字級塞進去，最後才截斷。
+        function layoutLabel(label) {
+          setFont(baseFs);
+          if (ctx.measureText(label).width <= maxW) return { fs: baseFs, lines: [label] };
+
+          var sp = label.indexOf(' ');
+          var lines = sp > 0
+            ? [label.slice(0, sp), label.slice(sp + 1)]
+            : (function () { var h = Math.ceil(label.length / 2); return [label.slice(0, h), label.slice(h)]; })();
+
+          var widest = 0;
+          for (var k = 0; k < lines.length; k++) widest = Math.max(widest, ctx.measureText(lines[k]).width);
+          var fs = Math.max(Math.round(baseFs * 0.62), Math.floor(baseFs * maxW / widest));
+          if (fs > baseFs) fs = baseFs;
+          setFont(fs);
+          return { fs: fs, lines: [ellipsize(lines[0]), ellipsize(lines[1])] };
+        }
+
         prizes.forEach(function (p, i) {
-          var start = i * anglePer - Math.PI / 2;
-          var midAngle = start + anglePer / 2;
-          var textRadius = R * 0.62;
+          var midAngle = i * anglePer - Math.PI / 2 + anglePer / 2;
+          var lay = layoutLabel(String(p.name || '').trim());
+          var lineH = Math.round(lay.fs * 1.14);
 
           ctx.save();
           ctx.translate(cx, cy);
           ctx.rotate(midAngle);
-          ctx.translate(textRadius, 0);
-          ctx.rotate(-midAngle);
-
-          ctx.textAlign = 'center';
+          var flipped = Math.cos(midAngle) < 0;     // 左半邊要翻轉，否則字是顛倒的
+          if (flipped) ctx.rotate(Math.PI);
+          ctx.textAlign = flipped ? 'left' : 'right';
           ctx.textBaseline = 'middle';
-          ctx.fillStyle = p.is_grand_prize ? '#FFFFFF' : '#0F0F10';
-          ctx.font = '700 19px -apple-system, "SF Pro Display", "Inter", "PingFang TC", sans-serif';
+          ctx.fillStyle = p.is_grand_prize ? '#FFFFFF' : '#3E2723';
+          setFont(lay.fs);
 
-          var label = String(p.name || '');
-          if (label.length > 8) label = label.slice(0, 8) + '…';
-          ctx.fillText(label, 0, 0);
+          var x = flipped ? -outer : outer;
+          var y0 = -((lay.lines.length - 1) * lineH) / 2;
+          lay.lines.forEach(function (t, li) { ctx.fillText(t, x, y0 + li * lineH); });
           ctx.restore();
         });
 
@@ -1106,7 +456,7 @@
             ctx.moveTo(cx, cy);
             ctx.arc(cx, cy, R, ds, de);
             ctx.closePath();
-            ctx.fillStyle = 'rgba(15, 15, 16, 0.30)';
+            ctx.fillStyle = 'rgba(62, 39, 35, 0.42)';
             ctx.fill();
           });
           var hs = highlightIdx * anglePer - Math.PI / 2;
@@ -1118,7 +468,7 @@
           ctx.lineWidth = 10;
           ctx.lineJoin = 'round';
           ctx.globalAlpha = (typeof pulse === 'number') ? (0.35 + 0.65 * pulse) : 1;
-          ctx.strokeStyle = '#FCC726';
+          ctx.strokeStyle = '#F9C73B';
           ctx.stroke();
           ctx.globalAlpha = 1;
         }
@@ -1139,13 +489,25 @@
           }
           var startTs = null;
           var DUR = 550;
+          var done = false;
+          function finish() {
+            if (done) return;
+            done = true;
+            drawWheel(idx, 1);
+            resolve();
+          }
+          // requestAnimationFrame 在分頁／App 被切到背景時不會觸發。
+          // 沒有這個保險，使用者轉一半切走再回來就永遠看不到結果。
+          var guard = setTimeout(finish, DUR + 600);
           function frame(ts) {
+            if (done) return;
             if (startTs === null) startTs = ts;
             var t = Math.min((ts - startTs) / DUR, 1);
             var pulse = 0.5 - 0.5 * Math.cos(t * Math.PI * 4); // 兩次脈衝
             drawWheel(idx, t >= 1 ? 1 : pulse);
-            if (t < 1) requestAnimationFrame(frame);
-            else resolve();
+            if (t < 1) { requestAnimationFrame(frame); return; }
+            clearTimeout(guard);
+            finish();
           }
           requestAnimationFrame(frame);
         });
@@ -1191,7 +553,7 @@
         currentRotation = finalAngle;
 
         var stage = document.getElementById('stage');
-        var spinMs = REDUCED ? 1200 : 5300; // 對應 CSS transition 時長
+        var spinMs = REDUCED ? 1200 : 4050; // 必須等於 CSS .stage.spinning #wheel 的 transition 時長
 
         return new Promise(function (resolve) {
           function mainSpin() {
@@ -1228,8 +590,9 @@
         }
         spinning = true;
         spinBtn.disabled = true;
+        if (ctaBtn) { ctaBtn.disabled = true; ctaBtn.textContent = '轉動中'; }
         statusRow.classList.remove('ready');
-        statusEl.textContent = '抽選中⋯';
+        statusEl.textContent = '看它停在哪⋯';
         buzz(12);
 
         try {
@@ -1258,6 +621,8 @@
         } finally {
           spinning = false;
           spinBtn.disabled = false;
+          if (ctaBtn) { ctaBtn.disabled = false; setCtaMode(ctaMode); }
+          refreshQuota(); // 抽完立刻回寫剩餘次數
         }
       }
 
@@ -1313,17 +678,57 @@
           if (prize.prize_value.label) descParts.push(prize.prize_value.label);
           if (prize.prize_value.note) descParts.push(prize.prize_value.note);
         }
-        document.getElementById('modal-desc').textContent = descParts.join(' · ');
+        // 後台填的獎品說明（例「消費滿 500 元可用」）也要露出，不然使用者不知道怎麼用
+        if (prize.description) descParts.push(String(prize.description));
+        var descText = descParts.join(' · ');
+        if (!descText && noPrize) descText = '這次沒中，找個朋友一起，再試一次';
+        document.getElementById('modal-desc').textContent = descText;
         if (prize.is_grand_prize) modal.classList.add('grand');
         else modal.classList.remove('grand');
         if (noPrize) modal.classList.add('noprize');
         else modal.classList.remove('noprize');
-        requestAnimationFrame(function () { modal.classList.add('open'); });
+
+        // 彈窗底部：中獎 → 收券；沒中 → 直接導向邀請（活動擴散的關鍵轉折）
+        var closeBtn = document.getElementById('modal-close');
+        var dismissBtn = document.getElementById('modal-dismiss');
+        var footEl = document.getElementById('modal-foot');
+        var walletEl = document.getElementById('wallet-link');
+        var bonusLeft = lastQuota
+          ? (lastQuota.referral_bonus_max - lastQuota.referral_bonus)
+          : (activityMeta.referral_bonus_max || 0);
+        var canInvite = (activityMeta.referral_bonus_per > 0) && bonusLeft > 0;
+
+        if (noPrize && canInvite) {
+          modalMode = 'invite';
+          closeBtn.textContent = '找朋友再抽一次';
+          dismissBtn.hidden = false;
+          walletEl.hidden = true;
+          footEl.hidden = false;
+          footEl.innerHTML = '朋友加入官方帳號才算，最多還能加 <span class="n">' + bonusLeft + '</span> 次';
+        } else {
+          modalMode = 'close';
+          closeBtn.textContent = noPrize ? '知道了' : '收進我的券';
+          dismissBtn.hidden = true;
+          walletEl.hidden = noPrize;
+          footEl.hidden = true;
+          footEl.textContent = '';
+        }
+
+        // 先顯示、強制 reflow、再位移，否則 display:none→block 會把 transition 吃掉。
+        // 這裡不能用 requestAnimationFrame：App 被切到背景時 rAF 不會觸發，
+        // 使用者切回來就永遠看不到結果。
+        clearTimeout(hideTimer);
+        modal.classList.add('shown');
+        modal.setAttribute('aria-hidden', 'false');
+        void modal.offsetWidth;
+        modal.classList.add('open');
         // 揭曉節奏：modal 彈起 → 獎名彈跳放大 → 慶祝
         if (!noPrize) {
           setTimeout(function () {
-            fireConfetti();
-            buzz([18, 70, 32]);
+            // 不放紙花：改用獎名彈跳（.pop）＋震動做慶祝，設計明文禁止紙花
+            var pn = document.getElementById('modal-prize');
+            if (pn && !REDUCED) { pn.classList.remove('pop'); void pn.offsetWidth; pn.classList.add('pop'); }
+            buzz(prize.is_grand_prize ? [18, 70, 32] : [16, 60]);
           }, 380);
         } else {
           buzz(14);
@@ -1336,28 +741,57 @@
         walletLink.href = liffId ? ('https://liff.line.me/' + liffId + '/wallet') : '/games/wallet';
       }
 
-      document.getElementById('modal-close').addEventListener('click', function () {
+      // 優惠碼複製
+      (function () {
+        var cp = document.getElementById('coupon-copy');
+        if (!cp) return;
+        var label = cp.lastChild;
+        cp.addEventListener('click', async function () {
+          var t = (document.getElementById('coupon-code').textContent || '').trim();
+          if (!t) return;
+          try {
+            await navigator.clipboard.writeText(t);
+            label.textContent = '已複製';
+            setTimeout(function () { label.textContent = '複製'; }, 1800);
+          } catch (e) {
+            prompt('複製這組優惠碼：', t);
+          }
+        });
+      })();
+
+      var modalMode = 'close';
+      var hideTimer = null;
+      function closeModal() {
         modal.classList.remove('open');
+        modal.setAttribute('aria-hidden', 'true');
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(function () { modal.classList.remove('shown'); }, 400);
         drawWheel(); // 還原高亮
+      }
+      document.getElementById('modal-close').addEventListener('click', function () {
+        if (modalMode === 'invite') { closeModal(); shareWithFriend(); return; }
+        closeModal();
       });
+      document.getElementById('modal-dismiss').addEventListener('click', closeModal);
       modal.addEventListener('click', function (e) {
-        if (e.target === modal) {
-          modal.classList.remove('open');
-          drawWheel(); // 還原高亮
-        }
+        if (e.target === modal) closeModal();
       });
 
       spinBtn.addEventListener('click', spin);
 
       // ----- bootstrap -----
       if (prizes.length < 2) {
-        statusEl.textContent = '獎品不足';
+        statusEl.textContent = '這個活動還在準備中，晚點再來';
+        statusRow.classList.add('done');
+        document.getElementById('stat-lead').textContent = '還沒開始';
+        document.getElementById('stat-unit').textContent = '';
         spinBtn.disabled = true;
-        spinBtn.textContent = '—';
+        if (ctaBtn) { ctaBtn.disabled = true; ctaBtn.textContent = '尚未開放'; }
       } else {
         drawWheel();
         spinBtn.disabled = true;
-        statusEl.textContent = '驗證身分中⋯';
+        if (ctaBtn) { ctaBtn.disabled = true; ctaBtn.textContent = '稍等一下'; }
+        statusEl.textContent = '正在確認你的身分';
       }
 
       (async function () {
@@ -1372,9 +806,11 @@
           // 2) 拉 quota
           await refreshQuota();
 
-          // 3) ready
+          // 3) ready — 只有還有次數才打招呼，否則會蓋掉 renderQuota 寫的引導文案
           statusRow.classList.add('ready');
-          statusEl.innerHTML = '哈囉，<span class="name">' + (profile.displayName || '') + '</span>';
+          if (lastRemaining === null || lastRemaining > 0) {
+            statusEl.innerHTML = '哈囉，<span class="name">' + (profile.displayName || '') + '</span>';
+          }
         } catch (e) {
           statusEl.textContent = e.message || '初始化失敗';
         }
@@ -1420,6 +856,7 @@
       // 數字變化時 pop 一下（scale 1.3 → 1）
       var lastRemaining = null;
       var lastReferrals = null;
+      var lastQuota = null;
       function popStat(el) {
         if (!el || REDUCED) return;
         el.classList.remove('pop');
@@ -1427,28 +864,55 @@
         el.classList.add('pop');
       }
 
+      // 主 CTA 有三種身分：轉、找朋友、看券。次數用完時把主鈕換成邀請，
+      // 是整個 MGM 能不能擴散的關鍵，不能只把鈕變灰。
+      var ctaBtn = document.getElementById('cta-spin');
+      var ctaMode = 'spin';
+      function setCtaMode(mode) {
+        if (!ctaBtn) return;
+        ctaMode = mode;
+        ctaBtn.classList.toggle('ghost', mode === 'wallet');
+        ctaBtn.disabled = false;
+        ctaBtn.textContent = mode === 'invite' ? '找朋友' : (mode === 'wallet' ? '看我的券' : '開始轉');
+      }
+
       function renderQuota(q) {
         var remEl = document.getElementById('stat-remaining');
         var refEl = document.getElementById('stat-referrals');
-        if (remEl) remEl.innerHTML = q.remaining + '<span class="unit">/ ' + q.total + '</span>';
-        if (refEl) refEl.innerHTML = q.referrals + '<span class="unit">人</span>';
+        if (remEl) remEl.textContent = q.remaining;
+        if (refEl) refEl.textContent = q.referrals;
         if (remEl && lastRemaining !== null && lastRemaining !== q.remaining) popStat(remEl);
         if (refEl && lastReferrals !== null && lastReferrals !== q.referrals) popStat(refEl);
         lastRemaining = q.remaining;
         lastReferrals = q.referrals;
+        lastQuota = q;
+
+        var leadEl = document.getElementById('stat-lead');
+        var unitEl = document.getElementById('stat-unit');
 
         // 沒次數 → SPIN 鈕禁用 + 提示
         if (q.remaining <= 0) {
           spinBtn.disabled = true;
+          statusRow.classList.add('done');
           var canMore = q.referral_bonus_per > 0 && q.referral_bonus < q.referral_bonus_max;
           if (canMore) {
             statusRow.classList.remove('ready');
-            statusEl.textContent = '次數用完，邀請朋友 +' + q.referral_bonus_per + ' 次';
+            if (leadEl) leadEl.textContent = '次數用完了';
+            if (unitEl) unitEl.textContent = '';
+            statusEl.textContent = '找一個朋友來，就多 ' + q.referral_bonus_per + ' 次';
+            setCtaMode('invite');
           } else {
-            statusEl.textContent = '次數已用完';
+            if (leadEl) leadEl.textContent = '這次玩完了';
+            if (unitEl) unitEl.textContent = '';
+            statusEl.textContent = '中的獎都在我的優惠券裡，下次活動見';
+            setCtaMode('wallet');
           }
         } else {
           spinBtn.disabled = false;
+          statusRow.classList.remove('done');
+          if (leadEl) leadEl.textContent = '還可以轉';
+          if (unitEl) unitEl.textContent = '次';
+          setCtaMode('spin');
         }
 
         // invite card 顯示剩餘可加額度
@@ -1465,6 +929,19 @@
             if (inviteSub) inviteSub.textContent = '還可再邀請 ' + Math.ceil(bonusLeft / q.referral_bonus_per) + ' 位拿 +' + bonusLeft + ' 次';
           }
         }
+      }
+
+      // 主 CTA 依目前身分分派
+      if (ctaBtn) {
+        ctaBtn.addEventListener('click', function () {
+          if (ctaMode === 'invite') return shareWithFriend();
+          if (ctaMode === 'wallet') {
+            var w = document.getElementById('wallet-link');
+            if (w && w.href) location.href = w.href;
+            return;
+          }
+          spinBtn.click();
+        });
       }
 
       // ----- 分享按鈕（LIFF Share Target Picker）-----
@@ -1513,7 +990,7 @@
         setTimeout(function () {
           // 重新拉 quota 確保 UI sync
           refreshQuota();
-          if (statusEl.textContent === msg && profile) {
+          if (statusEl.textContent === msg && profile && lastRemaining > 0) {
             statusEl.innerHTML = '哈囉，<span class="name">' + (profile.displayName || '') + '</span>';
           }
         }, 2400);
