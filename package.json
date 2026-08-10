@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test test/*.test.js",
     "dev": "node --env-file=.env --watch server.js",
     "dev:nodemon": "nodemon server.js",
     "migrate:pg": "node scripts/migrate-sqlite-to-postgres.js",

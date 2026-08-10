@@ -19,7 +19,8 @@ function createLineWebhookHandler({
   linePushImageBaseCandidates = [],
   liffLotteryPushUrl = '',
   linePush,
-  flowEngine = null
+  flowEngine = null,
+  goldPigBookings = null
 }) {
   const friendsPerDraw = Math.max(1, Number.isFinite(Number(inviteFriendsPerDraw)) ? Number(inviteFriendsPerDraw) : 2);
   async function appendWebhookEventLog(payload) {
@@ -304,6 +305,44 @@ function createLineWebhookHandler({
               rawEvent: event || {}
             }).catch(() => {});
             continue;
+          }
+          // 金豬食堂正式訂位服務：只處理精確指令，並在關鍵字規則前短路，
+          // 避免一次性的 replyToken 被其他自動回覆重複使用。
+          if (goldPigBookings && typeof goldPigBookings.handleCommand === 'function') {
+            try {
+              const bookingReply = await goldPigBookings.handleCommand(
+                event.source.userId,
+                event.message.text
+              );
+              if (bookingReply) {
+                const sent = linePush && typeof linePush.replyLineMessages === 'function'
+                  ? await linePush.replyLineMessages(event.replyToken, bookingReply.messages, {
+                    lineUserId: event.source.userId,
+                    pushType: 'gold_pig_booking'
+                  })
+                  : false;
+                await appendWebhookEventLog({
+                  eventType: 'message',
+                  lineUserId: event.source.userId,
+                  result: sent ? bookingReply.result : `${bookingReply.result}_reply_failed`,
+                  detail: null,
+                  eventTimestamp: event?.timestamp,
+                  rawEvent: event || {}
+                }).catch(() => {});
+                continue;
+              }
+            } catch (bookingErr) {
+              console.error('gold pig booking command failed:', bookingErr.message);
+              await appendWebhookEventLog({
+                eventType: 'message',
+                lineUserId: event.source.userId,
+                result: 'gold_pig_booking_exception',
+                detail: String(bookingErr.message || bookingErr).slice(0, 500),
+                eventTimestamp: event?.timestamp,
+                rawEvent: event || {}
+              }).catch(() => {});
+              continue;
+            }
           }
           // 訂位抽獎資格登記：使用者直接輸入手機號碼就當作登記。
           // 放在關鍵字比對之前短路，避免被某條 contains 規則吃掉；回覆後 continue

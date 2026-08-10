@@ -41,6 +41,8 @@ const { createLineWebhookHandler } = require('./routes/lineWebhook');
 const { createOaContactsWebhookHandler } = require('./routes/oaContactsWebhook');
 const { registerAdminOaContactsRoutes } = require('./routes/adminOaContacts');
 const { createLinePushService } = require('./core/linePush');
+const { createGoldPigBookingService } = require('./core/goldPigBookings');
+const { registerGoldPigRoutes } = require('./routes/goldPig');
 const { createEmailProvider } = require('./core/emailProvider');
 const { createSureNotifyProvider } = require('./core/emailProviderSureNotify');
 
@@ -75,6 +77,10 @@ if (!global.__OR_PROCESS_HANDLERS_INSTALLED__) {
   });
 }
 const LIFF_ID = process.env.LIFF_ID || '';
+const GOLD_PIG_LIFF_ID = process.env.GOLD_PIG_LIFF_ID || '';
+const GOLD_PIG_BOOKING_API_KEY = process.env.GOLD_PIG_BOOKING_API_KEY || '';
+const GOLD_PIG_DEMO_MODE = process.env.GOLD_PIG_DEMO_MODE === '1';
+const GOLD_PIG_ALLOWED_ORIGINS = process.env.GOLD_PIG_ALLOWED_ORIGINS || 'https://twopenrice-ops.github.io';
 const _liffLotteryBuilt = buildLiffPermanentUrl(LIFF_ID, '/liff/lottery', '/liff/lottery');
 const LIFF_LOTTERY_PUSH_URL = /^https:\/\/liff\.line\.me\//i.test(_liffLotteryBuilt) ? _liffLotteryBuilt : '';
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || '';
@@ -283,6 +289,7 @@ const linePush = createLinePushService({
   query,
   lineChannelAccessToken: LINE_CHANNEL_ACCESS_TOKEN
 });
+const goldPigBookings = createGoldPigBookingService({ pool });
 
 // Email provider 選擇：EMAIL_PROVIDER=surenotify|brevo；未設時有 SURENOTIFY_API_KEY 就用電子豹，否則 Brevo。
 const emailProviderName = (process.env.EMAIL_PROVIDER || '').trim().toLowerCase()
@@ -372,6 +379,8 @@ app.get('/healthz', (req, res) => {
       DATABASE_URL_protocol: dbProtocol,
       LIFF_ID_set: !!process.env.LIFF_ID,
       GAMES_LIFF_ID_set: !!process.env.GAMES_LIFF_ID,
+      GOLD_PIG_LIFF_ID_set: !!GOLD_PIG_LIFF_ID,
+      GOLD_PIG_DEMO_MODE,
       LINE_CHANNEL_ACCESS_TOKEN_set: !!process.env.LINE_CHANNEL_ACCESS_TOKEN,
       ADMIN_PASSWORD_set: !!process.env.ADMIN_PASSWORD,
       JWT_SECRET_set: !!process.env.JWT_SECRET,
@@ -418,7 +427,8 @@ app.post(
     linePushImageBaseCandidates: LINE_PUSH_IMAGE_BASE_CANDIDATES,
     liffLotteryPushUrl: LIFF_LOTTERY_PUSH_URL,
     linePush,
-    flowEngine
+    flowEngine,
+    goldPigBookings
   })
 );
 // 第二個 OA 的 webhook：只收集 userId 寫進 oa_contacts，完全獨立（自己的 secret/token）。
@@ -596,6 +606,15 @@ registerAdminActivitiesRoutes(app, { query, pool, authCore });
 registerAdminCouponsRoutes(app, { query, pool, authCore });
 
 registerGamesRoutes(app, { query, pool });
+
+registerGoldPigRoutes(app, {
+  pool,
+  liffId: GOLD_PIG_LIFF_ID,
+  bookingApiKey: GOLD_PIG_BOOKING_API_KEY,
+  demoMode: GOLD_PIG_DEMO_MODE,
+  allowedOrigins: GOLD_PIG_ALLOWED_ORIGINS,
+  lineOfficialAddFriendUrl: LINE_OFFICIAL_ADD_FRIEND_URL
+});
 
 registerAdminRecipientListsRoutes(app, { query, pool, authCore, flowEngine });
 

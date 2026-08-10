@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#20130f">
+  <title>金豬食堂訂位管理｜OpenRice</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    :root{--ink:#281811;--paper:#fbf7ef;--cream:#f1e7d8;--red:#a51f24;--green:#06c755;--muted:#74655b;--line:#ddcdb8}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif}
+    body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+    .top{height:7px;background:linear-gradient(90deg,var(--red) 0 62%,#d29a3a 62%)}
+    main{width:min(100% - 36px,540px);margin:0 auto;padding:38px 0 56px}
+    .brand{display:flex;align-items:center;gap:10px;margin-bottom:46px;font-size:13px;font-weight:800;letter-spacing:.08em}.brand i{width:27px;height:27px;display:grid;place-items:center;border-radius:50%;background:var(--red);color:#fff;font-family:Georgia,serif;font-style:normal}.brand span{color:#78685e;font-size:10px;font-weight:700;letter-spacing:.16em}
+    .eyebrow{margin:0 0 13px;color:var(--red);font-size:11px;font-weight:850;letter-spacing:.17em}.hero h1{margin:0;font-family:"Songti TC","Noto Serif TC",serif;font-size:clamp(34px,10vw,50px);line-height:1.14;letter-spacing:-.035em}.lead{margin:18px 0 0;color:var(--muted);font-size:16px;line-height:1.75}
+    .card{margin-top:34px;padding:26px;border:1px solid var(--line);background:#fff;box-shadow:0 18px 42px rgba(56,31,17,.08)}
+    .spinner{width:34px;height:34px;margin:4px 0 22px;border:3px solid #eadfce;border-top-color:var(--red);border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+    h2{margin:0 0 10px;font-family:"Songti TC","Noto Serif TC",serif;font-size:26px}.message{margin:0;color:var(--muted);font-size:14px;line-height:1.75}
+    .facts{margin:24px 0 0;padding:0;border-top:1px solid var(--line)}.facts div{display:grid;grid-template-columns:92px 1fr;gap:14px;padding:12px 0;border-bottom:1px solid #eee5d8}.facts dt{color:var(--muted);font-size:12px}.facts dd{margin:0;font-size:14px;font-weight:750;text-align:right}
+    .status{display:inline-flex;align-items:center;gap:8px;margin-bottom:18px;color:#087238;font-size:12px;font-weight:800}.status:before{content:"✓";width:25px;height:25px;display:grid;place-items:center;border-radius:50%;background:#e6f7ed}
+    .action{width:100%;min-height:54px;margin-top:22px;border:0;border-radius:3px;background:var(--green);color:white;display:flex;align-items:center;justify-content:center;text-align:center;text-decoration:none;font-size:15px;font-weight:850;cursor:pointer}.action.secondary{background:#fff;color:var(--ink);border:1px solid var(--ink);margin-top:12px}.action:disabled{opacity:.55;cursor:wait}
+    .line-badge{display:inline-grid;place-items:center;width:28px;height:28px;margin-right:10px;border-radius:9px;background:#fff;color:var(--green);font-size:9px;font-weight:900}
+    .note{margin:16px 0 0;color:#817166;font-size:11px;line-height:1.65;text-align:center}.hidden{display:none!important}.errorCode{margin-top:12px;color:#9b8d82;font-size:10px}
+    .privacy{margin:26px 4px 0;padding-top:18px;border-top:1px solid var(--line);color:#8c7d72;font-size:11px;line-height:1.7}
+  </style>
+</head>
+<body>
+  <div class="top"></div>
+  <main>
+    <div class="brand"><i>OR</i> OPENRICE <span>金豬食堂訂位服務</span></div>
+    <section class="hero">
+      <p class="eyebrow">付款後最後一步</p>
+      <h1>把這筆訂位，<br>存進你的 LINE。</h1>
+      <p class="lead">完成後，可直接在 OpenRice LINE 查詢訂位、提出取消申請並接收行前通知。</p>
+    </section>
+
+    <section class="card" id="loadingCard">
+      <div class="spinner"></div>
+      <h2>正在確認你的訂位</h2>
+      <p class="message" id="loadingMessage">連接 LINE 與訂位資料中，請不要關閉此頁。</p>
+    </section>
+
+    <section class="card hidden" id="successCard" aria-live="polite">
+      <div class="status">LINE 綁定完成</div>
+      <h2>以後在 LINE 就找得到</h2>
+      <p class="message">這筆訂位已安全連結到你的 LINE 帳號。</p>
+      <dl class="facts">
+        <div><dt>訂位編號</dt><dd id="bookingNo">—</dd></div>
+        <div><dt>日期時間</dt><dd id="bookingDate">—</dd></div>
+        <div><dt>桌型</dt><dd id="bookingTables">—</dd></div>
+        <div><dt>狀態</dt><dd>已付款・已成立</dd></div>
+      </dl>
+      <a class="action" id="openChat" href="https://line.me/R/oaMessage/%40openricetw/?%E6%9F%A5%E8%A9%A2%E8%A8%82%E4%BD%8D"><span class="line-badge">LINE</span>開啟 LINE 查詢這筆訂位</a>
+      <p class="note">進入聊天室後，訊息「查詢訂位」會自動帶入；送出即可查看。</p>
+    </section>
+
+    <section class="card hidden" id="friendCard" aria-live="polite">
+      <h2>先加入 OpenRice LINE</h2>
+      <p class="message">訂位查詢、取消申請與行前通知都由 OpenRice LINE 提供。加入後回到這一頁，即可完成綁定。</p>
+      <a class="action" id="addFriend" href="#"><span class="line-badge">LINE</span>加入 OpenRice LINE</a>
+      <button class="action secondary" id="retryFriend" type="button">我已加入，重新確認</button>
+    </section>
+
+    <section class="card hidden" id="errorCard" aria-live="polite">
+      <h2 id="errorTitle">暫時無法完成</h2>
+      <p class="message" id="errorMessage">請稍後重新開啟付款完成頁的綁定連結。</p>
+      <button class="action secondary" id="retry" type="button">重新嘗試</button>
+      <p class="errorCode" id="errorCode"></p>
+    </section>
+
+    <p class="privacy">LINE 僅用於本次訂位管理與必要服務通知。此頁不提供現場核銷；用餐當日仍請依活動規則出示訂位確認與 Asia Miles 會員資格。</p>
+  </main>
+  <script>
+    (function () {
+      var liffId = <%- JSON.stringify(liffId || '') %>;
+      var addFriendUrl = <%- JSON.stringify(addFriendUrl || '') %>;
+      var token = new URLSearchParams(location.search).get('token') || '';
+      var cards = ['loadingCard', 'successCard', 'friendCard', 'errorCard'];
+      function show(id) { cards.forEach(function (card) { document.getElementById(card).classList.toggle('hidden', card !== id); }); }
+      function fail(code) {
+        var map = {
+          invalid_booking_link: ['連結格式不正確', '請回到付款完成頁，重新點選「綁定這筆訂位」。'],
+          booking_link_not_found: ['找不到這筆訂位連結', '請確認使用付款完成頁提供的原始連結。'],
+          booking_link_expired: ['綁定連結已逾期', '為保護訂位資料，連結有效期為 72 小時。請聯絡 OpenRice 客服協助。'],
+          booking_link_used: ['這個連結已使用', '這筆訂位已綁定到另一個 LINE 帳號；如需協助請聯絡客服。'],
+          booking_bound_other: ['這筆訂位已綁定', '這筆訂位已連結到另一個 LINE 帳號；如需協助請聯絡客服。'],
+          line_login_invalid: ['LINE 登入逾時', '請重新嘗試登入並完成綁定。'],
+          friend_check_unavailable: ['暫時無法確認好友狀態', 'LINE 服務目前忙碌，請稍後重新嘗試。']
+        };
+        var copy = map[code] || ['暫時無法完成', '請稍後重新開啟付款完成頁的綁定連結。'];
+        document.getElementById('errorTitle').textContent = copy[0];
+        document.getElementById('errorMessage').textContent = copy[1];
+        document.getElementById('errorCode').textContent = code ? '錯誤代碼：' + code : '';
+        show('errorCard');
+      }
+      function renderBooking(booking) {
+        document.getElementById('bookingNo').textContent = booking.bookingNo;
+        document.getElementById('bookingDate').textContent = booking.date + ' ' + booking.time;
+        var items = [];
+        if (booking.tables4) items.push('4 人桌 × ' + booking.tables4);
+        if (booking.tables6) items.push('6 人桌 × ' + booking.tables6);
+        document.getElementById('bookingTables').textContent = items.join('、');
+        show('successCard');
+      }
+      async function bind() {
+        show('loadingCard');
+        if (!token || !/^[a-f0-9]{64}$/i.test(token)) return fail('invalid_booking_link');
+        if (!liffId || typeof liff === 'undefined') return fail('liff_not_configured');
+        try {
+          await liff.init({ liffId: liffId });
+          if (!liff.isLoggedIn()) {
+            liff.login({ redirectUri: location.href });
+            return;
+          }
+          var idToken = liff.getIDToken();
+          if (!idToken) return fail('line_login_invalid');
+          var response = await fetch('/api/gold-pig/bind', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ idToken: idToken, token: token })
+          });
+          var data = await response.json().catch(function () { return {}; });
+          if (response.status === 403 && data.error === 'friend_required') {
+            show('friendCard');
+            return;
+          }
+          if (!response.ok || !data.ok) return fail(data.error || 'server_error');
+          renderBooking(data.booking);
+        } catch (error) {
+          fail('network_error');
+        }
+      }
+      document.getElementById('addFriend').href = addFriendUrl;
+      document.getElementById('retryFriend').addEventListener('click', bind);
+      document.getElementById('retry').addEventListener('click', bind);
+      bind();
+    })();
+  </script>
+</body>
+</html>
