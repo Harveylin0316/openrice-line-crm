@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#FBF8F5" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#211713" media="(prefers-color-scheme: dark)" />
+  <title><%= title %></title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    /* ── 領取優惠券頁（claim）─────────────────────────────────────
+       設計準據：跟隨 game_wheel 2026-08 定案的視覺系統。
+       紙感暖底、票券撕裂線、活版印刷按鈕。
+       禁用：紫藍漸層 / 毛玻璃 / 光暈球 / 漸層標題 / emoji / 紙花 / 滿頁陰影。 */
+    :root{
+      --ink:#3E2723; --ink2:#8D6E63; --paper:#FBF8F5; --surface:#FFFDFB;
+      --orange:#F15A22; --yellow:#F9C73B; --line:#E4DAD2;
+    }
+    /* 深色模式：LINE webview 跟系統走，主力是 media query；data-theme 保留給日後切換 */
+    @media (prefers-color-scheme: dark){
+      :root:not([data-theme="light"]){
+        --ink:#F7EFE7; --ink2:#BCAAA4; --paper:#211713; --surface:#30221C; --line:#4A3630;
+      }
+    }
+    [data-theme="dark"]{
+      --ink:#F7EFE7; --ink2:#BCAAA4; --paper:#211713; --surface:#30221C; --line:#4A3630;
+    }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    /* display:flex/block 會蓋掉瀏覽器預設的 [hidden]，JS 藏不掉元素 */
+    [hidden]{display:none !important}
+    html,body{margin:0;padding:0}
+    body{
+      background:var(--paper); color:var(--ink);
+      font-family:"PingFang TC","Heiti TC","Microsoft JhengHei",sans-serif;
+      -webkit-font-smoothing:antialiased;
+      padding-bottom:env(safe-area-inset-bottom);
+    }
+    /* 紙質顆粒：純 CSS，很淡 */
+    body::before{
+      content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.045;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    .page{position:relative;z-index:1;max-width:520px;margin:0 auto;padding:14px 18px 32px}
+
+    /* ── 品牌列 ── */
+    .brand-bar{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+    .logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--ink)}
+    .logo .o{color:var(--orange)}
+    .chip{font-size:11px;font-weight:700;border:1.5px solid var(--ink);border-radius:5px;padding:1px 7px;color:var(--ink)}
+
+    /* ── 標題 ── */
+    .hero{margin:10px 0 16px}
+    .hero .partner{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--orange);margin-bottom:4px}
+    .hero h1{margin:0;font-size:28px;line-height:1.2;font-weight:900;letter-spacing:-.01em}
+    .hero p{margin:8px 0 0;font-size:13.5px;line-height:1.6;color:var(--ink2)}
+
+    /* ── 票券 ── */
+    .ticket{
+      position:relative;margin:18px 0 14px;
+      background:var(--surface);border:1.5px solid var(--line);border-radius:16px;
+    }
+    .tk-head{padding:18px 18px 14px}
+    .tk-label{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--ink2);margin-bottom:5px}
+    .tk-name{font-size:19px;font-weight:800;line-height:1.3}
+    .tk-expiry{margin-top:9px;font-size:12.5px;color:var(--ink2);line-height:1.5}
+    .tk-expiry .days{color:var(--orange);font-weight:800}
+    /* 撕裂線：左右打孔 + 虛線 */
+    .tk-tear{position:relative;height:0;border-top:2px dashed var(--line);margin:0 12px}
+    .tk-tear::before,.tk-tear::after{
+      content:'';position:absolute;top:-9px;width:18px;height:18px;border-radius:50%;
+      background:var(--paper);border:1.5px solid var(--line);
+    }
+    .tk-tear::before{left:-22px;border-right-color:transparent}
+    .tk-tear::after{right:-22px;border-left-color:transparent}
+    .tk-body{padding:16px 18px 18px}
+
+    /* 未領取：CTA 區 */
+    .tk-claim-note{font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:12px}
+    .cta{
+      display:block;width:100%;border:0;border-radius:12px;cursor:pointer;
+      background:var(--orange);color:#FFF;
+      font-size:18px;font-weight:900;letter-spacing:.02em;
+      padding:15px 16px;
+      box-shadow:0 4px 0 #B8401A;
+      transition:transform .08s, box-shadow .08s;
+    }
+    .cta:active{transform:translateY(3px);box-shadow:0 1px 0 #B8401A}
+    .cta[disabled]{
+      background:var(--line);color:var(--ink2);box-shadow:none;cursor:default;
+    }
+    .cta[disabled]:active{transform:none}
+
+    /* 已領取：序號區 */
+    .code-label{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--ink2);text-align:center;margin-bottom:8px}
+    .code-block{
+      display:flex;align-items:stretch;overflow:hidden;
+      border:2px solid var(--orange);border-radius:12px;background:var(--paper);
+    }
+    .code-text{
+      flex:1;padding:14px 12px;text-align:center;
+      font-size:24px;font-weight:800;letter-spacing:.08em;color:var(--ink);
+      font-variant-numeric:tabular-nums;word-break:break-all;
+      -webkit-user-select:all;user-select:all;
+    }
+    .code-copy{
+      flex:0 0 auto;width:72px;border:0;border-left:2px solid var(--orange);
+      background:transparent;color:var(--orange);font-size:14px;font-weight:800;cursor:pointer;
+    }
+    .code-copy:active{background:rgba(241,90,34,.08)}
+    .redeem-cta{margin-top:14px}
+    .redeem-note{margin-top:10px;font-size:12px;color:var(--ink2);text-align:center;line-height:1.5}
+
+    /* 發完 / 訊息狀態 */
+    .notice{
+      margin:16px 0;padding:16px 18px;border:1.5px solid var(--line);border-radius:14px;
+      background:var(--surface);font-size:14px;line-height:1.65;color:var(--ink);
+    }
+    .notice.warn{border-color:var(--yellow)}
+
+    /* ── 資訊區塊 ── */
+    .info-card{
+      margin:12px 0;padding:15px 18px;
+      background:var(--surface);border:1.5px solid var(--line);border-radius:14px;
+    }
+    .info-card h2{margin:0 0 9px;font-size:14px;font-weight:800;letter-spacing:.02em}
+    .info-card h2::before{content:'';display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--yellow);margin-right:7px;vertical-align:1px}
+    .info-card ol,.info-card ul{margin:0;padding-left:20px}
+    .info-card li{font-size:13px;line-height:1.75;color:var(--ink2)}
+    .info-card li::marker{color:var(--orange);font-weight:700}
+
+    /* ── 載入 / 全頁狀態 ── */
+    .state{padding:64px 24px;text-align:center;color:var(--ink2)}
+    .state .t{font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px}
+    .state .s{font-size:13px;line-height:1.6}
+    .spinner{
+      width:26px;height:26px;margin:0 auto 16px;border-radius:50%;
+      border:3px solid var(--line);border-top-color:var(--orange);
+      animation:spin .8s linear infinite;
+    }
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @media (prefers-reduced-motion: reduce){ .spinner{animation-duration:1.6s} }
+
+    .toast{
+      position:fixed;left:50%;bottom:36px;transform:translateX(-50%);
+      background:var(--ink);color:var(--paper);font-size:13px;font-weight:700;
+      padding:9px 18px;border-radius:999px;z-index:50;
+      opacity:0;transition:opacity .2s;pointer-events:none;
+    }
+    .toast.on{opacity:1}
+  </style>
+</head>
+<body>
+  <%
+    const pv = (prizes && prizes[0] && prizes[0].prize_value) || {};
+    const prizeName = (prizes && prizes[0] && prizes[0].name) || activity.name;
+    const listOf = v => Array.isArray(v) ? v : [];
+  %>
+  <div class="page">
+
+    <header class="brand-bar">
+      <div class="logo">Open<span class="o">Rice</span></div>
+      <div class="chip">優惠券</div>
+    </header>
+
+    <section class="hero">
+      <% if (pv.partner) { %><div class="partner"><%= pv.partner %></div><% } %>
+      <h1><%= activity.name %></h1>
+      <% if (activity.description) { %><p><%= activity.description %></p><% } %>
+    </section>
+
+    <!-- 載入中 -->
+    <div id="st-loading" class="state">
+      <div class="spinner"></div>
+      <div class="s">準備中⋯</div>
+    </div>
+
+    <!-- 全頁錯誤 -->
+    <div id="st-error" class="state" hidden>
+      <div class="t" id="err-title">無法載入</div>
+      <div class="s" id="err-detail">請稍後再試</div>
+    </div>
+
+    <!-- 票券（未領取 / 已領取共用外殼） -->
+    <div id="ticket" class="ticket" hidden>
+      <div class="tk-head">
+        <div class="tk-label">OPENRICE 會員限定</div>
+        <div class="tk-name"><%= prizeName %></div>
+        <div class="tk-expiry" id="tk-expiry" hidden>
+          使用期限：剩 <span class="days" id="expiry-days">—</span> 天，至 <span id="expiry-date">—</span> 止
+        </div>
+      </div>
+      <div class="tk-tear"></div>
+      <div class="tk-body">
+
+        <!-- 未領取 -->
+        <div id="pane-claim" hidden>
+          <div class="tk-claim-note" id="claim-note">每位好友限領一次，領取後序號會存在「我的優惠券」。</div>
+          <button type="button" class="cta" id="btn-claim">領取優惠券</button>
+        </div>
+
+        <!-- 已領取 -->
+        <div id="pane-code" hidden>
+          <div class="code-label">您的優惠序號</div>
+          <div class="code-block">
+            <div class="code-text" id="code-text">—</div>
+            <button type="button" class="code-copy" id="btn-copy">複製</button>
+          </div>
+          <button type="button" class="cta redeem-cta" id="btn-redeem" hidden>前往兌換</button>
+          <div class="redeem-note" id="redeem-note" hidden></div>
+        </div>
+
+        <!-- 發完 -->
+        <div id="pane-oos" hidden>
+          <div class="notice warn" style="margin:0">
+            這一波的優惠序號已全數發完。之後有加碼會在官方帳號公告，請留意訊息通知。
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 資訊區塊（有內容才顯示） -->
+    <% if (listOf(pv.how_to_claim).length) { %>
+    <section class="info-card">
+      <h2>領取步驟</h2>
+      <ol><% listOf(pv.how_to_claim).forEach(x => { %><li><%= x %></li><% }) %></ol>
+    </section>
+    <% } %>
+    <% if (listOf(pv.campaign_desc).length) { %>
+    <section class="info-card">
+      <h2>活動說明</h2>
+      <ul><% listOf(pv.campaign_desc).forEach(x => { %><li><%= x %></li><% }) %></ul>
+    </section>
+    <% } %>
+    <% if (listOf(pv.how_to_use).length) { %>
+    <section class="info-card">
+      <h2>使用方式</h2>
+      <ol><% listOf(pv.how_to_use).forEach(x => { %><li><%= x %></li><% }) %></ol>
+    </section>
+    <% } %>
+    <% if (listOf(pv.tnc).length) { %>
+    <section class="info-card">
+      <h2>注意事項</h2>
+      <ul><% listOf(pv.tnc).forEach(x => { %><li><%= x %></li><% }) %></ul>
+    </section>
+    <% } %>
+
+  </div>
+
+  <div class="toast" id="toast">已複製</div>
+
+  <script>
+    (function () {
+      var liffId   = <%- JSON.stringify(liffId || '') %>;
+      var slug     = <%- JSON.stringify(activity.slug) %>;
+      var gameType = <%- JSON.stringify(gameType) %>;
+      // 兌換連結：redeem_url 是單一落地頁（優先）；沒有就依裝置挑 iOS / Android 下載連結
+      var redeemUrls = {
+        base:    <%- JSON.stringify(pv.redeem_url || '') %>,
+        ios:     <%- JSON.stringify(pv.redeem_url_ios || '') %>,
+        android: <%- JSON.stringify(pv.redeem_url_android || '') %>
+      };
+      function pickRedeemUrl(){
+        if (redeemUrls.base) return redeemUrls.base;
+        var ua = navigator.userAgent || '';
+        if (/iPad|iPhone|iPod/i.test(ua)) return redeemUrls.ios || redeemUrls.android;
+        if (/Android/i.test(ua)) return redeemUrls.android || redeemUrls.ios;
+        return redeemUrls.ios || redeemUrls.android;
+      }
+      var redeemUrl    = pickRedeemUrl();
+      var useExpiresOn = <%- JSON.stringify(pv.use_expires_on || '') %>;
+      var startAt  = <%- JSON.stringify(activity.start_at || null) %>;
+      var endAt    = <%- JSON.stringify(activity.end_at || null) %>;
+
+      var profile = null, idToken = null;
+
+      function $(id){ return document.getElementById(id); }
+      function show(id){ $(id).hidden = false; }
+      function hide(id){ $(id).hidden = true; }
+
+      function showError(title, detail){
+        hide('st-loading'); hide('ticket');
+        $('err-title').textContent = title || '無法載入';
+        $('err-detail').textContent = detail || '請稍後再試';
+        show('st-error');
+      }
+
+      function showTicketPane(pane){
+        hide('st-loading'); hide('st-error');
+        show('ticket');
+        ['pane-claim','pane-code','pane-oos'].forEach(function(p){
+          $(p).hidden = (p !== pane);
+        });
+      }
+
+      // 使用期限：靜態算天數即可（天級精度，不需要跳動的倒數）
+      function renderExpiry(){
+        if (!useExpiresOn) return;
+        var end = new Date(useExpiresOn + 'T23:59:59+08:00');
+        if (isNaN(end.getTime())) return;
+        var days = Math.max(0, Math.ceil((end.getTime() - Date.now()) / 86400000));
+        $('expiry-days').textContent = String(days);
+        $('expiry-date').textContent = useExpiresOn.replace(/-/g, '/');
+        show('tk-expiry');
+      }
+
+      function renderCode(code){
+        $('code-text').textContent = code;
+        if (redeemUrl) {
+          show('btn-redeem');
+        } else {
+          $('redeem-note').textContent = '兌換連結即將開放，序號已為你保留。';
+          show('redeem-note');
+        }
+        showTicketPane('pane-code');
+      }
+
+      function toast(msg){
+        var t = $('toast');
+        t.textContent = msg || '已複製';
+        t.classList.add('on');
+        setTimeout(function(){ t.classList.remove('on'); }, 1600);
+      }
+
+      function copyCode(){
+        var code = ($('code-text').textContent || '').trim();
+        if (!code || code === '—') return;
+        function fallback(){
+          var ta = document.createElement('textarea');
+          ta.value = code;
+          ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); toast('已複製'); }
+          catch (e) { toast('複製失敗，請長按序號'); }
+          document.body.removeChild(ta);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(code).then(function(){ toast('已複製'); }, fallback);
+        } else fallback();
+      }
+
+      function openRedeem(){
+        if (!redeemUrl) return;
+        try {
+          if (window.liff && liff.openWindow) { liff.openWindow({ url: redeemUrl, external: true }); return; }
+        } catch (e) { /* fall through */ }
+        window.open(redeemUrl, '_blank');
+      }
+
+      // ── 從錢包撈回本活動已領的序號（重複進入頁面時） ──
+      async function loadClaimedCode(){
+        try {
+          var resp = await fetch('/api/games/wallet?line_user_id=' +
+            encodeURIComponent(profile.userId) + '&id_token=' + encodeURIComponent(idToken || ''))
+            .then(function(r){ return r.json(); });
+          if (resp && resp.ok && resp.coupons) {
+            var mine = resp.coupons.filter(function(c){ return c.activity_slug === slug && c.code; });
+            if (mine.length > 0) { renderCode(mine[0].code); return true; }
+          }
+        } catch (e) { /* fall through */ }
+        return false;
+      }
+
+      // ── 領取 ──
+      var claiming = false;
+      async function claim(){
+        if (claiming) return;
+        claiming = true;
+        var btn = $('btn-claim');
+        btn.disabled = true; btn.textContent = '領取中⋯';
+        try {
+          var resp = await fetch('/api/games/' + gameType + '/' + encodeURIComponent(slug) + '/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              line_user_id: profile.userId,
+              line_display_name: profile.displayName || '',
+              id_token: idToken || ''
+            })
+          }).then(function(r){ return r.json(); });
+
+          if (resp && resp.ok) {
+            if (resp.coupon_code) { renderCode(resp.coupon_code); return; }
+            if (resp.coupon_out_of_stock) { showTicketPane('pane-oos'); return; }
+            // coupon 型活動不該走到這裡；保底顯示已領取狀態
+            var got = await loadClaimedCode();
+            if (!got) showTicketPane('pane-oos');
+            return;
+          }
+
+          var code = resp && resp.error;
+          if (code === 'quota_exhausted') {
+            var found = await loadClaimedCode();
+            if (!found) showError('已領取過', '每位好友限領一次。');
+            return;
+          }
+          if (code === 'must_follow_oa') { showError('尚未加入好友', '請先加入 OpenRice 官方帳號好友，再回來領取。'); return; }
+          if (code === 'activity_not_started') { setWindowClosed('not_started'); return; }
+          if (code === 'activity_ended' || code === 'activity_not_active') { setWindowClosed('ended'); return; }
+          showError('領取失敗', (resp && resp.detail) || '請關閉頁面後從 LINE 重新開啟。');
+        } catch (e) {
+          showError('連線錯誤', '網路不穩定，請稍後再試。');
+        } finally {
+          claiming = false;
+          btn.disabled = false; btn.textContent = '領取優惠券';
+        }
+      }
+
+      // 活動期間外：留在票券畫面，但把 CTA 換成不可按的說明
+      function setWindowClosed(kind){
+        showTicketPane('pane-claim');
+        var btn = $('btn-claim');
+        btn.disabled = true;
+        if (kind === 'not_started') {
+          var d = startAt ? new Date(startAt) : null;
+          btn.textContent = (d && !isNaN(d.getTime()))
+            ? (d.getMonth() + 1) + '/' + d.getDate() + ' 開放領取'
+            : '尚未開放領取';
+          $('claim-note').textContent = '活動即將開始，開放後即可領取。';
+        } else {
+          btn.textContent = '活動已結束';
+          $('claim-note').textContent = '本活動已結束，感謝參與。';
+        }
+      }
+
+      function windowState(){
+        var now = Date.now();
+        if (startAt && now < new Date(startAt).getTime()) return 'not_started';
+        if (endAt && now > new Date(endAt).getTime()) return 'ended';
+        return 'open';
+      }
+
+      // ── LIFF init（比照各 game view 骨架） ──
+      async function initLiff(){
+        var qs = new URLSearchParams(location.search);
+        if (qs.get('demo') === '1') return 'demo';
+        var devUid = qs.get('uid');
+        if (devUid) { profile = { userId: devUid, displayName: qs.get('name') || 'DEV' }; return 'dev'; }
+        if (qs.get('preview') === '1') { profile = { userId: 'PREVIEW', displayName: '預覽' }; return 'preview'; }
+        if (!liffId) throw new Error('LIFF ID 未設定');
+        // 清掉 Netlify rewrite 補回來的 liff.state，避免 liff.init() 多導一次頁
+        try {
+          if (location.search.indexOf('liff.state') >= 0) {
+            var _u = new URL(location.href);
+            _u.searchParams.delete('liff.state');
+            history.replaceState({}, '', _u.pathname + _u.search + _u.hash);
+          }
+        } catch (e) { /* 舊 webview 沒有 URL/replaceState 就算了 */ }
+        try { await liff.init({ liffId: liffId }); }
+        catch (e) { throw new Error('LIFF 初始化失敗'); }
+        if (!liff.isInClient()) throw new Error('請在 LINE App 內打開');
+        if (!liff.isLoggedIn()) { liff.login(); return new Promise(function(){}); }
+        profile = await liff.getProfile();
+        try { idToken = liff.getIDToken(); } catch (e) {}
+        return 'liff';
+      }
+
+      async function boot(){
+        renderExpiry();
+        var mode;
+        try { mode = await initLiff(); }
+        catch (e) { showError('無法開啟', e && e.message); return; }
+
+        if (mode === 'demo') {
+          // 純視覺展示：?demo=1 看已領取票券、?demo=1&pane=claim 看未領取
+          var qs = new URLSearchParams(location.search);
+          if (qs.get('pane') === 'claim') showTicketPane('pane-claim');
+          else if (qs.get('pane') === 'oos') showTicketPane('pane-oos');
+          else renderCode(qs.get('code') || 'QYYFTQUF');
+          return;
+        }
+
+        // 取 quota，決定顯示「領取」還是「已領取的序號」
+        var quota = null;
+        try {
+          var meta = await fetch('/api/games/' + gameType + '/' + encodeURIComponent(slug) +
+            '/meta?line_user_id=' + encodeURIComponent(profile.userId) +
+            '&id_token=' + encodeURIComponent(idToken || ''))
+            .then(function(r){ return r.json(); });
+          if (meta && meta.ok) quota = meta.quota;
+        } catch (e) { /* meta 失敗不擋頁，照樣給領取鈕，由 /play 把關 */ }
+
+        if (quota && quota.played > 0) {
+          var found = await loadClaimedCode();
+          if (found) return;
+          // 領過但錢包查不到（例如當初碼池缺碼）→ 顯示發完狀態
+          showTicketPane('pane-oos');
+          return;
+        }
+
+        var ws = windowState();
+        if (ws !== 'open') { setWindowClosed(ws); return; }
+        showTicketPane('pane-claim');
+      }
+
+      $('btn-claim').addEventListener('click', claim);
+      $('btn-copy').addEventListener('click', copyCode);
+      $('btn-redeem').addEventListener('click', openRedeem);
+
+      boot();
+    })();
+  </script>
+</body>
+</html>

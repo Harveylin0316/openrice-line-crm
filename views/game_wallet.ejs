@@ -218,6 +218,21 @@
       text-align: center;
     }
     .wallet-card.used .wc-hint { display: none; }
+    .wc-redeem {
+      display: block;
+      margin-top: 12px;
+      text-align: center;
+      text-decoration: none;
+      background: var(--ink);
+      color: #fff;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.005em;
+    }
+    .wc-redeem:active { transform: scale(0.98); }
+    .wallet-card.used .wc-redeem { display: none; }
 
     /* ========== Empty / state ========== */
     .empty, .state {
@@ -352,6 +367,15 @@
         );
       }
 
+      // 兌換連結：redeem_url 是單一落地頁（優先）；沒有就依裝置挑 iOS / Android
+      function pickRedeemUrl(c) {
+        if (c.redeem_url) return c.redeem_url;
+        var ua = navigator.userAgent || '';
+        if (/iPad|iPhone|iPod/i.test(ua)) return c.redeem_url_ios || c.redeem_url_android || '';
+        if (/Android/i.test(ua)) return c.redeem_url_android || c.redeem_url_ios || '';
+        return c.redeem_url_ios || c.redeem_url_android || '';
+      }
+
       function renderCoupons(coupons) {
         if (!coupons || coupons.length === 0) { renderEmpty(); return; }
         var cards = coupons.map(function (c) {
@@ -363,7 +387,15 @@
             foot = '核銷時間 ' + esc(fmtDate(c.redeemed_at));
           } else {
             foot = '取得時間 ' + esc(fmtDate(c.won_at));
+            if (c.use_expires_on) {
+              foot += '，使用期限至 ' + esc(String(c.use_expires_on).replace(/-/g, '/')) + ' 止';
+            }
           }
+          // 有兌換連結的券在合作夥伴 App／網站兌換；沒有的維持到店核銷
+          var redeemHref = pickRedeemUrl(c);
+          var hint = redeemHref
+            ? '複製序號後，點「前往兌換」到合作夥伴 App 輸入使用'
+            : '請到店出示此畫面或序號給店員核銷';
           return (
             '<div class="wallet-card ' + statusCls + '">' +
               '<div class="wc-top">' +
@@ -378,7 +410,10 @@
                 '<div class="wc-code">' + esc(c.code) + '</div>' +
               '</div>' +
               '<div class="wc-foot">' + foot + '</div>' +
-              (used ? '' : '<div class="wc-hint">請到店出示此畫面或序號給店員核銷</div>') +
+              (!used && redeemHref
+                ? '<a class="wc-redeem" href="' + esc(redeemHref) + '" target="_blank" rel="noopener">前往兌換</a>'
+                : '') +
+              (used ? '' : '<div class="wc-hint">' + hint + '</div>') +
             '</div>'
           );
         }).join('');

@@ -24,7 +24,7 @@
  *   GET  /admin/activities/api/:id/stats    遊玩統計
  */
 
-const GAME_TYPES = ['wheel', 'fortune', 'scratch', 'slot'];
+const GAME_TYPES = ['wheel', 'fortune', 'scratch', 'slot', 'claim'];
 const STATUSES = ['draft', 'active', 'paused', 'ended'];
 const PRIZE_TYPES = ['rice_dollar', 'coupon_code', 'badge', 'physical', 'none'];
 

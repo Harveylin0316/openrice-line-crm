@@ -236,7 +236,12 @@ function registerWalletApi(app, deps) {
 
       const { rows } = await query(
         `SELECT a.name AS activity_name,
+                a.slug AS activity_slug,
                 COALESCE(p.prize_snapshot->>'name', '獎品') AS prize_name,
+                p.prize_snapshot->'prize_value'->>'redeem_url' AS redeem_url,
+                p.prize_snapshot->'prize_value'->>'redeem_url_ios' AS redeem_url_ios,
+                p.prize_snapshot->'prize_value'->>'redeem_url_android' AS redeem_url_android,
+                p.prize_snapshot->'prize_value'->>'use_expires_on' AS use_expires_on,
                 p.coupon_code AS code,
                 p.played_at AS won_at,
                 COALESCE(p.is_redeemed, false) AS redeemed,
@@ -251,11 +256,16 @@ function registerWalletApi(app, deps) {
       );
       const coupons = rows.map(r => ({
         activity_name: r.activity_name,
+        activity_slug: r.activity_slug,
         prize_name: r.prize_name,
         code: r.code,
         won_at: r.won_at,
         redeemed: !!r.redeemed,
-        redeemed_at: r.redeemed_at
+        redeemed_at: r.redeemed_at,
+        redeem_url: r.redeem_url || null,
+        redeem_url_ios: r.redeem_url_ios || null,
+        redeem_url_android: r.redeem_url_android || null,
+        use_expires_on: r.use_expires_on || null
       }));
       res.json({ ok: true, coupons });
     } catch (err) {
