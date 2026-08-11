@@ -419,9 +419,14 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
     return { error: { status: 400, code: 'inviter_not_member', detail: '邀請連結無效' } };
   }
   // 只認「真實加 OA 好友的被邀者」：擋偽造假 id 灌配額、確保邀請真的長 OA、獎勵對應真實獲客
+  // fail-closed：null（LINE API 429/5xx/沒 token）也不寫。玩一次的成本可以吸收，
+  // 但 activity_referrals 有 UNIQUE，寫錯一列永久回不來，也分不出當時到底加了沒。
+  // 前端拿到 follow_check_unavailable 會留著邀請、稍後自動重送。
   const invFollows = await verifyOaFollower(inviteeId);
-  if (invFollows === false) {
-    return { error: { status: 400, code: 'invitee_not_follower', detail: '被邀請的人要先加官方帳號好友，邀請才算成功。' } };
+  if (invFollows !== true) {
+    return invFollows === false
+      ? { error: { status: 400, code: 'invitee_not_follower', detail: '被邀請的人要先加官方帳號好友，邀請才算成功。' } }
+      : { error: { status: 400, code: 'follow_check_unavailable', detail: '好友狀態暫時查不到，等一下會自動再試。' } };
   }
   // 被邀請人「在這次邀請之前」是不是已經是會員？照樣算邀請成功（剛好已追蹤就判無效，
   // 客訴大於效益），但記下來，報表才分得出「真的拉到新客」與「邀既有好友」。
@@ -442,12 +447,23 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
     [a.id, inviterId, inviteeId, inviteeWasExisting]
   );
   const counted = ins.rows.length > 0;
+  let sameInviter = null;
+  if (!counted) {
+    try {
+      const { rows: ex } = await query(
+        `SELECT inviter_line_user_id FROM activity_referrals
+          WHERE activity_id = $1 AND invitee_line_user_id = $2 LIMIT 1`,
+        [a.id, inviteeId]
+      );
+      sameInviter = !!(ex[0] && ex[0].inviter_line_user_id === inviterId);
+    } catch (e) { /* 查不到就回 null，前端當作靜默處理 */ }
+  }
   if (counted) {
     // 邀請成功 → 即時通知邀請人。fire-and-forget：通知失敗絕不影響 API 回應
     notifyInviterOfReferral({ query, activity: a, activitySlug, gameType, inviterId, inviteeId })
       .catch(err => console.error('referral inviter notify failed:', err && err.message));
   }
-  return { ok: true, counted };
+  return { ok: true, counted, same_inviter: sameInviter };
 }
 
 module.exports = { selectPrizeAndRecord, computeUserQuota, registerReferral };

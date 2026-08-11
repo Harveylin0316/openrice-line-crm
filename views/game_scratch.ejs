@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#FFFBEB" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="/games-mgm.js?v=20260811a"></script>
   <style>
     :root {
       --bg: #FAFAFA; --surface: #FFFFFF;
@@ -381,6 +382,7 @@
     (function () {
       var slug = <%- JSON.stringify(activity.slug) %>;
       var liffId = <%- JSON.stringify(liffId || '') %>;
+      var addFriendUrl = <%- JSON.stringify(typeof addFriendUrl !== 'undefined' ? addFriendUrl : '') %>;
       var prizes = <%- JSON.stringify(prizes || []) %>;
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
@@ -700,19 +702,54 @@
         try { idToken = liff.getIDToken(); } catch (e) {}
       }
 
+      // 邀請送出。失敗不代表沒救——被邀請的人多半只是還沒加好友，
+      // ORMGM 會把邀請存起來，等他加完好友切回來自動重送。
       async function maybeRegisterReferral() {
-        try {
-          var qs = new URLSearchParams(location.search);
-          var inviter = qs.get('ref');
-          if (!inviter || !profile || !profile.userId || inviter === profile.userId) return;
-          await fetch('/api/games/scratch/' + encodeURIComponent(slug) + '/referral', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ line_user_id: profile.userId, inviter_line_user_id: inviter, id_token: idToken })
-          });
-          var url = new URL(location.href);
-          url.searchParams.delete('ref');
-          history.replaceState({}, '', url.pathname + url.search);
-        } catch (e) { console.warn('referral failed:', e); }
+        if (!window.ORMGM || !profile || !profile.userId) return;
+        var r = await ORMGM.referral({
+          gameType: 'scratch', slug: slug, userId: profile.userId,
+          getIdToken: function () { try { return liff.getIDToken() || idToken || ''; } catch (e) { return idToken || ''; } }
+        });
+        handleReferralResult(r);
+      }
+
+      function handleReferralResult(r) {
+        if (!r) return;
+        if (r.state === 'done') {
+          if (r.counted) ORMGM.toast('好了，這次算你朋友邀請成功');
+          else if (r.sameInviter === false) ORMGM.toast('你已經在這個活動裡了，直接開始玩');
+          return;
+        }
+        if (r.state !== 'pending') return;
+        if (r.code === 'invitee_not_follower') {
+          openFollowGate('先加「OpenRice 開飯喇」好友，才算你朋友邀請成功，你也才能玩。');
+        } else if (r.later) {
+          ORMGM.toast('活動還沒開跑，你朋友的邀請我們先幫你記著');
+        }
+      }
+
+      // 加好友閘門。重新確認一律問伺服器（前端的好友判定不可靠），
+      // 伺服器放行就把閘門收起來並刷新次數。
+      function openFollowGate(text) {
+        if (!window.ORMGM) return;
+        ORMGM.gate.init(addFriendUrl, recheckFollow);
+        ORMGM.gate.show(text);
+      }
+
+      async function recheckFollow() {
+        var r = await ORMGM.referral({
+          gameType: 'scratch', slug: slug, userId: (profile && profile.userId) || '',
+          getIdToken: function () { try { return liff.getIDToken() || idToken || ''; } catch (e) { return idToken || ''; } }
+        });
+        // 沒有待處理的邀請（自然流量的人）就直接問 quota，能拿到就代表過了
+        var passed = (r && (r.state === 'done' || r.state === 'none' || r.state === 'skip'));
+        if (passed) {
+          ORMGM.gate.hide();
+          await refreshQuota();
+          handleReferralResult(r);
+          return true;
+        }
+        return false;
       }
 
       async function refreshQuota() {
@@ -794,6 +831,10 @@
 
           if (!resp.ok) {
             // quota 用完或其他錯誤 → 不顯示 reveal/new 按鈕
+            if (resp.error === 'must_follow_oa') {
+              if (window.ORMGM) ORMGM.gate.serverDenied();
+              openFollowGate('要先加「OpenRice 開飯喇」好友才能參加，加完回來就可以玩。');
+            }
             statusEl.textContent = resp.detail || resp.error || '抽獎失敗';
             stageHint.textContent = resp.error === 'quota_exhausted' ? '次數已用完' : '無法抽獎';
             revealBtn.hidden = true;
@@ -919,6 +960,16 @@
           await initLiff();
           liffReady = true;
           await maybeRegisterReferral();
+          if (window.ORMGM) {
+            ORMGM.gate.init(addFriendUrl, recheckFollow);
+            ORMGM.watchReturn({
+              slug: slug,
+              busy: function () { return !!inProgress; },
+              onQuota: refreshQuota,
+              onRecheck: recheckFollow,
+              onReferral: maybeRegisterReferral
+            });
+          }
           statusEl.innerHTML = '哈囉，<span class="name">' + (profile.displayName || '') + '</span>';
           stageHint.textContent = '進行中';
           // meta（更新配額顯示）與 第一張卡「並行」，不再 meta 等完才發卡（縮短「準備中」）。

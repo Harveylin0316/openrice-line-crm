@@ -7,6 +7,7 @@
   <meta name="theme-color" content="#211713" media="(prefers-color-scheme: dark)" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="/games-mgm.js?v=20260811a"></script>
   <style>
     /* ── OpenRice 九月轉盤 ─────────────────────────────────────────
        設計準據：openrice-september-wheel-ready-state-v1.png
@@ -318,6 +319,7 @@
     (function () {
       var slug = <%- JSON.stringify(activity.slug) %>;
       var liffId = <%- JSON.stringify(liffId || '') %>;
+      var addFriendUrl = <%- JSON.stringify(typeof addFriendUrl !== 'undefined' ? addFriendUrl : '') %>;
       var prizes = <%- JSON.stringify(prizes || []) %>;
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
@@ -617,6 +619,10 @@
           }).then(function (r) { return r.json(); });
 
           if (!resp.ok) {
+            if (resp.error === 'must_follow_oa') {
+              if (window.ORMGM) ORMGM.gate.serverDenied();
+              openFollowGate('要先加「OpenRice 開飯喇」好友才能參加，加完回來就可以玩。');
+            }
             statusEl.textContent = resp.detail || resp.error || '抽選失敗';
             spinning = false;
             spinBtn.disabled = false;
@@ -812,6 +818,16 @@
 
           // 1) 先處理「我是被邀請來的」— 把 referral 寫進 DB
           await maybeRegisterReferral();
+          if (window.ORMGM) {
+            ORMGM.gate.init(addFriendUrl, recheckFollow);
+            ORMGM.watchReturn({
+              slug: slug,
+              busy: function () { return !!spinning; },
+              onQuota: refreshQuota,
+              onRecheck: recheckFollow,
+              onReferral: maybeRegisterReferral
+            });
+          }
 
           // 2) 拉 quota
           await refreshQuota();
@@ -827,29 +843,54 @@
       })();
 
       // ----- 邀請拉新：偵測 ?ref= 並寫 referral -----
+      // 邀請送出。失敗不代表沒救——被邀請的人多半只是還沒加好友，
+      // ORMGM 會把邀請存起來，等他加完好友切回來自動重送。
       async function maybeRegisterReferral() {
-        try {
-          var qs = new URLSearchParams(location.search);
-          var inviter = qs.get('ref');
-          if (!inviter) return;
-          if (!profile || !profile.userId) return;
-          if (inviter === profile.userId) return; // 不能邀請自己
-          await fetch('/api/games/wheel/' + encodeURIComponent(slug) + '/referral', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              line_user_id: profile.userId,
-              inviter_line_user_id: inviter,
-              id_token: idToken
-            })
-          });
-          // 清掉 URL 上的 ref（避免重整時又 POST）
-          var url = new URL(location.href);
-          url.searchParams.delete('ref');
-          history.replaceState({}, '', url.pathname + url.search);
-        } catch (e) {
-          console.warn('referral register failed:', e);
+        if (!window.ORMGM || !profile || !profile.userId) return;
+        var r = await ORMGM.referral({
+          gameType: 'wheel', slug: slug, userId: profile.userId,
+          getIdToken: function () { try { return liff.getIDToken() || idToken || ''; } catch (e) { return idToken || ''; } }
+        });
+        handleReferralResult(r);
+      }
+
+      function handleReferralResult(r) {
+        if (!r) return;
+        if (r.state === 'done') {
+          if (r.counted) ORMGM.toast('好了，這次算你朋友邀請成功');
+          else if (r.sameInviter === false) ORMGM.toast('你已經在這個活動裡了，直接開始玩');
+          return;
         }
+        if (r.state !== 'pending') return;
+        if (r.code === 'invitee_not_follower') {
+          openFollowGate('先加「OpenRice 開飯喇」好友，才算你朋友邀請成功，你也才能玩。');
+        } else if (r.later) {
+          ORMGM.toast('活動還沒開跑，你朋友的邀請我們先幫你記著');
+        }
+      }
+
+      // 加好友閘門。重新確認一律問伺服器（前端的好友判定不可靠），
+      // 伺服器放行就把閘門收起來並刷新次數。
+      function openFollowGate(text) {
+        if (!window.ORMGM) return;
+        ORMGM.gate.init(addFriendUrl, recheckFollow);
+        ORMGM.gate.show(text);
+      }
+
+      async function recheckFollow() {
+        var r = await ORMGM.referral({
+          gameType: 'wheel', slug: slug, userId: (profile && profile.userId) || '',
+          getIdToken: function () { try { return liff.getIDToken() || idToken || ''; } catch (e) { return idToken || ''; } }
+        });
+        // 沒有待處理的邀請（自然流量的人）就直接問 quota，能拿到就代表過了
+        var passed = (r && (r.state === 'done' || r.state === 'none' || r.state === 'skip'));
+        if (passed) {
+          ORMGM.gate.hide();
+          await refreshQuota();
+          handleReferralResult(r);
+          return true;
+        }
+        return false;
       }
 
       // ----- 拉 quota 並更新 UI -----

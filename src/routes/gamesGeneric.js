@@ -94,7 +94,8 @@ function registerGameType(app, deps, opts) {
         activity: a,
         prizes,
         liffId: effectiveLiffId,
-        gameType: gameType
+        gameType: gameType,
+        addFriendUrl: deps.addFriendUrl || process.env.LINE_OFFICIAL_ADD_FRIEND_URL || ''
       });
     } catch (err) {
       console.error(gameType + ' page error:', err && err.message);
@@ -106,8 +107,12 @@ function registerGameType(app, deps, opts) {
   app.get('/api/games/' + gameType + '/:slug/meta', async (req, res) => {
     try {
       const slug = String(req.params.slug || '').trim();
-      const lineUserId = String(req.query.line_user_id || '').trim();
-      verifyGameIdentity('meta', slug, lineUserId, String(req.query.id_token || '').trim()); // 唯讀：只記探針，不擋
+      const claimedUid = String(req.query.line_user_id || '').trim();
+      const metaToken = String(req.query.id_token || '').trim();
+      // 活動與獎品是公開的（頁面要靠它渲染），但 quota 是個人資料，
+      // 一律以 token 的 sub 為準。驗證失敗就不給 quota，頁面照樣載得起來。
+      const metaId = await verifyGameIdentity('meta', slug, claimedUid, metaToken);
+      const lineUserId = metaId.pass ? claimedUid : '';
       const { rows: act } = await query(
         `SELECT id, slug, name, description, status, start_at, end_at,
                 cover_image_url, daily_plays_per_user, require_follow_oa,
@@ -173,15 +178,20 @@ function registerGameType(app, deps, opts) {
     const inviterId = String((req.body || {}).inviter_line_user_id || '').trim();
     const idCheck = await verifyGameIdentity('referral', slug, inviteeId, String((req.body || {}).id_token || '').trim());
     if (!idCheck.pass) return res.status(idCheck.reject.status).json({ ok: false, error: idCheck.reject.code, detail: idCheck.reject.detail });
-    const result = await registerReferral({
-      query, activitySlug: slug, gameType, inviterId, inviteeId
-    });
-    if (result.error) {
-      return res.status(result.error.status).json({
-        ok: false, error: result.error.code, detail: result.error.detail
+    try {
+      const result = await registerReferral({
+        query, activitySlug: slug, gameType, inviterId, inviteeId
       });
+      if (result.error) {
+        return res.status(result.error.status).json({
+          ok: false, error: result.error.code, detail: result.error.detail
+        });
+      }
+      res.json(result);
+    } catch (err) {
+      console.error(gameType + ' referral error:', err && err.message);
+      res.status(500).json({ ok: false, error: 'referral_failed', detail: '系統忙線，等一下會自動再試。' });
     }
-    res.json(result);
   });
 }
 
