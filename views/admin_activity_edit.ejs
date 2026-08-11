@@ -95,7 +95,8 @@
         <h2 style="margin:0;">2. 獎品池</h2>
         <button type="button" class="ae-secondary-btn" id="ae-add-prize">＋ 新增獎品</button>
       </div>
-      <p class="muted" style="font-size:12px;"><span id="ae-prize-order-noun">遊戲</span>照「位置」排序顯示。「概率權重」是相對值（不需總和=100），系統自動算百分比。「庫存」為空 = 無限。</p>
+      <p class="muted" style="font-size:12px;"><span id="ae-prize-order-noun">遊戲</span>照「位置」由小到大排。中獎機率直接填百分比，全部加起來要等於 100。「庫存」留空 = 不限量。</p>
+      <div id="ae-pct-bar"></div>
       <div class="table-wrap">
         <table class="ae-prize-table">
           <thead>
@@ -103,8 +104,8 @@
               <th>位置</th>
               <th>獎品名稱</th>
               <th>類型</th>
-              <th style="text-align:right;">權重</th>
-              <th style="text-align:right;">機率</th>
+              <th style="text-align:right;">你填的</th>
+              <th style="text-align:right;">實際機率</th>
               <th style="text-align:right;">庫存</th>
               <th>大獎</th>
               <th></th>
@@ -174,8 +175,9 @@
             <input type="number" id="pm-position" min="0" value="0" />
           </label>
           <label class="ae-field">
-            <span>概率權重</span>
+            <span>中獎機率（%）</span>
             <input type="number" id="pm-weight" min="0" step="0.01" value="1" />
+            <small class="muted" id="pm-weight-hint" style="font-size:11px;line-height:1.5;"></small>
           </label>
           <label class="ae-field">
             <span>庫存（空白 = 無限）</span>
@@ -372,6 +374,77 @@
       bindCopyBtn('ae-copy-direct', 'ae-direct-url');
 
       // ---- prizes ----
+      // 機率是相對值，加起來不一定是 100。這條就是講白話：
+      // 「你填的」跟「實際機率」什麼時候會一樣、不一樣的話怎麼一鍵修好。
+      function renderPctBar(totalWeight) {
+        var bar = $('ae-pct-bar');
+        if (!bar) return;
+        if (!currentPrizes.length) { bar.innerHTML = ''; return; }
+        var t = Math.round(totalWeight * 100) / 100;
+        if (Math.abs(t - 100) < 0.01) {
+          bar.innerHTML = '<p class="muted" style="font-size:12px;margin:4px 0 0;">' +
+            '全部加起來 100%，你填的數字就是實際機率。</p>';
+          return;
+        }
+        bar.innerHTML = '<p style="font-size:12px;margin:6px 0 0;line-height:1.7;">' +
+          '目前全部加起來是 <strong>' + t + '</strong>，不是 100。遊戲照比例分配，所以還是抽得動，' +
+          '但你填的數字不等於實際機率（要看右邊那欄）。' +
+          '<button type="button" class="ae-link-btn" id="ae-normalize">按比例調成 100</button></p>';
+        var btn = $('ae-normalize');
+        if (btn) btn.addEventListener('click', function () { normalizeToHundred(totalWeight); });
+      }
+
+      // 按比例縮放到總和 100，實際機率完全不變，只是把數字換成看得懂的百分比
+      function normalizeToHundred(totalWeight) {
+        if (!(totalWeight > 0)) return;
+        var preview = currentPrizes.map(function (p) {
+          return { p: p, next: Math.round(Number(p.probability_weight || 0) / totalWeight * 10000) / 100 };
+        });
+        var NL = String.fromCharCode(10);
+        var msg = '每個獎品的實際中獎機率完全不變，只是把數字換算成百分比：' + NL + NL +
+          preview.map(function (x) { return '  ' + x.p.name + '：' + x.p.probability_weight + ' → ' + x.next; }).join(NL) +
+          NL + NL + '要改嗎？';
+        if (!confirm(msg)) return;
+        var btn = $('ae-normalize');
+        if (btn) { btn.disabled = true; btn.textContent = '處理中…'; }
+        Promise.all(preview.map(function (x) {
+          var v = x.p.prize_value || {};
+          return fetch('/admin/activities/api/prizes/' + x.p.id, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: x.p.name, description: x.p.description, image_url: x.p.image_url,
+              probability_weight: x.next, stock_total: x.p.stock_total,
+              prize_type: x.p.prize_type, prize_value: v,
+              position: x.p.position, is_grand_prize: x.p.is_grand_prize
+            })
+          }).then(function (r) { return r.json(); });
+        })).then(function (results) {
+          var bad = results.filter(function (r) { return !r || !r.ok; });
+          if (bad.length) alert('有 ' + bad.length + ' 個獎品沒改成功，請重新整理後再試一次。');
+          loadPrizes();
+        }).catch(function () {
+          alert('連線錯誤，請重新整理後再試一次。');
+          loadPrizes();
+        });
+      }
+
+      // modal 裡即時換算：你填的數字，在目前這組獎品裡實際會是多少
+      function updateWeightHint() {
+        var hint = $('pm-weight-hint');
+        if (!hint) return;
+        var mine = Number($('pm-weight').value || 0);
+        var others = currentPrizes.reduce(function (sum, p) {
+          return sum + (p.id === editingPrizeId ? 0 : Number(p.probability_weight || 0));
+        }, 0);
+        var total = others + mine;
+        if (!(total > 0)) { hint.textContent = ''; return; }
+        var pct = Math.round(mine / total * 10000) / 100;
+        hint.textContent = Math.abs(total - 100) < 0.01
+          ? '這個活動加起來剛好 100%'
+          : '這個活動加起來會是 ' + (Math.round(total * 100) / 100) + '，所以這一項實際機率是 ' + pct + '%';
+      }
+
       function renderPrizes() {
         var tbody = $('ae-prize-tbody');
         if (!tbody) return;
@@ -392,7 +465,7 @@
               (p.description ? '<div class="muted" style="font-size:11px;">' + escapeHtml(p.description) + '</div>' : '') +
             '</td>' +
             '<td>' + typeLabel + '</td>' +
-            '<td style="text-align:right;">' + p.probability_weight + '</td>' +
+            '<td style="text-align:right;" class="muted">' + p.probability_weight + '</td>' +
             '<td style="text-align:right;font-weight:600;">' + pct + '</td>' +
             '<td style="text-align:right;">' + stock + '</td>' +
             '<td>' + (p.is_grand_prize ? '<span class="ae-grand-badge">大獎</span>' : '—') + '</td>' +
@@ -402,6 +475,7 @@
             '</td>' +
           '</tr>';
         }).join('');
+        renderPctBar(totalWeight);
 
         $$('.ae-edit-prize', tbody).forEach(function (btn) {
           btn.addEventListener('click', function () { openPrizeModal(Number(btn.getAttribute('data-id'))); });
@@ -423,6 +497,8 @@
 
       function openPrizeModal(prizeId) {
         editingPrizeId = prizeId || null;
+        var wIn = $('pm-weight');
+        if (wIn && !wIn.__hintBound) { wIn.__hintBound = true; wIn.addEventListener('input', updateWeightHint); }
         $('prize-modal-title').textContent = editingPrizeId ? '編輯獎品' : '新增獎品';
         if (editingPrizeId) {
           var p = currentPrizes.find(function (x) { return x.id === editingPrizeId; });
@@ -449,6 +525,7 @@
           $('pm-value').value = '';
         }
         updatePrizeValueLabel();
+        updateWeightHint();
         $('prize-modal').hidden = false;
       }
       function closePrizeModal() {
