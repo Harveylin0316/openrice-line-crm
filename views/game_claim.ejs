@@ -3,124 +3,136 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#FBF8F5" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#FFF9ED" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#211713" media="(prefers-color-scheme: dark)" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
     /* ── 領取優惠券頁（claim）─────────────────────────────────────
-       設計準據：跟隨 game_wheel 2026-08 定案的視覺系統。
-       紙感暖底、票券撕裂線、活版印刷按鈕。
+       設計準據：openrice-line-oa-powerbank-flow-v1.png 設計板第三屏。
+       乳白底、橘色緞帶標籤、白卡片、橘 CTA、虛線分隔、底部食物插畫。
        禁用：紫藍漸層 / 毛玻璃 / 光暈球 / 漸層標題 / emoji / 紙花 / 滿頁陰影。 */
     :root{
-      --ink:#3E2723; --ink2:#8D6E63; --paper:#FBF8F5; --surface:#FFFDFB;
-      --orange:#F15A22; --yellow:#F9C73B; --line:#E4DAD2;
+      --ink:#3E2723; --ink2:#8D6E63; --bg:#FFF9ED; --card:#FFFFFF;
+      --orange:#F15A22; --orange-d:#C8481B; --yellow:#F9C73B;
+      --line:#F0E2CC; --soft:#FFF4DC;
     }
-    /* 深色模式：LINE webview 跟系統走，主力是 media query；data-theme 保留給日後切換 */
     @media (prefers-color-scheme: dark){
       :root:not([data-theme="light"]){
-        --ink:#F7EFE7; --ink2:#BCAAA4; --paper:#211713; --surface:#30221C; --line:#4A3630;
+        --ink:#F7EFE7; --ink2:#BCAAA4; --bg:#211713; --card:#30221C;
+        --line:#4A3630; --soft:#3A2A22;
       }
     }
     [data-theme="dark"]{
-      --ink:#F7EFE7; --ink2:#BCAAA4; --paper:#211713; --surface:#30221C; --line:#4A3630;
+      --ink:#F7EFE7; --ink2:#BCAAA4; --bg:#211713; --card:#30221C;
+      --line:#4A3630; --soft:#3A2A22;
     }
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     /* display:flex/block 會蓋掉瀏覽器預設的 [hidden]，JS 藏不掉元素 */
     [hidden]{display:none !important}
     html,body{margin:0;padding:0}
     body{
-      background:var(--paper); color:var(--ink);
+      background:var(--bg); color:var(--ink);
       font-family:"PingFang TC","Heiti TC","Microsoft JhengHei",sans-serif;
       -webkit-font-smoothing:antialiased;
-      padding-bottom:env(safe-area-inset-bottom);
+      min-height:100vh;
+      display:flex;flex-direction:column;
     }
-    /* 紙質顆粒：純 CSS，很淡 */
-    body::before{
-      content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.045;
-      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+    .page{
+      position:relative;z-index:1;width:100%;max-width:480px;margin:0 auto;
+      padding:22px 22px 8px;flex:1;
     }
-    .page{position:relative;z-index:1;max-width:520px;margin:0 auto;padding:14px 18px 32px}
 
-    /* ── 品牌列 ── */
-    .brand-bar{display:flex;align-items:center;gap:8px;margin-bottom:2px}
-    .logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--ink)}
-    .logo .o{color:var(--orange)}
-    .chip{font-size:11px;font-weight:700;border:1.5px solid var(--ink);border-radius:5px;padding:1px 7px;color:var(--ink)}
+    /* ── 品牌 ── */
+    .logo{text-align:center;margin-bottom:14px}
+    .logo .word{font-size:22px;font-weight:900;letter-spacing:-.01em}
+    .logo .word .a{color:var(--ink)}
+    .logo .word .b{color:var(--orange)}
+    .logo .sub{font-size:11px;font-weight:700;color:var(--ink2);letter-spacing:.3em;margin-top:1px}
+
+    /* ── 緞帶標籤 ── */
+    .ribbon-wrap{text-align:center;margin-bottom:12px}
+    .ribbon{
+      display:inline-block;background:var(--orange);color:#FFF;
+      font-size:14px;font-weight:800;letter-spacing:.12em;
+      padding:8px 22px;
+      clip-path:polygon(0 0,100% 0,calc(100% - 9px) 50%,100% 100%,0 100%,9px 50%);
+    }
 
     /* ── 標題 ── */
-    .hero{margin:10px 0 16px}
-    .hero .partner{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--orange);margin-bottom:4px}
-    .hero h1{margin:0;font-size:28px;line-height:1.2;font-weight:900;letter-spacing:-.01em}
-    .hero p{margin:8px 0 0;font-size:13.5px;line-height:1.6;color:var(--ink2)}
+    .headline{text-align:center;margin-bottom:4px}
+    .headline h1{margin:0;font-size:27px;line-height:1.3;font-weight:900;letter-spacing:.01em}
+    .tagline{text-align:center;font-size:14px;color:var(--ink2);margin:6px 0 0;line-height:1.5}
 
-    /* ── 票券 ── */
-    .ticket{
-      position:relative;margin:18px 0 14px;
-      background:var(--surface);border:1.5px solid var(--line);border-radius:16px;
+    /* ── 白卡片 ── */
+    .card{
+      background:var(--card);
+      border:1.5px solid var(--line);
+      border-radius:20px;
+      padding:20px;
+      margin-top:18px;
+      box-shadow:0 6px 18px -12px rgba(62,39,35,.25);
     }
-    .tk-head{padding:18px 18px 14px}
-    .tk-label{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--ink2);margin-bottom:5px}
-    .tk-name{font-size:19px;font-weight:800;line-height:1.3}
-    .tk-expiry{margin-top:9px;font-size:12.5px;color:var(--ink2);line-height:1.5}
-    .tk-expiry .days{color:var(--orange);font-weight:800}
-    /* 撕裂線：左右打孔 + 虛線 */
-    .tk-tear{position:relative;height:0;border-top:2px dashed var(--line);margin:0 12px}
-    .tk-tear::before,.tk-tear::after{
-      content:'';position:absolute;top:-9px;width:18px;height:18px;border-radius:50%;
-      background:var(--paper);border:1.5px solid var(--line);
+    .hero-img{
+      display:block;width:100%;border-radius:14px;
+      border:1.5px solid var(--line);
     }
-    .tk-tear::before{left:-22px;border-right-color:transparent}
-    .tk-tear::after{right:-22px;border-left-color:transparent}
-    .tk-body{padding:16px 18px 18px}
 
-    /* 未領取：CTA 區 */
-    .tk-claim-note{font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:12px}
+    /* 期限列（時鐘 + 文字） */
+    .expiry{
+      display:flex;align-items:center;justify-content:center;gap:7px;
+      margin:14px 0 2px;font-size:14px;font-weight:700;color:var(--ink);
+    }
+    .expiry svg{flex-shrink:0}
+    .expiry .hl{color:var(--orange)}
+
+    /* CTA */
     .cta{
-      display:block;width:100%;border:0;border-radius:12px;cursor:pointer;
+      display:block;width:100%;border:0;border-radius:14px;cursor:pointer;
       background:var(--orange);color:#FFF;
-      font-size:18px;font-weight:900;letter-spacing:.02em;
-      padding:15px 16px;
-      box-shadow:0 4px 0 #B8401A;
+      font-size:19px;font-weight:900;letter-spacing:.08em;
+      padding:15px 16px;margin-top:14px;
+      box-shadow:0 3px 0 var(--orange-d);
       transition:transform .08s, box-shadow .08s;
     }
-    .cta:active{transform:translateY(3px);box-shadow:0 1px 0 #B8401A}
-    .cta[disabled]{
-      background:var(--line);color:var(--ink2);box-shadow:none;cursor:default;
-    }
+    .cta:active{transform:translateY(2px);box-shadow:0 1px 0 var(--orange-d)}
+    .cta[disabled]{background:var(--line);color:var(--ink2);box-shadow:none;cursor:default}
     .cta[disabled]:active{transform:none}
+    .helper{margin-top:11px;font-size:12.5px;color:var(--ink2);text-align:center;line-height:1.6}
 
-    /* 已領取：序號區 */
-    .code-label{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--ink2);text-align:center;margin-bottom:8px}
-    .code-block{
-      display:flex;align-items:stretch;overflow:hidden;
-      border:2px solid var(--orange);border-radius:12px;background:var(--paper);
+    /* 序號區 */
+    .code-label{
+      text-align:center;font-size:14px;color:var(--ink2);font-weight:700;
+      letter-spacing:.08em;margin-bottom:6px;
     }
-    .code-text{
-      flex:1;padding:14px 12px;text-align:center;
-      font-size:24px;font-weight:800;letter-spacing:.08em;color:var(--ink);
-      font-variant-numeric:tabular-nums;word-break:break-all;
-      -webkit-user-select:all;user-select:all;
+    .code-big{
+      text-align:center;font-size:34px;font-weight:900;letter-spacing:.06em;
+      color:var(--ink);font-variant-numeric:tabular-nums;word-break:break-all;
+      -webkit-user-select:all;user-select:all;line-height:1.2;
     }
-    .code-copy{
-      flex:0 0 auto;width:72px;border:0;border-left:2px solid var(--orange);
-      background:transparent;color:var(--orange);font-size:14px;font-weight:800;cursor:pointer;
+    .copy-wrap{text-align:center;margin-top:9px}
+    .copy-chip{
+      display:inline-flex;align-items:center;gap:6px;
+      border:1.5px solid var(--orange);border-radius:999px;background:transparent;
+      color:var(--orange);font-size:13px;font-weight:800;letter-spacing:.05em;
+      padding:6px 16px;cursor:pointer;
     }
-    .code-copy:active{background:rgba(241,90,34,.08)}
-    .redeem-cta{margin-top:14px}
-    .redeem-note{margin-top:10px;font-size:12px;color:var(--ink2);text-align:center;line-height:1.5}
+    .copy-chip:active{background:rgba(241,90,34,.1)}
+    .dashed{border:0;border-top:2px dashed var(--yellow);margin:16px 0 2px}
 
-    /* 發完 / 訊息狀態 */
-    .notice{
-      margin:16px 0;padding:16px 18px;border:1.5px solid var(--line);border-radius:14px;
-      background:var(--surface);font-size:14px;line-height:1.65;color:var(--ink);
+    /* 查看說明連結 */
+    .info-link-wrap{text-align:center;margin-top:15px}
+    .info-link{
+      background:none;border:0;cursor:pointer;
+      font-size:13.5px;font-weight:700;color:var(--orange);
+      text-decoration:underline;text-underline-offset:3px;
+      padding:4px 8px;
     }
-    .notice.warn{border-color:var(--yellow)}
 
-    /* ── 資訊區塊 ── */
+    /* 說明區 */
     .info-card{
-      margin:12px 0;padding:15px 18px;
-      background:var(--surface);border:1.5px solid var(--line);border-radius:14px;
+      margin-top:12px;padding:15px 18px;
+      background:var(--card);border:1.5px solid var(--line);border-radius:16px;
     }
     .info-card h2{margin:0 0 9px;font-size:14px;font-weight:800;letter-spacing:.02em}
     .info-card h2::before{content:'';display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--yellow);margin-right:7px;vertical-align:1px}
@@ -128,8 +140,13 @@
     .info-card li{font-size:13px;line-height:1.75;color:var(--ink2)}
     .info-card li::marker{color:var(--orange);font-weight:700}
 
+    .notice{
+      font-size:14.5px;line-height:1.7;color:var(--ink);text-align:center;
+      padding:6px 2px;
+    }
+
     /* ── 載入 / 全頁狀態 ── */
-    .state{padding:64px 24px;text-align:center;color:var(--ink2)}
+    .state{padding:56px 24px;text-align:center;color:var(--ink2)}
     .state .t{font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px}
     .state .s{font-size:13px;line-height:1.6}
     .spinner{
@@ -140,9 +157,21 @@
     @keyframes spin{to{transform:rotate(360deg)}}
     @media (prefers-reduced-motion: reduce){ .spinner{animation-duration:1.6s} }
 
+    /* ── 底部食物插畫 ── */
+    .foot-art{
+      margin-top:22px;width:100%;height:130px;overflow:hidden;flex-shrink:0;
+    }
+    .foot-art img{
+      width:100%;height:260px;object-fit:cover;object-position:center 78%;
+      display:block;
+    }
+    @media (prefers-color-scheme: dark){
+      :root:not([data-theme="light"]) .foot-art img{filter:brightness(.82)}
+    }
+
     .toast{
       position:fixed;left:50%;bottom:36px;transform:translateX(-50%);
-      background:var(--ink);color:var(--paper);font-size:13px;font-weight:700;
+      background:var(--ink);color:var(--bg);font-size:13px;font-weight:700;
       padding:9px 18px;border-radius:999px;z-index:50;
       opacity:0;transition:opacity .2s;pointer-events:none;
     }
@@ -153,19 +182,24 @@
   <%
     const pv = (prizes && prizes[0] && prizes[0].prize_value) || {};
     const prizeName = (prizes && prizes[0] && prizes[0].name) || activity.name;
+    const pageTitle = pv.page_title || prizeName;
+    const claimedTitle = pv.claimed_title || '你的優惠券已準備好';
+    const tagline = pv.tagline || '';
+    const heroImage = pv.hero_image || '';
     const listOf = v => Array.isArray(v) ? v : [];
   %>
   <div class="page">
 
-    <header class="brand-bar">
-      <div class="logo">Open<span class="o">Rice</span></div>
-      <div class="chip">優惠券</div>
+    <header class="logo">
+      <div class="word"><span class="a">Open</span><span class="b">Rice</span></div>
+      <div class="sub">開飯喇</div>
     </header>
 
-    <section class="hero">
-      <% if (pv.partner) { %><div class="partner"><%= pv.partner %></div><% } %>
-      <h1><%= activity.name %></h1>
-      <% if (activity.description) { %><p><%= activity.description %></p><% } %>
+    <div class="ribbon-wrap"><span class="ribbon" id="ribbon">LINE 好友限定</span></div>
+
+    <section class="headline">
+      <h1 id="main-title"><%= pageTitle %></h1>
+      <p class="tagline" id="tagline"<% if (!tagline) { %> hidden<% } %>><%= tagline %></p>
     </section>
 
     <!-- 載入中 -->
@@ -180,72 +214,79 @@
       <div class="s" id="err-detail">請稍後再試</div>
     </div>
 
-    <!-- 票券（未領取 / 已領取共用外殼） -->
-    <div id="ticket" class="ticket" hidden>
-      <div class="tk-head">
-        <div class="tk-label">OPENRICE 會員限定</div>
-        <div class="tk-name"><%= prizeName %></div>
-        <div class="tk-expiry" id="tk-expiry" hidden>
-          使用期限：剩 <span class="days" id="expiry-days">—</span> 天，至 <span id="expiry-date">—</span> 止
+    <!-- 主卡片 -->
+    <div id="ticket" class="card" hidden>
+
+      <!-- 未領取 -->
+      <div id="pane-claim" hidden>
+        <% if (heroImage) { %><img class="hero-img" src="<%= heroImage %>" alt="" /><% } %>
+        <div class="expiry" id="expiry-claim" hidden>
+          <svg width="17" height="17" viewBox="0 0 17 17"><circle cx="8.5" cy="8.5" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 4.8v4l2.6 1.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>效期至 <span id="expiry-date-claim">—</span>，剩 <span class="hl" id="expiry-days-claim">—</span> 天</span>
+        </div>
+        <button type="button" class="cta" id="btn-claim">領取借電券</button>
+        <div class="helper" id="claim-note">每位好友限領一次，領取後序號會存在「我的優惠券」</div>
+      </div>
+
+      <!-- 已領取 -->
+      <div id="pane-code" hidden>
+        <div class="code-label">優惠序號</div>
+        <div class="code-big" id="code-text">—</div>
+        <div class="copy-wrap">
+          <button type="button" class="copy-chip" id="btn-copy">複製序號</button>
+        </div>
+        <hr class="dashed" />
+        <button type="button" class="cta" id="btn-redeem" hidden>前往兌換</button>
+        <div class="helper" id="redeem-note">複製序號後，依畫面指示完成兌換</div>
+        <div class="helper" id="expiry-code" hidden>效期至 <span id="expiry-date-code">—</span>（剩 <span id="expiry-days-code">—</span> 天）</div>
+      </div>
+
+      <!-- 發完 -->
+      <div id="pane-oos" hidden>
+        <div class="notice">
+          這一波的優惠序號已全數發完。<br>之後有加碼會在官方帳號公告，請留意訊息通知。
         </div>
       </div>
-      <div class="tk-tear"></div>
-      <div class="tk-body">
 
-        <!-- 未領取 -->
-        <div id="pane-claim" hidden>
-          <div class="tk-claim-note" id="claim-note">每位好友限領一次，領取後序號會存在「我的優惠券」。</div>
-          <button type="button" class="cta" id="btn-claim">領取優惠券</button>
-        </div>
-
-        <!-- 已領取 -->
-        <div id="pane-code" hidden>
-          <div class="code-label">您的優惠序號</div>
-          <div class="code-block">
-            <div class="code-text" id="code-text">—</div>
-            <button type="button" class="code-copy" id="btn-copy">複製</button>
-          </div>
-          <button type="button" class="cta redeem-cta" id="btn-redeem" hidden>前往兌換</button>
-          <div class="redeem-note" id="redeem-note" hidden></div>
-        </div>
-
-        <!-- 發完 -->
-        <div id="pane-oos" hidden>
-          <div class="notice warn" style="margin:0">
-            這一波的優惠序號已全數發完。之後有加碼會在官方帳號公告，請留意訊息通知。
-          </div>
-        </div>
-
-      </div>
     </div>
 
-    <!-- 資訊區塊（有內容才顯示） -->
-    <% if (listOf(pv.how_to_claim).length) { %>
-    <section class="info-card">
-      <h2>領取步驟</h2>
-      <ol><% listOf(pv.how_to_claim).forEach(x => { %><li><%= x %></li><% }) %></ol>
-    </section>
-    <% } %>
-    <% if (listOf(pv.campaign_desc).length) { %>
-    <section class="info-card">
-      <h2>活動說明</h2>
-      <ul><% listOf(pv.campaign_desc).forEach(x => { %><li><%= x %></li><% }) %></ul>
-    </section>
-    <% } %>
-    <% if (listOf(pv.how_to_use).length) { %>
-    <section class="info-card">
-      <h2>使用方式</h2>
-      <ol><% listOf(pv.how_to_use).forEach(x => { %><li><%= x %></li><% }) %></ol>
-    </section>
-    <% } %>
-    <% if (listOf(pv.tnc).length) { %>
-    <section class="info-card">
-      <h2>注意事項</h2>
-      <ul><% listOf(pv.tnc).forEach(x => { %><li><%= x %></li><% }) %></ul>
-    </section>
-    <% } %>
+    <!-- 查看說明 -->
+    <div class="info-link-wrap" id="info-link-wrap" hidden>
+      <button type="button" class="info-link" id="info-link">查看使用說明與注意事項</button>
+    </div>
+
+    <div id="info-sections" hidden>
+      <% if (listOf(pv.how_to_claim).length) { %>
+      <section class="info-card">
+        <h2>領取步驟</h2>
+        <ol><% listOf(pv.how_to_claim).forEach(x => { %><li><%= x %></li><% }) %></ol>
+      </section>
+      <% } %>
+      <% if (listOf(pv.campaign_desc).length) { %>
+      <section class="info-card">
+        <h2>活動說明</h2>
+        <ul><% listOf(pv.campaign_desc).forEach(x => { %><li><%= x %></li><% }) %></ul>
+      </section>
+      <% } %>
+      <% if (listOf(pv.how_to_use).length) { %>
+      <section class="info-card">
+        <h2>使用方式</h2>
+        <ol><% listOf(pv.how_to_use).forEach(x => { %><li><%= x %></li><% }) %></ol>
+      </section>
+      <% } %>
+      <% if (listOf(pv.tnc).length) { %>
+      <section class="info-card">
+        <h2>注意事項</h2>
+        <ul><% listOf(pv.tnc).forEach(x => { %><li><%= x %></li><% }) %></ul>
+      </section>
+      <% } %>
+    </div>
 
   </div>
+
+  <% if (heroImage) { %>
+  <div class="foot-art" id="foot-art" hidden><img src="<%= heroImage %>" alt="" /></div>
+  <% } %>
 
   <div class="toast" id="toast">已複製</div>
 
@@ -254,6 +295,8 @@
       var liffId   = <%- JSON.stringify(liffId || '') %>;
       var slug     = <%- JSON.stringify(activity.slug) %>;
       var gameType = <%- JSON.stringify(gameType) %>;
+      var pageTitle    = <%- JSON.stringify(pageTitle) %>;
+      var claimedTitle = <%- JSON.stringify(claimedTitle) %>;
       // 兌換連結：redeem_url 是單一落地頁（優先）；沒有就依裝置挑 iOS / Android 下載連結
       var redeemUrls = {
         base:    <%- JSON.stringify(pv.redeem_url || '') %>,
@@ -275,11 +318,11 @@
       var profile = null, idToken = null;
 
       function $(id){ return document.getElementById(id); }
-      function show(id){ $(id).hidden = false; }
-      function hide(id){ $(id).hidden = true; }
+      function show(id){ var el = $(id); if (el) el.hidden = false; }
+      function hide(id){ var el = $(id); if (el) el.hidden = true; }
 
       function showError(title, detail){
-        hide('st-loading'); hide('ticket');
+        hide('st-loading'); hide('ticket'); hide('info-link-wrap'); hide('foot-art');
         $('err-title').textContent = title || '無法載入';
         $('err-detail').textContent = detail || '請稍後再試';
         show('st-error');
@@ -287,10 +330,25 @@
 
       function showTicketPane(pane){
         hide('st-loading'); hide('st-error');
-        show('ticket');
+        show('ticket'); show('info-link-wrap');
+        // 未領取的卡片裡已經有主插畫，底部插畫只在領完/發完時出現，避免重複
+        if (pane === 'pane-claim') hide('foot-art'); else show('foot-art');
         ['pane-claim','pane-code','pane-oos'].forEach(function(p){
           $(p).hidden = (p !== pane);
         });
+        // 標題與緞帶隨狀態切換（照設計板：領完變「OPENRICE 好友禮／你的借電券已準備好」）
+        if (pane === 'pane-code') {
+          $('ribbon').textContent = 'OPENRICE 好友禮';
+          $('main-title').textContent = claimedTitle;
+          hide('tagline');
+        } else if (pane === 'pane-oos') {
+          $('ribbon').textContent = 'LINE 好友限定';
+          $('main-title').textContent = pageTitle;
+          hide('tagline');
+        } else {
+          $('ribbon').textContent = 'LINE 好友限定';
+          $('main-title').textContent = pageTitle;
+        }
       }
 
       // 使用期限：靜態算天數即可（天級精度，不需要跳動的倒數）
@@ -299,9 +357,12 @@
         var end = new Date(useExpiresOn + 'T23:59:59+08:00');
         if (isNaN(end.getTime())) return;
         var days = Math.max(0, Math.ceil((end.getTime() - Date.now()) / 86400000));
-        $('expiry-days').textContent = String(days);
-        $('expiry-date').textContent = useExpiresOn.replace(/-/g, '/');
-        show('tk-expiry');
+        var dateTxt = useExpiresOn.replace(/-/g, '/');
+        $('expiry-days-claim').textContent = String(days);
+        $('expiry-date-claim').textContent = dateTxt;
+        $('expiry-days-code').textContent = String(days);
+        $('expiry-date-code').textContent = dateTxt;
+        show('expiry-claim'); show('expiry-code');
       }
 
       function renderCode(code){
@@ -310,7 +371,6 @@
           show('btn-redeem');
         } else {
           $('redeem-note').textContent = '兌換連結即將開放，序號已為你保留。';
-          show('redeem-note');
         }
         showTicketPane('pane-code');
       }
@@ -383,7 +443,6 @@
           if (resp && resp.ok) {
             if (resp.coupon_code) { renderCode(resp.coupon_code); return; }
             if (resp.coupon_out_of_stock) { showTicketPane('pane-oos'); return; }
-            // coupon 型活動不該走到這裡；保底顯示已領取狀態
             var got = await loadClaimedCode();
             if (!got) showTicketPane('pane-oos');
             return;
@@ -403,11 +462,11 @@
           showError('連線錯誤', '網路不穩定，請稍後再試。');
         } finally {
           claiming = false;
-          btn.disabled = false; btn.textContent = '領取優惠券';
+          btn.disabled = false; btn.textContent = '領取借電券';
         }
       }
 
-      // 活動期間外：留在票券畫面，但把 CTA 換成不可按的說明
+      // 活動期間外：留在卡片畫面，但把 CTA 換成不可按的說明
       function setWindowClosed(kind){
         showTicketPane('pane-claim');
         var btn = $('btn-claim');
@@ -463,11 +522,11 @@
         catch (e) { showError('無法開啟', e && e.message); return; }
 
         if (mode === 'demo') {
-          // 純視覺展示：?demo=1 看已領取票券、?demo=1&pane=claim 看未領取
+          // 純視覺展示：?demo=1 看已領取、?demo=1&pane=claim 看未領取、&pane=oos 看發完
           var qs = new URLSearchParams(location.search);
           if (qs.get('pane') === 'claim') showTicketPane('pane-claim');
           else if (qs.get('pane') === 'oos') showTicketPane('pane-oos');
-          else renderCode(qs.get('code') || 'QYYFTQUF');
+          else renderCode(qs.get('code') || 'ORPOWER60');
           return;
         }
 
@@ -497,6 +556,12 @@
       $('btn-claim').addEventListener('click', claim);
       $('btn-copy').addEventListener('click', copyCode);
       $('btn-redeem').addEventListener('click', openRedeem);
+      $('info-link').addEventListener('click', function(){
+        var s = $('info-sections');
+        s.hidden = !s.hidden;
+        $('info-link').textContent = s.hidden ? '查看使用說明與注意事項' : '收合使用說明';
+        if (!s.hidden) { try { s.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {} }
+      });
 
       boot();
     })();
