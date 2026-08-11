@@ -398,6 +398,16 @@
           return;
         }
         if (!liffId) throw new Error('LIFF ID 未設定');
+        // 伺服器端已經把 liff.state 轉送到正確頁面了，但 Netlify 的 rewrite 會把原始
+        // query 補回沒有 query 的相對轉址，害這個參數殘留在網址上。留著的話 liff.init()
+        // 會再導一次頁 → 在 LINE 裡多一次整頁重載（首屏只有 2 秒預算，不能浪費）。
+        try {
+          if (location.search.indexOf('liff.state') >= 0) {
+            var _u = new URL(location.href);
+            _u.searchParams.delete('liff.state');
+            history.replaceState({}, '', _u.pathname + _u.search + _u.hash);
+          }
+        } catch (e) { /* 舊 webview 沒有 URL/replaceState 就算了，只是多一次導頁 */ }
         try { await liff.init({ liffId: liffId }); }
         catch (e) { throw new Error('LIFF 初始化失敗'); }
         if (!liff.isInClient()) throw new Error('請在 LINE App 內打開');
