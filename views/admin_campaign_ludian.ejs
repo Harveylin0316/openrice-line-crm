@@ -28,28 +28,54 @@
           <button type="button" class="lu-btn-sub" id="lu-refresh">重新整理</button>
         </div>
       </div>
-      <div id="lu-qa-banner" class="lu-warn" hidden></div>
+      <div id="lu-qa-banner" class="lu-warn" hidden>
+        <span id="lu-qa-text"></span>
+        <button type="button" class="lu-btn-sub" id="lu-clear-qa" style="margin-left:10px;border-color:#DC2626;color:#DC2626;">清除測試碼</button>
+      </div>
       <div class="lu-kpi-grid" id="lu-kpis">
         <div class="lu-kpi"><div class="v" id="k-claimed">—</div><div class="k">累計領取</div></div>
         <div class="lu-kpi"><div class="v" id="k-today">—</div><div class="k">今日領取</div></div>
-        <div class="lu-kpi"><div class="v" id="k-available">—</div><div class="k">剩餘序號</div></div>
+        <div class="lu-kpi" id="k-available-card"><div class="v" id="k-available">—</div><div class="k">剩餘序號</div></div>
         <div class="lu-kpi"><div class="v" id="k-rate">—</div><div class="k">領取率</div></div>
+        <div class="lu-kpi"><div class="v" id="k-newfriends">—</div><div class="k">活動期間新好友</div></div>
+        <div class="lu-kpi"><div class="v" id="k-claimers-new">—</div><div class="k">領取者中的新好友</div></div>
       </div>
+      <p class="muted" id="lu-forecast" style="font-size:13px;margin-top:10px;line-height:1.6;"></p>
 
-      <h3 class="lu-h3">從卡片到領取</h3>
+      <h3 class="lu-h3">從卡片到兌換</h3>
       <div class="lu-funnel" id="lu-funnel">
         <div class="lu-fstep"><div class="v" id="f-cards">—</div><div class="k">收到卡片（次）</div></div>
         <div class="lu-farrow">›</div>
         <div class="lu-fstep"><div class="v" id="f-opens">—</div><div class="k">打開領取頁（人）</div></div>
         <div class="lu-farrow">›</div>
         <div class="lu-fstep"><div class="v" id="f-claims">—</div><div class="k">完成領取（人）</div></div>
+        <div class="lu-farrow">›</div>
+        <div class="lu-fstep"><div class="v" id="f-redeems">—</div><div class="k">點了前往兌換（人）</div></div>
       </div>
       <p class="muted" style="font-size:12px;margin-top:6px;">
-        「收到卡片」含同一人重複索取；測試碼的領取不計入以上任何數字。
+        「收到卡片」含同一人重複索取；「領取者中的新好友」＝領取前 24 小時內才加入官方帳號的人；測試碼的領取不計入以上任何數字。
       </p>
 
       <h3 class="lu-h3">每日領取（近 30 天）</h3>
       <div id="lu-daily"><p class="muted">載入中…</p></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0;">查領取紀錄（客服用）</h2>
+      <p class="muted" style="margin-top:6px;">
+        用戶說「我領過但找不到序號」時：輸入他的 LINE 名稱（或完整序號），查他領了哪張、什麼時候領的。
+      </p>
+      <div style="display:flex;gap:8px;margin-top:12px;max-width:480px;">
+        <input type="text" id="lu-q" placeholder="LINE 名稱或完整序號" style="flex:1;font-family:inherit;font-size:14px;padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;" />
+        <button type="button" class="lu-btn-main" id="lu-q-btn">查詢</button>
+      </div>
+      <div id="lu-q-result" style="margin-top:12px;"></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0;">素材與連結</h2>
+      <p class="muted" style="margin-top:6px;">做圖文選單、發推播、對外溝通會用到的東西，都在這裡直接複製。</p>
+      <div id="lu-links" style="margin-top:12px;"><p class="muted">載入中…</p></div>
     </section>
 
     <section class="card">
@@ -103,6 +129,14 @@
       .lu-fstep .k{font-size:12px;color:#6B6B70;margin-top:3px;}
       .lu-farrow{align-self:center;color:#A0A0A6;font-size:20px;}
       .lu-warn{margin-top:12px;padding:12px 14px;border:1.5px solid #FCC726;background:#FFFBEB;border-radius:10px;font-size:13px;color:#1f2937;line-height:1.6;}
+      .lu-kpi.lu-low{border-color:#DC2626;background:#FEF2F2;}
+      .lu-kpi.lu-low .v{color:#DC2626;}
+      .lu-link-row{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #F4F4F6;flex-wrap:wrap;}
+      .lu-link-row .lbl{flex:0 0 110px;font-size:13px;font-weight:600;color:#1f2937;}
+      .lu-link-row code{flex:1;min-width:200px;font-size:12px;color:#374151;background:#FAFAFA;border:1px solid #ECECEE;border-radius:6px;padding:6px 9px;word-break:break-all;}
+      .lu-q-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+      .lu-q-table th{text-align:left;color:#6B6B70;font-weight:600;padding:5px 8px;border-bottom:1px solid #ECECEE;white-space:nowrap;}
+      .lu-q-table td{padding:5px 8px;border-bottom:1px solid #F4F4F6;color:#1f2937;font-variant-numeric:tabular-nums;}
       .lu-daily-table{width:100%;border-collapse:collapse;font-size:12.5px;}
       .lu-daily-table td{padding:4px 8px;border-bottom:1px solid #F4F4F6;color:#1f2937;font-variant-numeric:tabular-nums;}
       .lu-bar{display:inline-block;height:10px;background:#FCC726;border-radius:3px;vertical-align:middle;margin-right:6px;}
@@ -160,13 +194,65 @@
           $('f-cards').textContent=Number(f.card_sends||0).toLocaleString();
           $('f-opens').textContent=Number(f.opens||0).toLocaleString();
           $('f-claims').textContent=Number(f.claimers||0).toLocaleString();
+          $('f-redeems').textContent=Number(f.redeem_clickers||0).toLocaleString();
+
+          var g=overview.growth||{};
+          $('k-newfriends').textContent=Number(g.new_friends||0).toLocaleString();
+          var cn=Number(g.claimers_new||0), ct=Number(f.claimers||0);
+          $('k-claimers-new').textContent=ct>0?(cn.toLocaleString()+'（'+Math.round(cn/ct*100)+'%）'):'—';
+
+          // 剩餘量預警：低於 10% 整張卡變紅
+          var lowStock=pool.total>0&&(pool.available/pool.total)<0.1;
+          $('k-available-card').className='lu-kpi'+(lowStock?' lu-low':'');
+
+          // 碼量預測：近 7 天平均日領取 → 推發完日或結束時剩量
+          var fc=$('lu-forecast');
+          var avg=(overview.forecast&&overview.forecast.last7_claims||0)/7;
+          if(avg<=0){
+            fc.textContent=st.key==='live'?'還沒有足夠的領取資料可以預測發完時間。':'活動開始累積領取後，這裡會顯示「照目前速度哪天發完」的預測。';
+          }else{
+            var daysLeft=pool.available/avg;
+            var depleteMs=Date.now()+daysLeft*86400000;
+            var endMs=a.end_at?new Date(a.end_at).getTime():null;
+            var avgTxt=(Math.round(avg*10)/10);
+            if(endMs&&depleteMs>endMs){
+              var daysToEnd=Math.max(0,(endMs-Date.now())/86400000);
+              var leftover=Math.max(0,Math.round(pool.available-avg*daysToEnd));
+              fc.textContent='照近 7 天速度（每天約 '+avgTxt+' 張），到活動結束預計還會剩 '+leftover.toLocaleString()+' 張。';
+            }else{
+              var dd=new Date(depleteMs);
+              fc.textContent='照近 7 天速度（每天約 '+avgTxt+' 張），預計 '+(dd.getMonth()+1)+'/'+dd.getDate()+' 就會發完。想撐到活動結束，要提早跟旅電談加碼或放慢曝光。';
+            }
+          }
 
           var banner=$('lu-qa-banner');
           if(qa&&Number(qa.total||0)>0){
-            banner.textContent='碼池裡還有 '+qa.total+' 張測試碼（剩 '+qa.available+' 張未領），會排在真碼前面被優先發出。正式開跑前請通知管理員清除測試碼。';
+            $('lu-qa-text').textContent='碼池裡還有 '+qa.total+' 張測試碼（剩 '+qa.available+' 張未領），會排在真碼前面被優先發出。正式開跑前要先清除。';
             banner.hidden=false;
           }else{
             banner.hidden=true;
+          }
+
+          var L=overview.links||{};
+          var lb=$('lu-links');
+          function linkRow(label,val,extra){
+            if(!val)return '';
+            return '<div class="lu-link-row"><span class="lbl">'+esc(label)+'</span><code>'+esc(val)+'</code>'+
+              '<button type="button" class="lu-btn-sub" data-copy="'+esc(val)+'">複製</button>'+(extra||'')+'</div>';
+          }
+          lb.innerHTML=
+            linkRow('領券頁連結',L.liff_url)+
+            linkRow('觸發關鍵字',L.keyword,'<span class="muted" style="font-size:12px;">圖文選單按鈕動作設「發送文字：'+esc(L.keyword||'')+'」</span>')+
+            '<div class="lu-link-row"><span class="lbl">優惠券卡片</span><code>訊息庫 #'+esc(L.template_id||'')+'「旅電借電券卡片」</code><a class="lu-btn-sub" href="/admin/messages">開啟訊息庫</a></div>'+
+            linkRow('兌換網址',L.redeem_url,'<a class="lu-btn-sub" href="'+esc(L.redeem_url||'#')+'" target="_blank" rel="noopener">打開看看</a>');
+          var copies=lb.querySelectorAll('[data-copy]');
+          for(var ci=0;ci<copies.length;ci++){
+            copies[ci].addEventListener('click',function(){
+              var t=this.getAttribute('data-copy'),self=this;
+              if(navigator.clipboard&&navigator.clipboard.writeText){
+                navigator.clipboard.writeText(t).then(function(){self.textContent='已複製';setTimeout(function(){self.textContent='複製';},1500);});
+              }
+            });
           }
 
           if(overview.prize_id!=null){
@@ -250,6 +336,46 @@
             overview.activity=d.activity;
             render();
           }).catch(function(){msg.textContent='連線錯誤，請再試一次。';});
+        });
+
+        // ── 客服查詢 ──
+        function runLookup(){
+          var q=($('lu-q').value||'').trim(), box=$('lu-q-result');
+          if(q.length<2){box.innerHTML='<p class="muted">至少輸入 2 個字。</p>';return;}
+          box.innerHTML='<p class="muted">查詢中…</p>';
+          fetch('/admin/campaigns/ludian/api/lookup?q='+encodeURIComponent(q))
+            .then(function(r){return r.json();}).then(function(d){
+              if(!d.ok){box.innerHTML='<p class="muted">查詢失敗：'+esc(d.detail||d.error||'')+'</p>';return;}
+              var rs=d.results||[];
+              if(rs.length===0){box.innerHTML='<p class="muted">查無資料。提醒：序號要輸入完整才查得到；名稱可以只輸入一部分。</p>';return;}
+              var h='<table class="lu-q-table"><thead><tr><th>用戶</th><th>序號</th><th>領取時間</th><th>狀態</th></tr></thead><tbody>';
+              for(var i=0;i<rs.length;i++){
+                var r=rs[i];
+                var stTxt=(r.status==='redeemed'?'已核銷':'已發出')+(r.redeem_clicked?'・點過前往兌換':'');
+                h+='<tr><td>'+(r.display_name?esc(r.display_name):'<span class="muted">—</span>')+'</td>'+
+                   '<td>'+esc(r.code)+'</td>'+
+                   '<td style="white-space:nowrap;">'+esc(fmtDt(r.claimed_at))+'</td>'+
+                   '<td>'+stTxt+'</td></tr>';
+              }
+              h+='</tbody></table>';
+              box.innerHTML=h;
+            }).catch(function(){box.innerHTML='<p class="muted">連線錯誤，請再試一次。</p>';});
+        }
+        $('lu-q-btn').addEventListener('click',runLookup);
+        $('lu-q').addEventListener('keydown',function(e){if(e.key==='Enter')runLookup();});
+
+        // ── 清除測試碼（雙重確認） ──
+        $('lu-clear-qa').addEventListener('click',function(){
+          if(!overview)return;
+          var qa=overview.qa||{};
+          if(!window.confirm('確定要清除測試碼嗎？\\n\\n會刪除 '+(qa.total||0)+' 張 ORTESTQA 測試碼與測試領取紀錄。\\n清除後，用戶領到的每一張都會是旅電真碼。'))return;
+          if(!window.confirm('再確認一次：清除後無法復原，正式開跑前才需要做這件事。\\n\\n現在就清除？'))return;
+          fetch('/admin/campaigns/ludian/api/clear-test-codes',{method:'POST'})
+            .then(function(r){return r.json();}).then(function(d){
+              if(!d.ok){window.alert('清除失敗：'+(d.detail||d.error||''));return;}
+              window.alert('已清除 '+d.removed_codes+' 張測試碼、'+d.removed_plays+' 筆測試領取紀錄。');
+              loadOverview();
+            }).catch(function(){window.alert('連線錯誤，請再試一次。');});
         });
 
         loadOverview();

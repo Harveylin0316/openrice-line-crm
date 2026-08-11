@@ -403,6 +403,17 @@
 
       function openRedeem(){
         if (!redeemUrl) return;
+        // 點擊追蹤（fire-and-forget，失敗不影響跳轉）
+        try {
+          if (profile && idToken) {
+            fetch('/api/games/' + gameType + '/' + encodeURIComponent(slug) + '/redeem-click', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id_token: idToken }),
+              keepalive: true
+            }).catch(function(){});
+          }
+        } catch (e) { /* ignore */ }
         try {
           if (window.liff && liff.openWindow) { liff.openWindow({ url: redeemUrl, external: true }); return; }
         } catch (e) { /* fall through */ }
