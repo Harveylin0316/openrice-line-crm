@@ -69,6 +69,14 @@
       .cp-stat.av{background:#FFFBEB;border-color:#FCC726;}
       .cp-empty{border:1px dashed #ECECEE;border-radius:10px;padding:28px 16px;text-align:center;color:#6B6B70;}
       .cp-empty .cp-empty-title{font-size:15px;font-weight:600;color:#1f2937;margin-bottom:6px;}
+      .cp-pool-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+      .cp-claims{margin-top:12px;border-top:1px solid #ECECEE;padding-top:12px;}
+      .cp-claims h3{margin:0 0 8px;font-size:13px;font-weight:700;color:#1f2937;}
+      .cp-claims table{width:100%;border-collapse:collapse;font-size:12.5px;}
+      .cp-claims th{text-align:left;color:#6B6B70;font-weight:600;padding:5px 8px;border-bottom:1px solid #ECECEE;white-space:nowrap;}
+      .cp-claims td{padding:5px 8px;border-bottom:1px solid #F4F4F6;color:#1f2937;font-variant-numeric:tabular-nums;}
+      .cp-claims .bar{display:inline-block;height:10px;background:#FCC726;border-radius:3px;vertical-align:middle;margin-right:6px;}
+      .cp-claims .muted-cell{color:#9CA3AF;}
     </style>
 
     <script>
@@ -190,6 +198,7 @@
             var h='';
             for(var i=0;i<pools.length;i++){
               var p=pools[i];
+              var poolKey=p.activity_id+'-'+p.prize_id;
               h+='<div class="cp-pool">'+
                    '<div class="cp-pool-head">'+esc(p.prize_name||'優惠券')+'</div>'+
                    '<div class="cp-pool-sub">'+esc(p.activity_name||'')+'</div>'+
@@ -200,10 +209,65 @@
                      statBox(p.redeemed,'已核銷')+
                      (Number(p.voided||0)>0?statBox(p.voided,'已作廢'):'')+
                    '</div>'+
+                   '<div class="cp-pool-actions">'+
+                     '<button type="button" class="cp-secondary-btn" data-claims="'+esc(poolKey)+'" data-aid="'+esc(p.activity_id)+'" data-pid="'+esc(p.prize_id)+'">領取明細</button>'+
+                     '<a class="cp-secondary-btn" style="text-decoration:none;display:inline-block;" href="/admin/coupons/export.csv?activity_id='+encodeURIComponent(p.activity_id)+'&prize_id='+encodeURIComponent(p.prize_id)+'">下載對帳 CSV</a>'+
+                   '</div>'+
+                   '<div class="cp-claims" id="cp-claims-'+esc(poolKey)+'" hidden></div>'+
                  '</div>';
             }
             box.innerHTML=h;
+            var btns=box.querySelectorAll('[data-claims]');
+            for(var b=0;b<btns.length;b++){
+              btns[b].addEventListener('click',function(){
+                toggleClaims(this.getAttribute('data-claims'),this.getAttribute('data-aid'),this.getAttribute('data-pid'));
+              });
+            }
           }).catch(function(){var box=$('cp-stats');if(box)box.innerHTML='<p class="muted">載入失敗，請重新整理</p>';});
+        }
+        function fmtTs(ts){
+          if(!ts)return '';
+          try{
+            var d=new Date(ts);
+            var p=function(x){return String(x).padStart(2,'0');};
+            return d.getFullYear()+'/'+p(d.getMonth()+1)+'/'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+          }catch(e){return String(ts);}
+        }
+        function toggleClaims(key,aid,pid){
+          var el=$('cp-claims-'+key);
+          if(!el)return;
+          if(!el.hidden){el.hidden=true;return;}
+          el.hidden=false;
+          el.innerHTML='<p class="muted">載入中…</p>';
+          fetch('/admin/coupons/api/claims?activity_id='+encodeURIComponent(aid)+'&prize_id='+encodeURIComponent(pid))
+            .then(function(r){return r.json();}).then(function(d){
+              if(!d.ok){el.innerHTML='<p class="muted">載入失敗</p>';return;}
+              var daily=d.daily||[], recent=d.recent||[];
+              if(daily.length===0&&recent.length===0){
+                el.innerHTML='<p class="muted" style="font-size:12.5px;">還沒有人領取。</p>';
+                return;
+              }
+              var h='<h3>每日領取（近 30 天）</h3><table><tbody>';
+              var max=0,i;
+              for(i=0;i<daily.length;i++){if(daily[i].claims>max)max=daily[i].claims;}
+              for(i=0;i<daily.length;i++){
+                var w=max>0?Math.max(4,Math.round(daily[i].claims/max*160)):4;
+                h+='<tr><td style="white-space:nowrap;">'+esc(daily[i].d)+'</td>'+
+                   '<td style="width:100%;"><span class="bar" style="width:'+w+'px;"></span>'+Number(daily[i].claims||0)+'</td></tr>';
+              }
+              h+='</tbody></table>';
+              h+='<h3 style="margin-top:14px;">最近領取（最新 50 筆）</h3>'+
+                 '<table><thead><tr><th>序號</th><th>領取時間</th><th>用戶</th><th>狀態</th></tr></thead><tbody>';
+              for(var j=0;j<recent.length;j++){
+                var rr=recent[j];
+                h+='<tr><td>'+esc(rr.code)+'</td>'+
+                   '<td style="white-space:nowrap;">'+esc(fmtTs(rr.claimed_at))+'</td>'+
+                   '<td>'+(rr.display_name?esc(rr.display_name):'<span class="muted-cell">—</span>')+'</td>'+
+                   '<td>'+(rr.status==='redeemed'?'已核銷':'已發出')+'</td></tr>';
+              }
+              h+='</tbody></table>';
+              el.innerHTML=h;
+            }).catch(function(){el.innerHTML='<p class="muted">載入失敗</p>';});
         }
         $('cp-refresh').addEventListener('click',loadStats);
 

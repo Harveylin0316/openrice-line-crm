@@ -159,6 +159,102 @@ function registerAdminCouponsRoutes(app, deps) {
     }
   });
 
+  // 領取成效：每日領取趨勢 + 最近領取明細（給合作夥伴活動看成效用）
+  app.get('/admin/coupons/api/claims', requireAdmin, async (req, res) => {
+    try {
+      const activityId = Number(req.query.activity_id);
+      const prizeId = Number(req.query.prize_id);
+      if (!Number.isFinite(activityId) || !Number.isFinite(prizeId)) {
+        return jsonErr(res, 400, 'invalid_pool');
+      }
+      const days = Math.min(120, Math.max(7, Number(req.query.days) || 30));
+      const { rows: daily } = await query(
+        `SELECT to_char(date_trunc('day', c.claimed_at AT TIME ZONE 'Asia/Taipei'), 'YYYY-MM-DD') AS d,
+                COUNT(*)::int AS claims
+           FROM coupon_codes c
+          WHERE c.activity_id = $1 AND c.prize_id = $2
+            AND c.claimed_at IS NOT NULL
+            AND c.claimed_at >= now() - ($3 || ' days')::interval
+          GROUP BY 1 ORDER BY 1 ASC`,
+        [activityId, prizeId, String(days)]
+      );
+      const { rows: recent } = await query(
+        `SELECT c.code, c.status, c.claimed_at, c.redeemed_at,
+                COALESCE(ap.line_display_name, '') AS display_name
+           FROM coupon_codes c
+           LEFT JOIN activity_plays ap ON ap.id = c.claimed_play_id
+          WHERE c.activity_id = $1 AND c.prize_id = $2
+            AND c.claimed_at IS NOT NULL
+          ORDER BY c.claimed_at DESC
+          LIMIT 50`,
+        [activityId, prizeId]
+      );
+      return res.json({ ok: true, daily, recent });
+    } catch (err) {
+      console.error('coupons claims error:', err && err.message);
+      return jsonErr(res, 500, 'claims_failed', { detail: String(err.message || '').slice(0, 300) });
+    }
+  });
+
+  // 對帳 CSV：該碼池所有「已發出」的序號（含核銷狀態），給合作夥伴對帳。
+  // 只匯出已發出的；沒發出的序號不出現（對帳只關心發了誰、用了沒）。
+  app.get('/admin/coupons/export.csv', requireAdmin, async (req, res) => {
+    try {
+      const activityId = Number(req.query.activity_id);
+      const prizeId = Number(req.query.prize_id);
+      if (!Number.isFinite(activityId) || !Number.isFinite(prizeId)) {
+        return res.status(400).send('invalid_pool');
+      }
+      const { rows } = await query(
+        `SELECT c.code, c.status, c.claimed_at, c.redeemed_at,
+                c.claimed_line_user_id,
+                COALESCE(ap.line_display_name, '') AS display_name,
+                a.name AS activity_name, p.name AS prize_name
+           FROM coupon_codes c
+           JOIN activities a ON a.id = c.activity_id
+           LEFT JOIN activity_prizes p ON p.id = c.prize_id
+           LEFT JOIN activity_plays ap ON ap.id = c.claimed_play_id
+          WHERE c.activity_id = $1 AND c.prize_id = $2
+            AND c.claimed_at IS NOT NULL
+          ORDER BY c.claimed_at ASC`,
+        [activityId, prizeId]
+      );
+      const tpe = (ts) => {
+        if (!ts) return '';
+        try {
+          return new Date(ts).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
+        } catch (_e) { return String(ts); }
+      };
+      const csvCell = (s) => {
+        const v = String(s == null ? '' : s);
+        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      };
+      const header = ['序號', '狀態', '領取時間', '核銷時間', 'LINE 顯示名稱', 'LINE 用戶編號', '活動', '獎品'];
+      const statusLabel = { claimed: '已發出', redeemed: '已核銷', void: '已作廢' };
+      const lines = [header.join(',')];
+      for (const r of rows) {
+        lines.push([
+          csvCell(r.code),
+          csvCell(statusLabel[r.status] || r.status),
+          csvCell(tpe(r.claimed_at)),
+          csvCell(tpe(r.redeemed_at)),
+          csvCell(r.display_name),
+          csvCell(r.claimed_line_user_id),
+          csvCell(r.activity_name),
+          csvCell(r.prize_name)
+        ].join(','));
+      }
+      const fname = 'coupon-claims-a' + activityId + '-p' + prizeId + '.csv';
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="' + fname + '"');
+      // BOM：Excel 直開不亂碼
+      return res.send('\uFEFF' + lines.join('\n'));
+    } catch (err) {
+      console.error('coupons export error:', err && err.message);
+      return res.status(500).send('export_failed');
+    }
+  });
+
   // ============================================================
   // 店員核銷頁（獨立密碼，不走 admin 登入）
   // ============================================================
