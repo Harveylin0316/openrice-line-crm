@@ -26,3 +26,9 @@ test('failed booking links offer a LINE support handoff instead of a retry loop 
   assert.match(template, /不需要重複付款/);
   assert.doesNotMatch(template, /請回到付款完成頁/);
 });
+
+test('successful booking handoff opens the official OpenRice LINE OA', () => {
+  assert.match(template, /id="openChat" href="https:\/\/lin\.ee\/XCzdUC6"/);
+  assert.match(template, /請輸入「查詢訂位」/);
+  assert.doesNotMatch(template, /訊息「查詢訂位」會自動帶入/);
+});
