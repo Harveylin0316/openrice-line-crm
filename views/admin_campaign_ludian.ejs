@@ -1,0 +1,260 @@
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="card campaign-hero">
+      <div class="campaign-hero-inner">
+        <div class="campaign-hero-text">
+          <h1>旅電借電券</h1>
+          <p class="muted" style="margin-top:6px;">
+            OpenRice × 旅電「1 小時免費借電」活動。好友在官方帳號輸入「借電券」領取序號，到旅電 APP 兌換。
+          </p>
+          <div class="campaign-meta">
+            <span class="campaign-meta-pill" id="lu-window-pill">檔期載入中…</span>
+            <span class="campaign-meta-pill" id="lu-status-pill">狀態載入中…</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <h2 style="margin:0;">活動成效</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <a class="lu-btn-sub" href="/admin/coupons">領取明細</a>
+          <a class="lu-btn-sub" id="lu-csv" href="/admin/coupons">下載對帳 CSV</a>
+          <button type="button" class="lu-btn-sub" id="lu-refresh">重新整理</button>
+        </div>
+      </div>
+      <div id="lu-qa-banner" class="lu-warn" hidden></div>
+      <div class="lu-kpi-grid" id="lu-kpis">
+        <div class="lu-kpi"><div class="v" id="k-claimed">—</div><div class="k">累計領取</div></div>
+        <div class="lu-kpi"><div class="v" id="k-today">—</div><div class="k">今日領取</div></div>
+        <div class="lu-kpi"><div class="v" id="k-available">—</div><div class="k">剩餘序號</div></div>
+        <div class="lu-kpi"><div class="v" id="k-rate">—</div><div class="k">領取率</div></div>
+      </div>
+
+      <h3 class="lu-h3">從卡片到領取</h3>
+      <div class="lu-funnel" id="lu-funnel">
+        <div class="lu-fstep"><div class="v" id="f-cards">—</div><div class="k">收到卡片（次）</div></div>
+        <div class="lu-farrow">›</div>
+        <div class="lu-fstep"><div class="v" id="f-opens">—</div><div class="k">打開領取頁（人）</div></div>
+        <div class="lu-farrow">›</div>
+        <div class="lu-fstep"><div class="v" id="f-claims">—</div><div class="k">完成領取（人）</div></div>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:6px;">
+        「收到卡片」含同一人重複索取；測試碼的領取不計入以上任何數字。
+      </p>
+
+      <h3 class="lu-h3">每日領取（近 30 天）</h3>
+      <div id="lu-daily"><p class="muted">載入中…</p></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0;">檔期設定</h2>
+      <p class="muted" style="margin-top:6px;line-height:1.7;">
+        設定好時間後，時間到了會<b>自動開放、自動截止</b>，不用半夜手動按。<br>
+        時間以你電腦目前的時區輸入（台灣同事直接填台灣時間即可）。
+      </p>
+      <div class="lu-form">
+        <label class="lu-field">
+          <span>開始時間</span>
+          <input type="datetime-local" id="lu-start" />
+        </label>
+        <label class="lu-field">
+          <span>結束時間</span>
+          <input type="datetime-local" id="lu-end" />
+        </label>
+        <div>
+          <button type="button" class="lu-btn-main" id="lu-save-window">儲存檔期</button>
+          <span class="muted" id="lu-window-msg" style="font-size:13px;margin-left:10px;"></span>
+        </div>
+      </div>
+
+      <hr style="border:0;border-top:1px solid #ECECEE;margin:20px 0;" />
+
+      <h2 style="margin:0;">上架／下架</h2>
+      <p class="muted" style="margin-top:6px;line-height:1.7;" id="lu-status-desc">載入中…</p>
+      <div style="margin-top:12px;">
+        <button type="button" class="lu-btn-main" id="lu-toggle" disabled>載入中…</button>
+        <span class="muted" id="lu-status-msg" style="font-size:13px;margin-left:10px;"></span>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:10px;line-height:1.7;">
+        上架 = 好友輸入「借電券」會收到領取卡片、領取頁開放發碼（實際可領時間仍以上方檔期為準）。<br>
+        下架 = 卡片停止回覆、領取頁停止發碼。已領走的序號不受影響。
+      </p>
+    </section>
+
+    <style>
+      .lu-btn-sub{padding:6px 12px;background:#fff;border:1px solid #ECECEE;border-radius:6px;font-size:12px;cursor:pointer;color:#374151;text-decoration:none;display:inline-block;}
+      .lu-btn-main{padding:10px 18px;background:#FCC726;color:#1f2937;font-weight:700;border:none;border-radius:8px;cursor:pointer;font-size:14px;}
+      .lu-btn-main:disabled{opacity:.5;cursor:not-allowed;}
+      .lu-btn-main.lu-danger{background:#fff;border:1.5px solid #DC2626;color:#DC2626;}
+      .lu-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:14px;}
+      .lu-kpi{border:1px solid #ECECEE;border-radius:10px;padding:14px;background:#FAFAFA;text-align:center;}
+      .lu-kpi .v{font-size:24px;font-weight:700;color:#1f2937;font-variant-numeric:tabular-nums;}
+      .lu-kpi .k{font-size:12px;color:#6B6B70;margin-top:3px;}
+      .lu-h3{font-size:14px;font-weight:700;color:#1f2937;margin:20px 0 8px;}
+      .lu-funnel{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;}
+      .lu-fstep{flex:1;min-width:110px;border:1px solid #ECECEE;border-radius:10px;padding:12px;background:#FFFBEB;text-align:center;}
+      .lu-fstep .v{font-size:20px;font-weight:700;color:#1f2937;font-variant-numeric:tabular-nums;}
+      .lu-fstep .k{font-size:12px;color:#6B6B70;margin-top:3px;}
+      .lu-farrow{align-self:center;color:#A0A0A6;font-size:20px;}
+      .lu-warn{margin-top:12px;padding:12px 14px;border:1.5px solid #FCC726;background:#FFFBEB;border-radius:10px;font-size:13px;color:#1f2937;line-height:1.6;}
+      .lu-daily-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+      .lu-daily-table td{padding:4px 8px;border-bottom:1px solid #F4F4F6;color:#1f2937;font-variant-numeric:tabular-nums;}
+      .lu-bar{display:inline-block;height:10px;background:#FCC726;border-radius:3px;vertical-align:middle;margin-right:6px;}
+      .lu-form{display:grid;gap:12px;max-width:420px;margin-top:14px;}
+      .lu-field{display:flex;flex-direction:column;gap:5px;}
+      .lu-field span{font-size:13px;font-weight:600;color:#1f2937;}
+      .lu-field input{font-family:inherit;font-size:14px;padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;color:#1f2937;background:#fff;}
+      .campaign-meta-pill--live{background:#DCFCE7;color:#166534;border-color:#BBF7D0;}
+      .campaign-meta-pill--off{background:#F4F4F6;color:#6B6B70;}
+      [hidden]{display:none !important;}
+    </style>
+
+    <script>
+      (function(){
+        var $=function(id){return document.getElementById(id);};
+        var overview=null;
+
+        function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+        function pad(n){return String(n).padStart(2,'0');}
+        function toLocalDt(ts){
+          if(!ts)return '';
+          var d=new Date(ts);
+          if(isNaN(d.getTime()))return '';
+          return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+        }
+        function fmtDt(ts){
+          if(!ts)return '未設定';
+          var d=new Date(ts);
+          if(isNaN(d.getTime()))return '未設定';
+          return (d.getMonth()+1)+'/'+d.getDate()+' '+pad(d.getHours())+':'+pad(d.getMinutes());
+        }
+
+        function stateOf(a){
+          var now=Date.now();
+          if(a.status!=='active')return {key:'off',label:'未上架',desc:'活動目前是下架狀態：好友輸入「借電券」不會有回應，領取頁也不發碼。按下方「上架」即可開放。'};
+          if(a.start_at&&now<new Date(a.start_at).getTime())return {key:'scheduled',label:'已排程・'+fmtDt(a.start_at)+' 自動開始',desc:'活動已上架，但還沒到開始時間。時間一到會自動開放領取，不用再操作。'};
+          if(a.end_at&&now>new Date(a.end_at).getTime())return {key:'ended',label:'已結束',desc:'活動已超過結束時間，領取已自動截止。若要延長，改結束時間後儲存即可。'};
+          return {key:'live',label:'進行中',desc:'活動開放中：好友輸入「借電券」會收到卡片，可以領取序號。'};
+        }
+
+        function render(){
+          var a=overview.activity, pool=overview.pool, f=overview.funnel, qa=overview.qa;
+          $('lu-window-pill').textContent='檔期 '+fmtDt(a.start_at)+' → '+fmtDt(a.end_at);
+          var st=stateOf(a);
+          var pill=$('lu-status-pill');
+          pill.textContent=st.label;
+          pill.className='campaign-meta-pill '+(st.key==='live'?'campaign-meta-pill--live':(st.key==='scheduled'?'':'campaign-meta-pill--off'));
+          $('lu-status-desc').textContent=st.desc;
+
+          $('k-claimed').textContent=Number(pool.claimed||0).toLocaleString();
+          $('k-today').textContent=Number(pool.today_claims||0).toLocaleString();
+          $('k-available').textContent=Number(pool.available||0).toLocaleString();
+          $('k-rate').textContent=pool.total>0?Math.round(pool.claimed/pool.total*100)+'%':'—';
+
+          $('f-cards').textContent=Number(f.card_sends||0).toLocaleString();
+          $('f-opens').textContent=Number(f.opens||0).toLocaleString();
+          $('f-claims').textContent=Number(f.claimers||0).toLocaleString();
+
+          var banner=$('lu-qa-banner');
+          if(qa&&Number(qa.total||0)>0){
+            banner.textContent='碼池裡還有 '+qa.total+' 張測試碼（剩 '+qa.available+' 張未領），會排在真碼前面被優先發出。正式開跑前請通知管理員清除測試碼。';
+            banner.hidden=false;
+          }else{
+            banner.hidden=true;
+          }
+
+          if(overview.prize_id!=null){
+            $('lu-csv').setAttribute('href','/admin/coupons/export.csv?activity_id='+encodeURIComponent(a.id)+'&prize_id='+encodeURIComponent(overview.prize_id));
+          }
+
+          if(!$('lu-start').value)$('lu-start').value=toLocalDt(a.start_at);
+          if(!$('lu-end').value)$('lu-end').value=toLocalDt(a.end_at);
+
+          var btn=$('lu-toggle');
+          btn.disabled=false;
+          if(a.status==='active'){
+            btn.textContent='下架（暫停領取）';
+            btn.className='lu-btn-main lu-danger';
+          }else{
+            btn.textContent='上架（開放領取）';
+            btn.className='lu-btn-main';
+          }
+
+          var daily=overview.daily||[];
+          var box=$('lu-daily');
+          if(daily.length===0){
+            box.innerHTML='<p class="muted" style="font-size:12.5px;">還沒有領取紀錄。</p>';
+          }else{
+            var max=0,i;
+            for(i=0;i<daily.length;i++){if(daily[i].claims>max)max=daily[i].claims;}
+            var h='<table class="lu-daily-table"><tbody>';
+            for(i=0;i<daily.length;i++){
+              var w=max>0?Math.max(4,Math.round(daily[i].claims/max*180)):4;
+              h+='<tr><td style="white-space:nowrap;width:60px;">'+esc(daily[i].d)+'</td>'+
+                 '<td><span class="lu-bar" style="width:'+w+'px;"></span>'+Number(daily[i].claims||0)+'</td></tr>';
+            }
+            h+='</tbody></table>';
+            box.innerHTML=h;
+          }
+        }
+
+        function loadOverview(){
+          fetch('/admin/campaigns/ludian/api/overview').then(function(r){return r.json();}).then(function(d){
+            if(!d.ok){$('lu-daily').innerHTML='<p class="muted">載入失敗：'+esc(d.detail||d.error||'')+'</p>';return;}
+            overview=d;
+            render();
+          }).catch(function(){$('lu-daily').innerHTML='<p class="muted">載入失敗，請重新整理</p>';});
+        }
+
+        $('lu-refresh').addEventListener('click',function(){loadOverview();});
+
+        $('lu-save-window').addEventListener('click',function(){
+          var sv=$('lu-start').value, ev=$('lu-end').value, msg=$('lu-window-msg');
+          if(!sv||!ev){msg.textContent='開始與結束時間都要填。';return;}
+          var s=new Date(sv), e=new Date(ev);
+          if(isNaN(s.getTime())||isNaN(e.getTime())){msg.textContent='時間格式不正確。';return;}
+          if(e<=s){msg.textContent='結束時間必須晚於開始時間。';return;}
+          msg.textContent='儲存中…';
+          fetch('/admin/campaigns/ludian/api/window',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({start_at:s.toISOString(),end_at:e.toISOString()})
+          }).then(function(r){return r.json();}).then(function(d){
+            if(!d.ok){msg.textContent='儲存失敗：'+(d.detail||d.error||'');return;}
+            msg.textContent='已儲存。';
+            overview.activity=d.activity;
+            render();
+          }).catch(function(){msg.textContent='連線錯誤，請再試一次。';});
+        });
+
+        $('lu-toggle').addEventListener('click',function(){
+          if(!overview)return;
+          var a=overview.activity, msg=$('lu-status-msg');
+          var goingActive=a.status!=='active';
+          var confirmText=goingActive
+            ?'確定要上架嗎？\\n\\n上架後：好友輸入「借電券」會收到領取卡片。\\n實際可領取的時間仍以檔期為準（'+fmtDt(a.start_at)+' → '+fmtDt(a.end_at)+'）。'
+            :'確定要下架嗎？\\n\\n下架後：卡片停止回覆、領取頁停止發碼。\\n已領走的序號不受影響，之後可以隨時再上架。';
+          if(!window.confirm(confirmText))return;
+          msg.textContent='處理中…';
+          fetch('/admin/campaigns/ludian/api/status',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({status:goingActive?'active':'draft'})
+          }).then(function(r){return r.json();}).then(function(d){
+            if(!d.ok){msg.textContent='操作失敗：'+(d.detail||d.error||'');return;}
+            msg.textContent=goingActive?'已上架。':'已下架。';
+            overview.activity=d.activity;
+            render();
+          }).catch(function(){msg.textContent='連線錯誤，請再試一次。';});
+        });
+
+        loadOverview();
+      })();
+    </script>
+    `
+  })
+%>

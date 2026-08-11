@@ -1,0 +1,233 @@
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="card">
+      <h1>訂位抽獎登記</h1>
+      <p class="muted" style="margin-top:6px;line-height:1.7;">九月活動：用戶把訂位用的手機傳到官方帳號就完成登記。<br>
+      這裡看登記名單；十月拿到出席名單後，在下面比對並抽出得獎者。</p>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">登記狀況</h2>
+      <div id="br-stats" class="br-stats"><p class="muted">載入中…</p></div>
+      <div id="br-daily" style="margin-top:12px;"></div>
+      <button type="button" id="br-regs-toggle" class="br-toggle" hidden>展開登記名單</button>
+      <button type="button" id="br-regs-csv" class="br-toggle" hidden>下載名單 CSV</button>
+      <div id="br-regs" hidden style="margin-top:8px;"></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">十月開獎</h2>
+      <p class="muted" style="font-size:13px;line-height:1.7;margin-bottom:12px;">
+        把出席名單的手機號碼整批貼進來（一行一支，或用逗號分隔，格式亂一點沒關係，系統會自己整理）。<br>
+        先按「比對」看有多少人有抽獎資格，確認沒問題再抽。抽出的結果會存起來，重複抽不會抽到同一支手機。</p>
+      <textarea id="br-phones" rows="6" style="width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:10px;border:1px solid #ECECEE;border-radius:8px;" placeholder="0912345678&#10;0922-333-444&#10;+886933555777"></textarea>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button type="button" id="br-match" class="br-btn2">比對出席名單</button>
+        <span id="br-match-note" class="muted" style="font-size:13px;"></span>
+      </div>
+      <div id="br-match-result" style="margin-top:12px;"></div>
+
+      <div id="br-draw-box" hidden style="margin-top:14px;padding:14px;border:1px solid #FCC726;border-radius:10px;background:#FFFBEB;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+          <label style="font-size:13px;">抽出幾位<br>
+            <input type="number" id="br-count" min="1" max="500" value="10" style="width:90px;padding:8px;border:1px solid #ECECEE;border-radius:8px;font-size:14px;" /></label>
+          <label style="font-size:13px;flex:1;min-width:180px;">獎項名稱（會記在得獎名單上，可留空）<br>
+            <input type="text" id="br-prize" placeholder="例：頭獎 雙人晚餐券" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #ECECEE;border-radius:8px;font-size:14px;" /></label>
+          <button type="button" id="br-draw" class="br-btn1">正式抽出</button>
+        </div>
+        <p class="muted" style="font-size:12px;margin:8px 0 0;">按下去就會正式寫進得獎紀錄，抽錯了要來找工程師，先確認上面比對的數字沒問題。<br>發獎前記得用訂位紀錄核對得獎人本人——登記時只填號碼，系統沒辦法確認手機真的是他的。</p>
+      </div>
+      <div id="br-draw-result" style="margin-top:12px;"></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">已抽出的得獎者</h2>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">每一次抽獎都會記錄在這裡，關掉頁面也不會不見。</p>
+      <button type="button" id="br-winners-csv" class="br-toggle" hidden>下載得獎名單 CSV</button>
+      <div id="br-winners"><p class="muted">載入中…</p></div>
+    </section>
+
+    <style>
+      .br-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;}
+      .br-stat{border:1px solid #ECECEE;border-radius:10px;padding:14px;background:#FAFAFA;}
+      .br-stat .v{font-size:24px;font-weight:700;color:#1f2937;font-variant-numeric:tabular-nums;}
+      .br-stat .k{font-size:12px;color:#6B6B70;margin-top:4px;}
+      .br-toggle{margin-top:14px;margin-right:8px;padding:8px 14px;background:#fff;border:1px solid #ECECEE;border-radius:8px;font-size:13px;font-weight:600;color:#374151;cursor:pointer;}
+      .br-toggle:hover{border-color:#1f2937;}
+      .br-btn1{padding:10px 18px;background:#E11D27;color:#fff;border:0;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;}
+      .br-btn1:disabled{opacity:.5;cursor:default;}
+      .br-btn2{padding:10px 18px;background:#1f2937;color:#fff;border:0;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;}
+      .br-btn2:disabled{opacity:.5;cursor:default;}
+      .br-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+      .br-table th,.br-table td{padding:9px 12px;border-bottom:1px solid #F3F4F6;text-align:left;}
+      .br-table th{background:#FAFAFA;font-size:11px;color:#6B6B70;font-weight:600;letter-spacing:.04em;}
+      .br-flag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:700;background:#FEF2F2;color:#b91c1c;}
+      .br-ok{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:700;background:#ECFDF5;color:#047857;}
+      .br-callout{background:#FFFBEB;border:1px solid #FCC726;border-radius:10px;padding:12px 14px;font-size:13px;color:#92400e;line-height:1.7;margin-top:10px;}
+      .br-daily{display:flex;gap:4px;align-items:flex-end;height:56px;}
+      .br-daily .bar{flex:1;background:#E5E7EB;border-radius:3px 3px 0 0;position:relative;min-width:14px;}
+      .br-daily .bar b{position:absolute;top:-16px;left:0;right:0;text-align:center;font-size:10px;color:#6B6B70;font-weight:600;}
+      .br-daily .bar i{position:absolute;bottom:-16px;left:0;right:0;text-align:center;font-size:10px;color:#9ca3af;font-style:normal;}
+    </style>
+
+    <script>
+      (function(){
+        var $=function(id){return document.getElementById(id);};
+        function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+        function tw(ts){try{return new Date(ts).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});}catch(e){return String(ts||'');}}
+        function stat(v,k){return '<div class="br-stat"><div class="v">'+(Number(v||0)).toLocaleString()+'</div><div class="k">'+k+'</div></div>';}
+        // CSV：開頭是 = + - @ 的欄位前面補單引號，擋 Excel 公式注入
+        function csvCell(s){var v=String(s==null?'':s);if(/^[=+\\-@\\t\\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';}
+        function twFull(ts){try{return new Date(ts).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false});}catch(e){return String(ts||'');}}
+        function downloadCsv(name,rows){
+          var NL=String.fromCharCode(10);
+          var txt='\\ufeff'+rows.map(function(r){return r.map(csvCell).join(',');}).join(NL);
+          var a=document.createElement('a');
+          a.href=URL.createObjectURL(new Blob([txt],{type:'text/csv'}));
+          a.download=name;a.click();setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+        }
+
+        var DATA=null;
+
+        function renderData(d){
+          DATA=d;
+          var s=d.stats||{};
+          $('br-stats').innerHTML=
+            stat(s.phones,'登記的手機數（抽獎籤數）')+
+            stat(s.users,'登記的人數')+
+            stat(s.total,'總登記筆數')+
+            stat(s.today,'今天新增');
+          if(d.daily&&d.daily.length){
+            var mx=Math.max.apply(null,d.daily.map(function(x){return x.c;}));
+            $('br-daily').innerHTML='<div class="br-daily" style="margin:20px 0 22px;">'+
+              d.daily.map(function(x){var h=mx>0?Math.max(4,Math.round(x.c/mx*40)):4;
+                return '<div class="bar" style="height:'+h+'px;background:#FCC726;"><b>'+x.c+'</b><i>'+esc(x.d)+'</i></div>';}).join('')+'</div>';
+          }else{$('br-daily').innerHTML='';}
+
+          var tg=$('br-regs-toggle'),cs=$('br-regs-csv');
+          if(d.regs&&d.regs.length){
+            tg.hidden=false;cs.hidden=false;
+            tg.textContent='展開登記名單（'+d.regs.length+' 筆）';
+            var trunc=d.regs_truncated?'<div class="br-callout">名單超過 '+d.regs.length+' 筆，畫面和 CSV 只有最新的這些。要完整名單跟工程師說。</div>':'';
+            $('br-regs').innerHTML=trunc+'<table class="br-table"><thead><tr><th>手機</th><th>登記人</th><th>目前是好友</th><th>登記時間</th></tr></thead><tbody>'+
+              d.regs.map(function(r){return '<tr><td style="font-variant-numeric:tabular-nums;">'+esc(r.phone)+'</td><td>'+esc(r.display_name)+'</td><td>'+(r.is_member?'<span class="br-ok">是</span>':'<span class="br-flag">否</span>')+'</td><td>'+tw(r.registered_at)+'</td></tr>';}).join('')+
+              '</tbody></table>';
+          }else{
+            tg.hidden=true;cs.hidden=true;
+            $('br-regs').hidden=false;
+            $('br-regs').innerHTML='<p class="muted" style="font-size:13px;margin-top:10px;">還沒有人登記。活動 9月1日 開始收。</p>';
+          }
+
+          var wb=$('br-winners'),wc=$('br-winners-csv');
+          if(d.winners&&d.winners.length){
+            wc.hidden=false;
+            wb.innerHTML=winnersTable(d.winners);
+          }else{
+            wc.hidden=true;
+            wb.innerHTML='<p class="muted" style="font-size:13px;">還沒抽過。</p>';
+          }
+        }
+
+        function winnersTable(ws){
+          return '<table class="br-table"><thead><tr><th>手機</th><th>得獎人</th><th>獎項</th><th>抽出時間</th><th>誰抽的</th></tr></thead><tbody>'+
+            ws.map(function(r){
+              var extra=r.multi_claimant?' <span class="br-flag">多人登記這支手機，要人工確認</span>':'';
+              return '<tr><td style="font-variant-numeric:tabular-nums;">'+esc(r.phone)+'</td><td>'+esc(r.display_name)+extra+'</td><td>'+esc(r.prize_label||'—')+'</td><td>'+tw(r.drawn_at)+'</td><td>'+esc(r.drawn_by||'—')+'</td></tr>';
+            }).join('')+'</tbody></table>';
+        }
+
+        function load(){
+          fetch('/admin/booking-reg/api/data').then(function(r){return r.json();}).then(function(d){
+            if(!d.ok){$('br-stats').innerHTML='<p class="muted">載入失敗：'+esc(d.error||'')+'</p>';return;}
+            renderData(d);
+          }).catch(function(){$('br-stats').innerHTML='<p class="muted">載入失敗，請重新整理</p>';});
+        }
+        load();
+
+        $('br-regs-toggle').addEventListener('click',function(){
+          var t=$('br-regs');t.hidden=!t.hidden;
+          this.textContent=(t.hidden?'展開':'收合')+'登記名單（'+((DATA&&DATA.regs)?DATA.regs.length:0)+' 筆）';
+        });
+        $('br-regs-csv').addEventListener('click',function(){
+          if(!DATA||!DATA.regs)return;
+          downloadCsv('booking-registrations.csv',
+            [['手機','登記人','LINE ID','目前是好友','登記時間(台北)']].concat(
+              DATA.regs.map(function(r){return [r.phone,r.display_name,r.line_user_id,r.is_member?'是':'否',twFull(r.registered_at)];})));
+        });
+        $('br-winners-csv').addEventListener('click',function(){
+          if(!DATA||!DATA.winners)return;
+          downloadCsv('draw-winners.csv',
+            [['手機','得獎人','LINE ID','獎項','要人工確認','誰抽的','批次','抽出時間(台北)']].concat(
+              DATA.winners.map(function(r){return [r.phone,r.display_name,r.line_user_id,r.prize_label||'',r.multi_claimant?'是（多人登記這支手機）':'',r.drawn_by||'',r.draw_batch,twFull(r.drawn_at)];})));
+        });
+
+        // 出席名單一改，先前的比對就不算數，抽獎鈕收起來強迫重新比對
+        var lastEligible=0;
+        $('br-phones').addEventListener('input',function(){
+          $('br-draw-box').hidden=true;
+          $('br-match-result').innerHTML='';
+        });
+
+        // ── 比對 ──
+        $('br-match').addEventListener('click',function(){
+          var btn=this;var txt=$('br-phones').value;
+          if(!txt.trim()){$('br-match-note').textContent='先把出席名單貼進上面的框';return;}
+          btn.disabled=true;$('br-match-note').textContent='比對中…';
+          fetch('/admin/booking-reg/api/match',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phones_text:txt})})
+            .then(function(r){return r.json();})
+            .then(function(d){
+              btn.disabled=false;
+              if(!d.ok){$('br-match-note').textContent='比對失敗：'+(d.detail||d.error||'');return;}
+              $('br-match-note').textContent='';
+              var h='<div class="br-stats">'+
+                stat(d.attendance_valid,'出席名單有效手機')+
+                stat(d.matched_count,'其中有登記（有資格）')+
+                stat(d.eligible_count,'扣掉已中獎，可抽')+
+                '</div>';
+              if(d.invalid_count>0){
+                h+='<div class="br-callout">有 '+d.invalid_count+' 筆看不懂的資料（例：'+esc((d.invalid_samples||[]).slice(0,3).join('、'))+'），不影響其他筆，但如果數字對不上就檢查一下原始名單。</div>';
+              }
+              var multi=(d.matched||[]).filter(function(m){return m.claimants.length>1;});
+              if(multi.length){
+                h+='<div class="br-callout">注意：有 '+multi.length+' 支手機被超過一個 LINE 帳號登記（'+esc(multi.map(function(m){return m.phone;}).slice(0,5).join('、'))+'）。抽中的話得獎人先記最早登記的那位，發獎前要人工確認。</div>';
+              }
+              $('br-match-result').innerHTML=h;
+              lastEligible=d.eligible_count;
+              $('br-draw-box').hidden=!(d.eligible_count>0);
+            })
+            .catch(function(){btn.disabled=false;$('br-match-note').textContent='連線失敗，再試一次';});
+        });
+
+        // ── 正式抽出 ──
+        $('br-draw').addEventListener('click',function(){
+          var btn=this;
+          var cnt=Number($('br-count').value||0);
+          if(!(cnt>=1)){alert('抽出人數要至少 1');return;}
+          var NL2=String.fromCharCode(10);if(!confirm('抽獎池共 '+lastEligible+' 位有資格，要正式抽出 '+cnt+' 位。'+NL2+NL2+'抽出就會寫進得獎紀錄，確定嗎？'))return;
+          btn.disabled=true;
+          fetch('/admin/booking-reg/api/draw',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({phones_text:$('br-phones').value,count:cnt,prize_label:$('br-prize').value})})
+            .then(function(r){return r.json();})
+            .then(function(d){
+              btn.disabled=false;
+              if(!d.ok){alert('抽獎失敗：'+(d.detail||d.error||''));return;}
+              var note='';
+              if(d.conflicted>0){
+                note+='<div class="br-callout">有 '+d.conflicted+' 位同時被另一個視窗抽走了（兩邊同時在抽）。想補足人數就再抽一次，已中獎的不會重複。</div>';
+              }else if(d.winners.length<d.requested){
+                note+='<div class="br-callout">可抽的人只有 '+d.eligible_count+' 位，實際抽出 '+d.winners.length+' 位。</div>';
+              }
+              $('br-draw-result').innerHTML='<h3 style="margin:0 0 6px;">這批抽出 '+d.winners.length+' 位</h3>'+note+winnersTable(d.winners);
+              load();
+            })
+            .catch(function(){btn.disabled=false;alert('連線失敗。注意：不確定有沒有抽成功，先重新整理看「已抽出的得獎者」，不要直接再按一次。');});
+        });
+      })();
+    </script>
+    `
+  })
+%>

@@ -25,6 +25,7 @@ const { registerAdminUsersRoutes } = require('./routes/adminUsers');
 const { registerAdminRestaurantsRoutes } = require('./routes/adminRestaurants');
 const { registerAdminRfmRoutes } = require('./routes/adminRfm');
 const { registerAdminReferralsRoutes } = require('./routes/adminReferrals');
+const { registerAdminBookingRegRoutes } = require('./routes/adminBookingReg');
 const { registerAdminHubRoutes } = require('./routes/adminHub');
 const { registerAdminDashboardRoutes } = require('./routes/adminDashboard');
 const { registerAdminEmailDomainRoutes } = require('./routes/adminEmailDomain');
@@ -590,8 +591,9 @@ registerAdminRestaurantsRoutes(app, { query, authCore });
 registerAdminRfmRoutes(app, { query, pool, authCore });
 
 registerAdminReferralsRoutes(app, { query, authCore });
+registerAdminBookingRegRoutes(app, { query, authCore });
 
-registerAdminHubRoutes(app, { authCore });
+registerAdminHubRoutes(app, { query, authCore });
 
 registerAdminDashboardRoutes(app, { query, authCore });
 
