@@ -71,7 +71,7 @@ function registerGameType(app, deps, opts) {
       const { rows } = await query(
         `SELECT id, slug, name, description, game_type, status, start_at, end_at,
                 cover_image_url, daily_plays_per_user, require_follow_oa, liff_id_override,
-                base_plays_per_user, referral_bonus_per, referral_bonus_max
+                base_plays_per_user, referral_bonus_per, referral_bonus_max, referral_invites_per_bonus
          FROM activities WHERE slug = $1 LIMIT 1`,
         [slug]
       );
@@ -116,7 +116,7 @@ function registerGameType(app, deps, opts) {
       const { rows: act } = await query(
         `SELECT id, slug, name, description, status, start_at, end_at,
                 cover_image_url, daily_plays_per_user, require_follow_oa,
-                base_plays_per_user, referral_bonus_per, referral_bonus_max
+                base_plays_per_user, referral_bonus_per, referral_bonus_max, referral_invites_per_bonus
          FROM activities WHERE slug = $1 AND game_type = $2 LIMIT 1`,
         [slug, gameType]
       );
@@ -172,24 +172,40 @@ function registerGameType(app, deps, opts) {
   if (gameType === 'wheel') app.post('/api/games/wheel/:slug/spin', handlePlay);
 
   // ----- referral API -----
+  // 每一次邀請嘗試不論成敗都留一筆：用戶抱怨「我邀了朋友沒拿到次數」時，
+  // 後台要查得到那一次到底發生什麼；只有成功才有紀錄會查不到「為什麼失敗」。
+  function logReferralAttempt(slug, inviterId, inviteeId, outcome) {
+    query(
+      `INSERT INTO activity_referral_attempts (activity_slug, game_type, inviter_line_user_id, invitee_line_user_id, outcome)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [slug, gameType, inviterId || null, inviteeId || null, String(outcome || 'unknown').slice(0, 60)]
+    ).catch(e => console.error('referral attempt log failed:', e && e.message));
+  }
+
   app.post('/api/games/' + gameType + '/:slug/referral', async (req, res) => {
     const slug = String(req.params.slug || '').trim();
     const inviteeId = String((req.body || {}).line_user_id || '').trim();
     const inviterId = String((req.body || {}).inviter_line_user_id || '').trim();
     const idCheck = await verifyGameIdentity('referral', slug, inviteeId, String((req.body || {}).id_token || '').trim());
-    if (!idCheck.pass) return res.status(idCheck.reject.status).json({ ok: false, error: idCheck.reject.code, detail: idCheck.reject.detail });
+    if (!idCheck.pass) {
+      logReferralAttempt(slug, inviterId, inviteeId, idCheck.reject.code);
+      return res.status(idCheck.reject.status).json({ ok: false, error: idCheck.reject.code, detail: idCheck.reject.detail });
+    }
     try {
       const result = await registerReferral({
         query, activitySlug: slug, gameType, inviterId, inviteeId
       });
       if (result.error) {
+        logReferralAttempt(slug, inviterId, inviteeId, result.error.code);
         return res.status(result.error.status).json({
           ok: false, error: result.error.code, detail: result.error.detail
         });
       }
+      logReferralAttempt(slug, inviterId, inviteeId, result.counted ? 'counted' : 'duplicate');
       res.json(result);
     } catch (err) {
       console.error(gameType + ' referral error:', err && err.message);
+      logReferralAttempt(slug, inviterId, inviteeId, 'server_error');
       res.status(500).json({ ok: false, error: 'referral_failed', detail: '系統忙線，等一下會自動再試。' });
     }
   });

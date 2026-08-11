@@ -256,6 +256,8 @@ async function computeUserQuota(query, activity, lineUserId) {
   const basePlays = Number(activity.base_plays_per_user || 1);
   const refPer = Number(activity.referral_bonus_per || 0);
   const refMax = Number(activity.referral_bonus_max || 0);
+  // 每邀幾位朋友換一份加碼（預設 1 = 每邀 1 人 +refPer 次；九月活動設 2 = 邀 2 人 +1 次）
+  const invitesPer = Math.max(1, Number(activity.referral_invites_per_bonus || 1));
   // 1) 個別用戶配額 override（admin 後台設的）
   const { rows: overrideRows } = await query(
     `SELECT max_plays_override, note FROM activity_user_quotas
@@ -276,7 +278,11 @@ async function computeUserQuota(query, activity, lineUserId) {
     [activity.id, lineUserId]
   );
   const referrals = Number(refRows[0].c);
-  const referralBonus = Math.min(refMax, referrals * refPer);
+  const referralBonus = Math.min(refMax, Math.floor(referrals / invitesPer) * refPer);
+  // 「再邀幾人就多 1 份」：已達上限就是 0（前端據此顯示進度或收起邀請卡）
+  const nextBonusIn = referralBonus >= refMax || refPer <= 0
+    ? 0
+    : invitesPer - (referrals % invitesPer);
   // override 直接覆寫 total（取代 base + referral）；否則用標準計算
   const total = override
     ? Number(override.max_plays_override)
@@ -290,6 +296,8 @@ async function computeUserQuota(query, activity, lineUserId) {
     referral_bonus: referralBonus,
     referral_bonus_max: refMax,
     referral_bonus_per: refPer,
+    referral_invites_per_bonus: invitesPer,
+    next_bonus_in: nextBonusIn,
     override: override ? {
       max_plays: Number(override.max_plays_override),
       note: override.note || null
@@ -339,14 +347,16 @@ async function notifyInviterOfReferral({ query, activity, activitySlug, gameType
   if (shouldSkipReferralNotify(activity.id + ':' + inviterId)) return;
   const refPer = Number(activity.referral_bonus_per || 0);
   const refMax = Number(activity.referral_bonus_max || 0);
+  const invitesPer = Math.max(1, Number(activity.referral_invites_per_bonus || 1));
   const { rows: refRows } = await query(
     `SELECT COUNT(*) AS c FROM activity_referrals
      WHERE activity_id = $1 AND inviter_line_user_id = $2`,
     [activity.id, inviterId]
   );
   const count = Number(refRows[0].c);
-  // 本次實際入帳的加碼（與 computeUserQuota 的 Math.min 上限算法一致，含「最後一次只補到上限」的部分加碼）
-  const gained = Math.min(refMax, count * refPer) - Math.min(refMax, (count - 1) * refPer);
+  // 本次實際入帳的加碼（與 computeUserQuota 同一套公式：每 invitesPer 人換 refPer 次、上限 refMax）
+  const bonusAt = (c) => Math.min(refMax, Math.floor(c / invitesPer) * refPer);
+  const gained = bonusAt(count) - bonusAt(count - 1);
   const who = (await fetchLineDisplayName(inviteeId)) || '1 位好友';
   // 遊戲連結組法與 games 路由 / 各 game view 一致：https://liff.line.me/{liffId}/{gameType}/{slug}
   const liffId = (activity.liff_id_override && String(activity.liff_id_override).trim()) ||
@@ -355,10 +365,16 @@ async function notifyInviterOfReferral({ query, activity, activitySlug, gameType
     ? 'https://liff.line.me/' + liffId + '/' + gameType + '/' + encodeURIComponent(activitySlug)
     : '';
   let text;
+  const capped = bonusAt(count) >= refMax;
+  const toNext = invitesPer - (count % invitesPer);
   if (gained > 0) {
     text = '邀請成功！' + who + ' 已透過你的連結加入。你獲得 +' + gained +
       ' 次遊戲機會（已邀 ' + count + ' 位，上限 +' + refMax + ' 次）。';
     if (gameUrl) text += '打開遊戲馬上用：' + gameUrl;
+  } else if (refMax > 0 && !capped && invitesPer > 1) {
+    // 邀 2 換 1 的中間態：湊滿才入帳，要講進度，不然邀請人以為系統沒記到
+    text = '邀請成功！' + who + ' 已透過你的連結加入。已邀 ' + count +
+      ' 位，再邀 ' + (toNext === invitesPer ? invitesPer : toNext) + ' 位就多 1 次遊戲機會。';
   } else if (refMax > 0) {
     text = '邀請成功！' + who + ' 已加入。你的邀請加碼已達上限（+' + refMax + ' 次全數入帳），仍感謝你的分享！';
   } else {
@@ -389,7 +405,7 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
     return { error: { status: 400, code: 'bad_inviter', detail: '邀請連結無效' } };
   }
   const { rows: act } = await query(
-    `SELECT id, status, start_at, end_at, referral_bonus_per, referral_bonus_max, liff_id_override
+    `SELECT id, status, start_at, end_at, referral_bonus_per, referral_bonus_max, referral_invites_per_bonus, liff_id_override
      FROM activities WHERE slug = $1 AND game_type = $2 LIMIT 1`,
     [activitySlug, gameType]
   );

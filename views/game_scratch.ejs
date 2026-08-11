@@ -296,7 +296,8 @@
       <div class="invite-left">
         <% if (activity.referral_bonus_per && activity.referral_bonus_per > 0) { %>
           <div class="invite-kicker">好友助攻</div>
-          <div class="invite-title">邀 1 位好友，多刮 <strong>+<%= activity.referral_bonus_per %> 次</strong></div>
+          <% var _need = Number(activity.referral_invites_per_bonus || 1); %>
+          <div class="invite-title"><%= _need > 1 ? ('每邀 ' + _need + ' 位好友') : '邀 1 位好友' %>，多刮 <strong>+<%= activity.referral_bonus_per %> 次</strong></div>
           <div class="invite-sub" id="invite-sub">最多再加 <%= activity.referral_bonus_max %> 次</div>
         <% } else { %>
           <div class="invite-kicker">分享同樂</div>
@@ -387,7 +388,8 @@
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
         referral_bonus_per: activity.referral_bonus_per,
-        referral_bonus_max: activity.referral_bonus_max
+        referral_bonus_max: activity.referral_bonus_max,
+        referral_invites_per_bonus: activity.referral_invites_per_bonus || 1
       }) %>;
 
       var card = document.getElementById('card');
@@ -782,7 +784,11 @@
             if (inviteSub) inviteSub.textContent = '邀請次數已用滿';
           } else {
             inviteCard.classList.remove('maxed');
-            if (inviteSub) inviteSub.textContent = '還可再邀請 ' + Math.ceil(bonusLeft / q.referral_bonus_per) + ' 位拿 +' + bonusLeft + ' 次';
+            // 邀 N 換 1 的進度感：講「再邀幾位就多 1 次」，不是叫人自己除
+            var nb = Number(q.next_bonus_in || 0);
+            if (inviteSub) inviteSub.textContent = nb > 0
+              ? ('已邀 ' + q.referrals + ' 位，再邀 ' + nb + ' 位就多 ' + q.referral_bonus_per + ' 次（還能加 ' + bonusLeft + ' 次）')
+              : ('還能加 ' + bonusLeft + ' 次');
           }
         }
 
@@ -791,7 +797,7 @@
           var canMore = q.referral_bonus_per > 0 && q.referral_bonus < q.referral_bonus_max;
           stageHint.textContent = '次數已用完';
           statusEl.textContent = canMore
-            ? '次數用完，邀請朋友 +' + q.referral_bonus_per + ' 次'
+            ? (Number(q.next_bonus_in || 0) > 1 ? ('次數用完，再邀 ' + q.next_bonus_in + ' 位朋友 +' + q.referral_bonus_per + ' 次') : ('次數用完，邀請朋友 +' + q.referral_bonus_per + ' 次'))
             : '次數已用完';
           canPlay = false;
           revealBtn.hidden = true;

@@ -280,8 +280,13 @@
       </svg>
       <div class="invite-left">
         <% if (activity.referral_bonus_per && activity.referral_bonus_per > 0) { %>
+          <%
+  // 邀請規則的人話版本：need=1 →「邀 1 位多 X 次」；need>1 →「每邀 N 位多 X 次」
+  var _need = Number(activity.referral_invites_per_bonus || 1);
+  var _ruleText = (_need > 1 ? ('每邀 ' + _need + ' 位朋友多 ') : '邀 1 位朋友多 ') + activity.referral_bonus_per + ' 次';
+%>
           <div class="invite-title">找朋友一起，多一次機會</div>
-          <div class="invite-sub" id="invite-sub">邀 1 位朋友多 <%= activity.referral_bonus_per %> 次，最多加 <%= activity.referral_bonus_max %> 次</div>
+          <div class="invite-sub" id="invite-sub"><%= _ruleText %>，最多加 <%= activity.referral_bonus_max %> 次</div>
           <div class="invite-meta">已邀 <span class="n" id="stat-referrals">0</span> 人</div>
         <% } else { %>
           <div class="invite-title">分享給朋友一起玩</div>
@@ -324,7 +329,8 @@
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
         referral_bonus_per: activity.referral_bonus_per,
-        referral_bonus_max: activity.referral_bonus_max
+        referral_bonus_max: activity.referral_bonus_max,
+        referral_invites_per_bonus: activity.referral_invites_per_bonus || 1
       }) %>;
 
       var canvas = document.getElementById('wheel');
@@ -950,7 +956,10 @@
             statusRow.classList.remove('ready');
             if (leadEl) leadEl.textContent = '次數用完了';
             if (unitEl) unitEl.textContent = '';
-            statusEl.textContent = '找一個朋友來，就多 ' + q.referral_bonus_per + ' 次';
+            var nbw = Number(q.next_bonus_in || 0);
+            statusEl.textContent = nbw > 0
+              ? ('再找 ' + nbw + ' 位朋友來，就多 ' + q.referral_bonus_per + ' 次')
+              : ('找朋友來，就多 ' + q.referral_bonus_per + ' 次');
             setCtaMode('invite');
           } else {
             if (leadEl) leadEl.textContent = '這次玩完了';
@@ -977,7 +986,11 @@
             if (inviteSub) inviteSub.textContent = '邀請次數已用滿';
           } else {
             inviteCard.classList.remove('maxed');
-            if (inviteSub) inviteSub.textContent = '還可再邀請 ' + Math.ceil(bonusLeft / q.referral_bonus_per) + ' 位拿 +' + bonusLeft + ' 次';
+            // 邀 N 換 1 的進度感：講「再邀幾位就多 1 次」，不是叫人自己除
+            var nb = Number(q.next_bonus_in || 0);
+            if (inviteSub) inviteSub.textContent = nb > 0
+              ? ('已邀 ' + q.referrals + ' 位，再邀 ' + nb + ' 位就多 ' + q.referral_bonus_per + ' 次（還能加 ' + bonusLeft + ' 次）')
+              : ('還能加 ' + bonusLeft + ' 次');
           }
         }
       }
@@ -1020,7 +1033,10 @@
             }]);
             if (res) {
               // 分享成功（不一定代表對方點開，只代表用戶選擇了對象）
-              flashStatus('已分享！朋友打開後就加 ' + activityMeta.referral_bonus_per + ' 次');
+              var needShare = Number(activityMeta.referral_invites_per_bonus || 1);
+              flashStatus(needShare > 1
+                ? ('已分享！朋友加好友並打開才算，每 ' + needShare + ' 位加 ' + activityMeta.referral_bonus_per + ' 次')
+                : ('已分享！朋友打開後就加 ' + activityMeta.referral_bonus_per + ' 次'));
             }
             return;
           }

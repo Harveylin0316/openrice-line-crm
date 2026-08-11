@@ -51,8 +51,13 @@
           <input type="number" id="ae-base-plays" min="1" value="1" />
         </label>
         <label class="ae-field">
-          <span>每邀請 1 人 +N 次（0 = 關閉邀請）</span>
+          <span>要邀請幾位朋友才加一次（1 = 每邀 1 人就加）</span>
+          <input type="number" id="ae-ref-need" min="1" value="1" />
+        </label>
+        <label class="ae-field">
+          <span>湊滿之後加幾次（0 = 關閉邀請）</span>
           <input type="number" id="ae-ref-per" min="0" value="0" />
+          <small class="muted" id="ae-ref-hint" style="font-size:11px;line-height:1.5;"></small>
         </label>
         <label class="ae-field">
           <span>邀請加次數上限（設 0 ＝ 完全不會加次，邀請等於白邀）</span>
@@ -251,6 +256,7 @@
           base_plays_per_user: Number($('ae-base-plays').value || 1),
           referral_bonus_per: Number($('ae-ref-per').value || 0),
           referral_bonus_max: Number($('ae-ref-max').value || 0),
+          referral_invites_per_bonus: Math.max(1, Number($('ae-ref-need').value || 1)),
           rules: {}
         };
       }
@@ -269,6 +275,8 @@
         $('ae-liff-override').value = a.liff_id_override || '';
         $('ae-base-plays').value = a.base_plays_per_user != null ? a.base_plays_per_user : 1;
         $('ae-ref-per').value = a.referral_bonus_per != null ? a.referral_bonus_per : 0;
+        $('ae-ref-need').value = a.referral_invites_per_bonus != null ? a.referral_invites_per_bonus : 1;
+        updateRefHint();
         $('ae-ref-max').value = a.referral_bonus_max != null ? a.referral_bonus_max : 0;
       }
 
@@ -322,6 +330,7 @@
       // ---- save activity ----
       $('ae-save').addEventListener('click', function () {
         var data = collectActivityForm();
+        updateRefHint();
         if (data.referral_bonus_per > 0 && data.referral_bonus_max === 0) {
           if (!confirm('邀請上限目前是 0，用戶邀了朋友也不會增加次數（等於白邀）。\\n\\n要自動把上限設成 10 再儲存嗎？')) {
             return;
@@ -430,6 +439,20 @@
       }
 
       // modal 裡即時換算：你填的數字，在目前這組獎品裡實際會是多少
+      function updateRefHint() {
+        var el = document.getElementById('ae-ref-hint');
+        if (!el) return;
+        var need = Math.max(1, Number($('ae-ref-need').value || 1));
+        var per = Number($('ae-ref-per').value || 0);
+        var mx = Number($('ae-ref-max').value || 0);
+        el.textContent = per <= 0 ? '邀請目前是關的'
+          : '現在的規則：每邀 ' + need + ' 位朋友，多 ' + per + ' 次，最多加 ' + mx + ' 次';
+      }
+      ['ae-ref-need','ae-ref-per','ae-ref-max'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('input', updateRefHint);
+      });
+
       function updateWeightHint() {
         var hint = $('pm-weight-hint');
         if (!hint) return;

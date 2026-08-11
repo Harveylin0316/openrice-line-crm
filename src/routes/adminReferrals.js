@@ -69,11 +69,48 @@ function registerAdminReferralsRoutes(app, deps) {
 
       // 有開 MGM 的活動清單（referral_bonus_per > 0）
       const mgmActivities = (await query(
-        `SELECT id, name, slug, status, base_plays_per_user, referral_bonus_per, referral_bonus_max, require_follow_oa
+        `SELECT id, name, slug, status, base_plays_per_user, referral_bonus_per, referral_bonus_max,
+                referral_invites_per_bonus, require_follow_oa
          FROM activities WHERE referral_bonus_per > 0 ORDER BY id DESC`
       )).rows;
 
-      return res.json({ ok: true, summary: sum, legacy, activity, mgmActivities });
+      // 誰被邀請：逐筆明細（用戶抱怨時對這張表，不用下 SQL）
+      const inviteeDetail = (await query(
+        `SELECT a.name AS activity_name, ar.created_at,
+                ar.inviter_line_user_id AS inviter_line,
+                COALESCE(ui.line_display_name, ui.username, '—') AS inviter_name,
+                ar.invitee_line_user_id AS invitee_line,
+                COALESCE(ue.line_display_name, ue.username, '—') AS invitee_name,
+                ar.invitee_was_existing
+         FROM activity_referrals ar
+         JOIN activities a ON a.id = ar.activity_id
+         LEFT JOIN users ui ON ui.line_user_id = ar.inviter_line_user_id
+         LEFT JOIN users ue ON ue.line_user_id = ar.invitee_line_user_id
+         ORDER BY ar.created_at DESC
+         LIMIT 500`
+      )).rows;
+
+      // 失敗的邀請嘗試：只列還沒成功的（同一位被邀請人後來成功了就不用再看失敗的）
+      const failedAttempts = (await query(
+        `SELECT t.activity_slug, t.game_type, t.outcome, t.created_at,
+                t.inviter_line_user_id AS inviter_line,
+                COALESCE(ui.line_display_name, ui.username, '—') AS inviter_name,
+                t.invitee_line_user_id AS invitee_line,
+                COALESCE(ue.line_display_name, ue.username, '—') AS invitee_name
+         FROM activity_referral_attempts t
+         LEFT JOIN users ui ON ui.line_user_id = t.inviter_line_user_id
+         LEFT JOIN users ue ON ue.line_user_id = t.invitee_line_user_id
+        WHERE t.outcome NOT IN ('counted', 'duplicate')
+          AND NOT EXISTS (
+            SELECT 1 FROM activity_referrals ar
+             JOIN activities a2 ON a2.id = ar.activity_id
+            WHERE a2.slug = t.activity_slug
+              AND ar.invitee_line_user_id = t.invitee_line_user_id)
+        ORDER BY t.created_at DESC
+        LIMIT 300`
+      )).rows;
+
+      return res.json({ ok: true, summary: sum, legacy, activity, mgmActivities, inviteeDetail, failedAttempts });
     } catch (err) {
       console.error('referrals data error:', err && err.message);
       return jsonErr(res, 500, 'data_failed', { detail: err && err.message });
