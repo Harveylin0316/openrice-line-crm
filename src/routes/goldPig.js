@@ -65,7 +65,7 @@ function registerGoldPigRoutes(app, deps) {
   } = deps;
   const channelId = channelIdFromLiffId(liffId);
   const originSet = new Set(
-    String(allowedOrigins || 'https://twopenrice-ops.github.io')
+    String(allowedOrigins || 'https://twopenrice-ops.github.io,https://tw.openrice.com')
       .split(',')
       .map(value => value.trim().replace(/\/$/, ''))
       .filter(Boolean)

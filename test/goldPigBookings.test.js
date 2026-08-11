@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const express = require('express');
 const {
   createGoldPigBookingService,
   formatDateValue,
@@ -7,7 +8,45 @@ const {
   hashBookingToken,
   normalizeBookingNo
 } = require('../src/core/goldPigBookings');
-const { validateBookingInput } = require('../src/routes/goldPig');
+const { registerGoldPigRoutes, validateBookingInput } = require('../src/routes/goldPig');
+
+test('campaign CORS allows GitHub Pages and the company FTP domain', async (t) => {
+  const app = express();
+  registerGoldPigRoutes(app, {
+    pool: {},
+    liffId: '',
+    bookingApiKey: '',
+    demoMode: false,
+    allowedOrigins: 'https://twopenrice-ops.github.io,https://tw.openrice.com',
+    lineOfficialAddFriendUrl: ''
+  });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
+  });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const { port } = server.address();
+
+  for (const origin of ['https://twopenrice-ops.github.io', 'https://tw.openrice.com']) {
+    const response = await fetch(`http://127.0.0.1:${port}/api/gold-pig/demo-bookings`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: origin,
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type'
+      }
+    });
+    assert.equal(response.status, 204);
+    assert.equal(response.headers.get('access-control-allow-origin'), origin);
+  }
+
+  const blocked = await fetch(`http://127.0.0.1:${port}/api/gold-pig/demo-bookings`, {
+    method: 'OPTIONS',
+    headers: { Origin: 'https://example.com', 'Access-Control-Request-Method': 'POST' }
+  });
+  assert.equal(blocked.status, 403);
+});
 
 test('booking token is random, URL-safe hex and stored only as a hash', () => {
   const first = generateBookingToken();

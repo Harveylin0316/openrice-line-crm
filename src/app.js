@@ -80,7 +80,7 @@ const LIFF_ID = process.env.LIFF_ID || '';
 const GOLD_PIG_LIFF_ID = process.env.GOLD_PIG_LIFF_ID || '';
 const GOLD_PIG_BOOKING_API_KEY = process.env.GOLD_PIG_BOOKING_API_KEY || '';
 const GOLD_PIG_DEMO_MODE = process.env.GOLD_PIG_DEMO_MODE === '1';
-const GOLD_PIG_ALLOWED_ORIGINS = process.env.GOLD_PIG_ALLOWED_ORIGINS || 'https://twopenrice-ops.github.io';
+const GOLD_PIG_ALLOWED_ORIGINS = process.env.GOLD_PIG_ALLOWED_ORIGINS || 'https://twopenrice-ops.github.io,https://tw.openrice.com';
 const _liffLotteryBuilt = buildLiffPermanentUrl(LIFF_ID, '/liff/lottery', '/liff/lottery');
 const LIFF_LOTTERY_PUSH_URL = /^https:\/\/liff\.line\.me\//i.test(_liffLotteryBuilt) ? _liffLotteryBuilt : '';
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || '';
