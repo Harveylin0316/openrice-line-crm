@@ -101,6 +101,11 @@ function registerGoldPigRoutes(app, deps) {
     return res.status(204).end();
   });
 
+  app.options('/api/gold-pig/bind', (req, res) => {
+    if (!applyCampaignCors(req, res)) return res.status(403).end();
+    return res.status(204).end();
+  });
+
   async function createBooking(body, isDemo) {
     const valid = validateBookingInput(body);
     if (!valid.ok) return valid;
@@ -141,7 +146,7 @@ function registerGoldPigRoutes(app, deps) {
       );
       await client.query('COMMIT');
       const bindUrl = liffId
-        ? `https://liff.line.me/${encodeURIComponent(liffId)}/bind?token=${encodeURIComponent(rawToken)}`
+        ? `https://liff.line.me/${encodeURIComponent(liffId)}?token=${encodeURIComponent(rawToken)}`
         : '';
       return { ok: true, booking: serializeBooking(booking), bindUrl };
     } catch (err) {
@@ -185,6 +190,9 @@ function registerGoldPigRoutes(app, deps) {
   });
 
   app.post('/api/gold-pig/bind', bindLimiter, async (req, res, next) => {
+    if (!applyCampaignCors(req, res)) {
+      return res.status(403).json({ ok: false, error: 'origin_not_allowed' });
+    }
     const idToken = cleanText(req.body && req.body.idToken, 3000);
     const rawToken = cleanText(req.body && req.body.token, 128);
     if (!/^[a-f0-9]{64}$/i.test(rawToken)) {

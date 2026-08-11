@@ -28,17 +28,19 @@ test('campaign CORS allows GitHub Pages and the company FTP domain', async (t) =
   t.after(() => new Promise(resolve => server.close(resolve)));
   const { port } = server.address();
 
-  for (const origin of ['https://twopenrice-ops.github.io', 'https://tw.openrice.com']) {
-    const response = await fetch(`http://127.0.0.1:${port}/api/gold-pig/demo-bookings`, {
-      method: 'OPTIONS',
-      headers: {
-        Origin: origin,
-        'Access-Control-Request-Method': 'POST',
-        'Access-Control-Request-Headers': 'content-type'
-      }
-    });
-    assert.equal(response.status, 204);
-    assert.equal(response.headers.get('access-control-allow-origin'), origin);
+  for (const path of ['/api/gold-pig/demo-bookings', '/api/gold-pig/bind']) {
+    for (const origin of ['https://twopenrice-ops.github.io', 'https://tw.openrice.com']) {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+        method: 'OPTIONS',
+        headers: {
+          Origin: origin,
+          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Headers': 'content-type'
+        }
+      });
+      assert.equal(response.status, 204);
+      assert.equal(response.headers.get('access-control-allow-origin'), origin);
+    }
   }
 
   const blocked = await fetch(`http://127.0.0.1:${port}/api/gold-pig/demo-bookings`, {
@@ -46,6 +48,15 @@ test('campaign CORS allows GitHub Pages and the company FTP domain', async (t) =
     headers: { Origin: 'https://example.com', 'Access-Control-Request-Method': 'POST' }
   });
   assert.equal(blocked.status, 403);
+});
+
+test('new booking LIFF links keep the token in the query without an appended route', () => {
+  const source = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'src', 'routes', 'goldPig.js'),
+    'utf8'
+  );
+  assert.match(source, /liff\.line\.me\/\$\{encodeURIComponent\(liffId\)\}\?token=/);
+  assert.doesNotMatch(source, /liff\.line\.me\/\$\{encodeURIComponent\(liffId\)\}\/bind\?token=/);
 });
 
 test('booking token is random, URL-safe hex and stored only as a hash', () => {
