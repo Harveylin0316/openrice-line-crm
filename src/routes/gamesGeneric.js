@@ -55,7 +55,8 @@ function registerGameType(app, deps, opts) {
       `INSERT INTO liff_token_probe (endpoint, game_type, slug, body_line_user_id, token_present, verified, verified_sub, sub_matches, channel_id, detail)
        VALUES ($1,$2,$3,$4,true,$5,$6,$7,$8,$9)`,
       [endpoint, gameType, slug, bodyUid || null, verified, v.sub || null, matches, channelId || null,
-       (v.reason || 'ok') + (v.detail ? (' ' + v.detail) : '') + (v.status ? (' http' + v.status) : '')]
+       (v.reason || 'ok') + (v.detail ? (' ' + v.detail) : '') + (v.status ? (' http' + v.status) : '') +
+       (v.attempts > 1 ? (' try' + v.attempts) : '')]
     ).catch(e => console.error('probe insert failed:', e && e.message));
     if (!enforce) return { pass: true };
     if (!verified) return { pass: false, reject: { status: 401, code: 'token_invalid', detail: '身分驗證失敗，請重新開啟頁面。' } };
@@ -194,28 +195,45 @@ function registerWalletApi(app, deps) {
   const { query } = deps;
   app.get('/api/games/wallet', async (req, res) => {
     try {
-      const lineUserId = String(req.query.line_user_id || '').trim();
+      // 這支會吐出優惠碼，所以身分一律以 id token 的 sub 為準，
+      // 絕不相信網址上的 line_user_id——邀請連結的 ?ref= 就明文帶著別人的
+      // userId，貼進群組等於把對方的券公開。
+      const enforce = process.env.LIFF_TOKEN_ENFORCE !== '0';
+      const claimedUid = String(req.query.line_user_id || '').trim();
       const idToken = String(req.query.id_token || '').trim();
+      // 錢包頁一律以 defaultLiffId 渲染（見 /games/wallet 路由），
+      // 所以 token 必然來自這個 channel。
+      const channelId = channelIdFromLiffId(deps.defaultLiffId || process.env.GAMES_LIFF_ID || process.env.LIFF_ID || '');
+
+      let v = null;
+      if (idToken) {
+        try { v = await verifyLiffIdToken(idToken, channelId); }
+        catch (e) { v = { ok: false, reason: 'error', detail: String((e && e.message) || e).slice(0, 100) }; }
+        const verified = !!(v && v.ok);
+        const vSub = (v && v.sub) || null;
+        query(
+          `INSERT INTO liff_token_probe (endpoint, game_type, slug, body_line_user_id, token_present, verified, verified_sub, sub_matches, channel_id, detail)
+           VALUES ('wallet', null, null, $1, true, $2, $3, $4, $5, $6)`,
+          [claimedUid || null, verified, vSub, !!(verified && vSub && vSub === claimedUid), channelId || null,
+           (v && v.reason ? v.reason : 'ok') + (v && v.detail ? (' ' + v.detail) : '') +
+           (v && v.status ? (' http' + v.status) : '') + (v && v.attempts > 1 ? (' try' + v.attempts) : '')]
+        ).catch(e => console.error('wallet probe insert failed:', e && e.message));
+      }
+
+      if (enforce) {
+        if (!idToken) {
+          return res.status(401).json({ ok: false, error: 'token_required', detail: '登入憑證遺失，請關閉後從 LINE 重新開啟此頁。' });
+        }
+        if (!v || !v.ok || !v.sub) {
+          return res.status(401).json({ ok: false, error: 'token_invalid', detail: '身分驗證失敗，請重新開啟頁面。' });
+        }
+      }
+      // 有驗過就用 sub；LIFF_TOKEN_ENFORCE=0 的本機開發才退回網址參數
+      const lineUserId = (v && v.ok && v.sub) ? v.sub : claimedUid;
       if (!lineUserId) {
         return res.status(400).json({ ok: false, error: 'missing_line_user_id', detail: '缺少使用者識別，請從 LINE 重新開啟此頁。' });
       }
-      // 唯讀：只記探針，不擋（比照 /meta）。verifyLiffIdToken 用活動的 channel，
-      // 錢包跨活動無單一 channel，故僅以 defaultLiffId 試驗證、失敗不影響回應。
-      let verified = false;
-      let vSub = null;
-      if (idToken) {
-        const channelId = channelIdFromLiffId(deps.defaultLiffId || process.env.GAMES_LIFF_ID || process.env.LIFF_ID || '');
-        try {
-          const v = await verifyLiffIdToken(idToken, channelId);
-          verified = !!(v && v.ok);
-          vSub = (v && v.sub) || null;
-        } catch (e) { /* 唯讀不擋 */ }
-        query(
-          `INSERT INTO liff_token_probe (endpoint, game_type, slug, body_line_user_id, token_present, verified, verified_sub, sub_matches, channel_id, detail)
-           VALUES ('wallet', null, null, $1, true, $2, $3, $4, $5, 'wallet readonly')`,
-          [lineUserId, verified, vSub, !!(verified && vSub && vSub === lineUserId), channelId || null]
-        ).catch(e => console.error('wallet probe insert failed:', e && e.message));
-      }
+
       const { rows } = await query(
         `SELECT a.name AS activity_name,
                 COALESCE(p.prize_snapshot->>'name', '獎品') AS prize_name,
