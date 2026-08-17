@@ -70,8 +70,12 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
       repeatLadder: !!m.repeat_ladder,                    // 4 位之後每 per_friends 位要不要繼續送里
       shareTitle: String(m.share_title || row.name || '揪友賺哩'),
       shareText: String(m.share_text || '加入 OpenRice 官方帳號，一起拿「亞洲萬里通」里數'),
-      shareImage: String(m.share_image || ''),            // 分享卡片圖（外部可取的 https URL）
-      cardImage: String(m.card_image || ''),              // 推播卡片圖
+      shareImage: String(m.share_image || ''),            // 分享卡片圖（朋友在聊天室看到的）
+      cardImage: String(m.card_image || ''),              // 推播卡通用圖（下面沒設就用這張）
+      welcomeImage: String(m.welcome_image || ''),        // 見面禮卡專用
+      milestoneImage: String(m.milestone_image || ''),    // 達標卡專用
+      wheelImage: String(m.wheel_image || ''),            // 抽獎卡專用
+      landingImage: String(m.landing_image || ''),        // 活動頁頂部橫幅
       // 測試名單：非空 = 測試模式，只有名單上的人玩得到，其他人完全看不到也收不到卡
       testUids: Array.isArray(m.test_uids)
         ? m.test_uids.filter(u => /^U[0-9a-f]{32}$/i.test(String(u))).slice(0, 50)
@@ -199,8 +203,9 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
     return refUid ? base + '?ref=' + encodeURIComponent(refUid) : base;
   }
 
-  /** 簡單的圖+文+按鈕 flex 卡（有圖用圖，沒圖純文卡） */
-  function buildCard(campaign, { title, body, buttonLabel, buttonUrl }) {
+  /** 簡單的圖+文+按鈕 flex 卡（有圖用圖，沒圖純文卡）。
+   *  image 可指定該張卡專屬圖；沒給就退回 campaign.cardImage */
+  function buildCard(campaign, { title, body, buttonLabel, buttonUrl, image }) {
     const bubble = {
       type: 'bubble',
       body: {
@@ -218,8 +223,9 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
         }]
       }
     };
-    if (campaign.cardImage && /^https:\/\//.test(campaign.cardImage)) {
-      bubble.hero = { type: 'image', url: campaign.cardImage, size: 'full', aspectRatio: '20:13', aspectMode: 'cover' };
+    const heroUrl = image || campaign.cardImage;
+    if (heroUrl && /^https:\/\//.test(heroUrl)) {
+      bubble.hero = { type: 'image', url: heroUrl, size: 'full', aspectRatio: '20:13', aspectMode: 'cover' };
     }
     return { type: 'flex', altText: title, contents: bubble };
   }
@@ -259,7 +265,8 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
         body: '之後揪還沒加入官方帳號的朋友，每 ' + campaign.perFriends + ' 位新朋友再多 ' + campaign.perMiles +
           ' 里，滿 ' + campaign.wheelFriends + ' 位還能抽獎。里數統一在活動結束後發放。',
         buttonLabel: '立即分享',
-        buttonUrl: joinUrl(campaign, lineUserId)
+        buttonUrl: joinUrl(campaign, lineUserId),
+        image: campaign.welcomeImage
       });
       await pushCard(lineUserId, card, 'mgm_welcome');
     }
@@ -287,7 +294,8 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
             title: '恭喜獲 ' + campaign.perMiles + ' 里！',
             body: '你已成功揪到 ' + count + ' 位新朋友。繼續分享，滿 ' + campaign.wheelFriends + ' 位還能抽獎。',
             buttonLabel: '立即分享',
-            buttonUrl: joinUrl(campaign, inviterId)
+            buttonUrl: joinUrl(campaign, inviterId),
+            image: campaign.milestoneImage
           });
           await pushCard(inviterId, card, 'mgm_milestone');
         }
@@ -313,12 +321,14 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
           title: '恭喜獲抽獎機會！',
           body: '你已成功揪到 ' + count + ' 位新朋友，多了一次轉盤抽獎機會，快去試手氣。',
           buttonLabel: '去抽獎',
-          buttonUrl: wheelUrl
+          buttonUrl: wheelUrl,
+          image: campaign.wheelImage
         } : {
           title: '恭喜獲抽獎機會！',
           body: '你已成功揪到 ' + count + ' 位新朋友。抽獎機會已幫你存好，轉盤活動開跑那天就能用，會再通知你。',
           buttonLabel: '先看活動',
-          buttonUrl: wheelUrl
+          buttonUrl: wheelUrl,
+          image: campaign.wheelImage
         });
         await pushCard(inviterId, card, 'mgm_wheel_grant');
       }
@@ -336,7 +346,8 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
       body: '每揪 ' + campaign.perFriends + ' 位新朋友加入官方帳號，送 ' + campaign.perMiles +
         ' 里；滿 ' + campaign.wheelFriends + ' 位再送一次轉盤抽獎（已是好友的不算）。',
       buttonLabel: '立即分享',
-      buttonUrl: joinUrl(campaign, lineUserId)
+      buttonUrl: joinUrl(campaign, lineUserId),
+      image: campaign.shareImage || campaign.cardImage
     })];
   }
 

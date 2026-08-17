@@ -285,6 +285,10 @@ function registerMgmMilesRoutes(app, deps) {
         share_text: String(body.share_text || '').trim().slice(0, 300),
         share_image: String(body.share_image || '').trim().slice(0, 500),
         card_image: String(body.card_image || '').trim().slice(0, 500),
+        welcome_image: String(body.welcome_image || '').trim().slice(0, 500),
+        milestone_image: String(body.milestone_image || '').trim().slice(0, 500),
+        wheel_image: String(body.wheel_image || '').trim().slice(0, 500),
+        landing_image: String(body.landing_image || '').trim().slice(0, 500),
         test_uids: String(body.test_uids || '').split(/[\s,]+/)
           .map(x => x.trim()).filter(x => /^U[0-9a-f]{32}$/i.test(x)).slice(0, 50)
       };

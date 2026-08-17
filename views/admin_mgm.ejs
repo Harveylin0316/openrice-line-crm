@@ -107,7 +107,11 @@
           '<label class="mg-field mg-full"><span>分享卡片標題</span><input type="text" id="mgc-stitle" value="'+esc(m.share_title||'')+'" maxlength="100"></label>'+
           '<label class="mg-field mg-full"><span>分享卡片文字</span><input type="text" id="mgc-stext" value="'+esc(m.share_text||'')+'" maxlength="300"></label>'+
           '<label class="mg-field mg-full"><span>分享卡片圖（網址，可留空）</span><input type="text" id="mgc-simg" value="'+esc(m.share_image||'')+'" placeholder="https://..."><small>朋友在聊天室看到的那張卡的圖</small></label>'+
-          '<label class="mg-field mg-full"><span>推播卡片圖（網址，可留空）</span><input type="text" id="mgc-cimg" value="'+esc(m.card_image||'')+'" placeholder="https://..."><small>見面禮與達標通知卡的圖</small></label>'+
+          '<label class="mg-field mg-full"><span>推播卡片通用圖（網址，可留空）</span><input type="text" id="mgc-cimg" value="'+esc(m.card_image||'')+'" placeholder="https://..."><small>下面三個沒填就用這張</small></label>'+
+          '<label class="mg-field"><span>見面禮卡圖</span><input type="text" id="mgc-wimg" value="'+esc(m.welcome_image||'')+'" placeholder="https://..."></label>'+
+          '<label class="mg-field"><span>達標卡圖</span><input type="text" id="mgc-mimg" value="'+esc(m.milestone_image||'')+'" placeholder="https://..."></label>'+
+          '<label class="mg-field"><span>抽獎卡圖</span><input type="text" id="mgc-himg" value="'+esc(m.wheel_image||'')+'" placeholder="https://..."></label>'+
+          '<label class="mg-field mg-full"><span>活動頁頂部橫幅圖</span><input type="text" id="mgc-limg" value="'+esc(m.landing_image||'')+'" placeholder="https://..."></label>'+
           '<label class="mg-field mg-full"><span>測試名單（留空 = 對所有人開放）</span>'+
             '<input type="text" id="mgc-testers" value="'+esc((m.test_uids||[]).join(' '))+'" placeholder="U 開頭的 LINE ID，多個用空格隔開">'+
             '<small>填了名單就是測試模式：只有名單上的人玩得到，其他用戶完全看不到、也不會收到任何卡片。正式開跑前把這欄清空再儲存。</small></label>'+
@@ -182,6 +186,9 @@
               repeat_ladder:$('mgc-repeat').value==='1',
               share_title:$('mgc-stitle').value, share_text:$('mgc-stext').value,
               share_image:$('mgc-simg').value, card_image:$('mgc-cimg').value,
+              welcome_image:$('mgc-wimg').value, milestone_image:$('mgc-mimg').value,
+              wheel_image:$('mgc-himg').value,
+              landing_image:$('mgc-limg').value,
               test_uids:$('mgc-testers').value
             })})
             .then(function(r){return r.json();})
