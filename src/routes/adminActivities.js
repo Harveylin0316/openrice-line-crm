@@ -30,7 +30,7 @@ const PRIZE_TYPES = ['rice_dollar', 'coupon_code', 'badge', 'physical', 'none'];
 
 function registerAdminActivitiesRoutes(app, deps) {
   const { query, pool, authCore } = deps;
-  const { requireAdmin } = authCore;
+  const { requireAdmin, requireOwner } = authCore;
 
   // ------------------------------------------------------------------
   // 頁面：列表
@@ -186,7 +186,8 @@ function registerAdminActivitiesRoutes(app, deps) {
   });
 
   // API: 刪除
-  app.delete('/admin/activities/api/:id(\\d+)', requireAdmin, async (req, res) => {
+  // 刪活動會連動刪掉玩家紀錄，不可逆 → 限管理員（staff 不可），比照帳號管理與正式抽獎
+  app.delete('/admin/activities/api/:id(\\d+)', requireOwner, async (req, res) => {
     try {
       const id = Number(req.params.id);
       await query('DELETE FROM activities WHERE id = $1', [id]);
@@ -236,7 +237,10 @@ function registerAdminActivitiesRoutes(app, deps) {
           stock_total = $5,
           stock_remaining = CASE
             WHEN $5 IS NULL THEN NULL
-            WHEN stock_total IS NULL OR $5 = stock_total THEN stock_remaining
+            -- 原本不限量（total=NULL、remaining=NULL）改成有限量：remaining 直接吃新總量。
+            -- 留 NULL 的話選池條件 (stock_total IS NULL OR stock_remaining > 0) 永遠不成立，獎品變抽不到
+            WHEN stock_total IS NULL THEN $5
+            WHEN $5 = stock_total THEN stock_remaining
             ELSE GREATEST(0, stock_remaining + ($5 - COALESCE(stock_total, 0)))
           END,
           prize_type = $6, prize_value = $7::jsonb, position = $8, is_grand_prize = $9
@@ -318,7 +322,7 @@ function registerAdminActivitiesRoutes(app, deps) {
           ON q.activity_id = pl.activity_id AND q.line_user_id = pl.line_user_id
         LEFT JOIN users u ON u.line_user_id = pl.line_user_id
         WHERE pl.activity_id = $1
-        GROUP BY pl.line_user_id, pl.line_display_name, q.max_plays_override, q.note, q.granted_by, u.line_display_name
+        GROUP BY pl.line_user_id, q.max_plays_override, q.note, q.granted_by, u.line_display_name
         ORDER BY MAX(pl.played_at) DESC
         LIMIT $2
       `;
@@ -581,11 +585,18 @@ function sanitizeActivityInput(body) {
       ? String(body.liff_id_override).trim() || null
       : null,
     // MGM 邀請拉新
-    base_plays_per_user: Math.max(1, Number(body.base_plays_per_user || 1)),
-    referral_bonus_per: Math.max(0, Number(body.referral_bonus_per || 0)),
-    referral_bonus_max: Math.max(0, Number(body.referral_bonus_max || 0)),
-    referral_invites_per_bonus: Math.max(1, Math.floor(Number(body.referral_invites_per_bonus || 1)))
+    base_plays_per_user: clampInt(body.base_plays_per_user, 1, 100000, 1),
+    referral_bonus_per: clampInt(body.referral_bonus_per, 0, 100000, 0),
+    referral_bonus_max: clampInt(body.referral_bonus_max, 0, 100000, 0),
+    referral_invites_per_bonus: clampInt(body.referral_invites_per_bonus, 1, 1000, 1)
   };
+}
+
+// 數值欄位統一收斂：非數字用預設值、超界夾回範圍（亂送 body 不該換到 DB 500）
+function clampInt(v, min, max, dflt) {
+  const n = Math.floor(Number(v));
+  if (!Number.isFinite(n)) return dflt;
+  return Math.min(max, Math.max(min, n));
 }
 
 function sanitizePrizeInput(body) {

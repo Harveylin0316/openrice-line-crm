@@ -293,16 +293,16 @@
 
   <script>
     (function () {
-      var liffId   = <%- JSON.stringify(liffId || '') %>;
-      var slug     = <%- JSON.stringify(activity.slug) %>;
-      var gameType = <%- JSON.stringify(gameType) %>;
-      var pageTitle    = <%- JSON.stringify(pageTitle) %>;
-      var claimedTitle = <%- JSON.stringify(claimedTitle) %>;
+      var liffId   = <%- JSON.stringify(liffId || '').replace(/</g,'\\u003c') %>;
+      var slug     = <%- JSON.stringify(activity.slug).replace(/</g,'\\u003c') %>;
+      var gameType = <%- JSON.stringify(gameType).replace(/</g,'\\u003c') %>;
+      var pageTitle    = <%- JSON.stringify(pageTitle).replace(/</g,'\\u003c') %>;
+      var claimedTitle = <%- JSON.stringify(claimedTitle).replace(/</g,'\\u003c') %>;
       // 兌換連結：redeem_url 是單一落地頁（優先）；沒有就依裝置挑 iOS / Android 下載連結
       var redeemUrls = {
-        base:    <%- JSON.stringify(pv.redeem_url || '') %>,
-        ios:     <%- JSON.stringify(pv.redeem_url_ios || '') %>,
-        android: <%- JSON.stringify(pv.redeem_url_android || '') %>
+        base:    <%- JSON.stringify(pv.redeem_url || '').replace(/</g,'\\u003c') %>,
+        ios:     <%- JSON.stringify(pv.redeem_url_ios || '').replace(/</g,'\\u003c') %>,
+        android: <%- JSON.stringify(pv.redeem_url_android || '').replace(/</g,'\\u003c') %>
       };
       function pickRedeemUrl(){
         if (redeemUrls.base) return redeemUrls.base;
@@ -312,9 +312,9 @@
         return redeemUrls.ios || redeemUrls.android;
       }
       var redeemUrl    = pickRedeemUrl();
-      var useExpiresOn = <%- JSON.stringify(pv.use_expires_on || '') %>;
-      var startAt  = <%- JSON.stringify(activity.start_at || null) %>;
-      var endAt    = <%- JSON.stringify(activity.end_at || null) %>;
+      var useExpiresOn = <%- JSON.stringify(pv.use_expires_on || '').replace(/</g,'\\u003c') %>;
+      var startAt  = <%- JSON.stringify(activity.start_at || null).replace(/</g,'\\u003c') %>;
+      var endAt    = <%- JSON.stringify(activity.end_at || null).replace(/</g,'\\u003c') %>;
 
       var profile = null, idToken = null;
 

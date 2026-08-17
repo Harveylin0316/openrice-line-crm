@@ -74,19 +74,20 @@ function registerAdminFlowsRoutes(app, deps) {
       const cfg = rs.rows[0] && rs.rows[0].message_config;
       let target = (cfg && cfg.mode === 'template' && cfg.template && cfg.template.ctaUrl) ? String(cfg.template.ctaUrl).trim() : '';
       if (!/^https?:\/\//i.test(target)) return res.status(404).type('text/plain').send('Not found');
-      // 記點擊（帶 enrollment 的 line_user_id），不阻塞導向
-      query(
-        `INSERT INTO admin_flow_clicks (enrollment_id, line_user_id, message_id, target_url)
-         SELECT $1, e.line_user_id, $2, $3 FROM admin_flow_enrollments e WHERE e.id = $1`,
-        [eid, mid, target]
-      ).catch(err => console.error('flow click log failed:', err.message));
-      // 記餐廳興趣（從連結反推餐廳）— best-effort
-      query(`SELECT line_user_id FROM admin_flow_enrollments WHERE id = $1`, [eid])
-        .then(r => {
-          const luid = r.rows[0] && r.rows[0].line_user_id;
-          if (luid) return recordRestaurantClick(query, { lineUserId: luid, url: target, source: 'flow' });
-        })
-        .catch(err => console.error('restaurant click (flow) failed:', err.message));
+      // 點擊追蹤必須在 302 之前寫完：serverless 在回應送出後會凍結，
+      // 沒 await 的 INSERT 可能永遠沒進 DB → 「點了連結」分支永遠走不到
+      try {
+        await query(
+          `INSERT INTO admin_flow_clicks (enrollment_id, line_user_id, message_id, target_url)
+           SELECT $1, e.line_user_id, $2, $3 FROM admin_flow_enrollments e WHERE e.id = $1`,
+          [eid, mid, target]
+        );
+      } catch (err) { console.error('flow click log failed:', err.message); }
+      try {
+        const r = await query(`SELECT line_user_id FROM admin_flow_enrollments WHERE id = $1`, [eid]);
+        const luid = r.rows[0] && r.rows[0].line_user_id;
+        if (luid) await recordRestaurantClick(query, { lineUserId: luid, url: target, source: 'flow' });
+      } catch (err) { console.error('restaurant click (flow) failed:', err.message); }
       return res.redirect(302, target);
     } catch (err) {
       console.error('flow click redirect error:', err && err.message);
@@ -260,6 +261,10 @@ function registerAdminFlowsRoutes(app, deps) {
       });
     })(steps);
     if (sendMissing) return { ok: false, error: 'send_needs_message' };
+    // 「加入名單」沒選名單一樣是靜默空轉，比照 send 檢查
+    if (steps.some(s => s && s.type === 'add_to_list' && !(Number(s.list_id) > 0))) {
+      return { ok: false, error: 'add_to_list_needs_list' };
+    }
     return { ok: true, name, trigger: { type: tType, config: tCfg }, steps, re_enroll: !!body.re_enroll };
   }
 
@@ -290,7 +295,7 @@ function registerAdminFlowsRoutes(app, deps) {
   app.get('/admin/flows/api/options', requireAdmin, async (_req, res) => {
     try {
       const [msgs, lists, acts] = await Promise.all([
-        query(`SELECT id, name FROM admin_message_templates WHERE channel = 'line' ORDER BY id DESC`),
+        query(`SELECT id, name FROM admin_message_templates WHERE COALESCE(channel, 'line') = 'line' ORDER BY id DESC`),
         query(`SELECT id, name FROM admin_recipient_lists ORDER BY id DESC`),
         query(`SELECT id, name FROM activities ORDER BY id DESC`)
       ]);

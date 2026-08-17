@@ -75,8 +75,8 @@
   </main>
   <script>
     (function () {
-      var liffId = <%- JSON.stringify(liffId || '') %>;
-      var addFriendUrl = <%- JSON.stringify(addFriendUrl || '') %>;
+      var liffId = <%- JSON.stringify(liffId || '').replace(/</g,'\\u003c') %>;
+      var addFriendUrl = <%- JSON.stringify(addFriendUrl || '').replace(/</g,'\\u003c') %>;
       var tokenStoreKey = 'gold_pig_booking_token';
       var token = '';
       var liffInitPromise = null;

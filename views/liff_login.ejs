@@ -23,8 +23,8 @@
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <script>
       (function () {
-        var liffId = ${JSON.stringify(liffId || '')};
-        var nextPath = ${JSON.stringify(nextPath || '/liff/lottery')};
+        var liffId = ${JSON.stringify(liffId || '').replace(/</g,'\\u003c')};
+        var nextPath = ${JSON.stringify(nextPath || '/liff/lottery').replace(/</g,'\\u003c')};
         var statusEl = document.getElementById('liff-status');
         var errorEl = document.getElementById('liff-error');
 

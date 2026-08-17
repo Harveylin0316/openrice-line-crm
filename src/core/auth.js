@@ -88,7 +88,7 @@ function createAuthCore({ jwtSecret, isProduction, adminLoginPath = '/admin/logi
       }
       return res
         .status(403)
-        .send('<!doctype html><meta charset="utf-8"><div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:80px auto;padding:0 20px;color:#1f2937;"><h2 style="margin:0 0 8px;">沒有權限</h2><p style="color:#6b7280;line-height:1.7;">「帳號管理」僅限管理員使用。如需開通權限，請聯絡你的管理員。</p><p style="margin-top:20px;"><a href="/admin" style="color:#2563eb;text-decoration:none;">← 回後台首頁</a></p></div>');
+        .send('<!doctype html><meta charset="utf-8"><div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:80px auto;padding:0 20px;color:#1f2937;"><h2 style="margin:0 0 8px;">沒有權限</h2><p style="color:#6b7280;line-height:1.7;">「帳號管理」僅限管理員使用。如需開通權限，請聯絡你的管理員。</p><p style="margin-top:20px;"><a href="/admin" style="color:#2563eb;text-decoration:none;">回後台首頁</a></p></div>');
     }
     next();
   }

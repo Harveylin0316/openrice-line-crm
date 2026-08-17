@@ -44,7 +44,7 @@
           <div class="stat-value" style="color:#6b7280;">${broadcast.recipient_skip}</div>
         </div>
         <div class="stat-cell stat-cell--highlight">
-          <div class="stat-label">Hero 被看（開信率 proxy）</div>
+          <div class="stat-label">主圖被看到（估計值）</div>
           <div class="stat-value">${viewStat.views || 0}</div>
           ${broadcast.recipient_ok > 0 ? `<div class="stat-sub muted">${Math.round((Number(viewStat.views || 0) / broadcast.recipient_ok) * 100)}% 對成功送達者</div>` : ''}
         </div>
@@ -56,8 +56,8 @@
       </div>
 
       <p class="muted" style="margin-top:10px;font-size:11px;line-height:1.5;">
-        備註：LINE 平台對 OA push 沒有原生「已讀」回條。「Hero 被看」是用「Hero 圖被 fetch 的次數」當開信率
-        proxy — LINE app cache 可能少報，多人同時打開可能多報，僅供參考。「CTA 點擊」是強訊號（有看到才會點）。
+        備註：LINE 沒有提供「已讀」數字，「主圖被看到」是估出來的，會有一點誤差，僅供參考。
+        「按鈕點擊」是可靠數字——有看到訊息才可能點。
         只有「模板模式」會追蹤；進階 Flex JSON 由你自行用 utm 追蹤。
       </p>
 

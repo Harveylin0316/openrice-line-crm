@@ -45,15 +45,15 @@
       <h3 class="lu-h3">從卡片到兌換</h3>
       <div class="lu-funnel" id="lu-funnel">
         <div class="lu-fstep"><div class="v" id="f-cards">—</div><div class="k">收到卡片（次）</div></div>
-        <div class="lu-farrow">›</div>
+        <div class="lu-farrow" aria-hidden="true"></div>
         <div class="lu-fstep"><div class="v" id="f-opens">—</div><div class="k">打開領取頁（人）</div></div>
-        <div class="lu-farrow">›</div>
+        <div class="lu-farrow" aria-hidden="true"></div>
         <div class="lu-fstep"><div class="v" id="f-claims">—</div><div class="k">完成領取（人）</div></div>
-        <div class="lu-farrow">›</div>
+        <div class="lu-farrow" aria-hidden="true"></div>
         <div class="lu-fstep"><div class="v" id="f-redeems">—</div><div class="k">點了前往兌換（人）</div></div>
       </div>
       <p class="muted" style="font-size:12px;margin-top:6px;">
-        「收到卡片」含同一人重複索取；「領取者中的新好友」＝領取前 24 小時內才加入官方帳號的人；測試碼的領取不計入以上任何數字。
+        「收到卡片」與「打開領取頁」含同一人重複與內部測試；「實際領取」之後的數字已排除測試碼。「領取者中的新好友」＝領取前 24 小時內才加入官方帳號的人。
       </p>
 
       <h3 class="lu-h3">每日領取（近 30 天）</h3>
@@ -127,7 +127,7 @@
       .lu-fstep{flex:1;min-width:110px;border:1px solid #ECECEE;border-radius:10px;padding:12px;background:#FFFBEB;text-align:center;}
       .lu-fstep .v{font-size:20px;font-weight:700;color:#1f2937;font-variant-numeric:tabular-nums;}
       .lu-fstep .k{font-size:12px;color:#6B6B70;margin-top:3px;}
-      .lu-farrow{align-self:center;color:#A0A0A6;font-size:20px;}
+      .lu-farrow{width:0;height:0;border-top:5px solid transparent;border-bottom:5px solid transparent;border-left:6px solid #c4c4c8;align-self:center;}
       .lu-warn{margin-top:12px;padding:12px 14px;border:1.5px solid #FCC726;background:#FFFBEB;border-radius:10px;font-size:13px;color:#1f2937;line-height:1.6;}
       .lu-kpi.lu-low{border-color:#DC2626;background:#FEF2F2;}
       .lu-kpi.lu-low .v{color:#DC2626;}
@@ -179,7 +179,7 @@
 
         function render(){
           var a=overview.activity, pool=overview.pool, f=overview.funnel, qa=overview.qa;
-          $('lu-window-pill').textContent='檔期 '+fmtDt(a.start_at)+' → '+fmtDt(a.end_at);
+          $('lu-window-pill').textContent='檔期 '+fmtDt(a.start_at)+' 到 '+fmtDt(a.end_at);
           var st=stateOf(a);
           var pill=$('lu-status-pill');
           pill.textContent=st.label;
@@ -323,7 +323,7 @@
           var a=overview.activity, msg=$('lu-status-msg');
           var goingActive=a.status!=='active';
           var confirmText=goingActive
-            ?'確定要上架嗎？\\n\\n上架後：好友輸入「借電券」會收到領取卡片。\\n實際可領取的時間仍以檔期為準（'+fmtDt(a.start_at)+' → '+fmtDt(a.end_at)+'）。'
+            ?'確定要上架嗎？\\n\\n上架後：好友輸入「借電券」會收到領取卡片。\\n實際可領取的時間仍以檔期為準（'+fmtDt(a.start_at)+' 到 '+fmtDt(a.end_at)+'）。'
             :'確定要下架嗎？\\n\\n下架後：卡片停止回覆、領取頁停止發碼。\\n已領走的序號不受影響，之後可以隨時再上架。';
           if(!window.confirm(confirmText))return;
           msg.textContent='處理中…';

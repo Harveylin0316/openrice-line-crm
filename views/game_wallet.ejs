@@ -320,7 +320,7 @@
 
   <script>
     (function () {
-      var liffId = <%- JSON.stringify(liffId || '') %>;
+      var liffId = <%- JSON.stringify(liffId || '').replace(/</g,'\\u003c') %>;
       var contentEl = document.getElementById('content');
 
       var profile = null;

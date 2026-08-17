@@ -381,16 +381,16 @@
 
   <script>
     (function () {
-      var slug = <%- JSON.stringify(activity.slug) %>;
-      var liffId = <%- JSON.stringify(liffId || '') %>;
-      var addFriendUrl = <%- JSON.stringify(typeof addFriendUrl !== 'undefined' ? addFriendUrl : '') %>;
-      var prizes = <%- JSON.stringify(prizes || []) %>;
+      var slug = <%- JSON.stringify(activity.slug).replace(/</g,'\\u003c') %>;
+      var liffId = <%- JSON.stringify(liffId || '').replace(/</g,'\\u003c') %>;
+      var addFriendUrl = <%- JSON.stringify(typeof addFriendUrl !== 'undefined' ? addFriendUrl : '').replace(/</g,'\\u003c') %>;
+      var prizes = <%- JSON.stringify(prizes || []).replace(/</g,'\\u003c') %>;
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
         referral_bonus_per: activity.referral_bonus_per,
         referral_bonus_max: activity.referral_bonus_max,
         referral_invites_per_bonus: activity.referral_invites_per_bonus || 1
-      }) %>;
+      }).replace(/</g,'\\u003c') %>;
 
       var card = document.getElementById('card');
       var canvas = document.getElementById('scratch-canvas');

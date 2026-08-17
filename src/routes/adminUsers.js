@@ -99,7 +99,12 @@ function registerAdminUsersRoutes(app, deps) {
       counts.invites_rewarded = userId
         ? Number((await query(`SELECT COUNT(*)::int AS n FROM line_invites WHERE inviter_user_id = $1 AND status = 'rewarded'`, [userId])).rows[0]?.n || 0)
         : 0;
-      counts.liff_events = Number((await query(`SELECT COUNT(*)::int AS n FROM user_events WHERE line_id = $1`, [luid])).rows[0]?.n || 0);
+      // LIFF 追蹤 07-17 起把 line_id 換成雜湊值，明碼只查得到舊資料 → 雙軌比對
+      const hashRow = (await query(`SELECT line_id_hash FROM users WHERE line_user_id = $1 LIMIT 1`, [luid])).rows[0];
+      const luidHash = (hashRow && hashRow.line_id_hash) || 'no-hash';
+      counts.liff_events = Number((await query(
+        `SELECT COUNT(*)::int AS n FROM user_events WHERE line_id = $1 OR line_id = $2`,
+        [luid, luidHash])).rows[0]?.n || 0);
 
       // 餐廳興趣（點過的餐廳 Top，LEFT JOIN 目錄帶出種類/價位）
       const interest = (await query(
@@ -232,7 +237,7 @@ function registerAdminUsersRoutes(app, deps) {
       }
 
       // 時間軸（多來源 union）
-      const tlParams = userId ? [luid, userId] : [luid, -1];
+      const tlParams = userId ? [luid, userId, luidHash] : [luid, -1, luidHash];
       const timeline = (await query(
         `SELECT kind, label, at FROM (
            SELECT event_type AS kind, COALESCE(detail, event_type) AS label, event_timestamp AS at
@@ -244,7 +249,7 @@ function registerAdminUsersRoutes(app, deps) {
            UNION ALL
            SELECT 'broadcast_click', LEFT(target_url, 80), clicked_at FROM admin_broadcast_clicks WHERE line_user_id = $1
            UNION ALL
-           SELECT 'liff', event_name, created_at FROM user_events WHERE line_id = $1
+           SELECT 'liff', event_name, created_at FROM user_events WHERE line_id = $1 OR line_id = $3
            UNION ALL
            SELECT 'invite_rewarded', invitee_line_user_id, rewarded_at FROM line_invites WHERE inviter_user_id = $2 AND status = 'rewarded'
          ) t WHERE at IS NOT NULL ORDER BY at DESC LIMIT 40`,

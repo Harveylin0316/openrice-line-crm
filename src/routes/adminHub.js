@@ -128,8 +128,10 @@ function registerAdminHubRoutes(app, deps) {
       // 增粉歸因：活動期間新好友總數 + 領取者中「領取前 24 小時內才加好友」的人數
       const { rows: growthRows } = await query(
         `SELECT
-           (SELECT COUNT(*)::int FROM users
+           (SELECT CASE WHEN $1::timestamptz IS NULL THEN NULL ELSE COUNT(*)::int END FROM users
              WHERE archived_at IS NULL AND created_at IS NOT NULL
+               AND is_admin = false AND blocked_at IS NULL
+               AND line_user_id IS NOT NULL AND BTRIM(line_user_id) <> ''
                AND ($1::timestamptz IS NULL OR created_at >= $1)
                AND created_at <= LEAST(now(), COALESCE($2::timestamptz, now()))) AS new_friends,
            (SELECT COUNT(DISTINCT c.claimed_line_user_id)::int
@@ -212,11 +214,20 @@ function registerAdminHubRoutes(app, deps) {
       );
       if (rows.length === 0) return res.status(404).json({ ok: false, error: 'activity_not_found' });
       // 關鍵字回覆跟著開關：下架後輸入「借電券」就不再回卡片
-      await query(
-        `UPDATE admin_keyword_replies SET is_active = $2, updated_at = now() WHERE id = $1`,
+      // 規則可能被刪掉重建（id 會變）：加 keywords 條件避免改到別的規則，
+      // 並檢查 rowCount——0 列就誠實回報，不能讓人以為關鍵字也跟著關了
+      const kw = await query(
+        `UPDATE admin_keyword_replies SET is_active = $2, updated_at = now()
+          WHERE id = $1 AND keywords LIKE '%借電%'`,
         [LUDIAN.keywordRuleId, status === 'active']
       );
-      return res.json({ ok: true, activity: rows[0], keyword_active: status === 'active' });
+      const kwOk = kw.rowCount > 0;
+      if (!kwOk) console.error('ludian keyword rule not found (id=' + LUDIAN.keywordRuleId + ')');
+      return res.json({
+        ok: true, activity: rows[0],
+        keyword_active: kwOk ? (status === 'active') : null,
+        keyword_rule_missing: !kwOk
+      });
     } catch (err) {
       console.error('ludian status error:', err && err.message);
       return res.status(500).json({ ok: false, error: 'status_failed', detail: String(err.message || '').slice(0, 300) });
@@ -237,7 +248,7 @@ function registerAdminHubRoutes(app, deps) {
            FROM coupon_codes c
            LEFT JOIN activity_plays ap ON ap.id = c.claimed_play_id
           WHERE c.activity_id = $1 AND c.claimed_at IS NOT NULL
-            AND (c.code = $2 OR ap.line_display_name ILIKE '%' || $2 || '%')
+            AND (UPPER(c.code) = UPPER($2) OR ap.line_display_name ILIKE '%' || regexp_replace($2, '([\\%_])', '\\\\\\1', 'g') || '%')
           ORDER BY c.claimed_at DESC
           LIMIT 20`,
         [acts[0].id, q]

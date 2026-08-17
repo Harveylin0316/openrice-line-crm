@@ -17,7 +17,7 @@ function registerAdminRfmRoutes(app, deps) {
 
   app.get('/admin/rfm', requireAdmin, (req, res) => {
     res.render('admin_rfm', {
-      title: 'RFM 資料層',
+      title: '會員分級分析',
       bodyClass: 'admin-shell rfm-shell',
       user: (req.authUser && req.authUser.un) || '',
       isAdmin: true
@@ -33,17 +33,28 @@ function registerAdminRfmRoutes(app, deps) {
       if (records.length === 0) return jsonErr(res, 400, 'no_records');
       if (records.length > 1000) return jsonErr(res, 400, 'chunk_too_large', { detail: '單批最多 1000 筆' });
 
+      // 同一批裡同一個 userId 出現兩次（匯出檔重複很常見），單一 INSERT 的
+      // ON CONFLICT 會直接噴錯整批失敗 → 先在批內去重，留最後一筆
+      const dedup = new Map();
+      for (const r of records) {
+        const rid = Number(r && r.userId);
+        if (Number.isFinite(rid)) dedup.set(rid, r);
+      }
       const values = [];
       const params = [];
       let n = 0;
-      for (const r of records) {
+      for (const r of dedup.values()) {
         const id = Number(r && r.userId);
         if (!Number.isFinite(id)) continue;
         const lineId = (r.lineId != null && String(r.lineId).trim()) ? String(r.lineId).trim() : null;
         const phone = (r.phone != null && String(r.phone).trim()) ? String(r.phone).trim().slice(0, 50) : null;
         const email = (r.email != null && String(r.email).trim()) ? String(r.email).trim().toLowerCase().slice(0, 200) : null;
-        const recency = Number.isFinite(Number(r.recency)) ? Math.round(Number(r.recency)) : null;
-        const frequency = Number.isFinite(Number(r.frequency)) ? Math.round(Number(r.frequency)) : null;
+        const clampN = (v, max) => {
+          const x = Math.round(Number(v));
+          return Number.isFinite(x) && x >= 0 && x <= max ? x : null;
+        };
+        const recency = clampN(r.recency, 36500);      // 天數，100 年封頂；放錯欄位（timestamp）直接視為無值
+        const frequency = clampN(r.frequency, 1000000);
         const monetary = Number.isFinite(Number(r.monetary)) ? Number(r.monetary) : null;
         const base = n * 8;
         values.push(`($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8})`);

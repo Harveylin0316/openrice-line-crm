@@ -20,7 +20,7 @@
         </div>
       </section>
       <section class="card us-profile-card">
-        <div id="us-profile"><p class="muted">← 從左邊點一個用戶看完整檔案</p></div>
+        <div id="us-profile"><p class="muted">從左邊的列表點一個用戶，這裡會顯示完整檔案</p></div>
       </section>
     </div>
 
@@ -231,6 +231,7 @@
           document.querySelectorAll('.us-row').forEach(function(r){r.classList.toggle('active',r.getAttribute('data-uid')===uid);});
           var box=$('us-profile');box.innerHTML='<p class="muted">載入中…</p>';
           fetch('/admin/users/api/profile/'+uid).then(function(r){return r.json();}).then(function(d){
+            if(curUid!==uid)return; // 使用者已點了別人，這份慢回來的資料直接丟棄，不能蓋掉現在的畫面
             if(!d.ok){box.innerHTML='<p class="muted">載入失敗：'+esc(d.error||'')+'</p>';return;}
             var p=d.profile,c=d.counts;
             var nm=p.line_display_name||p.username||'（未命名）';

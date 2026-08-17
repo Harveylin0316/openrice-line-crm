@@ -67,7 +67,7 @@
           <span>封面圖（可選 — 貼 URL 或直接上傳，建議 1600×900 / 16:9，最大 2MB）</span>
           <div style="display:flex;gap:6px;align-items:stretch;">
             <input type="text" id="ae-cover" placeholder="https://..." style="flex:1;" />
-            <input type="file" id="ae-cover-file" accept="image/png,image/jpeg,image/webp" style="display:none;" />
+            <input type="file" id="ae-cover-file" accept="image/png,image/jpeg" style="display:none;" />
             <button type="button" id="ae-cover-upload" style="padding:8px 14px;background:#fff;border:1px solid #ECECEE;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit;">上傳</button>
             <button type="button" id="ae-cover-clear" hidden style="padding:8px 14px;background:#fff;border:1px solid #FCA5A5;color:#DC2626;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit;">刪除</button>
           </div>
@@ -82,7 +82,7 @@
           <input type="checkbox" id="ae-require-follow" /> 需先加入 LINE OA 好友才能玩
         </label>
         <label class="ae-field ae-field-full">
-          <span>自訂 LIFF ID（進階，留空 = 用預設的 GAMES_LIFF_ID）</span>
+          <span>自訂活動入口（進階設定，留空就用系統預設，不確定就不要動）</span>
           <input type="text" id="ae-liff-override" placeholder="例：1234567890-abcDEF12（特殊拉新活動才需要）" />
           <span class="muted" style="font-size:11px;font-weight:400;">99% 活動留空就好。需要 Aggressive 加好友等特殊設定時才填獨立 LIFF ID。</span>
         </label>
@@ -270,7 +270,7 @@
         $('ae-start').value = toLocalDt(a.start_at);
         $('ae-end').value = toLocalDt(a.end_at);
         $('ae-cover').value = a.cover_image_url || '';
-        $('ae-daily-limit').value = a.daily_plays_per_user || '';
+        $('ae-daily-limit').value = a.daily_plays_per_user != null ? a.daily_plays_per_user : '';
         $('ae-require-follow').checked = Boolean(a.require_follow_oa);
         $('ae-liff-override').value = a.liff_id_override || '';
         $('ae-base-plays').value = a.base_plays_per_user != null ? a.base_plays_per_user : 1;
@@ -303,7 +303,7 @@
         // LIFF 短網址：用 effective LIFF ID + 子路徑（LIFF SDK 會 append 到 Endpoint URL）
         var liffShareUrl = effectiveLiffId
           ? 'https://liff.line.me/' + effectiveLiffId + '/' + gt + '/' + encodeURIComponent(currentActivity.slug)
-          : '（尚未設定 GAMES_LIFF_ID 環境變數，或活動未設 liff_id_override）';
+          : '（活動連結還沒開通，請找系統管理員設定）';
         var liffEl = $('ae-liff-share-url');
         var directEl = $('ae-direct-url');
         var prev = $('ae-preview-link');

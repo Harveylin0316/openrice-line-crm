@@ -285,7 +285,8 @@
 
   // 活動頁行為／訂位來源欄位一改動，之前預覽出來的人數就作廢，要重新按「預覽收件人」
   ['liff-played-days', 'liff-booking-days', 'liff-inactive-days',
-    'booking-source', 'booking-source-answered'].forEach(function (id) {
+    'booking-source', 'booking-source-answered',
+    'prize-mode', 'invite-min', 'drew-in-campaign'].forEach(function (id) {
     var el = $(id);
     if (!el) return;
     function invalidatePreview() {
@@ -296,6 +297,15 @@
     el.addEventListener('input', invalidatePreview);
     // 下拉選單在部分瀏覽器只發 change，不發 input，兩個都掛才不會漏掉
     el.addEventListener('change', invalidatePreview);
+  });
+  // checkbox 群組（活躍程度、中過獎品）也一樣：改了就要重新預覽
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t && t.name && (t.name === 'lifecycle_stage' || t.name === 'prize_name')) {
+      state.audiencePreviewedTotal = null;
+      var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
+      updateSendButton();
+    }
   });
 
   // ------------------------------------------------------------------
@@ -327,12 +337,15 @@
           statusEl.innerHTML += ' <span style="color:#b45309">（將自動 cap 至 ' + INIT.maxRecipients + ' 人）</span>';
         }
         if (data.sample && data.sample.length > 0) {
+          var isEmailCh = getActiveChannel() === 'email';
           var rows = data.sample.map(function (s) {
-            return '<tr><td>' + s.id + '</td><td>' + escapeHtml(s.line_display_name || '') +
-              '</td><td><code style="font-size:11px">' + escapeHtml(s.line_user_id || '') + '</code></td></tr>';
+            var nameCell = escapeHtml((isEmailCh ? s.display_name : s.line_display_name) || '');
+            var idCell = escapeHtml((isEmailCh ? s.email : s.line_user_id) || '');
+            return '<tr><td>' + s.id + '</td><td>' + nameCell +
+              '</td><td><code style="font-size:11px">' + idCell + '</code></td></tr>';
           }).join('');
           sampleEl.innerHTML = '<div style="margin-bottom:4px;font-weight:500;">前 ' + data.sample.length + ' 筆樣本</div>' +
-            '<table><thead><tr><th>ID</th><th>顯示名</th><th>line_user_id</th></tr></thead><tbody>' + rows + '</tbody></table>';
+            '<table><thead><tr><th>ID</th><th>顯示名</th><th>' + (isEmailCh ? 'Email' : 'LINE 編號') + '</th></tr></thead><tbody>' + rows + '</tbody></table>';
           sampleEl.hidden = false;
         }
         updateSendButton();
@@ -1665,7 +1678,7 @@
       statusEl.textContent = 'JSON 格式錯誤：' + cfg._parseError;
       return;
     }
-    if (!INIT.hasLineToken) { alert('尚未設定 LINE token'); return; }
+    if (!INIT.hasLineToken) { alert('還沒設定 LINE 發送金鑰，請找系統管理員開通'); return; }
 
     fetch('/admin/broadcast/test-recipients')
       .then(function (r) { return r.json(); })
@@ -1974,7 +1987,7 @@
   function updateSendButton() {
     var btn = $('btn-send');
     var ready =
-      INIT.hasLineToken &&
+      (getActiveChannel() !== 'line' || INIT.hasLineToken) &&
       state.audiencePreviewedTotal !== null &&
       state.audiencePreviewedTotal > 0 &&
       state.messagePreviewed &&
@@ -2006,7 +2019,7 @@
 
   function checkSendReadiness() {
     if (state.sending) return { ok: false, reason: '正在送出中，請稍候' };
-    if (!INIT.hasLineToken) return { ok: false, reason: '尚未設定 LINE_CHANNEL_ACCESS_TOKEN，無法送出' };
+    if (getActiveChannel() === 'line' && !INIT.hasLineToken) return { ok: false, reason: '還沒設定 LINE 發送金鑰，請找系統管理員開通' };
     if (state.audiencePreviewedTotal === null) {
       return { ok: false, reason: '請先在步驟 1 點「預覽收件人」按鈕確認對象', focusEl: 'btn-preview-audience' };
     }

@@ -48,7 +48,11 @@ function registerAdminDashboardRoutes(app, deps) {
         SELECT
           (SELECT COUNT(*)::int FROM line_push_logs
             WHERE status = 'failed' AND created_at >= NOW() - interval '24 hours') AS push_failed_24h,
-          (SELECT COUNT(*)::int FROM admin_broadcasts WHERE status = 'failed') AS broadcasts_failed
+          -- status='failed' 從來沒有程式路徑會寫入（整批失敗最後也是 done），
+          -- 真正要盯的是「已結案但有失敗收件人」的批次
+          (SELECT COUNT(*)::int FROM admin_broadcasts b
+            WHERE b.status = 'done' AND b.recipient_fail > 0
+              AND b.finished_at >= NOW() - interval '7 days') AS broadcasts_failed
       `);
       const a = alertRs.rows[0] || {};
       const alerts = {

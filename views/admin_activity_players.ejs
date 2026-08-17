@@ -1,3 +1,8 @@
+<%
+  // 活動名稱是後台輸入的自由文字，進 HTML 前先跳脫（防 staff 對其他管理員 XSS）
+  var actName = String(activity.name == null ? '' : activity.name)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+%>
 <%-
   include('layout', {
     user: user,
@@ -6,10 +11,10 @@
     body: `
     <section class="card">
       <div class="players-head">
-        <a href="/admin/activities/${activity.id}" class="ae-back">← 回活動編輯</a>
-        <h1>玩家數據 — ${activity.name}</h1>
+        <a href="/admin/activities/${activity.id}" class="ae-back">回活動編輯</a>
+        <h1>玩家數據 — ${actName}</h1>
         <div class="muted" style="font-size:12px;">
-          活動 #${activity.id} · ${({wheel:'輪盤',fortune:'抽籤',scratch:'刮刮樂',slot:'老虎機'})[activity.game_type] || activity.game_type}
+          活動 #${activity.id} · ${({wheel:'輪盤',fortune:'抽籤',scratch:'刮刮樂',slot:'老虎機',claim:'領取優惠券'})[activity.game_type] || activity.game_type}
           · 基礎 ${activity.base_plays_per_user} 次 / 邀請 +${activity.referral_bonus_per} × ${activity.referral_bonus_max} 上限
         </div>
       </div>
@@ -70,7 +75,7 @@
         <div class="ae-grid">
           <label class="ae-field ae-field-full">
             <span>名單名稱 *</span>
-            <input type="text" id="ex-name" placeholder="例：${activity.name} 中獎名單" maxlength="200" />
+            <input type="text" id="ex-name" placeholder="例：${actName} 中獎名單" maxlength="200" />
           </label>
           <label class="ae-field ae-field-full">
             <span>描述（可選）</span>
@@ -185,7 +190,9 @@
           return;
         }
         tbody.innerHTML = list.map(function (p) {
-          var name = p.crm_display_name || p.line_display_name || '<span class="muted" style="font-style:italic;">未登入 CRM</span>';
+          // 顯示名稱是用戶自訂的，一定要跳脫；只有無資料的提示保留 HTML
+          var realNm = p.crm_display_name || p.line_display_name;
+          var name = realNm ? esc(realNm) : '<span class="muted" style="font-style:italic;">未登入 CRM</span>';
           var uid = p.line_user_id || '';
           var override = p.max_plays_override != null
             ? '<span class="quota-pill">' + p.max_plays_override + ' 次</span>' +

@@ -543,7 +543,7 @@
             }).catch(function(e){$('fl-save').disabled=false;$('fl-save-activate').disabled=false;$('fl-save-status').textContent='錯誤：'+e.message;});
         }
         function errMsg(code){
-          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息或加入名單）',branch_must_be_last:'條件分支必須是流程的最後一步',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',list_join_needs_list:'請選名單',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',flow_has_no_steps:'流程至少要有一個步驟才能啟用',follow_source_invalid:'來源代號只能用英數字、底線、減號（不能填中文或空格），最多 40 字'};
+          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息或加入名單）',branch_must_be_last:'條件分支必須是流程的最後一步',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',add_to_list_needs_list:'加入名單步驟請選一個名單',list_join_needs_list:'請選名單',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',flow_has_no_steps:'流程至少要有一個步驟才能啟用',follow_source_invalid:'來源代號只能用英數字、底線、減號（不能填中文或空格），最多 40 字'};
           return m[code]||code||'';
         }
         function isDirty(){return !$('fl-editor').hidden&&initialSnapshot!==JSON.stringify(collectFlow());}
