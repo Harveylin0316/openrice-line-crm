@@ -87,8 +87,10 @@ function registerMgmMilesRoutes(app, deps) {
       const nextMilesAt = campaign.perFriends > 0
         ? (Math.floor(referrals / campaign.perFriends) + 1) * campaign.perFriends
         : 0;
+      const openForYou = mgmEngine.isTester(campaign, uid);
       res.json({
         ok: true,
+        open: openForYou,
         campaign: {
           slug: campaign.slug, name: campaign.name, status: campaign.status,
           per_friends: campaign.perFriends, per_miles: campaign.perMiles,
@@ -123,6 +125,12 @@ function registerMgmMilesRoutes(app, deps) {
       return jsonErr(res, id.reject.status, id.reject.code, { detail: id.reject.detail });
     }
     try {
+      const preCampaign = await mgmEngine.loadCampaignBySlug(slug);
+      if (preCampaign && preCampaign.testUids && preCampaign.testUids.length > 0 &&
+          (!mgmEngine.isTester(preCampaign, inviteeId) || !mgmEngine.isTester(preCampaign, inviterId))) {
+        logAttempt(slug, inviterId, inviteeId, 'test_mode_blocked');
+        return res.status(400).json({ ok: false, error: 'activity_not_active', detail: '活動還沒開始' });
+      }
       const result = await registerReferral({ query, activitySlug: slug, gameType: 'mgm', inviterId, inviteeId });
       if (result.error) {
         logAttempt(slug, inviterId, inviteeId, result.error.code);
@@ -276,7 +284,9 @@ function registerMgmMilesRoutes(app, deps) {
         share_title: String(body.share_title || '').trim().slice(0, 100),
         share_text: String(body.share_text || '').trim().slice(0, 300),
         share_image: String(body.share_image || '').trim().slice(0, 500),
-        card_image: String(body.card_image || '').trim().slice(0, 500)
+        card_image: String(body.card_image || '').trim().slice(0, 500),
+        test_uids: String(body.test_uids || '').split(/[\s,]+/)
+          .map(x => x.trim()).filter(x => /^U[0-9a-f]{32}$/i.test(x)).slice(0, 50)
       };
       const status = ['draft', 'active', 'paused', 'ended'].includes(body.status) ? body.status : 'draft';
       const name = String(body.name || '').trim().slice(0, 100) || null;
@@ -307,6 +317,34 @@ function registerMgmMilesRoutes(app, deps) {
     } catch (err) {
       console.error('mgm config error:', err && err.message);
       jsonErr(res, 500, 'config_failed', { detail: err && err.message });
+    }
+  });
+
+  // ── 後台：重置測試帳號（模擬三個角色用）──────────────────────
+  //   清掉該帳號在這檔活動的：里數入帳、轉盤加碼、邀請紀錄（當邀請人與被邀請人）。
+  //   make_new=true 再把 users 列標成封存 → 系統視他為「還不是會員」，
+  //   點邀請連結會算新朋友、重新加好友會拿見面禮。只能用在測試帳號！
+  app.post('/admin/mgm/api/reset-tester', requireOwner, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const uid = String(body.line_user_id || '').trim();
+      if (!/^U[0-9a-f]{32}$/i.test(uid)) return jsonErr(res, 400, 'bad_uid', { detail: 'LINE ID 格式不對' });
+      const { rows: camp } = await query(
+        `SELECT id, slug FROM activities WHERE game_type='mgm' ORDER BY id DESC LIMIT 1`);
+      if (camp.length === 0) return jsonErr(res, 404, 'no_campaign');
+      const aid = camp[0].id, slug = camp[0].slug;
+      const del1 = await query(`DELETE FROM activity_plays WHERE activity_id=$1 AND line_user_id=$2 RETURNING id`, [aid, uid]);
+      const del2 = await query(`DELETE FROM activity_bonus_plays WHERE granted_key LIKE 'mgm:' || $1 || ':%:' || $2 RETURNING id`, [slug, uid]);
+      const del3 = await query(`DELETE FROM activity_referrals WHERE activity_id=$1 AND (inviter_line_user_id=$2 OR invitee_line_user_id=$2) RETURNING id`, [aid, uid]);
+      let madeNew = false;
+      if (body.make_new === true) {
+        const u = await query(`UPDATE users SET archived_at=now() WHERE line_user_id=$1 RETURNING id`, [uid]);
+        madeNew = u.rows.length > 0;
+      }
+      res.json({ ok: true, cleared: { miles_rows: del1.rows.length, wheel_plays: del2.rows.length, referrals: del3.rows.length }, made_new: madeNew });
+    } catch (err) {
+      console.error('mgm reset error:', err && err.message);
+      jsonErr(res, 500, 'reset_failed', { detail: err && err.message });
     }
   });
 

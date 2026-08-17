@@ -71,8 +71,18 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
       shareTitle: String(m.share_title || row.name || '揪友賺哩'),
       shareText: String(m.share_text || '加入 OpenRice 官方帳號，一起拿「亞洲萬里通」里數'),
       shareImage: String(m.share_image || ''),            // 分享卡片圖（外部可取的 https URL）
-      cardImage: String(m.card_image || '')               // 推播卡片圖
+      cardImage: String(m.card_image || ''),              // 推播卡片圖
+      // 測試名單：非空 = 測試模式，只有名單上的人玩得到，其他人完全看不到也收不到卡
+      testUids: Array.isArray(m.test_uids)
+        ? m.test_uids.filter(u => /^U[0-9a-f]{32}$/i.test(String(u))).slice(0, 50)
+        : []
     };
+  }
+
+  /** 測試模式判定：名單空 = 全員開放；非空 = 只有名單上的人 */
+  function isTester(campaign, uid) {
+    if (!campaign.testUids || campaign.testUids.length === 0) return true;
+    return campaign.testUids.includes(uid);
   }
 
   function numOr(v, d) {
@@ -233,6 +243,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
   async function onFollow(lineUserId, displayName) {
     const campaign = await loadActiveCampaign();
     if (!campaign) return null;
+    if (!isTester(campaign, lineUserId)) return null; // 測試模式：一般用戶什麼都不會發生
     let granted = null;
     if (campaign.welcomeMiles > 0) {
       granted = await grantMiles(campaign, lineUserId, campaign.welcomeMiles, 'welcome', displayName);
@@ -256,6 +267,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
    * 檢查里程碑：每 perFriends 位 → 里數；wheelFriends 位 → 轉盤一次。
    */
   async function onReferralCounted(campaign, inviterId) {
+    if (!isTester(campaign, inviterId)) return []; // 測試模式：非測試者不發獎
     const count = await referralCount(campaign, inviterId);
     const results = [];
 
@@ -314,6 +326,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
   async function buildEntryCard(lineUserId) {
     const campaign = await loadActiveCampaign();
     if (!campaign) return null;
+    if (!isTester(campaign, lineUserId)) return null; // 測試模式：交還給一般關鍵字規則
     return [buildCard(campaign, {
       title: campaign.shareTitle,
       body: '每揪 ' + campaign.perFriends + ' 位新朋友加入官方帳號，送 ' + campaign.perMiles +
@@ -324,6 +337,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
   }
 
   return {
+    isTester,
     loadActiveCampaign,
     loadCampaignBySlug,
     grantMiles,

@@ -40,6 +40,7 @@ function registerGamesRoutes(app, deps) {
                 start_at, end_at, liff_id_override
          FROM activities
          WHERE status = 'active'
+           AND game_type <> 'mgm'
            AND (start_at IS NULL OR start_at <= NOW())
            AND (end_at IS NULL OR end_at >= NOW())
          ORDER BY created_at DESC LIMIT 20`

@@ -108,6 +108,9 @@
           '<label class="mg-field mg-full"><span>分享卡片文字</span><input type="text" id="mgc-stext" value="'+esc(m.share_text||'')+'" maxlength="300"></label>'+
           '<label class="mg-field mg-full"><span>分享卡片圖（網址，可留空）</span><input type="text" id="mgc-simg" value="'+esc(m.share_image||'')+'" placeholder="https://..."><small>朋友在聊天室看到的那張卡的圖</small></label>'+
           '<label class="mg-field mg-full"><span>推播卡片圖（網址，可留空）</span><input type="text" id="mgc-cimg" value="'+esc(m.card_image||'')+'" placeholder="https://..."><small>見面禮與達標通知卡的圖</small></label>'+
+          '<label class="mg-field mg-full"><span>測試名單（留空 = 對所有人開放）</span>'+
+            '<input type="text" id="mgc-testers" value="'+esc((m.test_uids||[]).join(' '))+'" placeholder="U 開頭的 LINE ID，多個用空格隔開">'+
+            '<small>填了名單就是測試模式：只有名單上的人玩得到，其他用戶完全看不到、也不會收到任何卡片。正式開跑前把這欄清空再儲存。</small></label>'+
         '</div>'+
         '<div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'+
           '<button type="button" id="mgc-save" class="mg-btn1">儲存設定</button>'+
@@ -118,10 +121,37 @@
         if(c.status!=='active'){
           h+='<div class="mg-callout">目前狀態是「'+({draft:'草稿',paused:'暫停',ended:'已結束'})[c.status]+'」——新好友不會收到見面禮、達標也不會發卡。要開跑把狀態改成「進行中」再儲存。</div>';
         }
+        if((m.test_uids||[]).length){
+          h+='<div class="mg-callout">測試模式開著：只有名單上的 '+(m.test_uids||[]).length+' 個人玩得到，其他人完全看不到。正式開跑前把測試名單清空。</div>';
+        }
+        h+='<div style="margin-top:14px;padding:12px 14px;border:1px solid #ECECEE;border-radius:10px;">'+
+          '<div style="font-weight:700;font-size:13.5px;margin-bottom:6px;">測試工具：重置一個測試帳號</div>'+
+          '<div class="muted" style="font-size:12px;line-height:1.6;margin-bottom:8px;">清掉這個帳號在本活動的里數、抽獎機會、揪友紀錄，讓他可以重測一輪。<br>「重置並變回新朋友」會讓系統把他當成還沒加入過的人（點邀請連結算新朋友、重加好友會拿見面禮）——只能用在測試帳號，不要對真實用戶按。</div>'+
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+
+            '<input type="text" id="mgt-uid" placeholder="U 開頭的 LINE ID" style="flex:1;min-width:220px;padding:8px 10px;border:1px solid #ECECEE;border-radius:8px;font-size:13px;">'+
+            '<button type="button" class="mg-btn2" id="mgt-reset">重置測試資料</button>'+
+            '<button type="button" class="mg-btn2" id="mgt-reset-new">重置並變回新朋友</button>'+
+          '</div><div id="mgt-note" class="muted" style="font-size:12px;margin-top:6px;"></div></div>';
         $('mg-config').innerHTML=h;
         $('mgc-copy').addEventListener('click',function(){
           navigator.clipboard.writeText(link).then(function(){ $('mgc-copy').textContent='已複製'; setTimeout(function(){$('mgc-copy').textContent='複製';},1500); });
         });
+        function doReset(makeNew){
+          var uid=$('mgt-uid').value.trim();
+          if(!uid){$('mgt-note').textContent='先貼 LINE ID';return;}
+          if(makeNew&&!confirm('「變回新朋友」會讓系統把這個帳號當成沒加入過（會從群發名單消失）。只能用在測試帳號，確定嗎？'))return;
+          fetch('/admin/mgm/api/reset-tester',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({line_user_id:uid,make_new:!!makeNew})})
+            .then(function(r){return r.json();})
+            .then(function(d){
+              if(!d.ok){$('mgt-note').textContent='失敗：'+(d.detail||d.error);return;}
+              $('mgt-note').textContent='已清：里數 '+d.cleared.miles_rows+' 筆、抽獎機會 '+d.cleared.wheel_plays+' 筆、揪友紀錄 '+d.cleared.referrals+' 筆'+(d.made_new?'，並已變回新朋友':'');
+              load();
+            })
+            .catch(function(){$('mgt-note').textContent='連線失敗，再試一次';});
+        }
+        $('mgt-reset').addEventListener('click',function(){doReset(false);});
+        $('mgt-reset-new').addEventListener('click',function(){doReset(true);});
         $('mgc-save').addEventListener('click',function(){
           var btn=this; btn.disabled=true; $('mgc-note').textContent='儲存中…';
           fetch('/admin/mgm/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -134,7 +164,8 @@
               wheel_slug:$('mgc-wheels').value, miles_cap:$('mgc-cap').value,
               repeat_ladder:$('mgc-repeat').value==='1',
               share_title:$('mgc-stitle').value, share_text:$('mgc-stext').value,
-              share_image:$('mgc-simg').value, card_image:$('mgc-cimg').value
+              share_image:$('mgc-simg').value, card_image:$('mgc-cimg').value,
+              test_uids:$('mgc-testers').value
             })})
             .then(function(r){return r.json();})
             .then(function(d){ btn.disabled=false;

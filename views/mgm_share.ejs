@@ -207,6 +207,14 @@
             '&id_token=' + encodeURIComponent(currentIdToken())).then(function (r) { return r.json(); });
           if (!resp.ok || !resp.me) throw new Error(resp.detail || resp.error || 'me_failed');
           meRetries = 0;
+          if (resp.open === false) {
+            document.getElementById('me-miles').textContent = '—';
+            document.getElementById('me-count').textContent = '—';
+            statusEl.textContent = '活動還沒開始，開跑後這裡會顯示你的進度';
+            shareBtn.disabled = true;
+            shareBtn.textContent = '尚未開放';
+            return;
+          }
           var me = resp.me;
           document.getElementById('me-miles').textContent = me.miles;
           var cEl = document.getElementById('me-count');
