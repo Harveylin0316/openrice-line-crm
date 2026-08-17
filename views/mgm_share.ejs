@@ -50,9 +50,11 @@
 
     /* 我的進度 */
     .me{margin:18px 0 0;text-align:center}
-    .me .big{font-size:20px;font-weight:900}
-    .me .big .num{font-size:44px;color:var(--orange);margin:0 5px;vertical-align:-4px;display:inline-block}
-    .me .sub{margin-top:5px;font-size:13px;color:var(--ink2);line-height:1.6;min-height:19px}
+    .me .pair{display:flex;gap:12px;justify-content:center}
+    .me .cell{flex:1;max-width:170px;border:2px solid var(--line);border-radius:12px;background:var(--surface);padding:12px 8px 10px}
+    .me .num{font-size:40px;font-weight:900;color:var(--orange);line-height:1.1;display:inline-block}
+    .me .lbl{font-size:12px;font-weight:700;color:var(--ink2);margin-top:2px}
+    .me .sub{margin-top:9px;font-size:13px;color:var(--ink2);line-height:1.6;min-height:19px}
     @keyframes statPop{0%{transform:scale(1)}34%{transform:scale(1.32)}100%{transform:scale(1)}}
     .pop{animation:statPop .42s cubic-bezier(.2,1.4,.4,1)}
 
@@ -101,7 +103,10 @@
     </section>
 
     <div class="me" id="status-row">
-      <div class="big"><span id="me-lead">已揪</span><span class="num" id="me-count">—</span><span id="me-unit">位</span></div>
+      <div class="pair">
+        <div class="cell"><div class="num" id="me-miles">—</div><div class="lbl">我的里數</div></div>
+        <div class="cell"><div class="num" id="me-count">—</div><div class="lbl">已揪到的朋友</div></div>
+      </div>
       <div class="sub" id="status">正在確認你的身分</div>
     </div>
 
@@ -192,14 +197,17 @@
       }
 
       var lastCount = null;
+      var meRetries = 0;
       async function refreshMe() {
         if (!profile || !profile.userId) return;
         try {
           var resp = await fetch('/api/games/mgm/' + encodeURIComponent(slug) +
             '/me?line_user_id=' + encodeURIComponent(profile.userId) +
             '&id_token=' + encodeURIComponent(currentIdToken())).then(function (r) { return r.json(); });
-          if (!resp.ok || !resp.me) return;
+          if (!resp.ok || !resp.me) throw new Error(resp.detail || resp.error || 'me_failed');
+          meRetries = 0;
           var me = resp.me;
+          document.getElementById('me-miles').textContent = me.miles;
           var cEl = document.getElementById('me-count');
           cEl.textContent = me.referrals;
           if (lastCount !== null && lastCount !== me.referrals && cEl.classList) {
@@ -207,12 +215,21 @@
           }
           lastCount = me.referrals;
           var bits = [];
-          if (me.miles > 0) bits.push('已拿到 ' + me.miles + ' 里');
           if (CFG.perMiles > 0 && me.next_miles_in > 0) bits.push('再揪 ' + me.next_miles_in + ' 位多 ' + CFG.perMiles + ' 里');
-          if (me.wheel_in > 0) bits.push('滿 ' + CFG.wheelFriends + ' 位送抽獎');
-          else bits.push('抽獎機會已入帳，到轉盤用掉它');
+          if (me.wheel_in > 0) bits.push('滿 ' + CFG.wheelFriends + ' 位送轉盤抽獎');
+          else bits.push('抽獎機會已入帳，轉盤開跑就能用');
+          bits.push('里數活動結束後統一發放');
           statusEl.textContent = bits.join('，');
-        } catch (e) { /* 靜默，畫面維持上一次 */ }
+        } catch (e) {
+          // 讀不到不能裝沒事：顯示狀態並自動重試（最多 3 次，之後留一句人話）
+          if (meRetries < 3) {
+            meRetries++;
+            statusEl.textContent = '進度讀取中';
+            setTimeout(refreshMe, 1200 * meRetries);
+          } else {
+            statusEl.textContent = '進度暫時讀不到，關掉重開一次就會出現';
+          }
+        }
       }
 
       // 分享：選人視窗（帶圖卡）→ 失敗退回複製連結
