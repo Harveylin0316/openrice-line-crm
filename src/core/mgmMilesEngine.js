@@ -280,10 +280,24 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
       results.push({ milestone: 'wheel' + count, kind: 'wheel_play', result: r });
       if (r === 'granted') {
         const wheelUrl = 'https://liff.line.me/' + (liffId || '') + '/wheel/' + encodeURIComponent(campaign.wheelSlug);
-        const card = buildCard(campaign, {
+        // 轉盤還沒開跑就不能叫人「快去抽」——照實講機會已存好，開跑就能用
+        let wheelActive = false;
+        try {
+          const { rows: w } = await query(
+            `SELECT status, start_at FROM activities WHERE slug = $1 LIMIT 1`, [campaign.wheelSlug]
+          );
+          wheelActive = !!(w[0] && w[0].status === 'active' &&
+            (!w[0].start_at || new Date(w[0].start_at).getTime() <= Date.now()));
+        } catch (e) { /* 查不到就當還沒開，文案保守 */ }
+        const card = buildCard(campaign, wheelActive ? {
           title: '恭喜獲抽獎機會！',
           body: '你已成功揪到 ' + count + ' 位朋友，多了一次轉盤抽獎機會，快去試手氣。',
           buttonLabel: '去抽獎',
+          buttonUrl: wheelUrl
+        } : {
+          title: '恭喜獲抽獎機會！',
+          body: '你已成功揪到 ' + count + ' 位朋友。抽獎機會已幫你存好，轉盤活動開跑那天就能用，會再通知你。',
+          buttonLabel: '先看活動',
           buttonUrl: wheelUrl
         });
         await pushCard(inviterId, card, 'mgm_wheel_grant');
