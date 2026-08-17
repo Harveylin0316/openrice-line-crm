@@ -234,14 +234,16 @@ function registerAdminActivitiesRoutes(app, deps) {
       const sql = `
         UPDATE activity_prizes SET
           name = $1, description = $2, image_url = $3, probability_weight = $4,
-          stock_total = $5,
+          stock_total = $5::int,
           stock_remaining = CASE
-            WHEN $5 IS NULL THEN NULL
+            -- $5 一律顯式轉 int：不限量時前端傳 null，pg 對「裸露的 NULL 參數」推不出型別會整個 500，
+            -- 導致所有『庫存不限量』的獎品一編輯就掛掉
+            WHEN $5::int IS NULL THEN NULL
             -- 原本不限量（total=NULL、remaining=NULL）改成有限量：remaining 直接吃新總量。
             -- 留 NULL 的話選池條件 (stock_total IS NULL OR stock_remaining > 0) 永遠不成立，獎品變抽不到
-            WHEN stock_total IS NULL THEN $5
-            WHEN $5 = stock_total THEN stock_remaining
-            ELSE GREATEST(0, stock_remaining + ($5 - COALESCE(stock_total, 0)))
+            WHEN stock_total IS NULL THEN $5::int
+            WHEN $5::int = stock_total THEN stock_remaining
+            ELSE GREATEST(0, stock_remaining + ($5::int - COALESCE(stock_total, 0)))
           END,
           prize_type = $6, prize_value = $7::jsonb, position = $8, is_grand_prize = $9
         WHERE id = $10
