@@ -320,6 +320,42 @@ function registerMgmMilesRoutes(app, deps) {
     }
   });
 
+  // ── 後台：模擬一位新朋友點連結加入（一個人就能測完整條階梯）─────
+  //   只在測試模式（test_uids 非空）可用：產生一個合成的被邀請人寫進
+  //   activity_referrals（invitee_was_existing=false），再跑真實的里程碑
+  //   引擎——2 位發 100 里卡、4 位發抽獎卡，推播都真的送到邀請人手機。
+  //   合成資料用「重置測試資料」一鍵清掉。
+  app.post('/admin/mgm/api/simulate-referral', requireOwner, async (req, res) => {
+    try {
+      const inviter = String((req.body || {}).inviter_line_user_id || '').trim();
+      if (!/^U[0-9a-f]{32}$/i.test(inviter)) return jsonErr(res, 400, 'bad_uid', { detail: '邀請人 LINE ID 格式不對' });
+      const { rows: camp } = await query(
+        `SELECT id, slug, rules FROM activities WHERE game_type='mgm' ORDER BY id DESC LIMIT 1`);
+      if (camp.length === 0) return jsonErr(res, 404, 'no_campaign');
+      const campaign = await mgmEngine.loadCampaignBySlug(camp[0].slug);
+      if (!campaign || !campaign.testUids || campaign.testUids.length === 0) {
+        return jsonErr(res, 400, 'not_test_mode', { detail: '這顆按鈕只有測試模式（有測試名單）才能用，避免對正式資料灌假邀請' });
+      }
+      if (!mgmEngine.isTester(campaign, inviter)) {
+        return jsonErr(res, 400, 'not_tester', { detail: '邀請人要在測試名單上' });
+      }
+      const crypto = require('crypto');
+      const fakeInvitee = 'U' + crypto.randomBytes(16).toString('hex');
+      await query(
+        `INSERT INTO activity_referrals (activity_id, inviter_line_user_id, invitee_line_user_id, invitee_was_existing)
+         VALUES ($1, $2, $3, false)`,
+        [campaign.id, inviter, fakeInvitee]
+      );
+      logAttempt(campaign.slug, inviter, fakeInvitee, 'simulated');
+      const milestones = await mgmEngine.onReferralCounted(campaign, inviter);
+      const count = await mgmEngine.referralCount(campaign, inviter);
+      res.json({ ok: true, referrals: count, milestones });
+    } catch (err) {
+      console.error('mgm simulate error:', err && err.message);
+      jsonErr(res, 500, 'simulate_failed', { detail: err && err.message });
+    }
+  });
+
   // ── 後台：重置測試帳號（模擬三個角色用）──────────────────────
   //   清掉該帳號在這檔活動的：里數入帳、轉盤加碼、邀請紀錄（當邀請人與被邀請人）。
   //   make_new=true 再把 users 列標成封存 → 系統視他為「還不是會員」，

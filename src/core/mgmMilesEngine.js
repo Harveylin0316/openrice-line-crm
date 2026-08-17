@@ -240,12 +240,16 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
    * 新好友加入（webhook follow 呼叫，必須 await）。
    * 見面禮 + 歡迎卡。冪等：重加好友不會再發（mgm_key 擋）。
    */
-  async function onFollow(lineUserId, displayName) {
+  async function onFollow(lineUserId, displayName, isNewFollower) {
     const campaign = await loadActiveCampaign();
     if (!campaign) return null;
     if (!isTester(campaign, lineUserId)) return null; // 測試模式：一般用戶什麼都不會發生
+    // 見面禮只發「真的第一次加入」（既有好友退追再加不送——跟揪友同一套防洗邏輯）。
+    // 測試模式下測試帳號放行，讓一個人也能重測 welcome 流程（重置後封鎖再解除即可）
+    const allowWelcome = isNewFollower === true ||
+      (campaign.testUids.length > 0 && isTester(campaign, lineUserId));
     let granted = null;
-    if (campaign.welcomeMiles > 0) {
+    if (campaign.welcomeMiles > 0 && allowWelcome) {
       granted = await grantMiles(campaign, lineUserId, campaign.welcomeMiles, 'welcome', displayName);
     }
     // 只有真的第一次發成功才推卡（重加好友不再吵他）

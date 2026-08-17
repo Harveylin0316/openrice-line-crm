@@ -507,6 +507,7 @@ function createLineWebhookHandler({
           });
           continue;
         }
+        let isFirstFollow = false; // 見面禮只發「真的第一次加入」的人（退追再加不算，防洗）
         // 加好友（含重新加好友）：抓 LINE 個人檔案（暱稱+大頭貼），把這個 follower 寫進 users 表。
         // 沒有這一步，透過活動以外管道（掃 QR、搜尋 OA）加入的好友只會有 line_user_id、
         // 沒有暱稱/大頭貼，「全部會員」群發也會漏掉他們。用 line_user_id 當唯一鍵 upsert：
@@ -517,15 +518,17 @@ function createLineWebhookHandler({
           let prof = null;
           try { prof = await fetchOaProfile(lineUserId); }
           catch (e) { console.error('fetchOaProfile failed:', e.message); }
-          await pool.query(
+          const upsertRs = await pool.query(
             `INSERT INTO users (username, password_hash, line_user_id, line_display_name, line_picture_url, blocked_at, created_at)
              VALUES ($1, '', $2, $3, $4, NULL, now())
              ON CONFLICT (line_user_id) DO UPDATE SET
                line_display_name = COALESCE(EXCLUDED.line_display_name, users.line_display_name),
                line_picture_url  = COALESCE(EXCLUDED.line_picture_url, users.line_picture_url),
-               blocked_at = NULL`,
+               blocked_at = NULL
+             RETURNING (xmax = 0) AS inserted`,
             ['line_' + lineUserId, lineUserId, prof && prof.displayName, prof && prof.pictureUrl]
           );
+          isFirstFollow = !!(upsertRs.rows[0] && upsertRs.rows[0].inserted);
         } catch (e) { console.error('follow user upsert failed:', e.message); }
         let rewardResult;
         try {
@@ -574,7 +577,7 @@ function createLineWebhookHandler({
         // 揪友賺哩：新好友見面禮（引擎自己冪等——重加好友不會重發也不再吵他）。
         // 同樣必須 await；失敗只記 log，不影響 follow 主流程。
         if (mgmEngine && typeof mgmEngine.onFollow === 'function') {
-          try { await mgmEngine.onFollow(lineUserId, null); } // 顯示名後台會 JOIN users 補，不必在這撈
+          try { await mgmEngine.onFollow(lineUserId, null, isFirstFollow); } // 顯示名後台會 JOIN users 補
           catch (e) { console.error('mgm onFollow failed:', e.message); }
         }
 
