@@ -858,6 +858,9 @@
     }
     var wrap = document.createElement('div');
     wrap.className = 'lm-comp-ctrls';
+    // 控制列是 UI 不是內容：關掉可編輯，游標不會跑進去、也不會被選取/複製
+    wrap.contentEditable = 'false';
+    wrap.setAttribute('data-ui', '1');
 
     var stopMD = function (e) { e.preventDefault(); e.stopPropagation(); };
 
@@ -966,13 +969,29 @@
 
   // ----- WYSIWYG：preview 內 text 編輯時自動 sync 回 JSON textarea -----
   var previewEditTimer = null;
+  // 讀可編輯元素的純文字：跳過控制列（.lm-comp-ctrls 的 ↑ ↓ ×）等 UI 子節點。
+  // 直接用 textContent 會把控制鈕的符號一起吃進去，存進 JSON 後真的送到用戶手機
+  // （實例：按鈕文字變成「立即訂位領取 ↑↓×」）。
+  function readEditableText(el) {
+    var out = '';
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var node = el.childNodes[i];
+      if (node.nodeType === 3) { out += node.nodeValue; continue; }      // 文字節點
+      if (node.nodeType !== 1) continue;
+      if (node.classList && (node.classList.contains('lm-comp-ctrls') ||
+                             node.classList.contains('lm-ctrl-btn'))) continue; // UI，不是內容
+      out += readEditableText(node);
+    }
+    return out;
+  }
+
   function onPreviewTextEdit(e) {
     var el = e.currentTarget;
     if (previewEditTimer) clearTimeout(previewEditTimer);
     previewEditTimer = setTimeout(function () {
       try {
         var path = JSON.parse(el.dataset.editPath || '[]');
-        var newText = el.textContent;
+        var newText = readEditableText(el);
         var textarea = $('flex-json');
         var parsed = JSON.parse(textarea.value);
         if (parsed && parsed.contents) {
