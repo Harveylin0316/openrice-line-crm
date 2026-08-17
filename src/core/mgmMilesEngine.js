@@ -347,7 +347,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
         ' 里；滿 ' + campaign.wheelFriends + ' 位再送一次轉盤抽獎（已是好友的不算）。',
       buttonLabel: '立即分享',
       buttonUrl: joinUrl(campaign, lineUserId),
-      image: campaign.shareImage || campaign.cardImage
+      image: campaign.cardImage || campaign.shareImage
     })];
   }
 
