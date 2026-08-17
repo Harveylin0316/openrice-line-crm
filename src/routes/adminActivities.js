@@ -304,7 +304,8 @@ function registerAdminActivitiesRoutes(app, deps) {
       const sql = `
         SELECT
           pl.line_user_id,
-          pl.line_display_name,
+          -- GROUP BY 只留 line_user_id（改過名的用戶不拆列），顯示名取最新一筆
+          (ARRAY_AGG(pl.line_display_name ORDER BY pl.played_at DESC))[1] AS line_display_name,
           COUNT(*) AS plays,
           COUNT(*) FILTER (WHERE pl.prize_id IS NOT NULL) AS wins,
           COUNT(*) FILTER (WHERE pr.is_grand_prize = TRUE) AS grand_wins,
