@@ -278,15 +278,23 @@ async function computeUserQuota(query, activity, lineUserId) {
     [activity.id, lineUserId]
   );
   const referrals = Number(refRows[0].c);
+  // 4) 加碼次數（揪友賺哩等活動發的，冪等發放，與邀請加成分開計）
+  const { rows: bonusRows } = await query(
+    `SELECT COALESCE(SUM(plays), 0)::int AS b FROM activity_bonus_plays
+      WHERE activity_id = $1 AND line_user_id = $2`,
+    [activity.id, lineUserId]
+  );
+  const bonusPlays = Number(bonusRows[0].b || 0);
   const referralBonus = Math.min(refMax, Math.floor(referrals / invitesPer) * refPer);
   // 「再邀幾人就多 1 份」：已達上限就是 0（前端據此顯示進度或收起邀請卡）
   const nextBonusIn = referralBonus >= refMax || refPer <= 0
     ? 0
     : invitesPer - (referrals % invitesPer);
   // override 直接覆寫 total（取代 base + referral）；否則用標準計算
-  const total = override
+  // 加碼次數永遠外加：override 是「基礎+邀請」的覆寫，不該吃掉別的活動發的獎勵
+  const total = (override
     ? Number(override.max_plays_override)
-    : basePlays + referralBonus;
+    : basePlays + referralBonus) + bonusPlays;
   return {
     total,
     played,
@@ -298,6 +306,7 @@ async function computeUserQuota(query, activity, lineUserId) {
     referral_bonus_per: refPer,
     referral_invites_per_bonus: invitesPer,
     next_bonus_in: nextBonusIn,
+    bonus_plays: bonusPlays,
     override: override ? {
       max_plays: Number(override.max_plays_override),
       note: override.note || null
@@ -474,8 +483,9 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
       sameInviter = !!(ex[0] && ex[0].inviter_line_user_id === inviterId);
     } catch (e) { /* 查不到就回 null，前端當作靜默處理 */ }
   }
-  if (counted) {
-    // 邀請成功 → 即時通知邀請人。fire-and-forget：通知失敗絕不影響 API 回應
+  if (counted && gameType !== 'mgm') {
+    // 邀請成功 → 即時通知邀請人。fire-and-forget：通知失敗絕不影響 API 回應。
+    // MGM（揪友賺哩）有自己的里程碑卡片，不走這個遊戲式通知
     notifyInviterOfReferral({ query, activity: a, activitySlug, gameType, inviterId, inviteeId })
       .catch(err => console.error('referral inviter notify failed:', err && err.message));
   }

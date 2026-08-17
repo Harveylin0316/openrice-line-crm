@@ -21,7 +21,8 @@ function createLineWebhookHandler({
   liffLotteryPushUrl = '',
   linePush,
   flowEngine = null,
-  goldPigBookings = null
+  goldPigBookings = null,
+  mgmEngine = null
 }) {
   const friendsPerDraw = Math.max(1, Number.isFinite(Number(inviteFriendsPerDraw)) ? Number(inviteFriendsPerDraw) : 2);
   async function appendWebhookEventLog(payload) {
@@ -406,6 +407,27 @@ function createLineWebhookHandler({
           // 與手機登記同放在關鍵字比對之前短路（replyToken 一次性）。
           // 只在一對一聊天觸發：登記綁個人身分，群組裡傳手機號碼不該被當成登記。
           const isOneOnOne = event?.source?.type === 'user';
+          // 揪友賺哩：圖文選單按鍵（發送文字）→ 回分享卡片。沒有進行中的活動就不攔，讓關鍵字規則接手
+          if (isOneOnOne && String(event.message.text || '').trim() === '揪友賺哩' &&
+              mgmEngine && typeof mgmEngine.buildEntryCard === 'function') {
+            let mgmCard = null;
+            try { mgmCard = await mgmEngine.buildEntryCard(event.source.userId); }
+            catch (e) { console.error('mgm entry card failed:', e.message); }
+            if (mgmCard) {
+              let sent = false;
+              try {
+                sent = await linePush.replyLineMessages(event.replyToken, mgmCard, {
+                  lineUserId: event.source.userId, pushType: 'mgm_entry'
+                });
+              } catch (e) { console.error('mgm entry reply failed:', e.message); }
+              await appendWebhookEventLog({
+                eventType: 'message', lineUserId: event.source.userId,
+                result: sent ? 'mgm_entry_replied' : 'mgm_entry_reply_failed', detail: null,
+                eventTimestamp: event?.timestamp, rawEvent: event || {}
+              }).catch(() => {});
+              continue;
+            }
+          }
           if (isOneOnOne && await handleBookingRegKeyword(event.source.userId, event.message.text, event.replyToken)) {
             await appendWebhookEventLog({
               eventType: 'message', lineUserId: event.source.userId,
@@ -547,6 +569,13 @@ function createLineWebhookHandler({
         if (flowEngine && typeof flowEngine.triggerFollow === 'function') {
           try { await flowEngine.triggerFollow(lineUserId, null); }
           catch (e) { console.error('flow follow trigger failed:', e.message); }
+        }
+
+        // 揪友賺哩：新好友見面禮（引擎自己冪等——重加好友不會重發也不再吵他）。
+        // 同樣必須 await；失敗只記 log，不影響 follow 主流程。
+        if (mgmEngine && typeof mgmEngine.onFollow === 'function') {
+          try { await mgmEngine.onFollow(lineUserId, null); } // 顯示名後台會 JOIN users 補，不必在這撈
+          catch (e) { console.error('mgm onFollow failed:', e.message); }
         }
 
         if (rewardResult?.result === 'rewarded' && linePush && typeof linePush.pushLineMessages === 'function') {

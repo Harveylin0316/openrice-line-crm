@@ -52,7 +52,7 @@ function registerGamesRoutes(app, deps) {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     const gameLabel = (t) => ({
-      wheel: '輪盤抽獎', fortune: '每日抽籤', scratch: '刮刮樂', slot: '老虎機', claim: '領取優惠'
+      wheel: '輪盤抽獎', fortune: '每日抽籤', scratch: '刮刮樂', slot: '老虎機', claim: '領取優惠', mgm: '揪友賺哩'
     })[t] || t;
     const cardsHtml = activities.length === 0
       ? `<div class="empty">目前沒有進行中的活動，請稍後再回來看看。</div>`

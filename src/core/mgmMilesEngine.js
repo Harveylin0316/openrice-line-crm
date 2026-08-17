@@ -1,0 +1,323 @@
+/**
+ * 揪友賺哩（MGM）引擎 — 獨立模組，不與其他後台功能共用邏輯。
+ *
+ * 設計（Hen 拍板）：
+ *   - 里數「當成獎品」：達標就把對應獎品直接寫進 activity_plays（現有中獎帳本），
+ *     人工發放沿用得獎名單匯出，不另建里數帳本
+ *   - 階梯：加入送見面禮里數 → 每揪滿 per_friends 位送里數 → 揪滿 wheel_friends 位
+ *     送一次九月轉盤（寫進 activity_bonus_plays）
+ *   - 被推薦來的新友也送見面禮（他就是新好友，走同一條 follow 路徑）
+ *   - 所有參數放 activities.rules.mgm（後台可調，不寫死）
+ *
+ * 冪等：每一筆發放都帶唯一鍵（DB unique index 擋重複），webhook 重送/併發安全。
+ * 失敗策略：發放失敗只記 log 絕不 throw——不能讓 MGM 把 follow 流程炸掉。
+ */
+
+const CARD_COLOR = '#F15A22';
+
+function createMgmMilesEngine({ query, linePush, liffId }) {
+
+  /** 讀取進行中的 MGM 活動設定（一次一檔；沒有進行中的回 null） */
+  async function loadActiveCampaign() {
+    try {
+      const { rows } = await query(
+        `SELECT id, slug, name, status, start_at, end_at, rules
+           FROM activities
+          WHERE game_type = 'mgm' AND status = 'active'
+            AND (start_at IS NULL OR start_at <= now())
+            AND (end_at IS NULL OR end_at >= now())
+          ORDER BY id DESC LIMIT 1`
+      );
+      if (rows.length === 0) return null;
+      return normalizeCampaign(rows[0]);
+    } catch (e) {
+      console.error('mgm loadActiveCampaign failed:', e.message);
+      return null;
+    }
+  }
+
+  /** 依 slug 讀取（landing 頁用，draft 也讀得到以便上線前預覽） */
+  async function loadCampaignBySlug(slug) {
+    try {
+      const { rows } = await query(
+        `SELECT id, slug, name, status, start_at, end_at, rules
+           FROM activities WHERE game_type = 'mgm' AND slug = $1 LIMIT 1`,
+        [slug]
+      );
+      if (rows.length === 0) return null;
+      return normalizeCampaign(rows[0]);
+    } catch (e) {
+      console.error('mgm loadCampaignBySlug failed:', e.message);
+      return null;
+    }
+  }
+
+  function normalizeCampaign(row) {
+    const m = (row.rules && row.rules.mgm) || {};
+    return {
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      status: row.status,
+      start_at: row.start_at,
+      end_at: row.end_at,
+      welcomeMiles: numOr(m.welcome_miles, 100),          // 加入送幾里（0 = 不送）
+      perFriends: Math.max(1, numOr(m.per_friends, 2)),   // 每揪滿幾位
+      perMiles: numOr(m.per_miles, 100),                  // 送幾里
+      wheelFriends: Math.max(1, numOr(m.wheel_friends, 4)), // 揪滿幾位送轉盤
+      wheelSlug: String(m.wheel_slug || 'sep-mgm'),
+      milesCap: numOr(m.miles_cap, 0),                    // 整檔里數上限（0 = 不限）
+      repeatLadder: !!m.repeat_ladder,                    // 4 位之後每 per_friends 位要不要繼續送里
+      shareTitle: String(m.share_title || row.name || '揪友賺哩'),
+      shareText: String(m.share_text || '加入 OpenRice 官方帳號，一起拿「亞洲萬里通」里數'),
+      shareImage: String(m.share_image || ''),            // 分享卡片圖（外部可取的 https URL）
+      cardImage: String(m.card_image || '')               // 推播卡片圖
+    };
+  }
+
+  function numOr(v, d) {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : d;
+  }
+
+  /** 找到「N 里」對應的獎品列（獎品名含里數即可；找不到回 null，發放會略過並大聲記 log） */
+  async function findMilesPrize(campaign, miles) {
+    const { rows } = await query(
+      `SELECT id, name, description, prize_type, prize_value, image_url, is_grand_prize
+         FROM activity_prizes
+        WHERE activity_id = $1 AND (prize_value->>'miles')::int = $2
+        ORDER BY id LIMIT 1`,
+      [campaign.id, miles]
+    );
+    return rows[0] || null;
+  }
+
+  /** 整檔已發出的總里數（成本上限用） */
+  async function totalMilesGranted(campaign) {
+    const { rows } = await query(
+      `SELECT COALESCE(SUM((prize_snapshot->>'miles')::int), 0)::int AS total
+         FROM activity_plays
+        WHERE activity_id = $1 AND prize_snapshot->>'miles' IS NOT NULL`,
+      [campaign.id]
+    );
+    return Number(rows[0].total || 0);
+  }
+
+  /**
+   * 發里數：把獎品寫進 activity_plays（唯一鍵 mgm_key 擋重複）。
+   * 回 'granted' | 'duplicate' | 'cap_reached' | 'no_prize' | 'error'
+   */
+  async function grantMiles(campaign, lineUserId, miles, milestoneKey, displayName) {
+    try {
+      if (campaign.milesCap > 0) {
+        const total = await totalMilesGranted(campaign);
+        if (total + miles > campaign.milesCap) {
+          console.warn('mgm miles cap reached:', campaign.slug, total, '+', miles, '>', campaign.milesCap);
+          return 'cap_reached';
+        }
+      }
+      const prize = await findMilesPrize(campaign, miles);
+      if (!prize) {
+        console.error('mgm: 找不到 ' + miles + ' 里的獎品（activity_prizes 要有一筆 prize_value.miles=' + miles + '）');
+        return 'no_prize';
+      }
+      const mgmKey = 'mgm:' + campaign.slug + ':' + milestoneKey + ':' + lineUserId;
+      const snapshot = {
+        name: prize.name, description: prize.description, prize_type: prize.prize_type,
+        image_url: prize.image_url, is_grand_prize: prize.is_grand_prize,
+        miles: miles, milestone: milestoneKey
+      };
+      const ins = await query(
+        `INSERT INTO activity_plays (activity_id, line_user_id, line_display_name, prize_id, prize_snapshot, properties)
+         SELECT $1, $2, $3, $4, $5::jsonb, $6::jsonb
+         WHERE NOT EXISTS (SELECT 1 FROM activity_plays WHERE properties->>'mgm_key' = $7)
+         RETURNING id`,
+        [campaign.id, lineUserId, displayName || null, prize.id,
+         JSON.stringify(snapshot), JSON.stringify({ mgm_key: mgmKey, milestone: milestoneKey }), mgmKey]
+      );
+      return ins.rows.length > 0 ? 'granted' : 'duplicate';
+    } catch (e) {
+      // unique index 撞到也會走到這（併發下 WHERE NOT EXISTS 可能同過）→ 當 duplicate
+      if (String(e.message || '').includes('uq_plays_mgm_key')) return 'duplicate';
+      console.error('mgm grantMiles failed:', e.message);
+      return 'error';
+    }
+  }
+
+  /** 發一次轉盤機會（activity_bonus_plays，granted_key 冪等） */
+  async function grantWheelPlay(campaign, lineUserId, milestoneKey) {
+    try {
+      const { rows: act } = await query(
+        `SELECT id FROM activities WHERE slug = $1 LIMIT 1`, [campaign.wheelSlug]
+      );
+      if (act.length === 0) {
+        console.error('mgm: 找不到轉盤活動 ' + campaign.wheelSlug);
+        return 'no_wheel';
+      }
+      const key = 'mgm:' + campaign.slug + ':' + milestoneKey + ':' + lineUserId;
+      const ins = await query(
+        `INSERT INTO activity_bonus_plays (activity_id, line_user_id, plays, reason, granted_key)
+         VALUES ($1, $2, 1, $3, $4)
+         ON CONFLICT (granted_key) WHERE granted_key IS NOT NULL DO NOTHING
+         RETURNING id`,
+        [act[0].id, lineUserId, 'mgm:' + campaign.slug + ':' + milestoneSafe(milestoneKey), key]
+      );
+      return ins.rows.length > 0 ? 'granted' : 'duplicate';
+    } catch (e) {
+      console.error('mgm grantWheelPlay failed:', e.message);
+      return 'error';
+    }
+  }
+  function milestoneSafe(k) { return String(k).slice(0, 40); }
+
+  /** 這個人已成功揪到幾位（沿用 activity_referrals，跟遊戲共用同一套追蹤） */
+  async function referralCount(campaign, inviterId) {
+    const { rows } = await query(
+      `SELECT COUNT(*)::int AS c FROM activity_referrals
+        WHERE activity_id = $1 AND inviter_line_user_id = $2`,
+      [campaign.id, inviterId]
+    );
+    return Number(rows[0].c || 0);
+  }
+
+  // ── 推播卡片 ──────────────────────────────────────────────────
+  function joinUrl(campaign, refUid) {
+    const base = 'https://liff.line.me/' + (liffId || '') + '/mgm/' + encodeURIComponent(campaign.slug);
+    return refUid ? base + '?ref=' + encodeURIComponent(refUid) : base;
+  }
+
+  /** 簡單的圖+文+按鈕 flex 卡（有圖用圖，沒圖純文卡） */
+  function buildCard(campaign, { title, body, buttonLabel, buttonUrl }) {
+    const bubble = {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'md', paddingAll: '20px',
+        contents: [
+          { type: 'text', text: title, weight: 'bold', size: 'lg', wrap: true, color: '#3E2723' },
+          { type: 'text', text: body, size: 'sm', wrap: true, color: '#8D6E63' }
+        ]
+      },
+      footer: {
+        type: 'box', layout: 'vertical', paddingAll: '16px',
+        contents: [{
+          type: 'button', style: 'primary', color: CARD_COLOR, height: 'sm',
+          action: { type: 'uri', label: buttonLabel, uri: buttonUrl }
+        }]
+      }
+    };
+    if (campaign.cardImage && /^https:\/\//.test(campaign.cardImage)) {
+      bubble.hero = { type: 'image', url: campaign.cardImage, size: 'full', aspectRatio: '20:13', aspectMode: 'cover' };
+    }
+    return { type: 'flex', altText: title, contents: bubble };
+  }
+
+  async function pushCard(lineUserId, card, pushType) {
+    try {
+      if (!linePush || typeof linePush.pushLineMessages !== 'function') return false;
+      return await linePush.pushLineMessages(lineUserId, [card], { pushType: pushType });
+    } catch (e) {
+      console.error('mgm push failed:', e.message);
+      return false;
+    }
+  }
+
+  // ── 對外三個掛點 ─────────────────────────────────────────────
+
+  /**
+   * 新好友加入（webhook follow 呼叫，必須 await）。
+   * 見面禮 + 歡迎卡。冪等：重加好友不會再發（mgm_key 擋）。
+   */
+  async function onFollow(lineUserId, displayName) {
+    const campaign = await loadActiveCampaign();
+    if (!campaign) return null;
+    let granted = null;
+    if (campaign.welcomeMiles > 0) {
+      granted = await grantMiles(campaign, lineUserId, campaign.welcomeMiles, 'welcome', displayName);
+    }
+    // 只有真的第一次發成功才推卡（重加好友不再吵他）
+    if (granted === 'granted') {
+      const card = buildCard(campaign, {
+        title: '見面禮 ' + campaign.welcomeMiles + ' 里已幫你記下',
+        body: '之後找朋友加入官方帳號，每 ' + campaign.perFriends + ' 位再多 ' + campaign.perMiles +
+          ' 里，滿 ' + campaign.wheelFriends + ' 位還能抽獎。里數統一在活動結束後發放。',
+        buttonLabel: '立即分享',
+        buttonUrl: joinUrl(campaign, lineUserId)
+      });
+      await pushCard(lineUserId, card, 'mgm_welcome');
+    }
+    return { campaign: campaign.slug, welcome: granted };
+  }
+
+  /**
+   * 邀請成功入帳後呼叫（referral 路由 counted 之後，必須 await）。
+   * 檢查里程碑：每 perFriends 位 → 里數；wheelFriends 位 → 轉盤一次。
+   */
+  async function onReferralCounted(campaign, inviterId) {
+    const count = await referralCount(campaign, inviterId);
+    const results = [];
+
+    // 里數里程碑：2, 4, 6...（repeatLadder=false 時只到 wheelFriends 為止）
+    if (campaign.perMiles > 0 && count > 0 && count % campaign.perFriends === 0) {
+      const withinLadder = campaign.repeatLadder || count <= campaign.wheelFriends;
+      if (withinLadder) {
+        const r = await grantMiles(campaign, inviterId, campaign.perMiles, 'm' + count, null);
+        results.push({ milestone: 'm' + count, kind: 'miles', result: r });
+        if (r === 'granted') {
+          const card = buildCard(campaign, {
+            title: '恭喜獲 ' + campaign.perMiles + ' 里！',
+            body: '你已成功揪到 ' + count + ' 位朋友。繼續分享，滿 ' + campaign.wheelFriends + ' 位還能抽獎。',
+            buttonLabel: '立即分享',
+            buttonUrl: joinUrl(campaign, inviterId)
+          });
+          await pushCard(inviterId, card, 'mgm_milestone');
+        }
+      }
+    }
+
+    // 轉盤里程碑
+    if (count === campaign.wheelFriends) {
+      const r = await grantWheelPlay(campaign, inviterId, 'wheel' + count);
+      results.push({ milestone: 'wheel' + count, kind: 'wheel_play', result: r });
+      if (r === 'granted') {
+        const wheelUrl = 'https://liff.line.me/' + (liffId || '') + '/wheel/' + encodeURIComponent(campaign.wheelSlug);
+        const card = buildCard(campaign, {
+          title: '恭喜獲抽獎機會！',
+          body: '你已成功揪到 ' + count + ' 位朋友，多了一次轉盤抽獎機會，快去試手氣。',
+          buttonLabel: '去抽獎',
+          buttonUrl: wheelUrl
+        });
+        await pushCard(inviterId, card, 'mgm_wheel_grant');
+      }
+    }
+    return results;
+  }
+
+  /** 舊友入口：回覆分享卡（webhook 關鍵字「揪友賺哩」用；回 reply 用的 messages 陣列） */
+  async function buildEntryCard(lineUserId) {
+    const campaign = await loadActiveCampaign();
+    if (!campaign) return null;
+    return [buildCard(campaign, {
+      title: campaign.shareTitle,
+      body: '每揪 ' + campaign.perFriends + ' 位朋友加入官方帳號，送 ' + campaign.perMiles +
+        ' 里；滿 ' + campaign.wheelFriends + ' 位再送一次轉盤抽獎。',
+      buttonLabel: '立即分享',
+      buttonUrl: joinUrl(campaign, lineUserId)
+    })];
+  }
+
+  return {
+    loadActiveCampaign,
+    loadCampaignBySlug,
+    grantMiles,
+    grantWheelPlay,
+    referralCount,
+    onFollow,
+    onReferralCounted,
+    buildEntryCard,
+    buildCard,
+    joinUrl,
+    totalMilesGranted
+  };
+}
+
+module.exports = { createMgmMilesEngine };

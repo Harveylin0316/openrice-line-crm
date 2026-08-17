@@ -34,6 +34,8 @@ const { registerAdminAttributionRoutes } = require('./routes/adminAttribution');
 const { registerAdminActivitiesRoutes } = require('./routes/adminActivities');
 const { registerAdminCouponsRoutes } = require('./routes/adminCoupons');
 const { registerGamesRoutes } = require('./routes/games');
+const { registerMgmMilesRoutes } = require('./routes/mgmMiles');
+const { createMgmMilesEngine } = require('./core/mgmMilesEngine');
 const { registerAdminRecipientListsRoutes } = require('./routes/adminRecipientLists');
 const { registerAdminAccountsRoutes } = require('./routes/adminAccounts');
 const { buildLiffPermanentUrl } = require('./core/liffPermalink');
@@ -290,6 +292,13 @@ const linePush = createLinePushService({
   query,
   lineChannelAccessToken: LINE_CHANNEL_ACCESS_TOKEN
 });
+
+// 揪友賺哩引擎（MGM）：獨立模組，webhook 見面禮 / 里程碑 / 分享卡都走它
+const mgmEngine = createMgmMilesEngine({
+  query,
+  linePush,
+  liffId: process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || ''
+});
 const goldPigBookings = createGoldPigBookingService({ pool });
 
 // Email provider 選擇：EMAIL_PROVIDER=surenotify|brevo；未設時有 SURENOTIFY_API_KEY 就用電子豹，否則 Brevo。
@@ -422,6 +431,7 @@ app.post(
   express.raw({ type: 'application/json' }),
   createLineWebhookHandler({
     pool,
+    mgmEngine,
     channelSecret: LINE_CHANNEL_SECRET,
     inviteBonusMax: Number.isFinite(LIFF_INVITE_BONUS_MAX) ? LIFF_INVITE_BONUS_MAX : 20,
     inviteFriendsPerDraw: LIFF_INVITE_FRIENDS_PER_DRAW,
@@ -608,6 +618,11 @@ registerAdminActivitiesRoutes(app, { query, pool, authCore });
 registerAdminCouponsRoutes(app, { query, pool, authCore });
 
 registerGamesRoutes(app, { query, pool });
+registerMgmMilesRoutes(app, {
+  query, authCore,
+  mgmEngine,
+  defaultLiffId: process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || ''
+});
 
 registerGoldPigRoutes(app, {
   pool,

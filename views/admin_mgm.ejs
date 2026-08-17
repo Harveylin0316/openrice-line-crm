@@ -1,0 +1,247 @@
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="card">
+      <h1>揪友賺哩</h1>
+      <p class="muted" style="margin-top:6px;line-height:1.7;">好友推薦活動：加入送里數、每揪滿幾位再送里數、揪滿門檻送轉盤抽獎。<br>
+      里數是人工發放：活動期間這裡會累積名單，你匯出去填表發放，發完回來標記「已發放」。</p>
+    </section>
+
+    <section class="card" id="mg-config-card">
+      <h2 style="margin:0 0 4px;">活動設定</h2>
+      <div id="mg-config"><p class="muted">載入中…</p></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">成效</h2>
+      <div id="mg-stats" class="mg-stats"><p class="muted">載入中…</p></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">里數發放名單</h2>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">每一筆是一次里數入帳（見面禮或揪友達標）。人工發放完成後勾選並按「標記已發放」，名單就不會重複匯出。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <button type="button" id="mg-select-pending" class="mg-btn2">全選未發放</button>
+        <button type="button" id="mg-mark" class="mg-btn1">標記已發放</button>
+        <button type="button" id="mg-csv" class="mg-btn2">下載未發放 CSV</button>
+        <span id="mg-ledger-note" class="muted" style="font-size:13px;align-self:center;"></span>
+      </div>
+      <div id="mg-ledger"><p class="muted">載入中…</p></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">上線前的三件事</h2>
+      <ol class="muted" style="font-size:13.5px;line-height:1.9;margin:8px 0 0;padding-left:20px;">
+        <li>圖文選單加一顆「揪友賺哩」按鍵，動作設「開啟連結」，貼上面設定區的活動連結（或設「發送文字：揪友賺哩」，官方帳號會自動回分享卡片）。</li>
+        <li>如果轉盤活動自己也開著邀請加次數，同一個朋友會兩邊都算獎——上線前把轉盤活動的「湊滿之後加幾次」設成 0，只留這裡的「揪滿送抽獎」。</li>
+        <li>狀態改成「進行中」之後，新好友加入就會自動收到見面禮卡片。先用自己的帳號測一輪再開。</li>
+      </ol>
+    </section>
+
+    <style>
+      .mg-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;}
+      .mg-stat{border:1px solid #ECECEE;border-radius:10px;padding:14px;background:#FAFAFA;}
+      .mg-stat .v{font-size:24px;font-weight:700;color:#1f2937;font-variant-numeric:tabular-nums;}
+      .mg-stat .k{font-size:12px;color:#6B6B70;margin-top:4px;}
+      .mg-btn1{padding:9px 16px;background:#1f2937;color:#fff;border:0;border-radius:8px;font-size:13.5px;font-weight:700;cursor:pointer;}
+      .mg-btn1:disabled{opacity:.5;cursor:default;}
+      .mg-btn2{padding:9px 16px;background:#fff;color:#374151;border:1px solid #ECECEE;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer;}
+      .mg-btn2:hover{border-color:#1f2937;}
+      .mg-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+      .mg-table th,.mg-table td{padding:9px 12px;border-bottom:1px solid #F3F4F6;text-align:left;}
+      .mg-table th{background:#FAFAFA;font-size:11px;color:#6B6B70;font-weight:600;letter-spacing:.04em;}
+      .mg-done{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:700;background:#ECFDF5;color:#047857;}
+      .mg-wait{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:700;background:#FFFBEB;color:#92400E;}
+      .mg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;}
+      .mg-field{display:flex;flex-direction:column;gap:4px;font-size:13px;}
+      .mg-field span{font-weight:600;}
+      .mg-field small{color:#6B6B70;font-size:11.5px;line-height:1.5;}
+      .mg-field input,.mg-field select{padding:8px 10px;border:1px solid #ECECEE;border-radius:8px;font-size:14px;font-family:inherit;}
+      .mg-full{grid-column:1/-1;}
+      .mg-linkbox{display:flex;gap:6px;align-items:center;background:#FAFAFA;border:1px solid #ECECEE;border-radius:8px;padding:8px 12px;margin-top:6px;}
+      .mg-linkbox code{flex:1;font-size:12px;word-break:break-all;}
+      .mg-callout{background:#FFFBEB;border:1px solid #FCC726;border-radius:10px;padding:12px 14px;font-size:13px;color:#92400e;line-height:1.7;margin-top:10px;}
+    </style>
+
+    <script>
+    (function(){
+      var $=function(id){return document.getElementById(id);};
+      function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+      function tw(ts){try{return new Date(ts).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});}catch(e){return String(ts||'');}}
+      function twFull(ts){try{return new Date(ts).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false});}catch(e){return String(ts||'');}}
+      function dtLocal(ts){ if(!ts)return ''; try{ var d=new Date(ts);
+        var p=function(n){return (n<10?'0':'')+n;};
+        var t=new Date(d.toLocaleString('en-US',{timeZone:'Asia/Taipei'}));
+        return t.getFullYear()+'-'+p(t.getMonth()+1)+'-'+p(t.getDate())+'T'+p(t.getHours())+':'+p(t.getMinutes());
+      }catch(e){return '';} }
+      function stat(v,k){return '<div class="mg-stat"><div class="v">'+(Number(v||0)).toLocaleString()+'</div><div class="k">'+k+'</div></div>';}
+      function csvCell(s){var v=String(s==null?'':s);if(/^[=+\\-@\\t\\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';}
+
+      var DATA=null, CAMP=null;
+
+      function renderConfig(c, liffId){
+        var link='https://liff.line.me/'+liffId+'/mgm/'+c.slug;
+        var m=c.config||{};
+        var h='<div class="mg-grid">'+
+          '<label class="mg-field mg-full"><span>活動名稱</span><input type="text" id="mgc-name" value="'+esc(c.name)+'" maxlength="100"></label>'+
+          '<label class="mg-field"><span>狀態</span><select id="mgc-status">'+
+            ['draft','active','paused','ended'].map(function(s){
+              var lb={draft:'草稿（用戶看不到）',active:'進行中',paused:'暫停',ended:'已結束'}[s];
+              return '<option value="'+s+'"'+(c.status===s?' selected':'')+'>'+lb+'</option>';
+            }).join('')+'</select></label>'+
+          '<label class="mg-field"><span>開始時間</span><input type="datetime-local" id="mgc-start" value="'+dtLocal(c.start_at)+'"><small>留空 = 不限</small></label>'+
+          '<label class="mg-field"><span>結束時間</span><input type="datetime-local" id="mgc-end" value="'+dtLocal(c.end_at)+'"><small>留空 = 不限</small></label>'+
+          '<label class="mg-field"><span>加入就送幾里（見面禮）</span><input type="number" id="mgc-welcome" min="0" value="'+(m.welcome_miles!=null?m.welcome_miles:100)+'"><small>0 = 不送見面禮</small></label>'+
+          '<label class="mg-field"><span>每揪滿幾位朋友</span><input type="number" id="mgc-perf" min="1" value="'+(m.per_friends||2)+'"></label>'+
+          '<label class="mg-field"><span>湊滿之後送幾里</span><input type="number" id="mgc-perm" min="0" value="'+(m.per_miles!=null?m.per_miles:100)+'"></label>'+
+          '<label class="mg-field"><span>揪滿幾位送轉盤抽獎</span><input type="number" id="mgc-wheelf" min="1" value="'+(m.wheel_friends||4)+'"></label>'+
+          '<label class="mg-field"><span>送哪個轉盤活動</span><input type="text" id="mgc-wheels" value="'+esc(m.wheel_slug||'sep-mgm')+'"><small>填活動的網址代號</small></label>'+
+          '<label class="mg-field"><span>整檔里數上限</span><input type="number" id="mgc-cap" min="0" value="'+(m.miles_cap||0)+'"><small>發到這個數字就停，0 = 不限（成本天花板）</small></label>'+
+          '<label class="mg-field"><span>抽獎門檻之後還要繼續送里嗎</span><select id="mgc-repeat">'+
+            '<option value=""'+(!m.repeat_ladder?' selected':'')+'>不用，到抽獎門檻為止</option>'+
+            '<option value="1"'+(m.repeat_ladder?' selected':'')+'>要，之後每湊滿一樣送</option>'+
+          '</select></label>'+
+          '<label class="mg-field mg-full"><span>分享卡片標題</span><input type="text" id="mgc-stitle" value="'+esc(m.share_title||'')+'" maxlength="100"></label>'+
+          '<label class="mg-field mg-full"><span>分享卡片文字</span><input type="text" id="mgc-stext" value="'+esc(m.share_text||'')+'" maxlength="300"></label>'+
+          '<label class="mg-field mg-full"><span>分享卡片圖（網址，可留空）</span><input type="text" id="mgc-simg" value="'+esc(m.share_image||'')+'" placeholder="https://..."><small>朋友在聊天室看到的那張卡的圖</small></label>'+
+          '<label class="mg-field mg-full"><span>推播卡片圖（網址，可留空）</span><input type="text" id="mgc-cimg" value="'+esc(m.card_image||'')+'" placeholder="https://..."><small>見面禮與達標通知卡的圖</small></label>'+
+        '</div>'+
+        '<div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'+
+          '<button type="button" id="mgc-save" class="mg-btn1">儲存設定</button>'+
+          '<span id="mgc-note" class="muted" style="font-size:13px;"></span>'+
+        '</div>'+
+        '<div class="mg-linkbox"><span class="muted" style="font-size:12px;white-space:nowrap;">活動連結</span><code>'+esc(link)+'</code>'+
+          '<button type="button" class="mg-btn2" id="mgc-copy">複製</button></div>';
+        if(c.status!=='active'){
+          h+='<div class="mg-callout">目前狀態是「'+({draft:'草稿',paused:'暫停',ended:'已結束'})[c.status]+'」——新好友不會收到見面禮、達標也不會發卡。要開跑把狀態改成「進行中」再儲存。</div>';
+        }
+        $('mg-config').innerHTML=h;
+        $('mgc-copy').addEventListener('click',function(){
+          navigator.clipboard.writeText(link).then(function(){ $('mgc-copy').textContent='已複製'; setTimeout(function(){$('mgc-copy').textContent='複製';},1500); });
+        });
+        $('mgc-save').addEventListener('click',function(){
+          var btn=this; btn.disabled=true; $('mgc-note').textContent='儲存中…';
+          fetch('/admin/mgm/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+              id:c.id, name:$('mgc-name').value, status:$('mgc-status').value,
+              start_at:$('mgc-start').value?new Date($('mgc-start').value+':00+08:00').toISOString():null,
+              end_at:$('mgc-end').value?new Date($('mgc-end').value+':00+08:00').toISOString():null,
+              welcome_miles:$('mgc-welcome').value, per_friends:$('mgc-perf').value,
+              per_miles:$('mgc-perm').value, wheel_friends:$('mgc-wheelf').value,
+              wheel_slug:$('mgc-wheels').value, miles_cap:$('mgc-cap').value,
+              repeat_ladder:$('mgc-repeat').value==='1',
+              share_title:$('mgc-stitle').value, share_text:$('mgc-stext').value,
+              share_image:$('mgc-simg').value, card_image:$('mgc-cimg').value
+            })})
+            .then(function(r){return r.json();})
+            .then(function(d){ btn.disabled=false;
+              if(!d.ok){$('mgc-note').textContent='失敗：'+(d.detail||d.error);return;}
+              $('mgc-note').textContent='已儲存';
+              load();
+            })
+            .catch(function(){btn.disabled=false;$('mgc-note').textContent='連線失敗，再試一次';});
+        });
+      }
+
+      function renderCreate(){
+        $('mg-config').innerHTML=
+          '<p class="muted" style="font-size:13.5px;">還沒有揪友賺哩活動。建一檔就會帶好預設階梯（加入 100 里、每 2 位 100 里、滿 4 位送轉盤），建好都可以改。</p>'+
+          '<div class="mg-grid" style="margin-top:8px;">'+
+          '<label class="mg-field"><span>活動名稱</span><input type="text" id="mgn-name" value="揪友賺哩" maxlength="100"></label>'+
+          '<label class="mg-field"><span>網址代號（小寫英數與減號）</span><input type="text" id="mgn-slug" placeholder="mgm-miles" maxlength="40"></label>'+
+          '</div>'+
+          '<div style="margin-top:12px;"><button type="button" id="mgn-create" class="mg-btn1">建立活動（草稿）</button> <span id="mgn-note" class="muted" style="font-size:13px;"></span></div>';
+        $('mgn-create').addEventListener('click',function(){
+          var btn=this; btn.disabled=true; $('mgn-note').textContent='建立中…';
+          fetch('/admin/mgm/api/create',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({name:$('mgn-name').value, slug:$('mgn-slug').value})})
+            .then(function(r){return r.json();})
+            .then(function(d){ btn.disabled=false;
+              if(!d.ok){$('mgn-note').textContent='失敗：'+(d.detail||d.error);return;}
+              load();
+            })
+            .catch(function(){btn.disabled=false;$('mgn-note').textContent='連線失敗，再試一次';});
+        });
+      }
+
+      function renderStats(c){
+        var s=c.stats||{};
+        $('mg-stats').innerHTML=
+          stat(s.referrals,'成功揪到的人次')+
+          stat(s.inviters,'有揪到人的會員數')+
+          stat(s.people,'拿到里數的人數')+
+          stat(s.miles_total,'累積里數（要發的總量）')+
+          stat(s.grants-s.granted_done,'待發放筆數')+
+          stat(s.wheel_plays,'已送出的抽獎機會');
+      }
+
+      function renderLedger(rows){
+        var box=$('mg-ledger');
+        if(!rows||!rows.length){box.innerHTML='<p class="muted" style="font-size:13px;">還沒有任何里數入帳。</p>';return;}
+        var mile={welcome:'見面禮'};
+        box.innerHTML='<table class="mg-table"><thead><tr><th></th><th>會員</th><th>里數</th><th>原因</th><th>入帳時間</th><th>發放</th></tr></thead><tbody>'+
+          rows.map(function(r){
+            var why=r.milestone==='welcome'?'見面禮':(r.milestone&&r.milestone.charAt(0)==='m'?('揪滿 '+r.milestone.slice(1)+' 位'):esc(r.milestone||'—'));
+            return '<tr>'+
+              '<td><input type="checkbox" class="mg-ck" data-id="'+r.id+'"'+(r.granted_done?' disabled':'')+'></td>'+
+              '<td>'+esc(r.display_name)+'<br><span class="muted" style="font-size:11px;">'+esc(r.line_user_id?(r.line_user_id.slice(0,7)+'…'+r.line_user_id.slice(-4)):'—')+'</span></td>'+
+              '<td style="font-weight:700;">'+r.miles+'</td>'+
+              '<td>'+why+'</td>'+
+              '<td>'+tw(r.played_at)+'</td>'+
+              '<td>'+(r.granted_done?'<span class="mg-done">已發放</span>':'<span class="mg-wait">待發放</span>')+'</td>'+
+            '</tr>';
+          }).join('')+'</tbody></table>';
+      }
+
+      function load(){
+        fetch('/admin/mgm/api/data').then(function(r){return r.json();}).then(function(d){
+          if(!d.ok){$('mg-config').innerHTML='<p class="muted">載入失敗：'+esc(d.error||'')+'</p>';return;}
+          DATA=d;
+          if(!d.campaigns.length){ renderCreate(); $('mg-stats').innerHTML='<p class="muted" style="font-size:13px;">建立活動後這裡會顯示成效。</p>'; renderLedger([]); return; }
+          CAMP=d.campaigns[0];
+          renderConfig(CAMP, d.liffId);
+          renderStats(CAMP);
+          renderLedger(d.ledger);
+        }).catch(function(){$('mg-config').innerHTML='<p class="muted">載入失敗，請重新整理</p>';});
+      }
+      load();
+
+      $('mg-select-pending').addEventListener('click',function(){
+        document.querySelectorAll('.mg-ck:not(:disabled)').forEach(function(ck){ck.checked=true;});
+      });
+      $('mg-mark').addEventListener('click',function(){
+        var ids=[].slice.call(document.querySelectorAll('.mg-ck:checked')).map(function(ck){return Number(ck.getAttribute('data-id'));});
+        if(!ids.length){$('mg-ledger-note').textContent='先勾選要標記的名單';return;}
+        if(!confirm('確定把勾選的 '+ids.length+' 筆標記成「已發放」嗎？代表里數已經人工入帳完成。'))return;
+        var btn=this; btn.disabled=true;
+        fetch('/admin/mgm/api/mark-granted',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:ids})})
+          .then(function(r){return r.json();})
+          .then(function(d){btn.disabled=false;
+            if(!d.ok){$('mg-ledger-note').textContent='失敗：'+(d.detail||d.error);return;}
+            $('mg-ledger-note').textContent='已標記 '+d.marked+' 筆';
+            load();
+          })
+          .catch(function(){btn.disabled=false;$('mg-ledger-note').textContent='連線失敗，再試一次';});
+      });
+      $('mg-csv').addEventListener('click',function(){
+        if(!DATA||!DATA.ledger)return;
+        var rows=DATA.ledger.filter(function(r){return !r.granted_done;});
+        if(!rows.length){$('mg-ledger-note').textContent='沒有待發放的名單';return;}
+        var NL=String.fromCharCode(10);
+        var txt='\\ufeff'+[['會員','LINE ID','里數','原因','入帳時間(台北)']].concat(
+          rows.map(function(r){return [r.display_name,r.line_user_id,r.miles,
+            r.milestone==='welcome'?'見面禮':('揪滿 '+String(r.milestone||'').slice(1)+' 位'),twFull(r.played_at)];}))
+          .map(function(r){return r.map(csvCell).join(',');}).join(NL);
+        var a=document.createElement('a');
+        a.href=URL.createObjectURL(new Blob([txt],{type:'text/csv'}));
+        a.download='mgm-miles-pending.csv';a.click();
+        setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+      });
+    })();
+    </script>
+    `
+  })
+%>
