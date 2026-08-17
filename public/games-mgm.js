@@ -294,7 +294,8 @@
     if (resp && resp.ok) {
       markDone(slug);
       clearRef(slug);
-      return { state: 'done', counted: !!resp.counted, sameInviter: resp.same_inviter };
+      return { state: 'done', counted: !!resp.counted, sameInviter: resp.same_inviter,
+               wasExisting: resp.invitee_was_existing === true };
     }
 
     var code = (resp && resp.error) || 'http_error';

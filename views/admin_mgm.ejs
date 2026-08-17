@@ -170,7 +170,8 @@
       function renderStats(c){
         var s=c.stats||{};
         $('mg-stats').innerHTML=
-          stat(s.referrals,'成功揪到的人次')+
+          stat(s.referrals,'揪到的新朋友（計獎）')+
+          stat(s.referrals_existing,'既有好友點開（不計獎）')+
           stat(s.inviters,'有揪到人的會員數')+
           stat(s.people,'拿到里數的人數')+
           stat(s.miles_total,'累積里數（要發的總量）')+

@@ -170,11 +170,14 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
   }
   function milestoneSafe(k) { return String(k).slice(0, 40); }
 
-  /** 這個人已成功揪到幾位（沿用 activity_referrals，跟遊戲共用同一套追蹤） */
+  /** 這個人已成功揪到幾位「新朋友」。
+   *  只算 invitee_was_existing = false：既有好友互點連結不計獎（里數是真成本，
+   *  否則 660 位老友互洗就能白拿），退追再加回來也不算新（users 列不會被刪）。 */
   async function referralCount(campaign, inviterId) {
     const { rows } = await query(
       `SELECT COUNT(*)::int AS c FROM activity_referrals
-        WHERE activity_id = $1 AND inviter_line_user_id = $2`,
+        WHERE activity_id = $1 AND inviter_line_user_id = $2
+          AND invitee_was_existing IS FALSE`,
       [campaign.id, inviterId]
     );
     return Number(rows[0].c || 0);
@@ -238,7 +241,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
     if (granted === 'granted') {
       const card = buildCard(campaign, {
         title: '見面禮 ' + campaign.welcomeMiles + ' 里已幫你記下',
-        body: '之後找朋友加入官方帳號，每 ' + campaign.perFriends + ' 位再多 ' + campaign.perMiles +
+        body: '之後揪還沒加入官方帳號的朋友，每 ' + campaign.perFriends + ' 位新朋友再多 ' + campaign.perMiles +
           ' 里，滿 ' + campaign.wheelFriends + ' 位還能抽獎。里數統一在活動結束後發放。',
         buttonLabel: '立即分享',
         buttonUrl: joinUrl(campaign, lineUserId)
@@ -256,16 +259,17 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
     const count = await referralCount(campaign, inviterId);
     const results = [];
 
-    // 里數里程碑：2, 4, 6...（repeatLadder=false 時只到 wheelFriends 為止）
+    // 里數里程碑：照行銷流程圖，抽獎門檻那一級「只送抽獎」不疊里數
+    // → 里數只在低於門檻的倍數發（per=2、wheel=4 時：2位→100里、4位→抽獎）
     if (campaign.perMiles > 0 && count > 0 && count % campaign.perFriends === 0) {
-      const withinLadder = campaign.repeatLadder || count <= campaign.wheelFriends;
+      const withinLadder = campaign.repeatLadder || count < campaign.wheelFriends;
       if (withinLadder) {
         const r = await grantMiles(campaign, inviterId, campaign.perMiles, 'm' + count, null);
         results.push({ milestone: 'm' + count, kind: 'miles', result: r });
         if (r === 'granted') {
           const card = buildCard(campaign, {
             title: '恭喜獲 ' + campaign.perMiles + ' 里！',
-            body: '你已成功揪到 ' + count + ' 位朋友。繼續分享，滿 ' + campaign.wheelFriends + ' 位還能抽獎。',
+            body: '你已成功揪到 ' + count + ' 位新朋友。繼續分享，滿 ' + campaign.wheelFriends + ' 位還能抽獎。',
             buttonLabel: '立即分享',
             buttonUrl: joinUrl(campaign, inviterId)
           });
@@ -291,12 +295,12 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
         } catch (e) { /* 查不到就當還沒開，文案保守 */ }
         const card = buildCard(campaign, wheelActive ? {
           title: '恭喜獲抽獎機會！',
-          body: '你已成功揪到 ' + count + ' 位朋友，多了一次轉盤抽獎機會，快去試手氣。',
+          body: '你已成功揪到 ' + count + ' 位新朋友，多了一次轉盤抽獎機會，快去試手氣。',
           buttonLabel: '去抽獎',
           buttonUrl: wheelUrl
         } : {
           title: '恭喜獲抽獎機會！',
-          body: '你已成功揪到 ' + count + ' 位朋友。抽獎機會已幫你存好，轉盤活動開跑那天就能用，會再通知你。',
+          body: '你已成功揪到 ' + count + ' 位新朋友。抽獎機會已幫你存好，轉盤活動開跑那天就能用，會再通知你。',
           buttonLabel: '先看活動',
           buttonUrl: wheelUrl
         });
@@ -312,8 +316,8 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
     if (!campaign) return null;
     return [buildCard(campaign, {
       title: campaign.shareTitle,
-      body: '每揪 ' + campaign.perFriends + ' 位朋友加入官方帳號，送 ' + campaign.perMiles +
-        ' 里；滿 ' + campaign.wheelFriends + ' 位再送一次轉盤抽獎。',
+      body: '每揪 ' + campaign.perFriends + ' 位新朋友加入官方帳號，送 ' + campaign.perMiles +
+        ' 里；滿 ' + campaign.wheelFriends + ' 位再送一次轉盤抽獎（已是好友的不算）。',
       buttonLabel: '立即分享',
       buttonUrl: joinUrl(campaign, lineUserId)
     })];

@@ -129,8 +129,9 @@ function registerMgmMilesRoutes(app, deps) {
         return res.status(result.error.status).json({ ok: false, error: result.error.code, detail: result.error.detail });
       }
       logAttempt(slug, inviterId, inviteeId, result.counted ? 'counted' : 'duplicate');
-      // 里程碑判定必須在回應前做完（serverless 回應後凍結）
-      if (result.counted) {
+      // 里程碑判定必須在回應前做完（serverless 回應後凍結）。
+      // 既有好友點開不計獎（計數只算新朋友），跳過省兩次查詢
+      if (result.counted && result.invitee_was_existing !== true) {
         try {
           const campaign = await mgmEngine.loadCampaignBySlug(slug);
           if (campaign) await mgmEngine.onReferralCounted(campaign, inviterId);
@@ -174,7 +175,9 @@ function registerMgmMilesRoutes(app, deps) {
           [c.id]
         )).rows[0];
         const refs = (await query(
-          `SELECT COUNT(*)::int AS c, COUNT(DISTINCT inviter_line_user_id)::int AS inviters
+          `SELECT COUNT(*) FILTER (WHERE invitee_was_existing IS FALSE)::int AS c,
+                  COUNT(*) FILTER (WHERE invitee_was_existing IS NOT FALSE)::int AS existing,
+                  COUNT(DISTINCT inviter_line_user_id)::int AS inviters
              FROM activity_referrals WHERE activity_id = $1`, [c.id]
         )).rows[0];
         const wheel = (await query(
@@ -187,7 +190,8 @@ function registerMgmMilesRoutes(app, deps) {
           stats: {
             miles_total: stats.miles_total, grants: stats.grants,
             granted_done: stats.granted_done, people: stats.people,
-            referrals: refs.c, inviters: refs.inviters, wheel_plays: wheel.c
+            referrals: refs.c, referrals_existing: refs.existing,
+            inviters: refs.inviters, wheel_plays: wheel.c
           }
         });
       }

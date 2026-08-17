@@ -94,7 +94,7 @@
       <% } %>
       <div class="row">
         <div class="n">+<%= campaign.perMiles %></div>
-        <div class="t">每揪 <%= campaign.perFriends %> 位朋友，多 <%= campaign.perMiles %> 里<small>朋友要真的加入官方帳號才算</small></div>
+        <div class="t">每揪 <%= campaign.perFriends %> 位新朋友，多 <%= campaign.perMiles %> 里<small>限新加入官方帳號的朋友，本來就是好友的不算</small></div>
       </div>
       <div class="row">
         <div class="n">抽獎</div>
@@ -105,7 +105,7 @@
     <div class="me" id="status-row">
       <div class="pair">
         <div class="cell"><div class="num" id="me-miles">—</div><div class="lbl">我的里數</div></div>
-        <div class="cell"><div class="num" id="me-count">—</div><div class="lbl">已揪到的朋友</div></div>
+        <div class="cell"><div class="num" id="me-count">—</div><div class="lbl">揪到的新朋友</div></div>
       </div>
       <div class="sub" id="status">正在確認你的身分</div>
     </div>
@@ -171,7 +171,8 @@
       function handleReferralResult(r) {
         if (!r) return;
         if (r.state === 'done') {
-          if (r.counted) ORMGM.toast('好了，這次算你朋友揪到你');
+          if (r.counted && r.wasExisting) ORMGM.toast('你本來就是好友啦，這次不算朋友的新揪，活動照樣可以玩');
+          else if (r.counted) ORMGM.toast('好了，這次算你朋友揪到你');
           return;
         }
         if (r.state !== 'pending') return;

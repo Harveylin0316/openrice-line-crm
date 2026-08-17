@@ -489,7 +489,7 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
     notifyInviterOfReferral({ query, activity: a, activitySlug, gameType, inviterId, inviteeId })
       .catch(err => console.error('referral inviter notify failed:', err && err.message));
   }
-  return { ok: true, counted, same_inviter: sameInviter };
+  return { ok: true, counted, same_inviter: sameInviter, invitee_was_existing: inviteeWasExisting };
 }
 
 module.exports = { selectPrizeAndRecord, computeUserQuota, registerReferral };
