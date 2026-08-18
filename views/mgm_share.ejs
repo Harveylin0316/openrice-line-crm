@@ -103,7 +103,7 @@
       </div>
       <div class="row">
         <div class="n">抽獎</div>
-        <div class="t">揪滿 <%= campaign.wheelFriends %> 位，送一次轉盤抽獎<small>有機會抽中更大獎</small></div>
+        <div class="t">揪滿 <%= campaign.wheelFriends %> 位，取得大獎抽獎資格<small>活動結束後抽出得獎者，會主動通知你</small></div>
       </div>
     </section>
 
@@ -129,7 +129,6 @@
         perFriends: campaign.perFriends,
         perMiles: campaign.perMiles,
         wheelFriends: campaign.wheelFriends,
-        wheelSlug: campaign.wheelSlug,
         shareTitle: campaign.shareTitle,
         shareText: campaign.shareText,
         shareImage: campaign.shareImage
@@ -230,8 +229,8 @@
           lastCount = me.referrals;
           var bits = [];
           if (CFG.perMiles > 0 && me.next_miles_in > 0) bits.push('再揪 ' + me.next_miles_in + ' 位多 ' + CFG.perMiles + ' 里');
-          if (me.wheel_in > 0) bits.push('滿 ' + CFG.wheelFriends + ' 位送轉盤抽獎');
-          else bits.push('抽獎機會已入帳，轉盤開跑就能用');
+          if (me.wheel_in > 0) bits.push('滿 ' + CFG.wheelFriends + ' 位取得大獎抽獎資格');
+          else bits.push('你已取得大獎抽獎資格');
           bits.push('里數活動結束後統一發放');
           statusEl.textContent = bits.join('，');
         } catch (e) {

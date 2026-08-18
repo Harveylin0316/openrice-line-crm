@@ -80,7 +80,8 @@ function registerMgmMilesRoutes(app, deps) {
       const referrals = await mgmEngine.referralCount(campaign, uid);
       // 我在這檔活動已拿到的里數與轉盤機會
       const { rows: mine } = await query(
-        `SELECT COALESCE(SUM((prize_snapshot->>'miles')::int), 0)::int AS miles
+        `SELECT COALESCE(SUM((prize_snapshot->>'miles')::int), 0)::int AS miles,
+                COALESCE(BOOL_OR(prize_snapshot->>'kind' = 'draw_ticket'), false) AS qualified
            FROM activity_plays WHERE activity_id = $1 AND line_user_id = $2`,
         [campaign.id, uid]
       );
@@ -94,7 +95,7 @@ function registerMgmMilesRoutes(app, deps) {
         campaign: {
           slug: campaign.slug, name: campaign.name, status: campaign.status,
           per_friends: campaign.perFriends, per_miles: campaign.perMiles,
-          wheel_friends: campaign.wheelFriends, wheel_slug: campaign.wheelSlug,
+          wheel_friends: campaign.wheelFriends,
           welcome_miles: campaign.welcomeMiles,
           share_title: campaign.shareTitle, share_text: campaign.shareText,
           share_image: campaign.shareImage
@@ -105,7 +106,8 @@ function registerMgmMilesRoutes(app, deps) {
           next_miles_at: nextMilesAt,
           next_miles_in: nextMilesAt > 0 ? Math.max(0, nextMilesAt - referrals) : 0,
           wheel_at: campaign.wheelFriends,
-          wheel_in: Math.max(0, campaign.wheelFriends - referrals)
+          wheel_in: Math.max(0, campaign.wheelFriends - referrals),
+          draw_qualified: mine[0].qualified === true
         }
       });
     } catch (err) {
@@ -188,9 +190,10 @@ function registerMgmMilesRoutes(app, deps) {
                   COUNT(DISTINCT inviter_line_user_id)::int AS inviters
              FROM activity_referrals WHERE activity_id = $1`, [c.id]
         )).rows[0];
-        const wheel = (await query(
-          `SELECT COUNT(*)::int AS c FROM activity_bonus_plays WHERE reason LIKE 'mgm:' || $1 || ':%'`,
-          [c.slug]
+        const draw = (await query(
+          `SELECT COUNT(*)::int AS c FROM activity_plays
+            WHERE activity_id = $1 AND prize_snapshot->>'kind' = 'draw_ticket'`,
+          [c.id]
         )).rows[0];
         campaigns.push({
           id: c.id, slug: c.slug, name: c.name, status: c.status,
@@ -199,7 +202,7 @@ function registerMgmMilesRoutes(app, deps) {
             miles_total: stats.miles_total, grants: stats.grants,
             granted_done: stats.granted_done, people: stats.people,
             referrals: refs.c, referrals_existing: refs.existing,
-            inviters: refs.inviters, wheel_plays: wheel.c
+            inviters: refs.inviters, draw_tickets: draw.c
           }
         });
       }
@@ -211,17 +214,65 @@ function registerMgmMilesRoutes(app, deps) {
           `SELECT p.id, p.line_user_id, p.played_at,
                   COALESCE(u.line_display_name, p.line_display_name, '—') AS display_name,
                   (p.prize_snapshot->>'miles')::int AS miles,
+                  COALESCE(p.prize_snapshot->>'kind', 'miles') AS kind,
                   p.prize_snapshot->>'milestone' AS milestone,
                   COALESCE(p.is_redeemed, false) AS granted_done
              FROM activity_plays p
              LEFT JOIN users u ON u.line_user_id = p.line_user_id
-            WHERE p.activity_id = $1 AND p.prize_snapshot->>'miles' IS NOT NULL
+            WHERE p.activity_id = $1
+              AND (p.prize_snapshot->>'miles' IS NOT NULL
+                   OR p.prize_snapshot->>'kind' = 'draw_ticket')
             ORDER BY p.played_at DESC
             LIMIT 5000`,
           [camps[0].id]
         )).rows;
       }
-      res.json({ ok: true, campaigns, ledger, liffId: defaultLiffId || '' });
+      // 每人彙總（手動發里數就是照這張填表）、揪友排行、誰揪誰
+      let people = [], inviters = [], pairs = [];
+      if (camps.length > 0) {
+        const aid = camps[0].id;
+        people = (await query(
+          `SELECT p.line_user_id AS uid,
+                  COALESCE(u.line_display_name, MAX(p.line_display_name), '—') AS display_name,
+                  COALESCE(SUM((p.prize_snapshot->>'miles')::int), 0)::int AS miles,
+                  COUNT(*) FILTER (WHERE p.prize_snapshot->>'miles' IS NOT NULL)::int AS grants,
+                  COUNT(*) FILTER (WHERE p.prize_snapshot->>'miles' IS NOT NULL
+                                     AND NOT COALESCE(p.is_redeemed, false))::int AS pending,
+                  COALESCE(BOOL_OR(p.prize_snapshot->>'kind' = 'draw_ticket'), false) AS qualified,
+                  MAX(p.played_at) AS last_at
+             FROM activity_plays p
+             LEFT JOIN users u ON u.line_user_id = p.line_user_id
+            WHERE p.activity_id = $1
+            GROUP BY p.line_user_id, u.line_display_name
+            ORDER BY miles DESC, last_at DESC
+            LIMIT 5000`, [aid])).rows;
+        inviters = (await query(
+          `SELECT r.inviter_line_user_id AS uid,
+                  COALESCE(u.line_display_name, '—') AS display_name,
+                  COUNT(*) FILTER (WHERE r.invitee_was_existing IS FALSE)::int AS new_friends,
+                  COUNT(*) FILTER (WHERE r.invitee_was_existing IS NOT FALSE)::int AS existing_friends,
+                  MAX(r.created_at) AS last_at
+             FROM activity_referrals r
+             LEFT JOIN users u ON u.line_user_id = r.inviter_line_user_id
+            WHERE r.activity_id = $1
+            GROUP BY r.inviter_line_user_id, u.line_display_name
+            ORDER BY new_friends DESC, last_at DESC
+            LIMIT 2000`, [aid])).rows;
+        pairs = (await query(
+          `SELECT r.created_at,
+                  r.inviter_line_user_id AS inviter_uid,
+                  COALESCE(ui.line_display_name, '—') AS inviter_name,
+                  r.invitee_line_user_id AS invitee_uid,
+                  COALESCE(uv.line_display_name, '—') AS invitee_name,
+                  COALESCE(r.invitee_was_existing, false) AS was_existing
+             FROM activity_referrals r
+             LEFT JOIN users ui ON ui.line_user_id = r.inviter_line_user_id
+             LEFT JOIN users uv ON uv.line_user_id = r.invitee_line_user_id
+            WHERE r.activity_id = $1
+            ORDER BY r.created_at DESC
+            LIMIT 5000`, [aid])).rows;
+      }
+      res.json({ ok: true, campaigns, ledger, people, inviters, pairs, liffId: defaultLiffId || '' });
     } catch (err) {
       console.error('mgm admin data error:', err && err.message);
       jsonErr(res, 500, 'data_failed', { detail: err && err.message });
@@ -237,7 +288,7 @@ function registerMgmMilesRoutes(app, deps) {
       if (!/^[a-z0-9-]{3,40}$/.test(slug)) return jsonErr(res, 400, 'bad_slug', { detail: '網址代號只能用小寫英數字與減號，3 到 40 字' });
       const rules = { mgm: {
         welcome_miles: 100, per_friends: 2, per_miles: 100,
-        wheel_friends: 4, wheel_slug: 'sep-mgm', miles_cap: 0, repeat_ladder: false,
+        wheel_friends: 4, miles_cap: 0, repeat_ladder: false,
         share_title: name, share_text: '加入 OpenRice 官方帳號，一起拿「亞洲萬里通」里數', share_image: '', card_image: ''
       } };
       const ins = await query(
@@ -278,7 +329,6 @@ function registerMgmMilesRoutes(app, deps) {
         per_friends: clamp(body.per_friends, 1, 100, 2),
         per_miles: clamp(body.per_miles, 0, 100000, 100),
         wheel_friends: clamp(body.wheel_friends, 1, 100, 4),
-        wheel_slug: String(body.wheel_slug || 'sep-mgm').trim().slice(0, 60),
         miles_cap: clamp(body.miles_cap, 0, 100000000, 0),
         repeat_ladder: !!body.repeat_ladder,
         share_title: String(body.share_title || '').trim().slice(0, 100),
@@ -373,7 +423,9 @@ function registerMgmMilesRoutes(app, deps) {
         `SELECT id, slug FROM activities WHERE game_type='mgm' ORDER BY id DESC LIMIT 1`);
       if (camp.length === 0) return jsonErr(res, 404, 'no_campaign');
       const aid = camp[0].id, slug = camp[0].slug;
-      const del1 = await query(`DELETE FROM activity_plays WHERE activity_id=$1 AND line_user_id=$2 RETURNING id`, [aid, uid]);
+      const del1 = await query(
+        `DELETE FROM activity_plays WHERE activity_id=$1 AND line_user_id=$2
+         RETURNING COALESCE(prize_snapshot->>'kind','miles') AS kind`, [aid, uid]);
       const del2 = await query(`DELETE FROM activity_bonus_plays WHERE granted_key LIKE 'mgm:' || $1 || ':%:' || $2 RETURNING id`, [slug, uid]);
       const del3 = await query(`DELETE FROM activity_referrals WHERE activity_id=$1 AND (inviter_line_user_id=$2 OR invitee_line_user_id=$2) RETURNING id`, [aid, uid]);
       let madeNew = false;
@@ -381,10 +433,83 @@ function registerMgmMilesRoutes(app, deps) {
         const u = await query(`UPDATE users SET archived_at=now() WHERE line_user_id=$1 RETURNING id`, [uid]);
         madeNew = u.rows.length > 0;
       }
-      res.json({ ok: true, cleared: { miles_rows: del1.rows.length, wheel_plays: del2.rows.length, referrals: del3.rows.length }, made_new: madeNew });
+      const drawRows = del1.rows.filter(r => r.kind === 'draw_ticket').length;
+      res.json({ ok: true, cleared: {
+        miles_rows: del1.rows.length - drawRows,
+        draw_tickets: drawRows + del2.rows.length,
+        referrals: del3.rows.length
+      }, made_new: madeNew });
     } catch (err) {
       console.error('mgm reset error:', err && err.message);
       jsonErr(res, 500, 'reset_failed', { detail: err && err.message });
+    }
+  });
+
+  // ── 後台：把名單存成群發名單（存完去 /admin/broadcast 選它就能發）──
+  //    segment: pending_miles = 里數還沒入帳的人｜all_miles = 拿過里數的人
+  //             qualified = 有抽獎資格的人｜inviters = 揪到過新朋友的人
+  app.post('/admin/mgm/api/make-list', requireAdmin, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const segment = String(body.segment || '').trim();
+      const { rows: camp } = await query(
+        `SELECT id, slug, name FROM activities WHERE game_type='mgm' ORDER BY id DESC LIMIT 1`);
+      if (camp.length === 0) return jsonErr(res, 404, 'no_campaign');
+      const aid = camp[0].id;
+
+      const SQL = {
+        pending_miles: `SELECT DISTINCT line_user_id FROM activity_plays
+                         WHERE activity_id=$1 AND prize_snapshot->>'miles' IS NOT NULL
+                           AND NOT COALESCE(is_redeemed,false)`,
+        all_miles:     `SELECT DISTINCT line_user_id FROM activity_plays
+                         WHERE activity_id=$1 AND prize_snapshot->>'miles' IS NOT NULL`,
+        qualified:     `SELECT DISTINCT line_user_id FROM activity_plays
+                         WHERE activity_id=$1 AND prize_snapshot->>'kind'='draw_ticket'`,
+        inviters:      `SELECT DISTINCT inviter_line_user_id AS line_user_id FROM activity_referrals
+                         WHERE activity_id=$1 AND invitee_was_existing IS FALSE`
+      };
+      if (!SQL[segment]) return jsonErr(res, 400, 'bad_segment', { detail: '名單類型不對' });
+
+      const uids = (await query(SQL[segment], [aid])).rows
+        .map(r => String(r.line_user_id || '').trim())
+        .filter(u => /^U[0-9a-f]{32}$/i.test(u));
+      if (uids.length === 0) return jsonErr(res, 400, 'empty', { detail: '這個條件目前沒有人，沒有建立名單' });
+
+      const LABEL = { pending_miles: '里數待發放', all_miles: '拿過里數', qualified: '有抽獎資格', inviters: '揪到過新朋友' };
+      const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      const name = String(body.name || '').trim() ||
+        (camp[0].name + '－' + LABEL[segment] + '（' + stamp + '）');
+      const createdBy = (req.authUser && req.authUser.un) || 'admin';
+
+      const ins = await query(
+        `INSERT INTO admin_recipient_lists (name, description, total, created_by)
+         VALUES ($1, $2, $3, $4) RETURNING id, name, total`,
+        [name.slice(0, 120), '從揪友賺哩後台建立：' + LABEL[segment], uids.length, createdBy]
+      );
+      const listId = ins.rows[0].id;
+      try {
+        const BATCH = 500;
+        for (let i = 0; i < uids.length; i += BATCH) {
+          const slice = uids.slice(i, i + BATCH);
+          const values = [], params = [];
+          slice.forEach((uid, idx) => {
+            values.push('($' + (idx * 2 + 1) + ', $' + (idx * 2 + 2) + ')');
+            params.push(listId, uid);
+          });
+          await query(
+            `INSERT INTO admin_recipient_list_members (list_id, line_user_id) VALUES ` + values.join(', '),
+            params
+          );
+        }
+      } catch (e) {
+        // members 寫一半失敗 → 名單留著會誤導，整份收掉再回報
+        await query(`DELETE FROM admin_recipient_lists WHERE id=$1`, [listId]).catch(() => {});
+        throw e;
+      }
+      res.json({ ok: true, list: { id: listId, name: ins.rows[0].name, total: uids.length } });
+    } catch (err) {
+      console.error('mgm make-list error:', err && err.message);
+      jsonErr(res, 500, 'make_list_failed', { detail: err && err.message });
     }
   });
 

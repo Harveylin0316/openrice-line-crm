@@ -5,7 +5,7 @@
  *   - 里數「當成獎品」：達標就把對應獎品直接寫進 activity_plays（現有中獎帳本），
  *     人工發放沿用得獎名單匯出，不另建里數帳本
  *   - 階梯：加入送見面禮里數 → 每揪滿 per_friends 位送里數 → 揪滿 wheel_friends 位
- *     送一次九月轉盤（寫進 activity_bonus_plays）
+ *     記一筆大獎抽獎資格（寫進 activity_plays，不發遊戲）
  *   - 被推薦來的新友也送見面禮（他就是新好友，走同一條 follow 路徑）
  *   - 所有參數放 activities.rules.mgm（後台可調，不寫死）
  *
@@ -65,7 +65,6 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
       perFriends: Math.max(1, numOr(m.per_friends, 2)),   // 每揪滿幾位
       perMiles: numOr(m.per_miles, 100),                  // 送幾里
       wheelFriends: Math.max(1, numOr(m.wheel_friends, 4)), // 揪滿幾位送轉盤
-      wheelSlug: String(m.wheel_slug || 'sep-mgm'),
       milesCap: numOr(m.miles_cap, 0),                    // 整檔里數上限（0 = 不限）
       repeatLadder: !!m.repeat_ladder,                    // 4 位之後每 per_friends 位要不要繼續送里
       shareTitle: String(m.share_title || row.name || '揪友賺哩'),
@@ -158,30 +157,28 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
     }
   }
 
-  /** 發一次轉盤機會（activity_bonus_plays，granted_key 冪等） */
-  async function grantWheelPlay(campaign, lineUserId, milestoneKey) {
+  /** 記一筆「大獎抽獎資格」（activity_plays，mgm_key 冪等）。
+   *  不發遊戲、不綁任何轉盤活動——只留紀錄再推通知，實際抽獎由行銷另外辦。 */
+  async function grantDrawTicket(campaign, lineUserId, milestoneKey) {
     try {
-      const { rows: act } = await query(
-        `SELECT id FROM activities WHERE slug = $1 LIMIT 1`, [campaign.wheelSlug]
-      );
-      if (act.length === 0) {
-        console.error('mgm: 找不到轉盤活動 ' + campaign.wheelSlug);
-        return 'no_wheel';
-      }
-      const key = 'mgm:' + campaign.slug + ':' + milestoneKey + ':' + lineUserId;
+      const mgmKey = 'mgm:' + campaign.slug + ':' + milestoneKey + ':' + lineUserId;
+      const snapshot = { kind: 'draw_ticket', name: '大獎抽獎資格', milestone: milestoneKey };
       const ins = await query(
-        `INSERT INTO activity_bonus_plays (activity_id, line_user_id, plays, reason, granted_key)
-         VALUES ($1, $2, 1, $3, $4)
-         ON CONFLICT (granted_key) WHERE granted_key IS NOT NULL DO NOTHING
+        `INSERT INTO activity_plays (activity_id, line_user_id, line_display_name, prize_snapshot, properties)
+         SELECT $1, $2, NULL, $3::jsonb, $4::jsonb
+         WHERE NOT EXISTS (SELECT 1 FROM activity_plays WHERE properties->>'mgm_key' = $5)
          RETURNING id`,
-        [act[0].id, lineUserId, 'mgm:' + campaign.slug + ':' + milestoneSafe(milestoneKey), key]
+        [campaign.id, lineUserId, JSON.stringify(snapshot),
+         JSON.stringify({ mgm_key: mgmKey, milestone: milestoneKey, kind: 'draw_ticket' }), mgmKey]
       );
       return ins.rows.length > 0 ? 'granted' : 'duplicate';
     } catch (e) {
-      console.error('mgm grantWheelPlay failed:', e.message);
+      if (String(e.message || '').includes('uq_plays_mgm_key')) return 'duplicate';
+      console.error('mgm grantDrawTicket failed:', e.message);
       return 'error';
     }
   }
+
   function milestoneSafe(k) { return String(k).slice(0, 40); }
 
   /** 這個人已成功揪到幾位「新朋友」。
@@ -263,7 +260,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
       const card = buildCard(campaign, {
         title: '見面禮 ' + campaign.welcomeMiles + ' 里已幫你記下',
         body: '之後揪還沒加入官方帳號的朋友，每 ' + campaign.perFriends + ' 位新朋友再多 ' + campaign.perMiles +
-          ' 里，滿 ' + campaign.wheelFriends + ' 位還能抽獎。里數統一在活動結束後發放。',
+          ' 里，滿 ' + campaign.wheelFriends + ' 位再多一個大獎抽獎資格。里數統一在活動結束後發放。',
         buttonLabel: '立即分享',
         buttonUrl: joinUrl(campaign, lineUserId),
         image: campaign.welcomeImage
@@ -292,7 +289,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
         if (r === 'granted') {
           const card = buildCard(campaign, {
             title: '恭喜獲 ' + campaign.perMiles + ' 里！',
-            body: '你已成功揪到 ' + count + ' 位新朋友。繼續分享，滿 ' + campaign.wheelFriends + ' 位還能抽獎。',
+            body: '你已成功揪到 ' + count + ' 位新朋友。繼續分享，滿 ' + campaign.wheelFriends + ' 位就有大獎抽獎資格。',
             buttonLabel: '立即分享',
             buttonUrl: joinUrl(campaign, inviterId),
             image: campaign.milestoneImage
@@ -302,35 +299,20 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
       }
     }
 
-    // 轉盤里程碑
+    // 抽獎資格里程碑：只通知「你有資格了」，不給遊戲、不連任何轉盤
     if (count === campaign.wheelFriends) {
-      const r = await grantWheelPlay(campaign, inviterId, 'wheel' + count);
-      results.push({ milestone: 'wheel' + count, kind: 'wheel_play', result: r });
+      const r = await grantDrawTicket(campaign, inviterId, 'wheel' + count);
+      results.push({ milestone: 'wheel' + count, kind: 'draw_ticket', result: r });
       if (r === 'granted') {
-        const wheelUrl = 'https://liff.line.me/' + (liffId || '') + '/wheel/' + encodeURIComponent(campaign.wheelSlug);
-        // 轉盤還沒開跑就不能叫人「快去抽」——照實講機會已存好，開跑就能用
-        let wheelActive = false;
-        try {
-          const { rows: w } = await query(
-            `SELECT status, start_at FROM activities WHERE slug = $1 LIMIT 1`, [campaign.wheelSlug]
-          );
-          wheelActive = !!(w[0] && w[0].status === 'active' &&
-            (!w[0].start_at || new Date(w[0].start_at).getTime() <= Date.now()));
-        } catch (e) { /* 查不到就當還沒開，文案保守 */ }
-        const card = buildCard(campaign, wheelActive ? {
-          title: '恭喜獲抽獎機會！',
-          body: '你已成功揪到 ' + count + ' 位新朋友，多了一次轉盤抽獎機會，快去試手氣。',
-          buttonLabel: '去抽獎',
-          buttonUrl: wheelUrl,
-          image: campaign.wheelImage
-        } : {
-          title: '恭喜獲抽獎機會！',
-          body: '你已成功揪到 ' + count + ' 位新朋友。抽獎機會已幫你存好，轉盤活動開跑那天就能用，會再通知你。',
-          buttonLabel: '先看活動',
-          buttonUrl: wheelUrl,
+        const card = buildCard(campaign, {
+          title: '恭喜！你已取得抽獎資格',
+          body: '你已成功揪到 ' + count + ' 位新朋友，取得大獎抽獎資格。' +
+                '我們會在活動結束後抽出得獎者並主動通知你。',
+          buttonLabel: '繼續分享',
+          buttonUrl: joinUrl(campaign, inviterId),
           image: campaign.wheelImage
         });
-        await pushCard(inviterId, card, 'mgm_wheel_grant');
+        await pushCard(inviterId, card, 'mgm_draw_ticket');
       }
     }
     return results;
@@ -344,7 +326,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
     return [buildCard(campaign, {
       title: campaign.shareTitle,
       body: '每揪 ' + campaign.perFriends + ' 位新朋友加入官方帳號，送 ' + campaign.perMiles +
-        ' 里；滿 ' + campaign.wheelFriends + ' 位再送一次轉盤抽獎（已是好友的不算）。',
+        ' 里；滿 ' + campaign.wheelFriends + ' 位再多一個大獎抽獎資格（已是好友的不算）。',
       buttonLabel: '立即分享',
       buttonUrl: joinUrl(campaign, lineUserId),
       image: campaign.cardImage || campaign.shareImage
@@ -356,7 +338,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
     loadActiveCampaign,
     loadCampaignBySlug,
     grantMiles,
-    grantWheelPlay,
+    grantDrawTicket,
     referralCount,
     onFollow,
     onReferralCounted,

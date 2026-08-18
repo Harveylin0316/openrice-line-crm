@@ -6,7 +6,7 @@
     body: `
     <section class="card">
       <h1>揪友賺哩</h1>
-      <p class="muted" style="margin-top:6px;line-height:1.7;">好友推薦活動：加入送里數、每揪滿幾位再送里數、揪滿門檻送轉盤抽獎。<br>
+      <p class="muted" style="margin-top:6px;line-height:1.7;">好友推薦活動：加入送里數、每揪滿幾位再送里數、揪滿門檻取得大獎抽獎資格。<br>
       里數是人工發放：活動期間這裡會累積名單，你匯出去填表發放，發完回來標記「已發放」。</p>
     </section>
 
@@ -21,7 +21,37 @@
     </section>
 
     <section class="card">
-      <h2 style="margin:0 0 4px;">里數發放名單</h2>
+      <h2 style="margin:0 0 4px;">每個人拿到多少里</h2>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">手動發里數就照這張表填：一個人一列，數字是他到現在累積的里數。發完回下面那張明細表標記「已發放」。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center;">
+        <button type="button" id="mg-people-csv" class="mg-btn1">下載整張表 CSV</button>
+        <button type="button" id="mg-people-csv-pending" class="mg-btn2">只下載還沒發的</button>
+        <span class="muted" style="font-size:13px;">｜要發訊息給這群人：</span>
+        <select id="mg-seg" class="mg-sel">
+          <option value="pending_miles">里數還沒發的人</option>
+          <option value="all_miles">拿過里數的人</option>
+          <option value="qualified">有抽獎資格的人</option>
+          <option value="inviters">揪到過新朋友的人</option>
+        </select>
+        <button type="button" id="mg-make-list" class="mg-btn2">存成群發名單</button>
+        <span id="mg-people-note" class="muted" style="font-size:13px;"></span>
+      </div>
+      <div id="mg-people"><p class="muted">載入中…</p></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">誰揪到誰</h2>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">上半：每個人揪到幾位。下半：每一筆邀請的配對紀錄，誰在什麼時候被誰揪進來——含不計獎的既有好友，用戶來問都查得到。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center;">
+        <button type="button" id="mg-pairs-csv" class="mg-btn2">下載配對明細 CSV</button>
+        <span id="mg-pairs-note" class="muted" style="font-size:13px;"></span>
+      </div>
+      <div id="mg-inviters"><p class="muted">載入中…</p></div>
+      <div id="mg-pairs" style="margin-top:16px;"></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">里數發放明細（逐筆）</h2>
       <p class="muted" style="font-size:13px;margin-bottom:10px;">每一筆是一次里數入帳（見面禮或揪友達標）。人工發放完成後勾選並按「標記已發放」，名單就不會重複匯出。</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
         <button type="button" id="mg-select-pending" class="mg-btn2">全選未發放</button>
@@ -36,7 +66,7 @@
       <h2 style="margin:0 0 4px;">上線前的三件事</h2>
       <ol class="muted" style="font-size:13.5px;line-height:1.9;margin:8px 0 0;padding-left:20px;">
         <li>圖文選單加一顆「揪友賺哩」按鍵，動作設「開啟連結」，貼上面設定區的活動連結（或設「發送文字：揪友賺哩」，官方帳號會自動回分享卡片）。</li>
-        <li>如果轉盤活動自己也開著邀請加次數，同一個朋友會兩邊都算獎——上線前把轉盤活動的「湊滿之後加幾次」設成 0，只留這裡的「揪滿送抽獎」。</li>
+        <li>揪滿門檻只會推「你有抽獎資格了」的通知，不會給任何遊戲次數。抽獎名單在「每個人拿到多少里」那張表的「抽獎資格」欄，實際抽獎由行銷另外辦。</li>
         <li>狀態改成「進行中」之後，新好友加入就會自動收到見面禮卡片。先用自己的帳號測一輪再開。</li>
       </ol>
     </section>
@@ -46,6 +76,8 @@
       .mg-stat{border:1px solid #ECECEE;border-radius:10px;padding:14px;background:#FAFAFA;}
       .mg-stat .v{font-size:24px;font-weight:700;color:#1f2937;font-variant-numeric:tabular-nums;}
       .mg-stat .k{font-size:12px;color:#6B6B70;margin-top:4px;}
+      .mg-sel{padding:8px 10px;border:1px solid #D8D8DC;border-radius:8px;font-size:13.5px;background:#fff;}
+      .mg-tag{display:inline-block;padding:2px 8px;border-radius:999px;background:#1f2937;color:#fff;font-size:11.5px;font-weight:700;}
       .mg-btn1{padding:9px 16px;background:#1f2937;color:#fff;border:0;border-radius:8px;font-size:13.5px;font-weight:700;cursor:pointer;}
       .mg-btn1:disabled{opacity:.5;cursor:default;}
       .mg-btn2{padding:9px 16px;background:#fff;color:#374151;border:1px solid #ECECEE;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer;}
@@ -97,8 +129,7 @@
           '<label class="mg-field"><span>加入就送幾里（見面禮）</span><input type="number" id="mgc-welcome" min="0" value="'+(m.welcome_miles!=null?m.welcome_miles:100)+'"><small>0 = 不送見面禮</small></label>'+
           '<label class="mg-field"><span>每揪滿幾位朋友</span><input type="number" id="mgc-perf" min="1" value="'+(m.per_friends||2)+'"></label>'+
           '<label class="mg-field"><span>湊滿之後送幾里</span><input type="number" id="mgc-perm" min="0" value="'+(m.per_miles!=null?m.per_miles:100)+'"></label>'+
-          '<label class="mg-field"><span>揪滿幾位送轉盤抽獎</span><input type="number" id="mgc-wheelf" min="1" value="'+(m.wheel_friends||4)+'"></label>'+
-          '<label class="mg-field"><span>送哪個轉盤活動</span><input type="text" id="mgc-wheels" value="'+esc(m.wheel_slug||'sep-mgm')+'"><small>填活動的網址代號</small></label>'+
+          '<label class="mg-field"><span>揪滿幾位給抽獎資格</span><input type="number" id="mgc-wheelf" min="1" value="'+(m.wheel_friends||4)+'"><small>到門檻只推通知，不發遊戲</small></label>'+
           '<label class="mg-field"><span>整檔里數上限</span><input type="number" id="mgc-cap" min="0" value="'+(m.miles_cap||0)+'"><small>發到這個數字就停，0 = 不限（成本天花板）</small></label>'+
           '<label class="mg-field"><span>抽獎門檻之後還要繼續送里嗎</span><select id="mgc-repeat">'+
             '<option value=""'+(!m.repeat_ladder?' selected':'')+'>不用，到抽獎門檻為止</option>'+
@@ -110,7 +141,7 @@
           '<label class="mg-field mg-full"><span>推播卡片通用圖（網址，可留空）</span><input type="text" id="mgc-cimg" value="'+esc(m.card_image||'')+'" placeholder="https://..."><small>下面三個沒填就用這張</small></label>'+
           '<label class="mg-field"><span>見面禮卡圖</span><input type="text" id="mgc-wimg" value="'+esc(m.welcome_image||'')+'" placeholder="https://..."></label>'+
           '<label class="mg-field"><span>達標卡圖</span><input type="text" id="mgc-mimg" value="'+esc(m.milestone_image||'')+'" placeholder="https://..."></label>'+
-          '<label class="mg-field"><span>抽獎卡圖</span><input type="text" id="mgc-himg" value="'+esc(m.wheel_image||'')+'" placeholder="https://..."></label>'+
+          '<label class="mg-field"><span>抽獎資格卡圖</span><input type="text" id="mgc-himg" value="'+esc(m.wheel_image||'')+'" placeholder="https://..."></label>'+
           '<label class="mg-field mg-full"><span>活動頁頂部橫幅圖</span><input type="text" id="mgc-limg" value="'+esc(m.landing_image||'')+'" placeholder="https://..."></label>'+
           '<label class="mg-field mg-full"><span>測試名單（留空 = 對所有人開放）</span>'+
             '<input type="text" id="mgc-testers" value="'+esc((m.test_uids||[]).join(' '))+'" placeholder="U 開頭的 LINE ID，多個用空格隔開">'+
@@ -130,7 +161,7 @@
         }
         h+='<div style="margin-top:14px;padding:12px 14px;border:1px solid #ECECEE;border-radius:10px;">'+
           '<div style="font-weight:700;font-size:13.5px;margin-bottom:6px;">測試工具：重置一個測試帳號</div>'+
-          '<div class="muted" style="font-size:12px;line-height:1.6;margin-bottom:8px;">清掉這個帳號在本活動的里數、抽獎機會、揪友紀錄，讓他可以重測一輪。<br>「重置並變回新朋友」會讓系統把他當成還沒加入過的人（點邀請連結算新朋友、重加好友會拿見面禮）——只能用在測試帳號，不要對真實用戶按。</div>'+
+          '<div class="muted" style="font-size:12px;line-height:1.6;margin-bottom:8px;">清掉這個帳號在本活動的里數、抽獎資格、揪友紀錄，讓他可以重測一輪。<br>「重置並變回新朋友」會讓系統把他當成還沒加入過的人（點邀請連結算新朋友、重加好友會拿見面禮）——只能用在測試帳號，不要對真實用戶按。</div>'+
           '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+
             '<input type="text" id="mgt-uid" placeholder="U 開頭的 LINE ID" style="flex:1;min-width:220px;padding:8px 10px;border:1px solid #ECECEE;border-radius:8px;font-size:13px;">'+
             '<button type="button" class="mg-btn1" id="mgt-sim">模擬一位新朋友點我的連結</button>'+
@@ -150,7 +181,7 @@
             .then(function(r){return r.json();})
             .then(function(d){
               if(!d.ok){$('mgt-note').textContent='失敗：'+(d.detail||d.error);return;}
-              $('mgt-note').textContent='已清：里數 '+d.cleared.miles_rows+' 筆、抽獎機會 '+d.cleared.wheel_plays+' 筆、揪友紀錄 '+d.cleared.referrals+' 筆'+(d.made_new?'，並已變回新朋友':'');
+              $('mgt-note').textContent='已清：里數 '+d.cleared.miles_rows+' 筆、抽獎資格 '+d.cleared.draw_tickets+' 筆、揪友紀錄 '+d.cleared.referrals+' 筆'+(d.made_new?'，並已變回新朋友':'');
               load();
             })
             .catch(function(){$('mgt-note').textContent='連線失敗，再試一次';});
@@ -165,7 +196,7 @@
             .then(function(d){btn.disabled=false;
               if(!d.ok){$('mgt-note').textContent='失敗：'+(d.detail||d.error);return;}
               var fired=(d.milestones||[]).filter(function(x){return x.result==='granted';})
-                .map(function(x){return x.kind==='miles'?'發了里數卡':'發了抽獎卡';}).join('、');
+                .map(function(x){return x.kind==='miles'?'發了里數卡':'發了抽獎資格卡';}).join('、');
               $('mgt-note').textContent='已模擬成功，目前揪到 '+d.referrals+' 位'+(fired?('，'+fired+'（看手機）'):'，再按就往里程碑前進');
               load();
             })
@@ -182,7 +213,7 @@
               end_at:$('mgc-end').value?new Date($('mgc-end').value+':00+08:00').toISOString():null,
               welcome_miles:$('mgc-welcome').value, per_friends:$('mgc-perf').value,
               per_miles:$('mgc-perm').value, wheel_friends:$('mgc-wheelf').value,
-              wheel_slug:$('mgc-wheels').value, miles_cap:$('mgc-cap').value,
+              miles_cap:$('mgc-cap').value,
               repeat_ladder:$('mgc-repeat').value==='1',
               share_title:$('mgc-stitle').value, share_text:$('mgc-stext').value,
               share_image:$('mgc-simg').value, card_image:$('mgc-cimg').value,
@@ -203,7 +234,7 @@
 
       function renderCreate(){
         $('mg-config').innerHTML=
-          '<p class="muted" style="font-size:13.5px;">還沒有揪友賺哩活動。建一檔就會帶好預設階梯（加入 100 里、每 2 位 100 里、滿 4 位送轉盤），建好都可以改。</p>'+
+          '<p class="muted" style="font-size:13.5px;">還沒有揪友賺哩活動。建一檔就會帶好預設階梯（加入 100 里、每 2 位 100 里、滿 4 位給抽獎資格），建好都可以改。</p>'+
           '<div class="mg-grid" style="margin-top:8px;">'+
           '<label class="mg-field"><span>活動名稱</span><input type="text" id="mgn-name" value="揪友賺哩" maxlength="100"></label>'+
           '<label class="mg-field"><span>網址代號（小寫英數與減號）</span><input type="text" id="mgn-slug" placeholder="mgm-miles" maxlength="40"></label>'+
@@ -231,23 +262,73 @@
           stat(s.people,'拿到里數的人數')+
           stat(s.miles_total,'累積里數（要發的總量）')+
           stat(s.grants-s.granted_done,'待發放筆數')+
-          stat(s.wheel_plays,'已送出的抽獎機會');
+          stat(s.draw_tickets,'取得抽獎資格人數');
+      }
+
+      function uidShort(u){return u?(u.slice(0,7)+'…'+u.slice(-4)):'—';}
+
+      // 每個人拿到多少里——手動發放就看這張
+      function renderPeople(rows){
+        var box=$('mg-people');
+        if(!rows||!rows.length){box.innerHTML='<p class="muted" style="font-size:13px;">還沒有人拿到里數。</p>';return;}
+        box.innerHTML='<table class="mg-table"><thead><tr><th>會員</th><th>累積里數</th><th>待發放</th><th>抽獎資格</th><th>最後一次入帳</th></tr></thead><tbody>'+
+          rows.map(function(r){
+            return '<tr>'+
+              '<td>'+esc(r.display_name)+'<br><span class="muted" style="font-size:11px;" title="'+esc(r.uid||'')+'">'+esc(uidShort(r.uid))+'</span></td>'+
+              '<td style="font-weight:700;font-size:15px;">'+Number(r.miles||0).toLocaleString()+'</td>'+
+              '<td>'+(r.pending>0?('<span class="mg-wait">還有 '+r.pending+' 筆</span>'):'<span class="mg-done">都發完了</span>')+'</td>'+
+              '<td>'+(r.qualified?'<span class="mg-tag">有</span>':'<span class="muted">—</span>')+'</td>'+
+              '<td>'+tw(r.last_at)+'</td>'+
+            '</tr>';
+          }).join('')+'</tbody></table>';
+      }
+
+      // 揪友排行
+      function renderInviters(rows){
+        var box=$('mg-inviters');
+        if(!rows||!rows.length){box.innerHTML='<p class="muted" style="font-size:13px;">還沒有人揪到朋友。</p>';return;}
+        box.innerHTML='<h3 style="font-size:14px;margin:0 0 8px;">每個人揪到幾位</h3>'+
+          '<table class="mg-table"><thead><tr><th>會員</th><th>新朋友（計獎）</th><th>既有好友（不計獎）</th><th>最後一次</th></tr></thead><tbody>'+
+          rows.map(function(r){
+            return '<tr>'+
+              '<td>'+esc(r.display_name)+'<br><span class="muted" style="font-size:11px;" title="'+esc(r.uid||'')+'">'+esc(uidShort(r.uid))+'</span></td>'+
+              '<td style="font-weight:700;font-size:15px;">'+r.new_friends+'</td>'+
+              '<td class="muted">'+r.existing_friends+'</td>'+
+              '<td>'+tw(r.last_at)+'</td>'+
+            '</tr>';
+          }).join('')+'</tbody></table>';
+      }
+
+      // 誰被誰揪進來
+      function renderPairs(rows){
+        var box=$('mg-pairs');
+        if(!rows||!rows.length){box.innerHTML='<h3 style="font-size:14px;margin:0 0 8px;">每一筆邀請</h3><p class="muted" style="font-size:13px;">還沒有邀請紀錄。</p>';return;}
+        box.innerHTML='<h3 style="font-size:14px;margin:0 0 8px;">每一筆邀請（新到舊）</h3>'+
+          '<table class="mg-table"><thead><tr><th>時間</th><th>誰揪的</th><th>被揪進來的</th><th>算不算獎</th></tr></thead><tbody>'+
+          rows.map(function(r){
+            return '<tr>'+
+              '<td>'+tw(r.created_at)+'</td>'+
+              '<td>'+esc(r.inviter_name)+'<br><span class="muted" style="font-size:11px;" title="'+esc(r.inviter_uid||'')+'">'+esc(uidShort(r.inviter_uid))+'</span></td>'+
+              '<td>'+esc(r.invitee_name)+'<br><span class="muted" style="font-size:11px;" title="'+esc(r.invitee_uid||'')+'">'+esc(uidShort(r.invitee_uid))+'</span></td>'+
+              '<td>'+(r.was_existing?'<span class="muted">既有好友，不計獎</span>':'<span class="mg-tag">新朋友，計獎</span>')+'</td>'+
+            '</tr>';
+          }).join('')+'</tbody></table>';
       }
 
       function renderLedger(rows){
         var box=$('mg-ledger');
-        if(!rows||!rows.length){box.innerHTML='<p class="muted" style="font-size:13px;">還沒有任何里數入帳。</p>';return;}
-        var mile={welcome:'見面禮'};
-        box.innerHTML='<table class="mg-table"><thead><tr><th></th><th>會員</th><th>里數</th><th>原因</th><th>入帳時間</th><th>發放</th></tr></thead><tbody>'+
+        if(!rows||!rows.length){box.innerHTML='<p class="muted" style="font-size:13px;">還沒有任何入帳紀錄。</p>';return;}
+        box.innerHTML='<table class="mg-table"><thead><tr><th></th><th>會員</th><th>拿到什麼</th><th>原因</th><th>入帳時間</th><th>發放</th></tr></thead><tbody>'+
           rows.map(function(r){
-            var why=r.milestone==='welcome'?'見面禮':(r.milestone&&r.milestone.charAt(0)==='m'?('揪滿 '+r.milestone.slice(1)+' 位'):esc(r.milestone||'—'));
+            var isDraw=r.kind==='draw_ticket';
+            var why=r.milestone==='welcome'?'見面禮':(r.milestone&&r.milestone.charAt(0)==='m'?('揪滿 '+r.milestone.slice(1)+' 位'):(r.milestone&&r.milestone.indexOf('wheel')===0?('揪滿 '+r.milestone.slice(5)+' 位'):esc(r.milestone||'—')));
             return '<tr>'+
-              '<td><input type="checkbox" class="mg-ck" data-id="'+r.id+'"'+(r.granted_done?' disabled':'')+'></td>'+
-              '<td>'+esc(r.display_name)+'<br><span class="muted" style="font-size:11px;">'+esc(r.line_user_id?(r.line_user_id.slice(0,7)+'…'+r.line_user_id.slice(-4)):'—')+'</span></td>'+
-              '<td style="font-weight:700;">'+r.miles+'</td>'+
+              '<td><input type="checkbox" class="mg-ck" data-id="'+r.id+'"'+((r.granted_done||isDraw)?' disabled':'')+'></td>'+
+              '<td>'+esc(r.display_name)+'<br><span class="muted" style="font-size:11px;">'+esc(uidShort(r.line_user_id))+'</span></td>'+
+              '<td style="font-weight:700;">'+(isDraw?'<span class="mg-tag">抽獎資格</span>':(r.miles+' 里'))+'</td>'+
               '<td>'+why+'</td>'+
               '<td>'+tw(r.played_at)+'</td>'+
-              '<td>'+(r.granted_done?'<span class="mg-done">已發放</span>':'<span class="mg-wait">待發放</span>')+'</td>'+
+              '<td>'+(isDraw?'<span class="muted">不需發放</span>':(r.granted_done?'<span class="mg-done">已發放</span>':'<span class="mg-wait">待發放</span>'))+'</td>'+
             '</tr>';
           }).join('')+'</tbody></table>';
       }
@@ -256,10 +337,13 @@
         fetch('/admin/mgm/api/data').then(function(r){return r.json();}).then(function(d){
           if(!d.ok){$('mg-config').innerHTML='<p class="muted">載入失敗：'+esc(d.error||'')+'</p>';return;}
           DATA=d;
-          if(!d.campaigns.length){ renderCreate(); $('mg-stats').innerHTML='<p class="muted" style="font-size:13px;">建立活動後這裡會顯示成效。</p>'; renderLedger([]); return; }
+          if(!d.campaigns.length){ renderCreate(); $('mg-stats').innerHTML='<p class="muted" style="font-size:13px;">建立活動後這裡會顯示成效。</p>'; renderPeople([]); renderInviters([]); renderPairs([]); renderLedger([]); return; }
           CAMP=d.campaigns[0];
           renderConfig(CAMP, d.liffId);
           renderStats(CAMP);
+          renderPeople(d.people);
+          renderInviters(d.inviters);
+          renderPairs(d.pairs);
           renderLedger(d.ledger);
         }).catch(function(){$('mg-config').innerHTML='<p class="muted">載入失敗，請重新整理</p>';});
       }
@@ -282,6 +366,53 @@
           })
           .catch(function(){btn.disabled=false;$('mg-ledger-note').textContent='連線失敗，再試一次';});
       });
+      // 下載「每個人拿到多少里」
+      function downloadCsv(head, rows, filename){
+        var NL=String.fromCharCode(10);
+        var txt='\\ufeff'+[head].concat(rows).map(function(r){return r.map(csvCell).join(',');}).join(NL);
+        var a=document.createElement('a');
+        a.href=URL.createObjectURL(new Blob([txt],{type:'text/csv'}));
+        a.download=filename;a.click();
+        setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+      }
+      function peopleCsv(onlyPending){
+        if(!DATA||!DATA.people){return;}
+        var rows=DATA.people.filter(function(r){return onlyPending?r.pending>0:r.miles>0||r.qualified;});
+        if(!rows.length){$('mg-people-note').textContent=onlyPending?'沒有還沒發的':'表是空的';return;}
+        downloadCsv(['會員','LINE ID','累積里數','待發放筆數','有無抽獎資格','最後入帳(台北)'],
+          rows.map(function(r){return [r.display_name,r.uid,r.miles,r.pending,r.qualified?'有':'',twFull(r.last_at)];}),
+          onlyPending?'mgm-里數待發放.csv':'mgm-每人里數.csv');
+        $('mg-people-note').textContent='已下載 '+rows.length+' 人';
+      }
+      $('mg-people-csv').addEventListener('click',function(){peopleCsv(false);});
+      $('mg-people-csv-pending').addEventListener('click',function(){peopleCsv(true);});
+
+      $('mg-pairs-csv').addEventListener('click',function(){
+        if(!DATA||!DATA.pairs||!DATA.pairs.length){$('mg-pairs-note').textContent='還沒有邀請紀錄';return;}
+        downloadCsv(['時間(台北)','誰揪的','揪的人LINE ID','被揪進來的','被揪的人LINE ID','算不算獎'],
+          DATA.pairs.map(function(r){return [twFull(r.created_at),r.inviter_name,r.inviter_uid,
+            r.invitee_name,r.invitee_uid,r.was_existing?'既有好友，不計獎':'新朋友，計獎'];}),
+          'mgm-誰揪誰.csv');
+        $('mg-pairs-note').textContent='已下載 '+DATA.pairs.length+' 筆';
+      });
+
+      // 一鍵把名單存進群發系統
+      $('mg-make-list').addEventListener('click',function(){
+        var seg=$('mg-seg').value;
+        var label=$('mg-seg').options[$('mg-seg').selectedIndex].text;
+        if(!confirm('要把「'+label+'」存成一份群發名單嗎？存好之後去「群發訊息」頁面就能選它。'))return;
+        var btn=this; btn.disabled=true; $('mg-people-note').textContent='建立中…';
+        fetch('/admin/mgm/api/make-list',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({segment:seg})})
+          .then(function(r){return r.json();})
+          .then(function(d){btn.disabled=false;
+            if(!d.ok){$('mg-people-note').textContent='失敗：'+(d.detail||d.error);return;}
+            $('mg-people-note').innerHTML='已建立名單「'+esc(d.list.name)+'」共 '+d.list.total+' 人，'+
+              '<a href="/admin/broadcast" style="color:#1f2937;font-weight:700;">去群發訊息</a>';
+          })
+          .catch(function(){btn.disabled=false;$('mg-people-note').textContent='連線失敗，再試一次';});
+      });
+
       $('mg-csv').addEventListener('click',function(){
         if(!DATA||!DATA.ledger)return;
         var rows=DATA.ledger.filter(function(r){return !r.granted_done;});
