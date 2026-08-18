@@ -73,6 +73,22 @@
     </section>
 
     <section class="card">
+      <h2 style="margin:0;">新增優惠序號</h2>
+      <p class="muted" style="margin-top:6px;line-height:1.7;">
+        旅電給新一批序號時，在這裡補進碼池。<br>
+        最快的方式：打開他們給的 Excel，把「兌換碼」那一整欄複製、貼到下面框框。標題列和重複的序號會自動略過，不會弄髒碼池。
+      </p>
+      <div style="margin-top:12px;display:grid;gap:10px;max-width:560px;">
+        <textarea id="lu-codes" rows="6" placeholder="一行一組序號，直接從 Excel 整欄貼上也可以" style="font-family:inherit;font-size:14px;padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;resize:vertical;line-height:1.6;"></textarea>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <input type="file" id="lu-codes-file" accept=".txt,.csv,text/plain,text/csv" />
+          <button type="button" class="lu-btn-main" id="lu-upload" disabled>上傳序號</button>
+          <span class="muted" id="lu-upload-msg" style="font-size:13px;"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
       <h2 style="margin:0;">素材與連結</h2>
       <p class="muted" style="margin-top:6px;">做圖文選單、發推播、對外溝通會用到的東西，都在這裡直接複製。</p>
       <div id="lu-links" style="margin-top:12px;"><p class="muted">載入中…</p></div>
@@ -336,6 +352,77 @@
             overview.activity=d.activity;
             render();
           }).catch(function(){msg.textContent='連線錯誤，請再試一次。';});
+        });
+
+        // ── 新增序號（活動/獎品自動綁定，行銷不用選） ──
+        // 只收「像序號」的行：英數與 - _，4–64 字。中文標題列、空行自動略過。
+        function parseCodes(){
+          var raw=$('lu-codes').value||'';
+          var lines=raw.split(/\\r?\\n/);
+          var out=[],seen={},skipped=0;
+          for(var i=0;i<lines.length;i++){
+            var c=(lines[i]||'').trim();
+            if(!c)continue;
+            if(!/^[A-Za-z0-9_-]{4,64}$/.test(c)){skipped++;continue;}
+            if(seen[c])continue;
+            seen[c]=1;out.push(c);
+          }
+          return {codes:out,skipped:skipped};
+        }
+        function syncUpload(){
+          var p=parseCodes();
+          $('lu-upload').disabled=!(p.codes.length>0&&overview&&overview.prize_id!=null);
+          if(p.codes.length>0){
+            $('lu-upload-msg').textContent='偵測到 '+p.codes.length.toLocaleString()+' 組序號'+(p.skipped>0?('，另有 '+p.skipped+' 行不像序號會略過'):'');
+          }else if((($('lu-codes').value)||'').trim()){
+            $('lu-upload-msg').textContent='沒有偵測到序號（一行一組，只接受英數字）。';
+          }else{
+            $('lu-upload-msg').textContent='';
+          }
+        }
+        $('lu-codes').addEventListener('input',syncUpload);
+        $('lu-codes-file').addEventListener('change',function(){
+          var f=this.files&&this.files[0];
+          if(!f)return;
+          var reader=new FileReader();
+          reader.onload=function(){
+            var existing=$('lu-codes').value.trim();
+            var add=String(reader.result||'');
+            $('lu-codes').value=existing?(existing+'\\n'+add):add;
+            syncUpload();
+          };
+          reader.onerror=function(){$('lu-upload-msg').textContent='讀檔失敗。若是 Excel 檔，請開啟後複製序號欄貼上。';};
+          reader.readAsText(f);
+        });
+        $('lu-upload').addEventListener('click',function(){
+          if(!overview||overview.prize_id==null)return;
+          var p=parseCodes();
+          if(p.codes.length===0)return;
+          var aid=overview.activity.id,pid=overview.prize_id;
+          var btn=$('lu-upload'),msg=$('lu-upload-msg');
+          btn.disabled=true;
+          var CHUNK=1000,total=p.codes.length,done=0,ins=0,skip=0;
+          function sendNext(){
+            if(done>=total){
+              msg.textContent='完成！新增 '+ins.toLocaleString()+' 組，略過重複 '+skip.toLocaleString()+' 組。';
+              $('lu-codes').value='';
+              btn.disabled=false;
+              loadOverview();
+              return;
+            }
+            var slice=p.codes.slice(done,done+CHUNK);
+            fetch('/admin/coupons/api/upload-chunk',{
+              method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({activity_id:aid,prize_id:pid,codes:slice,source:'hub上傳'})
+            }).then(function(r){return r.json();}).then(function(d){
+              if(!d.ok){msg.textContent='上傳失敗：'+(d.detail||d.error||'');btn.disabled=false;return;}
+              ins+=(d.inserted||0);skip+=(d.skipped||0);done+=slice.length;
+              msg.textContent='上傳中… '+done.toLocaleString()+' / '+total.toLocaleString();
+              setTimeout(sendNext,30);
+            }).catch(function(){msg.textContent='連線錯誤，請再試一次。';btn.disabled=false;});
+          }
+          msg.textContent='上傳中…';
+          sendNext();
         });
 
         // ── 客服查詢 ──
