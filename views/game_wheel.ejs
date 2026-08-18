@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#FBF8F5" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#211713" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#FFF9E8" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <script src="/games-mgm.js?v=20260811a"></script>
@@ -13,20 +12,13 @@
        設計準據：openrice-september-wheel-ready-state-v1.png
        紙感暖底、黃銅轉盤、手繪食物線稿、活版印刷按鈕。
        禁用：紫藍漸層 / 毛玻璃 / 光暈球 / 漸層標題 / emoji / 紙花 / 滿頁陰影。 */
+    /* 這頁固定亮色。原本跟著系統深色模式走，結果手機開深色就整頁變黑，
+       跟品牌素材（奶油白底＋暖色扁平插畫）完全對不上。設計定案是亮色，不做深色版。 */
     :root{
-      --ink:#3E2723; --ink2:#8D6E63; --paper:#FBF8F5; --surface:#FFFDFB;
-      --orange:#F15A22; --yellow:#F9C73B; --line:#E4DAD2;
+      --ink:#4E342E; --ink2:#8D6E63; --paper:#FFF9E8; --surface:#FFFFFF;
+      --orange:#E8491D; --yellow:#FBC02D; --yellow-soft:#FFE08A; --line:#E7D8BE;
       --brass1:#C9A227; --brass2:#8A6A2F; --brass3:#5E4620;
-    }
-    /* 深色模式：LINE webview 跟系統走，所以主力是 media query；
-       data-theme 保留給日後後台切換用，兩者要一致。 */
-    @media (prefers-color-scheme: dark){
-      :root:not([data-theme="light"]){
-        --ink:#F7EFE7; --ink2:#BCAAA4; --paper:#211713; --surface:#30221C; --line:#4A3630;
-      }
-    }
-    [data-theme="dark"]{
-      --ink:#F7EFE7; --ink2:#BCAAA4; --paper:#211713; --surface:#30221C; --line:#4A3630;
+      color-scheme: light;
     }
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     /* display:flex/block 會蓋掉瀏覽器預設的 [hidden]，JS 藏不掉元素 */
@@ -75,12 +67,11 @@
     .hub{
       position:absolute;left:50%;top:50%;width:19%;aspect-ratio:1;transform:translate(-50%,-50%);
       border-radius:50%;z-index:4;border:0;padding:0;cursor:pointer;
-      background:
-        radial-gradient(circle at 50% 50%, transparent 0 52%, rgba(74,53,23,.55) 52% 56%, transparent 56%),
-        linear-gradient(158deg, #E2C777 0%, var(--brass1) 44%, var(--brass2) 78%, var(--brass3) 100%);
-      box-shadow:inset 0 1.5px 0 rgba(255,246,220,.6), inset 0 -2px 3px rgba(48,32,10,.45), 0 2px 5px rgba(62,39,35,.3);
-      border:1.5px solid #4A3517;
+      background:#FFFFFF;
+      border:3.4px solid #4E342E;
       font-size:0;color:transparent;
+      background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M9 21 h30 a15 15 0 0 1 -30 0 z' fill='%23FFFFFF' stroke='%234E342E' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M13 21 a11 6 0 0 1 22 0 z' fill='%23FBC02D' stroke='%234E342E' stroke-width='2.6' stroke-linejoin='round'/%3E%3Cpath d='M18 29 q6 5 12 0' fill='none' stroke='%23E8491D' stroke-width='2.8' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-size:74% 74%;background-position:center;background-repeat:no-repeat;
     }
     .hub:disabled{cursor:default}
     #wheel.windup{transition:transform .32s cubic-bezier(.34,.02,.72,.24)}
@@ -239,33 +230,22 @@
         <!-- 黃銅指針：有厚度、有鉚釘 -->
         <div class="pointer">
           <svg width="40" height="46" viewBox="0 0 40 46" aria-hidden="true">
-            <defs><linearGradient id="brassP" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#E8D08A"/><stop offset=".42" stop-color="#C9A227"/>
-              <stop offset=".78" stop-color="#8A6A2F"/><stop offset="1" stop-color="#5E4620"/>
-            </linearGradient></defs>
-            <rect x="4" y="2" width="32" height="13" rx="3" fill="url(#brassP)" stroke="#4A3517" stroke-width="1.4"/>
-            <path d="M8 15 L20 43 L32 15 Z" fill="url(#brassP)" stroke="#4A3517" stroke-width="1.4" stroke-linejoin="round"/>
-            <circle cx="9.5" cy="8.5" r="1.9" fill="#5E4620"/><circle cx="30.5" cy="8.5" r="1.9" fill="#5E4620"/>
-            <circle cx="20" cy="20" r="3.6" fill="#6E5322" stroke="#3E2C12" stroke-width="1"/>
+            <path d="M20 3 C11 3 4 9.6 4 17.6 C4 25.6 12.4 33.4 20 43 C27.6 33.4 36 25.6 36 17.6 C36 9.6 29 3 20 3 Z"
+                  fill="#E8491D" stroke="#4E342E" stroke-width="3" stroke-linejoin="round"/>
+            <circle cx="20" cy="17" r="4.4" fill="#FBC02D" stroke="#4E342E" stroke-width="2.4"/>
           </svg>
         </div>
         <div class="canvas-wrap"><canvas id="wheel" width="720" height="720"></canvas></div>
-        <!-- 黃銅外框 + 鉚釘（覆蓋在 canvas 上） -->
+        <!-- 扁平深棕外框＋圓點（覆蓋在 canvas 上） -->
         <svg class="ring" viewBox="0 0 200 200" aria-hidden="true">
-          <defs>
-            <linearGradient id="brassR" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#E8D08A"/><stop offset=".3" stop-color="#C9A227"/>
-              <stop offset=".62" stop-color="#7C5F2A"/><stop offset="1" stop-color="#4E3A1B"/>
-            </linearGradient>
-          </defs>
-          <circle cx="100" cy="100" r="92.5" fill="none" stroke="url(#brassR)" stroke-width="13"/>
-          <circle cx="100" cy="100" r="99" fill="none" stroke="#4A3517" stroke-width="1.6" opacity=".85"/>
-          <circle cx="100" cy="100" r="86" fill="none" stroke="#4A3517" stroke-width="1.6" opacity=".85"/>
-          <g fill="#5E4620">
-            <circle cx="100" cy="7.5" r="2.4"/><circle cx="165.4" cy="34.6" r="2.4"/>
-            <circle cx="192.5" cy="100" r="2.4"/><circle cx="165.4" cy="165.4" r="2.4"/>
-            <circle cx="100" cy="192.5" r="2.4"/><circle cx="34.6" cy="165.4" r="2.4"/>
-            <circle cx="7.5" cy="100" r="2.4"/><circle cx="34.6" cy="34.6" r="2.4"/>
+          <circle cx="100" cy="100" r="93" fill="none" stroke="#4E342E" stroke-width="9"/>
+          <circle cx="100" cy="100" r="84.5" fill="none" stroke="#4E342E" stroke-width="3.4"/>
+          <g stroke="#4E342E" stroke-width="2.6">
+            <circle cx="100" cy="11" r="4.2" fill="#FBC02D"/>
+            <circle cx="184.6" cy="72.5" r="4.2" fill="#E8491D"/>
+            <circle cx="152.3" cy="171.9" r="4.2" fill="#FFFFFF"/>
+            <circle cx="47.7" cy="171.9" r="4.2" fill="#E8491D"/>
+            <circle cx="15.4" cy="72.5" r="4.2" fill="#FBC02D"/>
           </g>
         </svg>
         <button type="button" id="spin-btn" class="hub" aria-label="開始轉">SPIN</button>
@@ -392,8 +372,8 @@
           // n % 3 === 1 時最後一格會跟第一格同色且相鄰，往後推一格避開。
           var ci = i % 3;
           if (i === n - 1 && n > 2 && ci === 0) ci = 1;
-          if (p.is_grand_prize) ctx.fillStyle = '#F15A22';
-          else ctx.fillStyle = ['#F6EFE4', '#F9C73B', '#E8873F'][ci];
+          if (p.is_grand_prize) ctx.fillStyle = '#D9451F';
+          else ctx.fillStyle = ['#FFFDF7', '#FBC02D', '#FFE08A'][ci];
           ctx.fill();
         });
 
@@ -403,69 +383,70 @@
           ctx.beginPath();
           ctx.moveTo(cx, cy);
           ctx.lineTo(cx + Math.cos(angle) * R, cy + Math.sin(angle) * R);
-          ctx.lineWidth = 3;
-          ctx.strokeStyle = 'rgba(78, 58, 27, 0.5)';
+          ctx.lineWidth = 5;
+          ctx.strokeStyle = '#4E342E';
+          ctx.lineCap = 'round';
           ctx.stroke();
         });
 
         // 外圈細線
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(78, 58, 27, 0.55)';
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = '#4E342E';
         ctx.stroke();
 
-        // 文字 — 沿半徑排版。獎名實務上 12–16 字（例「柒息地串燒居酒屋 折價 100 元」），
-        // 用字數估寬會把英數字切壞，所以一律用 measureText 實測。
+        // 文字 — 一律橫排、不跟著扇形旋轉。
+        // 舊版沿半徑排版，正上方那格會變成直書、左半圈上下顛倒，實機根本讀不動；
+        // 獎項多大是這頁唯一要傳達的事，讀不到就沒有意義。
         var baseFs = Math.round(R * 0.105);
-        var inner = R * 0.22, outer = R * 0.92;
-        var maxW = outer - inner;                   // 一行可用的徑向長度
-
-        function setFont(px) {
-          ctx.font = '800 ' + px + 'px "PingFang TC","Heiti TC","Microsoft JhengHei",sans-serif';
+        function setFont(px, weight) {
+          ctx.font = (weight || 800) + ' ' + px + 'px "PingFang TC","Heiti TC","Microsoft JhengHei",sans-serif';
         }
-        function ellipsize(t) {
-          if (ctx.measureText(t).width <= maxW) return t;
-          while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
-          return t + '…';
+        // 獎品名慣例是「【26,000 哩】頭獎」：括號內是主角（大字），括號外是獎次（小字）。
+        // 沒有括號就整串當一行，太長才從空白處切兩行。
+        function splitLabel(name) {
+          var t = String(name || '').trim();
+          var m = t.match(/^\u3010(.+?)\u3011\s*(.*)$/);
+          if (m) return { big: m[1].trim(), small: (m[2] || '').trim() };
+          if (t.length <= 6) return { big: t, small: '' };
+          var sp = t.indexOf(' ');
+          if (sp > 0) return { big: t.slice(0, sp), small: t.slice(sp + 1) };
+          var h = Math.ceil(t.length / 2);
+          return { big: t.slice(0, h), small: t.slice(h) };
         }
-        // 回傳 { fs, lines }：先試單行，再在空白處切成兩段（餐廳名／獎品內容），
-        // 然後縮字級塞進去，最後才截斷。
-        function layoutLabel(label) {
-          setFont(baseFs);
-          if (ctx.measureText(label).width <= maxW) return { fs: baseFs, lines: [label] };
-
-          var sp = label.indexOf(' ');
-          var lines = sp > 0
-            ? [label.slice(0, sp), label.slice(sp + 1)]
-            : (function () { var h = Math.ceil(label.length / 2); return [label.slice(0, h), label.slice(h)]; })();
-
-          var widest = 0;
-          for (var k = 0; k < lines.length; k++) widest = Math.max(widest, ctx.measureText(lines[k]).width);
-          var fs = Math.max(Math.round(baseFs * 0.62), Math.floor(baseFs * maxW / widest));
-          if (fs > baseFs) fs = baseFs;
-          setFont(fs);
-          return { fs: fs, lines: [ellipsize(lines[0]), ellipsize(lines[1])] };
+        function fitText(t, px, maxW) {
+          setFont(px);
+          while (px > 9 && ctx.measureText(t).width > maxW) { px -= 1; setFont(px); }
+          return px;
         }
 
         prizes.forEach(function (p, i) {
           var midAngle = i * anglePer - Math.PI / 2 + anglePer / 2;
-          var lay = layoutLabel(String(p.name || '').trim());
-          var lineH = Math.round(lay.fs * 1.14);
+          var lab = splitLabel(p.name);
+          // 放在扇形重心附近；格子越多半徑越往外，字才不會擠在圓心
+          var rr = R * (n <= 5 ? 0.60 : 0.66);
+          var x = cx + Math.cos(midAngle) * rr;
+          var y = cy + Math.sin(midAngle) * rr;
+          // 一格在該半徑上的弦長，就是這行字能用的寬度
+          var maxW = Math.max(56, 2 * rr * Math.sin(anglePer / 2) * 0.92);
 
           ctx.save();
-          ctx.translate(cx, cy);
-          ctx.rotate(midAngle);
-          var flipped = Math.cos(midAngle) < 0;     // 左半邊要翻轉，否則字是顛倒的
-          if (flipped) ctx.rotate(Math.PI);
-          ctx.textAlign = flipped ? 'left' : 'right';
+          ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillStyle = p.is_grand_prize ? '#FFFFFF' : '#3E2723';
-          setFont(lay.fs);
+          ctx.fillStyle = p.is_grand_prize ? '#FFFFFF' : '#4E342E';
 
-          var x = flipped ? -outer : outer;
-          var y0 = -((lay.lines.length - 1) * lineH) / 2;
-          lay.lines.forEach(function (t, li) { ctx.fillText(t, x, y0 + li * lineH); });
+          var bigPx = fitText(lab.big, Math.round(baseFs * 1.15), maxW);
+          var smallPx = Math.max(9, Math.round(bigPx * 0.55));
+          if (lab.small) {
+            setFont(bigPx);
+            ctx.fillText(lab.big, x, y - Math.round(bigPx * 0.42));
+            setFont(smallPx, 700);
+            ctx.fillText(lab.small, x, y + Math.round(bigPx * 0.52));
+          } else {
+            setFont(bigPx);
+            ctx.fillText(lab.big, x, y);
+          }
           ctx.restore();
         });
 
