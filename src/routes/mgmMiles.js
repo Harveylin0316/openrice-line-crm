@@ -178,6 +178,8 @@ function registerMgmMilesRoutes(app, deps) {
         const stats = (await query(
           `SELECT
              COALESCE(SUM((prize_snapshot->>'miles')::int), 0)::int AS miles_total,
+             COALESCE(SUM((prize_snapshot->>'miles')::int)
+                      FILTER (WHERE NOT COALESCE(is_redeemed, false)), 0)::int AS miles_pending,
              COUNT(*) FILTER (WHERE prize_snapshot->>'miles' IS NOT NULL)::int AS grants,
              COUNT(*) FILTER (WHERE prize_snapshot->>'miles' IS NOT NULL AND COALESCE(is_redeemed,false))::int AS granted_done,
              COUNT(DISTINCT line_user_id)::int AS people
@@ -235,7 +237,10 @@ function registerMgmMilesRoutes(app, deps) {
           `SELECT p.line_user_id AS uid,
                   COALESCE(u.line_display_name, MAX(p.line_display_name), '—') AS display_name,
                   COALESCE(SUM((p.prize_snapshot->>'miles')::int), 0)::int AS miles,
-                  COUNT(*) FILTER (WHERE p.prize_snapshot->>'miles' IS NOT NULL)::int AS grants,
+                  COALESCE(SUM((p.prize_snapshot->>'miles')::int)
+                           FILTER (WHERE NOT COALESCE(p.is_redeemed, false)), 0)::int AS miles_pending,
+                  COALESCE(SUM((p.prize_snapshot->>'miles')::int)
+                           FILTER (WHERE COALESCE(p.is_redeemed, false)), 0)::int AS miles_done,
                   COUNT(*) FILTER (WHERE p.prize_snapshot->>'miles' IS NOT NULL
                                      AND NOT COALESCE(p.is_redeemed, false))::int AS pending,
                   COALESCE(BOOL_OR(p.prize_snapshot->>'kind' = 'draw_ticket'), false) AS qualified,
