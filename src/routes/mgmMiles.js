@@ -14,7 +14,7 @@
  *   POST /admin/mgm/api/config            存設定（限管理員）
  *   POST /admin/mgm/api/mark-granted      批次標記「已發放」（人工入帳完成）
  */
-const { registerReferral } = require('../core/gamePlayEngine');
+const { registerReferral, computeUserQuota } = require('../core/gamePlayEngine');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 
 function registerMgmMilesRoutes(app, deps) {
@@ -203,7 +203,7 @@ function registerMgmMilesRoutes(app, deps) {
                 COALESCE(SUM((prize_snapshot->>'miles')::int)
                          FILTER (WHERE NOT COALESCE(is_redeemed, false)), 0)::int AS miles_pending,
                 COUNT(*) FILTER (WHERE COALESCE(prize_snapshot->>'prize_type','') <> 'none')::int AS wins,
-                COUNT(*)::int AS plays,
+                COUNT(*) FILTER (WHERE COALESCE(prize_snapshot->>'kind','') <> 'draw_win')::int AS plays,
                 COUNT(DISTINCT line_user_id)::int AS people
            FROM activity_plays WHERE activity_id = $1`, [aid])).rows[0];
       const refs = (await query(
@@ -477,27 +477,13 @@ function registerMgmMilesRoutes(app, deps) {
         `SELECT COALESCE(line_display_name, '(沒有名字)') AS display_name, created_at, blocked_at, archived_at
            FROM users WHERE line_user_id = $1 LIMIT 1`, [uid])).rows[0] || null;
 
-      // 次數怎麼算出來的
-      const refCount = (await query(
-        `SELECT COUNT(*) FILTER (WHERE invitee_was_existing IS FALSE)::int AS new_friends,
-                COUNT(*) FILTER (WHERE invitee_was_existing IS NOT FALSE)::int AS existing_friends
-           FROM activity_referrals WHERE activity_id = $1 AND inviter_line_user_id = $2`,
-        [act.id, uid])).rows[0];
-      const playedRow = (await query(
-        `SELECT COUNT(*)::int AS c FROM activity_plays
-          WHERE activity_id = $1 AND line_user_id = $2
-            AND COALESCE(prize_snapshot->>'kind','') <> 'draw_win'`, [act.id, uid])).rows[0];
-      const bonusRow = (await query(
-        `SELECT COALESCE(SUM(plays),0)::int AS b FROM activity_bonus_plays
-          WHERE activity_id = $1 AND line_user_id = $2`, [act.id, uid])).rows[0];
-      const perBonus = Math.max(1, Number(act.referral_invites_per_bonus || 1));
-      const refPer = Number(act.referral_bonus_per || 0);
-      const refMax = Number(act.referral_bonus_max || 0);
-      const referralBonus = Math.min(refMax, Math.floor(refCount.new_friends / perBonus) * refPer);
-      const base = Number(act.base_plays_per_user || 0);
-      const bonus = Number(bonusRow.b || 0);
-      const total = base + referralBonus + bonus;
-      const played = Number(playedRow.c || 0);
+      // 次數一律走 computeUserQuota——與玩家實際能玩的關卡是同一份公式。
+      // 這裡曾經自己手寫一套（漏了 activity_user_quotas 的個別配額、base 預設值也不同），
+      // 客服看到的數字會跟玩家實際能玩的對不起來。
+      const quota = await computeUserQuota(query, act, uid);
+      const perBonus = quota.referral_invites_per_bonus;
+      const refPer = quota.referral_bonus_per;
+      const refMax = quota.referral_bonus_max;
 
       const referrals = (await query(
         `SELECT r.created_at, r.invitee_line_user_id AS uid,
@@ -537,14 +523,15 @@ function registerMgmMilesRoutes(app, deps) {
 
       res.json({ ok: true,
         activity: { id: act.id, name: act.name, slug: act.slug,
-                    base_plays_per_user: base, referral_bonus_per: refPer,
+                    base_plays_per_user: quota.base, referral_bonus_per: refPer,
                     referral_invites_per_bonus: perBonus, referral_bonus_max: refMax },
         user: { uid: uid, display_name: prof ? prof.display_name : '(查不到這個人)',
                 is_member: !!prof && !prof.archived_at, blocked: !!(prof && prof.blocked_at),
                 joined_at: prof ? prof.created_at : null },
-        quota: { base: base, referral_bonus: referralBonus, manual_bonus: bonus,
-                 total: total, played: played, remaining: Math.max(0, total - played),
-                 new_friends: refCount.new_friends, existing_friends: refCount.existing_friends },
+        quota: { base: quota.base, referral_bonus: quota.referral_bonus, manual_bonus: quota.bonus_plays,
+                 total: quota.total, played: quota.played, remaining: quota.remaining,
+                 new_friends: quota.referrals, existing_friends: quota.referrals_existing,
+                 override: quota.override },
         referrals, attempts, plays, bonuses });
     } catch (err) {
       console.error('user lookup error:', err && err.message);
@@ -598,7 +585,9 @@ function registerMgmMilesRoutes(app, deps) {
                 x.joined_at
            FROM (
              SELECT p.line_user_id AS uid, MIN(p.played_at) AS joined_at
-               FROM activity_plays p WHERE p.activity_id = $1 GROUP BY p.line_user_id
+               FROM activity_plays p WHERE p.activity_id = $1
+                AND COALESCE(p.prize_snapshot->>'kind','') <> 'draw_win'
+              GROUP BY p.line_user_id
              UNION
              SELECT r.inviter_line_user_id AS uid, MIN(r.created_at) AS joined_at
                FROM activity_referrals r
@@ -614,7 +603,9 @@ function registerMgmMilesRoutes(app, deps) {
           GROUP BY inviter_line_user_id`, [act.id])).rows;
       const played = (await query(
         `SELECT line_user_id AS uid, COUNT(*)::int AS plays
-           FROM activity_plays WHERE activity_id = $1 GROUP BY line_user_id`, [act.id])).rows;
+           FROM activity_plays WHERE activity_id = $1
+            AND COALESCE(prize_snapshot->>'kind','') <> 'draw_win'
+          GROUP BY line_user_id`, [act.id])).rows;
       const winners = (await query(
         `SELECT p.id, p.line_user_id AS uid,
                 COALESCE(u.line_display_name, '(沒有名字)') AS display_name,
@@ -651,7 +642,9 @@ function registerMgmMilesRoutes(app, deps) {
       // 參加者：玩過或邀請成功過的人，再照條件篩（最少邀請幾位／一定要玩過）
       const { rows: pool } = await query(
         `WITH base AS (
-           SELECT p.line_user_id AS uid FROM activity_plays p WHERE p.activity_id = $1
+           SELECT p.line_user_id AS uid FROM activity_plays p
+            WHERE p.activity_id = $1
+              AND COALESCE(p.prize_snapshot->>'kind','') <> 'draw_win'
            UNION
            SELECT r.inviter_line_user_id FROM activity_referrals r
             WHERE r.activity_id = $1 AND r.invitee_was_existing IS FALSE
@@ -662,7 +655,8 @@ function registerMgmMilesRoutes(app, deps) {
                     AND r2.invitee_was_existing IS FALSE) >= $3
             AND ($4::boolean = false OR EXISTS (
                   SELECT 1 FROM activity_plays p2
-                   WHERE p2.activity_id = $1 AND p2.line_user_id = b.uid))
+                   WHERE p2.activity_id = $1 AND p2.line_user_id = b.uid
+                     AND COALESCE(p2.prize_snapshot->>'kind','') <> 'draw_win'))
             AND ($2::boolean OR NOT EXISTS (
                   SELECT 1 FROM activity_plays w
                    WHERE w.activity_id = $1 AND w.line_user_id = b.uid

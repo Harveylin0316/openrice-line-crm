@@ -90,7 +90,10 @@ function registerAdminUsersRoutes(app, deps) {
 
       // 行為統計
       const counts = {};
-      const c1 = await query(`SELECT COUNT(*)::int AS plays, COUNT(*) FILTER (WHERE prize_id IS NOT NULL)::int AS wins FROM activity_plays WHERE line_user_id = $1`, [luid]);
+      // 「玩過幾次」排除後台大獎抽獎寫進來的 kind='draw_win'（那不是他自己抽的）。
+      const c1 = await query(`SELECT COUNT(*) FILTER (WHERE COALESCE(prize_snapshot->>'kind', '') <> 'draw_win')::int AS plays,
+                                     COUNT(*) FILTER (WHERE prize_id IS NOT NULL)::int AS wins
+                                FROM activity_plays WHERE line_user_id = $1`, [luid]);
       counts.game_plays = Number(c1.rows[0]?.plays || 0);
       counts.prizes_won = Number(c1.rows[0]?.wins || 0);
       counts.broadcast_clicks = Number((await query(`SELECT COUNT(*)::int AS n FROM admin_broadcast_clicks WHERE line_user_id = $1`, [luid])).rows[0]?.n || 0);

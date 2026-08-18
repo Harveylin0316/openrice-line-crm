@@ -273,11 +273,20 @@
           (u.is_member?'':' <span class="mg-wait">不是現在這個官方帳號的好友</span>')+'</div>');
         lines.push('<div class="muted" style="font-size:11.5px;margin-bottom:10px;">'+esc(u.uid)+
           (u.joined_at?('　加入於 '+tw(u.joined_at)):'')+'</div>');
+        // 個別配額（activity_user_quotas）會「取代」基本＋邀請，不是加上去。
+        // 這裡照著 computeUserQuota 的算法講，畫面不自己再算一次。
+        var quotaHead = q.override
+          ? ('他的次數：<b>個別配額 '+q.override.max_plays+'</b> 次'+
+             '<span class="muted" style="font-size:12px;">（後台為他單獨指定，已取代基本 '+q.base+
+             ' ＋ 邀請加碼 '+q.referral_bonus+'）</span>')
+          : ('他的次數：基本 <b>'+q.base+'</b> 次'+
+             '　＋　邀請加碼 <b>'+q.referral_bonus+'</b> 次');
         lines.push('<div style="font-size:14px;line-height:2;">'+
-          '他的次數：基本 <b>'+q.base+'</b> 次'+
-          '　＋　邀請加碼 <b>'+q.referral_bonus+'</b> 次'+
+          quotaHead+
           (q.manual_bonus?('　＋　人工補發 <b>'+q.manual_bonus+'</b> 次'):'')+
           '　＝　總共 <b style="font-size:17px;">'+q.total+'</b> 次<br>'+
+          (q.override && q.override.note
+            ? '<span class="muted" style="font-size:12px;">配額備註：'+esc(q.override.note)+'</span><br>' : '')+
           '已經玩掉 <b>'+q.played+'</b> 次，<b>還能玩 '+q.remaining+' 次</b></div>');
         lines.push('<div class="muted" style="font-size:12.5px;margin-top:8px;line-height:1.8;">'+
           '成功邀請到 '+q.new_friends+' 位新朋友（本來就是好友的 '+q.existing_friends+' 位不算次數）。'+

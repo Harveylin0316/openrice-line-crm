@@ -89,8 +89,11 @@ function registerAdminActivitiesRoutes(app, deps) {
           a.start_at, a.end_at, a.cover_image_url, a.daily_plays_per_user,
           a.require_follow_oa, a.liff_id_override, a.created_at, a.updated_at,
           (SELECT COUNT(*) FROM activity_prizes p WHERE p.activity_id = a.id) AS prize_count,
-          (SELECT COUNT(*) FROM activity_plays pl WHERE pl.activity_id = a.id) AS play_count,
-          (SELECT COUNT(DISTINCT pl.line_user_id) FROM activity_plays pl WHERE pl.activity_id = a.id) AS player_count
+          -- 抽次口徑：kind='draw_win' 是後台大獎抽獎寫進來的，不是玩家自己抽的，不計入。
+          (SELECT COUNT(*) FROM activity_plays pl WHERE pl.activity_id = a.id
+             AND COALESCE(pl.prize_snapshot->>'kind', '') <> 'draw_win') AS play_count,
+          (SELECT COUNT(DISTINCT pl.line_user_id) FROM activity_plays pl WHERE pl.activity_id = a.id
+             AND COALESCE(pl.prize_snapshot->>'kind', '') <> 'draw_win') AS player_count
         FROM activities a
         ORDER BY a.created_at DESC
       `;
@@ -314,7 +317,9 @@ function registerAdminActivitiesRoutes(app, deps) {
           pl.line_user_id,
           -- GROUP BY 只留 line_user_id（改過名的用戶不拆列），顯示名取最新一筆
           (ARRAY_AGG(pl.line_display_name ORDER BY pl.played_at DESC))[1] AS line_display_name,
-          COUNT(*) AS plays,
+          -- 「抽次」必須跟引擎的已玩次數同一個口徑：後台大獎抽獎寫進來的
+          -- kind='draw_win' 不是玩家自己抽的，不佔次數，也不該算進這一欄。
+          COUNT(*) FILTER (WHERE COALESCE(pl.prize_snapshot->>'kind', '') <> 'draw_win') AS plays,
           COUNT(*) FILTER (WHERE pl.prize_id IS NOT NULL) AS wins,
           COUNT(*) FILTER (WHERE pr.is_grand_prize = TRUE) AS grand_wins,
           MAX(pl.played_at) AS last_played_at,
@@ -375,7 +380,9 @@ function registerAdminActivitiesRoutes(app, deps) {
            COUNT(*) FILTER (WHERE prize_id IS NOT NULL) AS total_wins,
            COUNT(*) FILTER (WHERE played_at >= NOW() - INTERVAL '24 hours') AS plays_24h,
            COUNT(*) FILTER (WHERE played_at >= NOW() - INTERVAL '7 days') AS plays_7d
-         FROM activity_plays WHERE activity_id = $1`,
+         FROM activity_plays
+        WHERE activity_id = $1
+          AND COALESCE(prize_snapshot->>'kind', '') <> 'draw_win'`,
         [id]
       );
       res.json({ ok: true, players: rows, overview: ov[0] || {} });
@@ -535,7 +542,9 @@ function registerAdminActivitiesRoutes(app, deps) {
           COUNT(DISTINCT line_user_id) AS players,
           COUNT(*) FILTER (WHERE prize_id IS NOT NULL) AS wins,
           COUNT(*) FILTER (WHERE played_at >= date_trunc('day', NOW())) AS plays_today
-        FROM activity_plays WHERE activity_id = $1
+        FROM activity_plays
+        WHERE activity_id = $1
+          AND COALESCE(prize_snapshot->>'kind', '') <> 'draw_win'
       `;
       const prizesSQL = `
         SELECT
