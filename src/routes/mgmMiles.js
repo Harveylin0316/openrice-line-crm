@@ -306,12 +306,7 @@ function registerMgmMilesRoutes(app, deps) {
       );
       if (ins.rows.length === 0) return jsonErr(res, 409, 'slug_taken', { detail: '這個網址代號已經有活動在用了' });
       const aid = ins.rows[0].id;
-      // 預設獎品：見面禮 100 里、揪友 100 里（人工發放的「里數」獎品）
-      await query(
-        `INSERT INTO activity_prizes (activity_id, name, description, probability_weight, prize_type, prize_value, position)
-         VALUES ($1, '見面禮 100 里', '加入官方帳號好友即獲得，活動結束後統一發放', 0, 'badge', '{"miles":100,"kind":"welcome"}'::jsonb, 1)`,
-        [aid]
-      );
+      // 不建獎品：好友推薦沒有獎品池的概念，哩數由引擎直接寫進帳本。
       res.json({ ok: true, id: aid, slug });
     } catch (err) {
       console.error('mgm create error:', err && err.message);
@@ -361,17 +356,8 @@ function registerMgmMilesRoutes(app, deps) {
         [id, JSON.stringify(mgm), status, name, body.start_at || null, body.end_at || null]
       );
       if (upd.rows.length === 0) return jsonErr(res, 404, 'not_found');
-      // 確保對應里數的獎品存在（發放時要用；沒有就自動補）
-      for (const [miles, kind, label] of [[mgm.welcome_miles, 'welcome', '見面禮'], [mgm.per_miles, 'referral', '揪友達標']]) {
-        if (miles > 0) {
-          await query(
-            `INSERT INTO activity_prizes (activity_id, name, description, probability_weight, prize_type, prize_value, position)
-             SELECT $1, $2, '活動結束後統一發放', 0, 'badge', $3::jsonb, 9
-             WHERE NOT EXISTS (SELECT 1 FROM activity_prizes WHERE activity_id = $1 AND (prize_value->>'miles')::int = $4)`,
-            [id, label + ' ' + miles + ' 里', JSON.stringify({ miles, kind }), miles]
-          );
-        }
-      }
+      // 這裡以前會自動補一列「里數獎品」到獎品池。已移除：
+      // 好友推薦沒有獎品池的概念，哩數由引擎直接寫進帳本，補了只會讓「活動管理」多一頁看不懂的東西。
       res.json({ ok: true });
     } catch (err) {
       console.error('mgm config error:', err && err.message);
