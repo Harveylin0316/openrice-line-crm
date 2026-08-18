@@ -114,6 +114,7 @@
     .invite-title .n{color:var(--orange);font-size:19px;margin:0 2px}
     .invite-sub{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.5}
     .invite-meta{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.5}
+    #invite-existing{display:block;font-size:11px;opacity:.9}
     .invite-meta .n{font-size:16px;font-weight:900;color:var(--orange);margin:0 2px;display:inline-block}
     .invite-card.maxed .invite-meta .n{color:var(--ink2)}
     .invite-btn{
@@ -278,7 +279,7 @@
 %>
           <div class="invite-title">找朋友一起，多一次機會</div>
           <div class="invite-sub" id="invite-sub"><%= _ruleText %>，最多加 <%= activity.referral_bonus_max %> 次</div>
-          <div class="invite-meta">已邀 <span class="n" id="stat-referrals">0</span> 人</div>
+          <div class="invite-meta">已邀 <span class="n" id="stat-referrals">0</span> 人<span id="invite-existing"></span></div>
         <% } else { %>
           <div class="invite-title">分享給朋友一起玩</div>
           <div class="invite-sub" id="invite-sub">把這個活動傳出去</div>
@@ -883,8 +884,15 @@
       function handleReferralResult(r) {
         if (!r) return;
         if (r.state === 'done') {
-          if (r.counted) ORMGM.toast('好了，這次算你朋友邀請成功');
-          else if (r.sameInviter === false) ORMGM.toast('你已經在這個活動裡了，直接開始玩');
+          // 本來就是官方帳號好友 → 不會幫邀請人加次數。要當場講，
+          // 否則對方會回頭跟朋友說「我幫你點了」，朋友卻沒多一次機會，兩邊都覺得系統壞了。
+          if (r.counted && r.wasExisting) {
+            ORMGM.toast('你本來就是官方帳號好友，這次不算朋友的新邀請，但你自己照樣可以玩');
+          } else if (r.counted) {
+            ORMGM.toast('好了，這次算你朋友邀請成功');
+          } else if (r.sameInviter === false) {
+            ORMGM.toast('你已經在這個活動裡了，直接開始玩');
+          }
           return;
         }
         if (r.state !== 'pending') return;
@@ -1012,6 +1020,12 @@
         var refEl = document.getElementById('stat-referrals');
         if (remEl) remEl.textContent = q.remaining;
         if (refEl) refEl.textContent = q.referrals;
+        // 有人點了連結但本來就是好友 → 明講不算，否則邀請人會以為系統沒算到他
+        var exEl = document.getElementById('invite-existing');
+        if (exEl) {
+          var ex = Number(q.referrals_existing || 0);
+          exEl.textContent = ex > 0 ? ('（另外 ' + ex + ' 位本來就是好友，不加次數）') : '';
+        }
         if (remEl && lastRemaining !== null && lastRemaining !== q.remaining) popStat(remEl);
         if (refEl && lastReferrals !== null && lastReferrals !== q.referrals) popStat(refEl);
         lastRemaining = q.remaining;

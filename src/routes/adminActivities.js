@@ -323,7 +323,11 @@ function registerAdminActivitiesRoutes(app, deps) {
           q.note AS quota_note,
           q.granted_by AS quota_granted_by,
           (SELECT COUNT(*) FROM activity_referrals r
-           WHERE r.activity_id = $1 AND r.inviter_line_user_id = pl.line_user_id) AS referrals,
+           WHERE r.activity_id = $1 AND r.inviter_line_user_id = pl.line_user_id
+             AND r.invitee_was_existing IS FALSE) AS referrals,
+          (SELECT COUNT(*) FROM activity_referrals r
+           WHERE r.activity_id = $1 AND r.inviter_line_user_id = pl.line_user_id
+             AND r.invitee_was_existing IS NOT FALSE) AS referrals_existing,
           u.line_display_name AS crm_display_name
         FROM activity_plays pl
         LEFT JOIN activity_prizes pr ON pr.id = pl.prize_id
@@ -359,6 +363,7 @@ function registerAdminActivitiesRoutes(app, deps) {
           quota_note: o.note,
           quota_granted_by: o.granted_by,
           referrals: 0,
+          referrals_existing: 0,
           crm_display_name: o.crm_display_name
         });
       });
