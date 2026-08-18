@@ -199,6 +199,7 @@
           <label class="ae-field ae-field-full" id="pm-value-field">
             <span id="pm-value-label">獎勵金額 / 內容</span>
             <input type="text" id="pm-value" placeholder="100" />
+            <small class="muted" id="pm-extra-note" style="font-size:11px;line-height:1.5;" hidden></small>
           </label>
           <label class="ae-field ae-field-full">
             <input type="checkbox" id="pm-grand" /> 標記為大獎（UI 動畫加強）
@@ -458,7 +459,7 @@
         if (!hint) return;
         var mine = Number($('pm-weight').value || 0);
         var others = currentPrizes.reduce(function (sum, p) {
-          return sum + (p.id === editingPrizeId ? 0 : Number(p.probability_weight || 0));
+          return sum + (String(p.id) === String(editingPrizeId) ? 0 : Number(p.probability_weight || 0));
         }, 0);
         var total = others + mine;
         if (!(total > 0)) { hint.textContent = ''; return; }
@@ -501,7 +502,7 @@
         renderPctBar(totalWeight);
 
         $$('.ae-edit-prize', tbody).forEach(function (btn) {
-          btn.addEventListener('click', function () { openPrizeModal(Number(btn.getAttribute('data-id'))); });
+          btn.addEventListener('click', function () { openPrizeModal(btn.getAttribute('data-id')); });
         });
         $$('.ae-del-prize', tbody).forEach(function (btn) {
           btn.addEventListener('click', function () {
@@ -524,7 +525,7 @@
         if (wIn && !wIn.__hintBound) { wIn.__hintBound = true; wIn.addEventListener('input', updateWeightHint); }
         $('prize-modal-title').textContent = editingPrizeId ? '編輯獎品' : '新增獎品';
         if (editingPrizeId) {
-          var p = currentPrizes.find(function (x) { return x.id === editingPrizeId; });
+          var p = currentPrizes.find(function (x) { return String(x.id) === String(editingPrizeId); });
           if (!p) return;
           $('pm-name').value = p.name || '';
           $('pm-type').value = p.prize_type || 'badge';
@@ -535,7 +536,8 @@
           $('pm-desc').value = p.description || '';
           $('pm-grand').checked = Boolean(p.is_grand_prize);
           var v = p.prize_value || {};
-          $('pm-value').value = v.amount || v.code || v.note || '';
+          $('pm-value').value = v.amount || v.code || v.label || v.note || '';
+          showExtraValueNote(v);
         } else {
           $('pm-name').value = '';
           $('pm-type').value = 'badge';
@@ -546,11 +548,25 @@
           $('pm-desc').value = '';
           $('pm-grand').checked = false;
           $('pm-value').value = '';
+          showExtraValueNote(null);
         }
         updatePrizeValueLabel();
         updateWeightHint();
         $('prize-modal').hidden = false;
       }
+      // 這筆獎品有沒有「畫面上看不到但程式在用」的設定？有就講出來，讓人知道存檔不會弄丟
+      function showExtraValueNote(v) {
+        var note = $('pm-extra-note');
+        if (!note) return;
+        var shown = { amount: 1, code: 1, label: 1, note: 1 };
+        var extras = v && typeof v === 'object'
+          ? Object.keys(v).filter(function (k) { return !shown[k]; })
+          : [];
+        if (!extras.length) { note.hidden = true; note.textContent = ''; return; }
+        note.hidden = false;
+        note.textContent = '這個獎品另外存了進階設定（' + extras.join('、') + '），存檔時會原封不動保留。';
+      }
+
       function closePrizeModal() {
         $('prize-modal').hidden = true;
         editingPrizeId = null;
@@ -578,11 +594,20 @@
       $('pm-save').addEventListener('click', function () {
         var pt = $('pm-type').value;
         var valStr = $('pm-value').value.trim();
+        // 先把這筆獎品原本存的內容整包接住（里數、券的注意事項、兌換連結…畫面上沒有欄位，
+        // 但後台程式會用；不接住的話一按儲存就被清空，獎品會發不出去）
         var prizeValue = {};
-        if (pt === 'rice_dollar' && valStr) prizeValue.amount = Number(valStr);
-        else if (pt === 'coupon_code' && valStr) prizeValue.code = valStr;
-        else if (pt === 'badge' && valStr) prizeValue.label = valStr;
-        else if (pt === 'physical' && valStr) prizeValue.note = valStr;
+        if (editingPrizeId) {
+          var origPrize = currentPrizes.find(function (x) { return String(x.id) === String(editingPrizeId); });
+          if (origPrize && origPrize.prize_value && typeof origPrize.prize_value === 'object') {
+            try { prizeValue = JSON.parse(JSON.stringify(origPrize.prize_value)); } catch (e) { prizeValue = {}; }
+          }
+        }
+        var valueKey = ({ rice_dollar: 'amount', coupon_code: 'code', badge: 'label', physical: 'note' })[pt];
+        if (valueKey) {
+          if (valStr) prizeValue[valueKey] = (pt === 'rice_dollar') ? Number(valStr) : valStr;
+          else delete prizeValue[valueKey];
+        }
 
         var data = {
           name: $('pm-name').value.trim(),
