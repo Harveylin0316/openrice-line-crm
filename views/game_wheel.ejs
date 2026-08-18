@@ -721,10 +721,12 @@
           if (prize.prize_value.label) descParts.push(prize.prize_value.label);
           if (prize.prize_value.note) descParts.push(prize.prize_value.note);
         }
-        // 後台填的獎品說明（例「消費滿 500 元可用」）也要露出，不然使用者不知道怎麼用
-        if (prize.description) descParts.push(String(prize.description));
+        // 後台填的獎品說明（例「消費滿 500 元可用」）也要露出，不然使用者不知道怎麼用。
+        // 但「銘謝惠顧」不是獎品，那一格的說明欄實務上都被當成後台備註在寫
+        // （實際看過：「沒中獎時顯示這個」），照秀出去等於把內部字條貼到用戶臉上。
+        if (prize.description && !noPrize) descParts.push(String(prize.description));
         var descText = descParts.join(' · ');
-        if (!descText && noPrize) descText = '這次沒中，找個朋友一起，再試一次';
+        if (noPrize) descText = '這次沒中，找個朋友一起，再試一次';
         document.getElementById('modal-desc').textContent = descText;
         if (prize.is_grand_prize) modal.classList.add('grand');
         else modal.classList.remove('grand');
