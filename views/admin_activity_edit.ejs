@@ -202,6 +202,11 @@
             <small class="muted" id="pm-extra-note" style="font-size:11px;line-height:1.5;" hidden></small>
           </label>
           <label class="ae-field ae-field-full">
+            <span>這個獎品等於幾哩（可留空）</span>
+            <input type="number" id="pm-miles" min="0" placeholder="例：500" />
+            <small class="muted" style="font-size:11px;line-height:1.5;">填了之後，中到這個獎的人會出現在「活動成效 → 誰中了什麼獎」的要發哩數名單裡，你照名單人工入帳。沒有要發哩數就留空。</small>
+          </label>
+          <label class="ae-field ae-field-full">
             <input type="checkbox" id="pm-grand" /> 標記為大獎（UI 動畫加強）
           </label>
         </div>
@@ -537,6 +542,7 @@
           $('pm-grand').checked = Boolean(p.is_grand_prize);
           var v = p.prize_value || {};
           $('pm-value').value = v.amount || v.code || v.label || v.note || '';
+          $('pm-miles').value = (v.miles != null ? v.miles : '');
           showExtraValueNote(v);
         } else {
           $('pm-name').value = '';
@@ -548,6 +554,7 @@
           $('pm-desc').value = '';
           $('pm-grand').checked = false;
           $('pm-value').value = '';
+          $('pm-miles').value = '';
           showExtraValueNote(null);
         }
         updatePrizeValueLabel();
@@ -558,7 +565,7 @@
       function showExtraValueNote(v) {
         var note = $('pm-extra-note');
         if (!note) return;
-        var shown = { amount: 1, code: 1, label: 1, note: 1 };
+        var shown = { amount: 1, code: 1, label: 1, note: 1, miles: 1 };
         var extras = v && typeof v === 'object'
           ? Object.keys(v).filter(function (k) { return !shown[k]; })
           : [];
@@ -603,6 +610,9 @@
             try { prizeValue = JSON.parse(JSON.stringify(origPrize.prize_value)); } catch (e) { prizeValue = {}; }
           }
         }
+        var milesStr = ($('pm-miles').value || '').trim();
+        if (milesStr && Number(milesStr) > 0) prizeValue.miles = Number(milesStr);
+        else delete prizeValue.miles;
         var valueKey = ({ rice_dollar: 'amount', coupon_code: 'code', badge: 'label', physical: 'note' })[pt];
         if (valueKey) {
           if (valStr) prizeValue[valueKey] = (pt === 'rice_dollar') ? Number(valStr) : valStr;
