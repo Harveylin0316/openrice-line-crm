@@ -407,25 +407,53 @@ function createLineWebhookHandler({
           // 與手機登記同放在關鍵字比對之前短路（replyToken 一次性）。
           // 只在一對一聊天觸發：登記綁個人身分，群組裡傳手機號碼不該被當成登記。
           const isOneOnOne = event?.source?.type === 'user';
-          // 揪友賺哩：圖文選單按鍵（發送文字）→ 回分享卡片。沒有進行中的活動就不攔，讓關鍵字規則接手
-          if (isOneOnOne && String(event.message.text || '').trim() === '揪友賺哩' &&
-              mgmEngine && typeof mgmEngine.buildEntryCard === 'function') {
-            let mgmCard = null;
-            try { mgmCard = await mgmEngine.buildEntryCard(event.source.userId); }
-            catch (e) { console.error('mgm entry card failed:', e.message); }
-            if (mgmCard) {
+          // 打活動名稱（例如「分享超有哩」）就回那個遊戲的卡片。
+          // 用活動名稱當關鍵字＝以後開新活動不用改程式，取好名字就能用。
+          const typed = String(event.message.text || '').trim();
+          if (isOneOnOne && typed.length >= 2 && typed.length <= 40) {
+            let game = null;
+            try {
+              const { rows } = await pool.query(
+                `SELECT slug, name, description, game_type, cover_image_url, liff_id_override
+                   FROM activities
+                  WHERE status = 'active' AND game_type <> 'mgm' AND name = $1
+                    AND (start_at IS NULL OR start_at <= now())
+                    AND (end_at IS NULL OR end_at >= now())
+                  ORDER BY id DESC LIMIT 1`, [typed]);
+              game = rows[0] || null;
+            } catch (e) { console.error('game keyword lookup failed:', e.message); }
+            if (game) {
+              const gameLiff = game.liff_id_override || process.env.GAMES_LIFF_ID ||
+                               process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '';
+              const url = 'https://liff.line.me/' + gameLiff + '/' + game.game_type + '/' +
+                          encodeURIComponent(game.slug);
+              const bubble = {
+                type: 'bubble',
+                body: { type: 'box', layout: 'vertical', spacing: 'md', paddingAll: '20px', contents: [
+                  { type: 'text', text: game.name, weight: 'bold', size: 'lg', wrap: true, color: '#3E2723' },
+                  { type: 'text', text: String(game.description || '點下面的按鈕開始玩'), size: 'sm', wrap: true, color: '#8D6E63' }
+                ]},
+                footer: { type: 'box', layout: 'vertical', paddingAll: '16px', contents: [
+                  { type: 'button', style: 'primary', color: '#F15A22', height: 'sm',
+                    action: { type: 'uri', label: '馬上玩', uri: url } }
+                ]}
+              };
+              if (game.cover_image_url && /^https:\/\//.test(game.cover_image_url)) {
+                bubble.hero = { type: 'image', url: game.cover_image_url, size: 'full',
+                                aspectRatio: '20:13', aspectMode: 'cover' };
+              }
               let sent = false;
               try {
-                sent = await linePush.replyLineMessages(event.replyToken, mgmCard, {
-                  lineUserId: event.source.userId, pushType: 'mgm_entry'
-                });
-              } catch (e) { console.error('mgm entry reply failed:', e.message); }
+                sent = await linePush.replyLineMessages(event.replyToken,
+                  [{ type: 'flex', altText: game.name, contents: bubble }],
+                  { lineUserId: event.source.userId, pushType: 'game_entry' });
+              } catch (e) { console.error('game entry reply failed:', e.message); }
               await appendWebhookEventLog({
                 eventType: 'message', lineUserId: event.source.userId,
-                result: sent ? 'mgm_entry_replied' : 'mgm_entry_reply_failed', detail: null,
-                eventTimestamp: event?.timestamp, rawEvent: event || {}
-              }).catch(() => {});
-              continue;
+                result: sent ? 'game_entry_replied' : 'game_entry_reply_failed', detail: game.slug,
+                rawEvent: event
+              });
+              if (sent) continue;
             }
           }
           if (isOneOnOne && await handleBookingRegKeyword(event.source.userId, event.message.text, event.replyToken)) {
