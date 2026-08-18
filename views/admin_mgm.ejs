@@ -48,7 +48,7 @@
 
     <section class="card">
       <h2 style="margin:0 0 4px;">3. 誰中了什麼獎</h2>
-      <p class="muted" style="font-size:13px;margin-bottom:10px;">獎品如果是哩數，這裡會算出你要發多少。發完把那個人打勾，按「標記已發」。</p>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">一個人一列，列出還沒發給他的東西（哩數、Rice Dollar、優惠券都算）。發完把那個人打勾，按「標記已發」。</p>
       <div class="mg-bar">
         <button type="button" id="mg-people-csv-pending" class="mg-btn1">下載要發的名單</button>
         <button type="button" id="mg-people-mark" class="mg-btn1">標記已發</button>
@@ -162,15 +162,18 @@
         if(!list.length)return empty('mg-people','還沒有人中獎。');
         var anyMiles=list.some(function(r){return r.miles>0;});
         $('mg-people').innerHTML='<table class="mg-table"><thead><tr>'+
-          '<th></th><th>會員</th><th>中獎次數</th>'+(anyMiles?'<th>要發多少哩</th><th>已經發了</th>':'')+
-          '<th>最後一次</th></tr></thead><tbody>'+
+          '<th></th><th>會員</th><th>還沒發給他的</th>'+(anyMiles?'<th>其中哩數</th>':'')+
+          '<th>中獎次數</th><th>最後一次</th></tr></thead><tbody>'+
           list.map(function(r){
-            var done=!(r.miles_pending>0);
-            return '<tr><td>'+(anyMiles?'<input type="checkbox" class="mg-pck" data-uid="'+esc(r.uid)+'"'+(done?' disabled':'')+'>':'')+'</td>'+
+            var pend=Number(r.wins_pending||0);
+            var done=pend===0;
+            return '<tr><td><input type="checkbox" class="mg-pck" data-uid="'+esc(r.uid)+'"'+(done?' disabled':'')+'></td>'+
               '<td>'+who(r.display_name,r.uid)+'</td>'+
-              '<td style="font-weight:700;font-size:16px;">'+r.wins+'</td>'+
-              (anyMiles?('<td style="font-weight:700;">'+(done?'<span class="mg-done">都發完了</span>':Number(r.miles_pending).toLocaleString())+'</td>'+
-                         '<td class="muted">'+Number(r.miles_done||0).toLocaleString()+'</td>'):'')+
+              '<td>'+(done?'<span class="mg-done">都發完了</span>':
+                     ('<span class="mg-wait">'+pend+' 樣</span><div class="muted" style="font-size:11.5px;margin-top:3px;">'+
+                      esc(r.pending_prizes||'')+'</div>'))+'</td>'+
+              (anyMiles?('<td style="font-weight:700;">'+(r.miles_pending>0?Number(r.miles_pending).toLocaleString():'<span class="muted">—</span>')+'</td>'):'')+
+              '<td class="muted">'+r.wins+'</td>'+
               '<td>'+tw(r.last_at)+'</td></tr>';
           }).join('')+'</tbody></table>';
       }
@@ -186,7 +189,7 @@
               '<td>'+(r.miles?('<b>'+r.miles+'</b>'):'<span class="muted">—</span>')+'</td>'+
               '<td class="muted" style="font-size:11.5px;">'+esc(r.coupon_code||'—')+'</td>'+
               '<td>'+tw(r.played_at)+'</td>'+
-              '<td>'+(r.miles?(r.granted_done?'<span class="mg-done">已發</span>':'<span class="mg-wait">還沒發</span>'):'<span class="muted">—</span>')+'</td></tr>';
+              '<td>'+(r.granted_done?'<span class="mg-done">已發</span>':'<span class="mg-wait">還沒發</span>')+'</td></tr>';
           }).join('')+'</tbody></table>';
       }
 
@@ -389,11 +392,12 @@
       $('mg-inv-list').addEventListener('click',function(){makeList('inviters','有邀請成功的人','mg-inv-note',this);});
 
       function peopleCsv(onlyPending){
-        var rows=((DATA&&DATA.people)||[]).filter(function(r){return onlyPending?r.miles_pending>0:(r.wins>0||r.miles>0);});
-        if(!rows.length){$('mg-people-note').textContent=onlyPending?'沒有要發的哩數':'還沒有人中獎';return;}
-        downloadCsv(['會員','LINE ID','中獎次數','要發多少哩','已經發了','最後一次'],
-          rows.map(function(r){return [r.display_name,r.uid,r.wins,r.miles_pending,r.miles_done,twFull(r.last_at)];}),
-          onlyPending?'要發的哩數.csv':'中獎名單.csv');
+        var rows=((DATA&&DATA.people)||[]).filter(function(r){return onlyPending?r.wins_pending>0:(r.wins>0||r.miles>0);});
+        if(!rows.length){$('mg-people-note').textContent=onlyPending?'沒有要發的了':'還沒有人中獎';return;}
+        downloadCsv(['會員','LINE ID','還沒發幾樣','還沒發的是什麼','其中哩數','已發哩數','中獎次數','最後一次'],
+          rows.map(function(r){return [r.display_name,r.uid,r.wins_pending||0,r.pending_prizes||'',
+            r.miles_pending,r.miles_done,r.wins,twFull(r.last_at)];}),
+          onlyPending?'要發的名單.csv':'中獎名單.csv');
         $('mg-people-note').textContent='下載了 '+rows.length+' 人';
       }
       $('mg-people-csv-pending').addEventListener('click',function(){peopleCsv(true);});
@@ -408,10 +412,10 @@
         var names=Object.keys(uids);
         if(!names.length){$('mg-people-note').textContent='先勾選已經發完哩數的人';return;}
         var ids=((DATA&&DATA.ledger)||[]).filter(function(r){
-          return r.miles && !r.granted_done && uids[r.line_user_id];
+          return r.prize_type!=='none' && !r.granted_done && uids[r.line_user_id];
         }).map(function(r){return Number(r.id);});
-        if(!ids.length){$('mg-people-note').textContent='這些人沒有還沒發的哩數';return;}
-        if(!confirm('確定這 '+names.length+' 個人的哩數都已經發出去了嗎？'))return;
+        if(!ids.length){$('mg-people-note').textContent='這些人沒有還沒發的獎';return;}
+        if(!confirm('確定這 '+names.length+' 個人的獎品都已經發出去了嗎？（哩數、Rice Dollar、優惠券都算）'))return;
         var btn=this; btn.disabled=true;
         fetch('/admin/mgm/api/mark-granted',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({ids:ids})})
@@ -429,7 +433,7 @@
         if(!rows.length){$('mg-people-note').textContent='還沒有人中獎';return;}
         downloadCsv(['時間','會員','LINE ID','中了什麼','哩數','優惠碼','發了沒'],
           rows.map(function(r){return [twFull(r.played_at),r.display_name,r.line_user_id,r.prize_name,
-            r.miles||'',r.coupon_code||'',r.miles?(r.granted_done?'已發':'還沒發'):''];}),
+            r.miles||'',r.coupon_code||'',r.granted_done?'已發':'還沒發'];}),
           '中獎明細.csv');
         $('mg-people-note').textContent='下載了 '+rows.length+' 筆';
       });

@@ -216,6 +216,13 @@ function registerMgmMilesRoutes(app, deps) {
         `SELECT p.line_user_id AS uid,
                 COALESCE(u.line_display_name, MAX(p.line_display_name), '(沒有名字)') AS display_name,
                 COUNT(*) FILTER (WHERE COALESCE(p.prize_snapshot->>'prize_type','') <> 'none')::int AS wins,
+                COUNT(*) FILTER (WHERE COALESCE(p.prize_snapshot->>'prize_type','') <> 'none'
+                                   AND NOT COALESCE(p.is_redeemed, false))::int AS wins_pending,
+                (SELECT string_agg(DISTINCT COALESCE(p2.prize_snapshot->>'name','獎品'), '、')
+                   FROM activity_plays p2
+                  WHERE p2.activity_id = p.activity_id AND p2.line_user_id = p.line_user_id
+                    AND COALESCE(p2.prize_snapshot->>'prize_type','') <> 'none'
+                    AND NOT COALESCE(p2.is_redeemed, false)) AS pending_prizes,
                 COALESCE(SUM((p.prize_snapshot->>'miles')::int), 0)::int AS miles,
                 COALESCE(SUM((p.prize_snapshot->>'miles')::int)
                          FILTER (WHERE NOT COALESCE(p.is_redeemed, false)), 0)::int AS miles_pending,
