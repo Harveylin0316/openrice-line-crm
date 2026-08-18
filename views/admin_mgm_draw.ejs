@@ -1,0 +1,228 @@
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="card">
+      <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
+        <h1 style="margin:0;">大獎抽獎</h1>
+        <a href="/admin/mgm" class="muted" style="font-size:13px;">← 回揪友賺哩</a>
+      </div>
+      <p class="muted" style="margin-top:6px;">從「符合抽大獎」的名單裡抽。抽完的結果會存下來，重抽要先把那一輪作廢。</p>
+    </section>
+
+    <section class="card">
+      <div class="dw-setup">
+        <label class="dw-field"><span>要抽什麼獎</span><input type="text" id="dw-prize" value="大獎" maxlength="60" placeholder="例：來回機票"></label>
+        <label class="dw-field dw-narrow"><span>抽幾位</span><input type="number" id="dw-count" min="1" max="50" value="1"></label>
+        <label class="dw-check"><input type="checkbox" id="dw-repeat"> 中過獎的人也可以再抽</label>
+      </div>
+      <div class="dw-poolline" id="dw-poolline">載入中…</div>
+
+      <div class="dw-stage" id="dw-stage">
+        <div class="dw-label" id="dw-label">按下面的按鈕開始</div>
+        <div class="dw-name" id="dw-name">—</div>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <button type="button" id="dw-go" class="dw-go">開始抽</button>
+        <span id="dw-note" class="muted" style="font-size:13px;"></span>
+      </div>
+
+      <div id="dw-result" hidden style="margin-top:18px;">
+        <h2 style="font-size:15px;margin:0 0 8px;">這一輪抽出來的人</h2>
+        <div id="dw-result-list"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+          <button type="button" id="dw-csv" class="dw-btn2">下載 Excel</button>
+          <button type="button" id="dw-list" class="dw-btn2">存成群發名單</button>
+          <button type="button" id="dw-void" class="dw-btn2 dw-danger">這一輪作廢重抽</button>
+          <span id="dw-result-note" class="muted" style="font-size:13px;align-self:center;"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">抽過的紀錄</h2>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">每一次抽獎都留著，作廢的也留著，不會消失。</p>
+      <div id="dw-history"><p class="muted">載入中…</p></div>
+    </section>
+
+    <style>
+      .dw-setup{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;}
+      .dw-field{display:flex;flex-direction:column;gap:4px;font-size:13px;min-width:220px;}
+      .dw-field.dw-narrow{min-width:110px;}
+      .dw-field span{font-weight:600;}
+      .dw-field input{padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;font-size:14px;font-family:inherit;}
+      .dw-check{display:flex;align-items:center;gap:6px;font-size:13px;color:#374151;padding-bottom:9px;}
+      .dw-poolline{font-size:13px;color:#6B6B70;margin-bottom:14px;}
+      .dw-stage{border:1px solid #ECECEE;border-radius:14px;background:#FAFAFA;padding:38px 20px;text-align:center;margin-bottom:14px;}
+      .dw-label{font-size:12px;color:#6B6B70;letter-spacing:.06em;margin-bottom:10px;}
+      .dw-name{font-size:34px;font-weight:800;color:#1f2937;line-height:1.3;word-break:break-all;min-height:46px;}
+      .dw-stage.rolling .dw-name{color:#9CA3AF;}
+      .dw-stage.hit{border-color:#1f2937;background:#fff;}
+      .dw-stage.hit .dw-name{color:#111827;}
+      .dw-go{padding:14px 34px;background:#1f2937;color:#fff;border:0;border-radius:10px;font-size:16px;font-weight:800;cursor:pointer;letter-spacing:.04em;}
+      .dw-go:disabled{opacity:.45;cursor:default;}
+      .dw-btn2{padding:9px 16px;background:#fff;color:#374151;border:1px solid #ECECEE;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer;}
+      .dw-btn2:hover{border-color:#1f2937;}
+      .dw-danger{color:#b91c1c;}
+      .dw-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+      .dw-table th,.dw-table td{padding:9px 12px;border-bottom:1px solid #F3F4F6;text-align:left;}
+      .dw-table th{background:#FAFAFA;font-size:11px;color:#6B6B70;font-weight:600;letter-spacing:.04em;}
+      .dw-void{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:700;background:#FEF2F2;color:#b91c1c;}
+      .dw-ok{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:700;background:#ECFDF5;color:#047857;}
+      .dw-round{border:1px solid #ECECEE;border-radius:10px;padding:12px 14px;margin-bottom:10px;}
+      .dw-round h3{font-size:13.5px;margin:0 0 2px;}
+    </style>
+
+    <script>
+    (function(){
+      var $=function(id){return document.getElementById(id);};
+      function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+      function tw(ts){try{return new Date(ts).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});}catch(e){return String(ts||'');}}
+      function twFull(ts){try{return new Date(ts).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false});}catch(e){return String(ts||'');}}
+      function csvCell(s){var v=String(s==null?'':s);if(/^[=+\\-@\\t\\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';}
+      function uidShort(u){return u?(u.slice(0,7)+'…'+u.slice(-4)):'—';}
+
+      var POOL=[], WINNERS=[], LAST=null;
+
+      function load(){
+        return fetch('/admin/mgm/api/draw/data').then(function(r){return r.json();}).then(function(d){
+          if(!d.ok){$('dw-poolline').textContent='載入失敗：'+(d.detail||d.error);return;}
+          POOL=d.pool||[]; WINNERS=d.winners||[];
+          var wonUids={};
+          WINNERS.forEach(function(w){ if(!w.voided) wonUids[w.uid]=1; });
+          var left=POOL.filter(function(p){return !wonUids[p.uid];}).length;
+          $('dw-poolline').textContent='有抽獎資格的共 '+POOL.length+' 人，還沒中過獎的 '+left+' 人。';
+          renderHistory();
+        });
+      }
+
+      function renderHistory(){
+        var box=$('dw-history');
+        if(!WINNERS.length){box.innerHTML='<p class="muted" style="font-size:13px;">還沒抽過。</p>';return;}
+        var rounds={}, order=[];
+        WINNERS.forEach(function(w){
+          if(!rounds[w.round]){rounds[w.round]={prize:w.prize,voided:w.voided,at:w.won_at,rows:[]};order.push(w.round);}
+          rounds[w.round].rows.push(w);
+        });
+        box.innerHTML=order.map(function(k){
+          var r=rounds[k];
+          return '<div class="dw-round">'+
+            '<h3>'+esc(r.prize)+' — '+r.rows.length+' 位　'+
+              (r.voided?'<span class="dw-void">已作廢</span>':'<span class="dw-ok">有效</span>')+'</h3>'+
+            '<div class="muted" style="font-size:11.5px;">'+tw(r.at)+'</div>'+
+            '<table class="dw-table"><tbody>'+
+              r.rows.map(function(w){
+                return '<tr><td>'+esc(w.display_name)+'</td>'+
+                  '<td class="muted" style="font-size:11px;" title="'+esc(w.uid)+'">'+esc(uidShort(w.uid))+'</td></tr>';
+              }).join('')+
+            '</tbody></table></div>';
+        }).join('');
+      }
+
+      function rollTo(finalName, ms){
+        return new Promise(function(resolve){
+          var stage=$('dw-stage'), el=$('dw-name');
+          stage.classList.remove('hit'); stage.classList.add('rolling');
+          var names=POOL.map(function(p){return p.display_name;});
+          if(!names.length) names=[finalName];
+          var t0=Date.now(), tick=45;
+          (function step(){
+            var passed=Date.now()-t0;
+            if(passed>=ms){
+              stage.classList.remove('rolling'); stage.classList.add('hit');
+              el.textContent=finalName; resolve(); return;
+            }
+            el.textContent=names[Math.floor(Math.random()*names.length)];
+            tick=45+Math.floor(140*Math.pow(passed/ms,3));  // 越接近結果轉越慢
+            setTimeout(step,tick);
+          })();
+        });
+      }
+
+      $('dw-go').addEventListener('click',function(){
+        var btn=this, prize=$('dw-prize').value.trim()||'大獎', count=Number($('dw-count').value)||1;
+        if(!confirm('要抽「'+prize+'」'+count+' 位嗎？抽完就會存下來。'))return;
+        btn.disabled=true; $('dw-note').textContent='抽獎中…'; $('dw-result').hidden=true;
+        fetch('/admin/mgm/api/draw',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({prize:prize,count:count,allow_repeat:$('dw-repeat').checked})})
+          .then(function(r){return r.json();})
+          .then(function(d){
+            if(!d.ok){btn.disabled=false;$('dw-note').textContent='沒有抽成：'+(d.detail||d.error);return;}
+            LAST=d; $('dw-note').textContent='';
+            var i=0;
+            (function next(){
+              if(i>=d.winners.length){
+                $('dw-label').textContent='抽完了';
+                btn.disabled=false;
+                $('dw-result').hidden=false;
+                $('dw-result-list').innerHTML='<table class="dw-table"><thead><tr><th>順序</th><th>會員</th><th>LINE ID</th></tr></thead><tbody>'+
+                  d.winners.map(function(w,n){
+                    return '<tr><td>'+(n+1)+'</td><td style="font-weight:700;">'+esc(w.display_name)+'</td>'+
+                      '<td class="muted" style="font-size:11px;" title="'+esc(w.uid)+'">'+esc(uidShort(w.uid))+'</td></tr>';
+                  }).join('')+'</tbody></table>';
+                load();
+                return;
+              }
+              $('dw-label').textContent=d.prize+'　第 '+(i+1)+' 位 / 共 '+d.winners.length+' 位';
+              rollTo(d.winners[i].display_name, 2200).then(function(){
+                i++; setTimeout(next, 900);
+              });
+            })();
+          })
+          .catch(function(){btn.disabled=false;$('dw-note').textContent='連線失敗，再按一次';});
+      });
+
+      $('dw-csv').addEventListener('click',function(){
+        if(!LAST)return;
+        var NL=String.fromCharCode(10);
+        var txt='\\ufeff'+[['獎項','順序','會員','LINE ID','抽出時間']].concat(
+          LAST.winners.map(function(w,n){return [LAST.prize,n+1,w.display_name,w.uid,twFull(w.won_at)];}))
+          .map(function(r){return r.map(csvCell).join(',');}).join(NL);
+        var a=document.createElement('a');
+        a.href=URL.createObjectURL(new Blob([txt],{type:'text/csv'}));
+        a.download='大獎中獎名單.csv';a.click();
+        setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+        $('dw-result-note').textContent='下載了 '+LAST.winners.length+' 人';
+      });
+
+      $('dw-list').addEventListener('click',function(){
+        if(!confirm('把所有中獎的人存成一份群發名單？'))return;
+        var btn=this; btn.disabled=true;
+        fetch('/admin/mgm/api/make-list',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({segment:'winners'})})
+          .then(function(r){return r.json();})
+          .then(function(d){btn.disabled=false;
+            if(!d.ok){$('dw-result-note').textContent='沒有建立：'+(d.detail||d.error);return;}
+            $('dw-result-note').innerHTML='名單建好了，共 '+d.list.total+' 人。'+
+              '<a href="/admin/broadcast" style="color:#1f2937;font-weight:700;">去發訊息</a>';
+          })
+          .catch(function(){btn.disabled=false;$('dw-result-note').textContent='連線失敗，再按一次';});
+      });
+
+      $('dw-void').addEventListener('click',function(){
+        if(!LAST)return;
+        if(!confirm('把這一輪作廢嗎？紀錄會留著並標記作廢，這些人會回到可以被抽的名單裡。'))return;
+        var btn=this; btn.disabled=true;
+        fetch('/admin/mgm/api/draw/void',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({round:LAST.round})})
+          .then(function(r){return r.json();})
+          .then(function(d){btn.disabled=false;
+            if(!d.ok){$('dw-result-note').textContent='沒有作廢成功：'+(d.detail||d.error);return;}
+            $('dw-result-note').textContent='已作廢 '+d.voided+' 位，可以重抽了';
+            $('dw-result').hidden=true; LAST=null;
+            $('dw-label').textContent='按下面的按鈕開始'; $('dw-name').textContent='—';
+            $('dw-stage').classList.remove('hit');
+            load();
+          })
+          .catch(function(){btn.disabled=false;$('dw-result-note').textContent='連線失敗，再按一次';});
+      });
+
+      load();
+    })();
+    </script>
+    `
+  })
+%>

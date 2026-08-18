@@ -436,6 +436,139 @@ function registerMgmMilesRoutes(app, deps) {
     }
   });
 
+  // ── 後台：大獎抽獎（只有你自己玩）──────────────────────────
+  //    參加者 = 有抽獎資格的人。抽出來的結果寫進 activity_plays（kind=draw_win），
+  //    不影響四張表；重抽要先把那一輪作廢，紀錄永遠留著。
+  app.get('/admin/mgm/draw', requireAdmin, (req, res) => {
+    res.render('admin_mgm_draw', {
+      title: '大獎抽獎',
+      bodyClass: 'admin-shell mgm-shell',
+      user: (req.authUser && req.authUser.un) || '',
+      isAdmin: true
+    });
+  });
+
+  async function latestMgmCampaign() {
+    const { rows } = await query(
+      `SELECT id, slug, name FROM activities WHERE game_type='mgm' ORDER BY id DESC LIMIT 1`);
+    return rows[0] || null;
+  }
+
+  app.get('/admin/mgm/api/draw/data', requireAdmin, async (_req, res) => {
+    try {
+      const camp = await latestMgmCampaign();
+      if (!camp) return jsonErr(res, 404, 'no_campaign');
+      const pool = (await query(
+        `SELECT p.line_user_id AS uid,
+                COALESCE(u.line_display_name, p.line_display_name, '(沒有名字)') AS display_name,
+                MIN(p.played_at) AS qualified_at
+           FROM activity_plays p
+           LEFT JOIN users u ON u.line_user_id = p.line_user_id
+          WHERE p.activity_id = $1 AND p.prize_snapshot->>'kind' = 'draw_ticket'
+          GROUP BY p.line_user_id, u.line_display_name, p.line_display_name
+          ORDER BY qualified_at`, [camp.id])).rows;
+      const winners = (await query(
+        `SELECT p.id, p.line_user_id AS uid,
+                COALESCE(u.line_display_name, p.line_display_name, '(沒有名字)') AS display_name,
+                p.prize_snapshot->>'name' AS prize,
+                p.prize_snapshot->>'round' AS round,
+                COALESCE((p.prize_snapshot->>'voided')::boolean, false) AS voided,
+                p.played_at AS won_at
+           FROM activity_plays p
+           LEFT JOIN users u ON u.line_user_id = p.line_user_id
+          WHERE p.activity_id = $1 AND p.prize_snapshot->>'kind' = 'draw_win'
+          ORDER BY p.played_at DESC`, [camp.id])).rows;
+      res.json({ ok: true, campaign: { id: camp.id, slug: camp.slug, name: camp.name }, pool, winners });
+    } catch (err) {
+      console.error('mgm draw data error:', err && err.message);
+      jsonErr(res, 500, 'data_failed', { detail: err && err.message });
+    }
+  });
+
+  app.post('/admin/mgm/api/draw', requireOwner, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const prize = String(body.prize || '').trim().slice(0, 60) || '大獎';
+      const count = Math.max(1, Math.min(50, Number(body.count) || 1));
+      const allowRepeat = body.allow_repeat === true;
+      const camp = await latestMgmCampaign();
+      if (!camp) return jsonErr(res, 404, 'no_campaign');
+
+      // 參加者：有抽獎資格的人；預設排除已經中過獎（沒作廢）的人
+      const { rows: pool } = await query(
+        `SELECT DISTINCT p.line_user_id AS uid
+           FROM activity_plays p
+          WHERE p.activity_id = $1 AND p.prize_snapshot->>'kind' = 'draw_ticket'
+            AND ($2::boolean OR NOT EXISTS (
+                  SELECT 1 FROM activity_plays w
+                   WHERE w.activity_id = p.activity_id
+                     AND w.line_user_id = p.line_user_id
+                     AND w.prize_snapshot->>'kind' = 'draw_win'
+                     AND COALESCE((w.prize_snapshot->>'voided')::boolean, false) = false))`,
+        [camp.id, allowRepeat]
+      );
+      if (pool.length === 0) return jsonErr(res, 400, 'empty_pool', { detail: '沒有可以抽的人' });
+      if (pool.length < count) {
+        return jsonErr(res, 400, 'not_enough', { detail: '只有 ' + pool.length + ' 個人可以抽，抽不出 ' + count + ' 位' });
+      }
+
+      // 洗牌取前 count 位（crypto 亂數，不是 Math.random）
+      const crypto = require('crypto');
+      const uids = pool.map(r => r.uid);
+      for (let i = uids.length - 1; i > 0; i--) {
+        const j = crypto.randomInt(0, i + 1);
+        const t = uids[i]; uids[i] = uids[j]; uids[j] = t;
+      }
+      const picked = uids.slice(0, count);
+      const round = 'r' + Date.now().toString(36);
+
+      const winners = [];
+      for (let i = 0; i < picked.length; i++) {
+        const uid = picked[i];
+        const snapshot = { kind: 'draw_win', name: prize, round: round, seq: i + 1, voided: false };
+        const mgmKey = 'mgm:' + camp.slug + ':win:' + round + ':' + uid;
+        const ins = await query(
+          `INSERT INTO activity_plays (activity_id, line_user_id, prize_snapshot, properties)
+           SELECT $1, $2, $3::jsonb, $4::jsonb
+           WHERE NOT EXISTS (SELECT 1 FROM activity_plays WHERE properties->>'mgm_key' = $5)
+           RETURNING id, played_at`,
+          [camp.id, uid, JSON.stringify(snapshot),
+           JSON.stringify({ mgm_key: mgmKey, kind: 'draw_win', round: round }), mgmKey]
+        );
+        if (ins.rows.length === 0) continue;
+        const { rows: nm } = await query(
+          `SELECT COALESCE(line_display_name, '(沒有名字)') AS n FROM users WHERE line_user_id = $1 LIMIT 1`, [uid]);
+        winners.push({ id: ins.rows[0].id, uid: uid, display_name: (nm[0] && nm[0].n) || '(沒有名字)',
+                       prize: prize, round: round, won_at: ins.rows[0].played_at });
+      }
+      res.json({ ok: true, round: round, prize: prize, winners: winners, pool_size: pool.length });
+    } catch (err) {
+      console.error('mgm draw error:', err && err.message);
+      jsonErr(res, 500, 'draw_failed', { detail: err && err.message });
+    }
+  });
+
+  // 作廢一輪（不刪紀錄，只標記；作廢後那些人可以再被抽到）
+  app.post('/admin/mgm/api/draw/void', requireOwner, async (req, res) => {
+    try {
+      const round = String((req.body || {}).round || '').trim();
+      if (!round) return jsonErr(res, 400, 'bad_round');
+      const camp = await latestMgmCampaign();
+      if (!camp) return jsonErr(res, 404, 'no_campaign');
+      const upd = await query(
+        `UPDATE activity_plays
+            SET prize_snapshot = jsonb_set(prize_snapshot, '{voided}', 'true'::jsonb)
+          WHERE activity_id = $1 AND prize_snapshot->>'kind' = 'draw_win'
+            AND prize_snapshot->>'round' = $2
+            AND COALESCE((prize_snapshot->>'voided')::boolean, false) = false
+          RETURNING id`, [camp.id, round]);
+      res.json({ ok: true, voided: upd.rows.length });
+    } catch (err) {
+      console.error('mgm draw void error:', err && err.message);
+      jsonErr(res, 500, 'void_failed', { detail: err && err.message });
+    }
+  });
+
   // ── 後台：把名單存成群發名單（存完去 /admin/broadcast 選它就能發）──
   //    segment: pending_miles = 里數還沒入帳的人｜all_miles = 拿過里數的人
   //             qualified = 有抽獎資格的人｜inviters = 揪到過新朋友的人
@@ -457,7 +590,10 @@ function registerMgmMilesRoutes(app, deps) {
         qualified:     `SELECT DISTINCT line_user_id FROM activity_plays
                          WHERE activity_id=$1 AND prize_snapshot->>'kind'='draw_ticket'`,
         inviters:      `SELECT DISTINCT inviter_line_user_id AS line_user_id FROM activity_referrals
-                         WHERE activity_id=$1 AND invitee_was_existing IS FALSE`
+                         WHERE activity_id=$1 AND invitee_was_existing IS FALSE`,
+        winners:       `SELECT DISTINCT line_user_id FROM activity_plays
+                         WHERE activity_id=$1 AND prize_snapshot->>'kind'='draw_win'
+                           AND COALESCE((prize_snapshot->>'voided')::boolean, false) = false`
       };
       if (!SQL[segment]) return jsonErr(res, 400, 'bad_segment', { detail: '名單類型不對' });
 
@@ -466,7 +602,7 @@ function registerMgmMilesRoutes(app, deps) {
         .filter(u => /^U[0-9a-f]{32}$/i.test(u));
       if (uids.length === 0) return jsonErr(res, 400, 'empty', { detail: '這個條件目前沒有人，沒有建立名單' });
 
-      const LABEL = { pending_miles: '里數待發放', all_miles: '拿過里數', qualified: '有抽獎資格', inviters: '揪到過新朋友' };
+      const LABEL = { pending_miles: '里數待發放', all_miles: '拿過里數', qualified: '有抽獎資格', inviters: '揪到過新朋友', winners: '抽中大獎' };
       const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
       const name = String(body.name || '').trim() ||
         (camp[0].name + '－' + LABEL[segment] + '（' + stamp + '）');
