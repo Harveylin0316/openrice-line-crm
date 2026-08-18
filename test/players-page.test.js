@@ -1,7 +1,12 @@
 const path=require('path');
 const REPO=require('path').join(__dirname,'..');
 const ejs=require(path.join(REPO,'node_modules/ejs'));
-const {JSDOM}=require('jsdom');
+let JSDOM;
+try { JSDOM = require('jsdom').JSDOM; }
+catch (e) {
+  console.log('SKIP：這支需要 jsdom（npm i -D jsdom）才能跑。');
+  process.exit(0);
+}
 const U=n=>'U'+String(n).padStart(32,'0');
 const DATA={ok:true,players:[
  {line_user_id:U(1),line_display_name:'林御恒 Hen',crm_display_name:'林御恒 Hen',plays:6,wins:1,grand_wins:0,
