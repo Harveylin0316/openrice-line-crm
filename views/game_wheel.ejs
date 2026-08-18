@@ -165,6 +165,8 @@
     .pz:last-child{border-bottom:0}
     .pz-main{flex:1;min-width:0}
     .pz-name{font-size:15px;font-weight:800;color:var(--ink);line-height:1.4}
+    .pz-miss .pz-name{font-weight:700;color:var(--ink2)}
+    .pz-miss{opacity:.78}
     .pz-sub{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.6}
     .pz-code{display:inline-flex;align-items:center;gap:8px;margin-top:6px;padding:6px 10px;border:1px dashed var(--line);border-radius:8px;font-size:13px;font-weight:800;color:var(--ink);letter-spacing:.04em}
     .pz-copy{border:0;background:var(--orange);color:#fff;font-size:11.5px;font-weight:800;padding:4px 9px;border-radius:6px;cursor:pointer}
@@ -288,7 +290,7 @@
 
     <section class="myprize" id="myprize" hidden>
       <hr class="dash" />
-      <div class="myprize-head">我抽到的獎</div>
+      <div class="myprize-head">我的抽獎紀錄</div>
       <div id="myprize-list"></div>
     </section>
 
@@ -350,6 +352,9 @@
         }
       }
 
+      // 轉盤停下來之後，把最終角度畫進 canvas 本身（CSS 轉回 0），
+      // 這樣扇形位置不變、但文字回到橫排。否則整盤字會跟著旋轉變成上下顛倒。
+      var wheelOffsetRad = 0;
       function drawWheel(highlightIdx, pulse) {
         var W = canvas.width;
         var H = canvas.height;
@@ -362,7 +367,7 @@
 
         // 扇形填色
         prizes.forEach(function (p, i) {
-          var start = i * anglePer - Math.PI / 2;
+          var start = i * anglePer - Math.PI / 2 + wheelOffsetRad;
           var end = start + anglePer;
           ctx.beginPath();
           ctx.moveTo(cx, cy);
@@ -380,7 +385,7 @@
 
         // 扇形分隔線（細）
         prizes.forEach(function (p, i) {
-          var angle = i * anglePer - Math.PI / 2;
+          var angle = i * anglePer - Math.PI / 2 + wheelOffsetRad;
           ctx.beginPath();
           ctx.moveTo(cx, cy);
           ctx.lineTo(cx + Math.cos(angle) * R, cy + Math.sin(angle) * R);
@@ -423,7 +428,7 @@
         }
 
         prizes.forEach(function (p, i) {
-          var midAngle = i * anglePer - Math.PI / 2 + anglePer / 2;
+          var midAngle = i * anglePer - Math.PI / 2 + anglePer / 2 + wheelOffsetRad;
           var lab = splitLabel(p.name);
           // 放在扇形重心附近；格子越多半徑越往外，字才不會擠在圓心
           var rr = R * (n <= 5 ? 0.60 : 0.66);
@@ -563,7 +568,16 @@
         var anglePer = 360 / n;
         var targetCenter = (idx + 0.5) * anglePer;
         var jitter = (Math.random() - 0.5) * (anglePer * 0.5);
-        var finalAngle = currentRotation + 360 * 6 + (360 - targetCenter) + jitter;
+        // 指針在正上方。扇形 i 的中心在「順時針 targetCenter 度」，
+        // 要讓它轉到正上方，畫面上的總轉角必須 ≡ 360 - targetCenter（mod 360）。
+        //
+        // 這裡有兩個角度疊在一起：canvas 裡已經烘進去的 bakedDeg（上一次落地留下的），
+        // 以及這次要下的 CSS 轉角。原本的寫法把上一次的「殘留角度」直接當基準往上加，
+        // 第二次抽獎開始就整個偏掉——指針停在 A 格、實際中的卻是 B 格。
+        var bakedDeg = (wheelOffsetRad * 180 / Math.PI) % 360;
+        var need = ((360 - targetCenter + jitter) - bakedDeg) % 360;
+        if (need < 0) need += 360;
+        var finalAngle = 360 * 6 + need;
         var windFrom = currentRotation;
         currentRotation = finalAngle;
 
@@ -582,6 +596,15 @@
                 stage.classList.add('landed');
                 setTimeout(function () { stage.classList.remove('landed'); }, 650);
               }
+              // 角度烘進 canvas、CSS 歸零：畫面位置完全一樣，但文字回正
+              wheelOffsetRad = ((wheelOffsetRad * 180 / Math.PI) + finalAngle) % 360 * Math.PI / 180;
+              var prevTransition = canvas.style.transition;
+              canvas.style.transition = 'none';
+              canvas.style.transform = 'rotate(0deg)';
+              currentRotation = 0;
+              drawWheel();
+              void canvas.offsetWidth;
+              canvas.style.transition = prevTransition;
               resolve();
             }, spinMs);
           }
@@ -914,15 +937,23 @@
           var list = document.getElementById('myprize-list');
           if (!box || !list) return;
           if (!mine.length) { box.hidden = true; return; }
+          var wins = mine.filter(function (p) { return p.is_win !== false; }).length;
+          var head = document.querySelector('.myprize-head');
+          if (head) {
+            head.textContent = '我的抽獎紀錄（共 ' + mine.length + ' 次' +
+              (wins ? ('，中了 ' + wins + ' 次') : '') + '）';
+          }
           list.innerHTML = mine.map(function (p, i) {
-            var sub = p.miles
-              ? (p.redeemed ? '哩數已經發放' : '活動結束後統一發放到你的帳戶')
-              : (p.prize_desc || '');
-            var code = p.code
+            var isWin = p.is_win !== false;
+            var sub = !isWin ? '這次沒中，再找朋友來就能多抽一次'
+              : (p.miles
+                  ? (p.redeemed ? '哩數已經發放' : '活動結束後統一發放到你的帳戶')
+                  : (p.prize_desc || ''));
+            var code = (isWin && p.code)
               ? '<div class="pz-code"><span id="pzc' + i + '">' + escHtml(p.code) + '</span>' +
                 '<button type="button" class="pz-copy" data-i="' + i + '">複製</button></div>'
               : '';
-            return '<div class="pz"><div class="pz-main">' +
+            return '<div class="pz' + (isWin ? '' : ' pz-miss') + '"><div class="pz-main">' +
               '<div class="pz-name">' + escHtml(p.prize_name) + '</div>' +
               (sub ? '<div class="pz-sub">' + escHtml(sub) + '</div>' : '') + code +
               '</div><div class="pz-when">' + fmtWhen(p.won_at) + '</div></div>';
