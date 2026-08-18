@@ -7,15 +7,20 @@
     <section class="card">
       <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
         <h1 style="margin:0;">大獎抽獎</h1>
-        <a href="/admin/mgm" class="muted" style="font-size:13px;">← 回揪友賺哩</a>
+        <select id="dw-act" class="dw-actsel"></select>
+        <a href="/admin/mgm" class="muted" style="font-size:13px;">← 回活動成效</a>
       </div>
-      <p class="muted" style="margin-top:6px;">從「符合抽大獎」的名單裡抽。抽完的結果會存下來，重抽要先把那一輪作廢。</p>
+      <p class="muted" style="margin-top:6px;">從這檔活動的參加者裡抽，你自己開獎。抽完的結果會存下來，重抽要先把那一輪作廢。</p>
     </section>
 
     <section class="card">
       <div class="dw-setup">
         <label class="dw-field"><span>要抽什麼獎</span><input type="text" id="dw-prize" value="大獎" maxlength="60" placeholder="例：來回機票"></label>
         <label class="dw-field dw-narrow"><span>抽幾位</span><input type="number" id="dw-count" min="1" max="50" value="1"></label>
+        <label class="dw-field dw-narrow"><span>至少邀請幾位</span><input type="number" id="dw-min" min="0" value="0"><small>0 = 不限</small></label>
+      </div>
+      <div class="dw-setup" style="margin-top:-4px;">
+        <label class="dw-check"><input type="checkbox" id="dw-played"> 一定要玩過遊戲才有資格</label>
         <label class="dw-check"><input type="checkbox" id="dw-repeat"> 中過獎的人也可以再抽</label>
       </div>
       <div class="dw-poolline" id="dw-poolline">載入中…</div>
@@ -54,6 +59,8 @@
       .dw-field.dw-narrow{min-width:110px;}
       .dw-field span{font-weight:600;}
       .dw-field input{padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;font-size:14px;font-family:inherit;}
+      .dw-actsel{padding:8px 10px;border:1px solid #D8D8DC;border-radius:8px;font-size:14px;background:#fff;font-weight:600;}
+      .dw-field small{color:#6B6B70;font-size:11px;}
       .dw-check{display:flex;align-items:center;gap:6px;font-size:13px;color:#374151;padding-bottom:9px;}
       .dw-poolline{font-size:13px;color:#6B6B70;margin-bottom:14px;}
       .dw-stage{border:1px solid #ECECEE;border-radius:14px;background:#FAFAFA;padding:38px 20px;text-align:center;margin-bottom:14px;}
@@ -85,19 +92,42 @@
       function csvCell(s){var v=String(s==null?'':s);if(/^[=+\\-@\\t\\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';}
       function uidShort(u){return u?(u.slice(0,7)+'…'+u.slice(-4)):'—';}
 
-      var POOL=[], WINNERS=[], LAST=null;
+      var POOL=[], WINNERS=[], LAST=null, ACT=null, INVITED={}, PLAYED={};
+      function gameLabel(t){return ({wheel:'幸運轉盤',scratch:'刮刮樂',slot:'老虎機',fortune:'每日抽籤',claim:'領取優惠券',mgm:'好友推薦'})[t]||t;}
+      function actId(){return ACT?ACT.id:null;}
 
-      function load(){
-        return fetch('/admin/mgm/api/draw/data').then(function(r){return r.json();}).then(function(d){
+      function load(id){
+        var u='/admin/mgm/api/draw/data'+(id?('?activity_id='+encodeURIComponent(id)):'');
+        return fetch(u).then(function(r){return r.json();}).then(function(d){
           if(!d.ok){$('dw-poolline').textContent='載入失敗：'+(d.detail||d.error);return;}
-          POOL=d.pool||[]; WINNERS=d.winners||[];
-          var wonUids={};
-          WINNERS.forEach(function(w){ if(!w.voided) wonUids[w.uid]=1; });
-          var left=POOL.filter(function(p){return !wonUids[p.uid];}).length;
-          $('dw-poolline').textContent='有抽獎資格的共 '+POOL.length+' 人，還沒中過獎的 '+left+' 人。';
+          POOL=d.pool||[]; WINNERS=d.winners||[]; ACT=d.activity||null;
+          INVITED={}; (d.invited||[]).forEach(function(x){INVITED[x.uid]=x.new_friends;});
+          PLAYED={}; (d.played||[]).forEach(function(x){PLAYED[x.uid]=x.plays;});
+          $('dw-act').innerHTML=(d.activities||[]).map(function(a){
+            return '<option value="'+a.id+'"'+(ACT&&a.id===ACT.id?' selected':'')+'>'+
+              esc(a.name)+'（'+gameLabel(a.game_type)+'）</option>';
+          }).join('');
+          refreshPoolLine();
           renderHistory();
         });
       }
+      function refreshPoolLine(){
+        var wonUids={};
+        WINNERS.forEach(function(w){ if(!w.voided) wonUids[w.uid]=1; });
+        var min=Number($('dw-min').value)||0, needPlayed=$('dw-played').checked, repeat=$('dw-repeat').checked;
+        var left=POOL.filter(function(p){
+          if(!repeat && wonUids[p.uid]) return false;
+          if((INVITED[p.uid]||0) < min) return false;
+          if(needPlayed && !(PLAYED[p.uid]>0)) return false;
+          return true;
+        }).length;
+        $('dw-poolline').textContent='這檔活動有 '+POOL.length+' 個參加者，照目前條件可以抽的有 '+left+' 人。';
+      }
+      ['dw-min','dw-played','dw-repeat'].forEach(function(id){
+        $(id).addEventListener('change',refreshPoolLine);
+        $(id).addEventListener('input',refreshPoolLine);
+      });
+      $('dw-act').addEventListener('change',function(){load(this.value);});
 
       function renderHistory(){
         var box=$('dw-history');
@@ -147,7 +177,9 @@
         if(!confirm('要抽「'+prize+'」'+count+' 位嗎？抽完就會存下來。'))return;
         btn.disabled=true; $('dw-note').textContent='抽獎中…'; $('dw-result').hidden=true;
         fetch('/admin/mgm/api/draw',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({prize:prize,count:count,allow_repeat:$('dw-repeat').checked})})
+          body:JSON.stringify({prize:prize,count:count,allow_repeat:$('dw-repeat').checked,
+            min_invites:Number($('dw-min').value)||0, need_played:$('dw-played').checked,
+            activity_id:actId()})})
           .then(function(r){return r.json();})
           .then(function(d){
             if(!d.ok){btn.disabled=false;$('dw-note').textContent='沒有抽成：'+(d.detail||d.error);return;}
@@ -163,7 +195,7 @@
                     return '<tr><td>'+(n+1)+'</td><td style="font-weight:700;">'+esc(w.display_name)+'</td>'+
                       '<td class="muted" style="font-size:11px;" title="'+esc(w.uid)+'">'+esc(uidShort(w.uid))+'</td></tr>';
                   }).join('')+'</tbody></table>';
-                load();
+                load(actId());
                 return;
               }
               $('dw-label').textContent=d.prize+'　第 '+(i+1)+' 位 / 共 '+d.winners.length+' 位';
@@ -192,7 +224,7 @@
         if(!confirm('把所有中獎的人存成一份群發名單？'))return;
         var btn=this; btn.disabled=true;
         fetch('/admin/mgm/api/make-list',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({segment:'winners'})})
+          body:JSON.stringify({segment:'winners',activity_id:actId()})})
           .then(function(r){return r.json();})
           .then(function(d){btn.disabled=false;
             if(!d.ok){$('dw-result-note').textContent='沒有建立：'+(d.detail||d.error);return;}
@@ -207,7 +239,7 @@
         if(!confirm('把這一輪作廢嗎？紀錄會留著並標記作廢，這些人會回到可以被抽的名單裡。'))return;
         var btn=this; btn.disabled=true;
         fetch('/admin/mgm/api/draw/void',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({round:LAST.round})})
+          body:JSON.stringify({round:LAST.round,activity_id:actId()})})
           .then(function(r){return r.json();})
           .then(function(d){btn.disabled=false;
             if(!d.ok){$('dw-result-note').textContent='沒有作廢成功：'+(d.detail||d.error);return;}
@@ -215,12 +247,12 @@
             $('dw-result').hidden=true; LAST=null;
             $('dw-label').textContent='按下面的按鈕開始'; $('dw-name').textContent='—';
             $('dw-stage').classList.remove('hit');
-            load();
+            load(actId());
           })
           .catch(function(){btn.disabled=false;$('dw-result-note').textContent='連線失敗，再按一次';});
       });
 
-      load();
+      load(new URLSearchParams(location.search).get('activity_id'));
     })();
     </script>
     `

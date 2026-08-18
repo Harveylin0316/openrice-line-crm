@@ -271,13 +271,17 @@ async function computeUserQuota(query, activity, lineUserId) {
     [activity.id, lineUserId]
   );
   const played = Number(playedRows[0].c);
-  // 3) 邀請成功數
+  // 3) 邀請成功數 —— 只算「本來不是官方帳號好友」的人。
+  //    既有好友互點連結不加次數：否則幾百位老友互洗就能刷出無限次遊戲。
   const { rows: refRows } = await query(
-    `SELECT COUNT(*) AS c FROM activity_referrals
-     WHERE activity_id = $1 AND inviter_line_user_id = $2`,
+    `SELECT COUNT(*) FILTER (WHERE invitee_was_existing IS FALSE) AS c,
+            COUNT(*) FILTER (WHERE invitee_was_existing IS NOT FALSE) AS existing
+       FROM activity_referrals
+      WHERE activity_id = $1 AND inviter_line_user_id = $2`,
     [activity.id, lineUserId]
   );
   const referrals = Number(refRows[0].c);
+  const referralsExisting = Number(refRows[0].existing);
   // 4) 加碼次數（揪友賺哩等活動發的，冪等發放，與邀請加成分開計）
   const { rows: bonusRows } = await query(
     `SELECT COALESCE(SUM(plays), 0)::int AS b FROM activity_bonus_plays
@@ -300,6 +304,7 @@ async function computeUserQuota(query, activity, lineUserId) {
     played,
     remaining: Math.max(0, total - played),
     referrals,
+    referrals_existing: referralsExisting,
     base: basePlays,
     referral_bonus: referralBonus,
     referral_bonus_max: refMax,
