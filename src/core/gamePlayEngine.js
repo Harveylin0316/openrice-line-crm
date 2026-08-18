@@ -25,7 +25,7 @@ async function selectPrizeAndRecord(opts) {
     const { rows: actRows } = await client.query(
       `SELECT id, status, start_at, end_at,
               daily_plays_per_user, base_plays_per_user,
-              referral_bonus_per, referral_bonus_max
+              referral_bonus_per, referral_bonus_max, referral_invites_per_bonus
        FROM activities WHERE slug = $1 AND game_type = $2 LIMIT 1`,
       [activitySlug, gameType]
     );
@@ -49,47 +49,26 @@ async function selectPrizeAndRecord(opts) {
     }
 
     // 2) Quota 檢查（含 per-user override + base + referral bonus）
-    const { rows: overrideRow } = await client.query(
-      `SELECT max_plays_override FROM activity_user_quotas
-       WHERE activity_id = $1 AND line_user_id = $2 LIMIT 1`,
-      [a.id, lineUserId]
-    );
-    const override = overrideRow[0] || null;
-    const { rows: playedRow } = await client.query(
-      'SELECT COUNT(*) AS c FROM activity_plays WHERE activity_id = $1 AND line_user_id = $2',
-      [a.id, lineUserId]
-    );
-    const played = Number(playedRow[0].c);
-    const { rows: refRow } = await client.query(
-      `SELECT COUNT(*) AS c FROM activity_referrals
-       WHERE activity_id = $1 AND inviter_line_user_id = $2`,
-      [a.id, lineUserId]
-    );
-    const referralCount = Number(refRow[0].c);
-    const basePlays = Number(a.base_plays_per_user || 1);
-    const refPer = Number(a.referral_bonus_per || 0);
-    const refMax = Number(a.referral_bonus_max || 0);
-    const referralBonus = Math.min(refMax, referralCount * refPer);
-    // override 直接決定 total；否則用標準算法
-    const totalQuota = override
-      ? Number(override.max_plays_override)
-      : basePlays + referralBonus;
+    // 次數一律走 computeUserQuota——**唯一一份公式**。
+    // 這裡以前自己另寫了一套，三個地方跟顯示用的不一致：
+    //   既有好友照樣加次數（防洗根本沒生效）、忽略「每幾位換一次」、不算人工補發的次數。
+    // 用同一個 client 執行，才會在同一個交易與鎖裡面。
+    const txQuery = (sql, params) => client.query(sql, params);
+    const quota = await computeUserQuota(txQuery, a, lineUserId);
+    const totalQuota = quota.total;
+    const played = quota.played;
     if (played >= totalQuota) {
       await client.query('ROLLBACK');
-      const canEarnMore = !override && refPer > 0 && referralBonus < refMax;
+      const canEarnMore = !quota.override && quota.referral_bonus_per > 0 &&
+        quota.referral_bonus < quota.referral_bonus_max;
       return {
         error: {
           status: 429,
           code: 'quota_exhausted',
           detail: canEarnMore
-            ? '次數已用完！邀請朋友來玩可以再加 ' + refPer + ' 次。'
-            : (override ? '此用戶配額已用完（後台設定上限 ' + totalQuota + ' 次）。' : '次數已用完。'),
-          quota: {
-            total: totalQuota, played, remaining: 0, referrals: referralCount,
-            base: basePlays, referral_bonus: referralBonus,
-            referral_bonus_max: refMax, referral_bonus_per: refPer,
-            override: override ? { max_plays: Number(override.max_plays_override) } : null
-          }
+            ? '次數已用完！邀請還沒加入官方帳號的朋友來玩可以再加 ' + quota.referral_bonus_per + ' 次。'
+            : (quota.override ? '此用戶配額已用完（後台設定上限 ' + totalQuota + ' 次）。' : '次數已用完。'),
+          quota: quota
         }
       };
     }
@@ -99,7 +78,8 @@ async function selectPrizeAndRecord(opts) {
       const { rows: dCount } = await client.query(
         `SELECT COUNT(*) AS c FROM activity_plays
          WHERE activity_id = $1 AND line_user_id = $2
-           AND played_at >= date_trunc('day', NOW())`,
+           AND played_at >= date_trunc('day', NOW())
+           AND COALESCE(prize_snapshot->>'kind', '') <> 'draw_win'`,
         [a.id, lineUserId]
       );
       if (Number(dCount[0].c) >= a.daily_plays_per_user) {
@@ -133,7 +113,9 @@ async function selectPrizeAndRecord(opts) {
     // 併發防護：取得獎品列鎖（FOR UPDATE）後複查遊玩數，避免併發 /play 超領
     // （所有 play 都鎖同一批 activity_prizes 列 → 同活動同用戶會被序列化）
     const { rows: reCount } = await client.query(
-      'SELECT COUNT(*) AS c FROM activity_plays WHERE activity_id = $1 AND line_user_id = $2',
+      `SELECT COUNT(*) AS c FROM activity_plays
+        WHERE activity_id = $1 AND line_user_id = $2
+          AND COALESCE(prize_snapshot->>'kind', '') <> 'draw_win'`,
       [a.id, lineUserId]
     );
     if (Number(reCount[0].c) >= totalQuota) {
@@ -267,7 +249,9 @@ async function computeUserQuota(query, activity, lineUserId) {
   const override = overrideRows[0] || null;
   // 2) 已玩次數
   const { rows: playedRows } = await query(
-    'SELECT COUNT(*) AS c FROM activity_plays WHERE activity_id = $1 AND line_user_id = $2',
+    `SELECT COUNT(*) AS c FROM activity_plays
+      WHERE activity_id = $1 AND line_user_id = $2
+        AND COALESCE(prize_snapshot->>'kind', '') <> 'draw_win'`,
     [activity.id, lineUserId]
   );
   const played = Number(playedRows[0].c);
