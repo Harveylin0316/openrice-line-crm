@@ -460,7 +460,7 @@
         if (typeof highlightIdx === 'number' && highlightIdx >= 0 && highlightIdx < n) {
           prizes.forEach(function (p, i) {
             if (i === highlightIdx) return;
-            var ds = i * anglePer - Math.PI / 2;
+            var ds = i * anglePer - Math.PI / 2 + wheelOffsetRad;
             var de = ds + anglePer;
             ctx.beginPath();
             ctx.moveTo(cx, cy);
@@ -469,7 +469,7 @@
             ctx.fillStyle = 'rgba(62, 39, 35, 0.42)';
             ctx.fill();
           });
-          var hs = highlightIdx * anglePer - Math.PI / 2;
+          var hs = highlightIdx * anglePer - Math.PI / 2 + wheelOffsetRad;
           var he = hs + anglePer;
           ctx.beginPath();
           ctx.moveTo(cx, cy);
