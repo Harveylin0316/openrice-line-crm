@@ -55,6 +55,7 @@
         <button type="button" id="mg-people-all" class="mg-btn2">全選還沒發的</button>
         <button type="button" id="mg-people-csv" class="mg-btn2">下載全部</button>
         <button type="button" id="mg-people-list" class="mg-btn2">存成群發名單</button>
+        <button type="button" id="mg-ledger-csv" class="mg-btn2">下載每一筆中獎明細</button>
         <span id="mg-people-note" class="muted" style="font-size:13px;"></span>
       </div>
       <div id="mg-people"><p class="muted">載入中…</p></div>
@@ -422,6 +423,17 @@
           })
           .catch(function(){btn.disabled=false;$('mg-people-note').textContent='連線失敗，再按一次';});
       });
+      // 每一筆中獎明細：哩數以外的獎（Rice Dollar、優惠券、實體）只有這裡查得到得主
+      $('mg-ledger-csv').addEventListener('click',function(){
+        var rows=((DATA&&DATA.ledger)||[]).filter(function(r){return r.prize_type!=='none';});
+        if(!rows.length){$('mg-people-note').textContent='還沒有人中獎';return;}
+        downloadCsv(['時間','會員','LINE ID','中了什麼','哩數','優惠碼','發了沒'],
+          rows.map(function(r){return [twFull(r.played_at),r.display_name,r.line_user_id,r.prize_name,
+            r.miles||'',r.coupon_code||'',r.miles?(r.granted_done?'已發':'還沒發'):''];}),
+          '中獎明細.csv');
+        $('mg-people-note').textContent='下載了 '+rows.length+' 筆';
+      });
+
       $('mg-toggle-ledger').addEventListener('click',function(e){
         e.preventDefault();
         var box=$('mg-ledger'); box.hidden=!box.hidden;
