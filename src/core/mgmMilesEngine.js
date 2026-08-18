@@ -93,7 +93,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
     return Number.isFinite(n) && n >= 0 ? Math.floor(n) : d;
   }
 
-  /** 找到「N 里」對應的獎品列（獎品名含里數即可；找不到回 null，發放會略過並大聲記 log） */
+  /** 找「N 里」對應的獎品列。選配：找不到就自己組一筆，不影響發放。 */
   async function findMilesPrize(campaign, miles) {
     const { rows } = await query(
       `SELECT id, name, description, prize_type, prize_value, image_url, is_grand_prize
@@ -118,7 +118,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
 
   /**
    * 發里數：把獎品寫進 activity_plays（唯一鍵 mgm_key 擋重複）。
-   * 回 'granted' | 'duplicate' | 'cap_reached' | 'no_prize' | 'error'
+   * 回 'granted' | 'duplicate' | 'cap_reached' | 'error'
    */
   async function grantMiles(campaign, lineUserId, miles, milestoneKey, displayName) {
     try {
@@ -129,15 +129,17 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
           return 'cap_reached';
         }
       }
+      // 獎品池是選配：有對應的獎品列就沿用它的名稱與圖，沒有就自己組一筆。
+      // （舊版找不到獎品就整個不發，等於把發放綁在「活動管理」那個沒人該去動的獎品池上）
       const prize = await findMilesPrize(campaign, miles);
-      if (!prize) {
-        console.error('mgm: 找不到 ' + miles + ' 里的獎品（activity_prizes 要有一筆 prize_value.miles=' + miles + '）');
-        return 'no_prize';
-      }
       const mgmKey = 'mgm:' + campaign.slug + ':' + milestoneKey + ':' + lineUserId;
-      const snapshot = {
+      const snapshot = prize ? {
         name: prize.name, description: prize.description, prize_type: prize.prize_type,
         image_url: prize.image_url, is_grand_prize: prize.is_grand_prize,
+        miles: miles, milestone: milestoneKey
+      } : {
+        name: (milestoneKey === 'welcome' ? '見面禮 ' : '邀請達標 ') + miles + ' 里',
+        description: null, prize_type: 'badge', image_url: null, is_grand_prize: false,
         miles: miles, milestone: milestoneKey
       };
       const ins = await query(
@@ -145,7 +147,7 @@ function createMgmMilesEngine({ query, linePush, liffId }) {
          SELECT $1, $2, $3, $4, $5::jsonb, $6::jsonb
          WHERE NOT EXISTS (SELECT 1 FROM activity_plays WHERE properties->>'mgm_key' = $7)
          RETURNING id`,
-        [campaign.id, lineUserId, displayName || null, prize.id,
+        [campaign.id, lineUserId, displayName || null, prize ? prize.id : null,
          JSON.stringify(snapshot), JSON.stringify({ mgm_key: mgmKey, milestone: milestoneKey }), mgmKey]
       );
       return ins.rows.length > 0 ? 'granted' : 'duplicate';

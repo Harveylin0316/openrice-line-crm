@@ -59,7 +59,13 @@ function registerAdminActivitiesRoutes(app, deps) {
   });
 
   // 頁面：編輯
-  app.get('/admin/activities/:id(\\d+)', requireAdmin, (req, res) => {
+  app.get('/admin/activities/:id(\\d+)', requireAdmin, async (req, res) => {
+    // 揪友賺哩不是一般遊戲：沒有獎品池／機率／庫存這些概念，
+    // 全部設定都在專屬後台，這裡直接送過去，避免兩個頁面各說各話。
+    try {
+      const { rows } = await query('SELECT game_type FROM activities WHERE id = $1', [Number(req.params.id)]);
+      if (rows[0] && rows[0].game_type === 'mgm') return res.redirect('/admin/mgm');
+    } catch (e) { /* 查不到就照原本流程走 */ }
     res.render('admin_activity_edit', {
       title: '編輯活動',
       bodyClass: 'admin-shell activities-shell',
