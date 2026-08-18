@@ -16,7 +16,7 @@
        跟品牌素材（奶油白底＋暖色扁平插畫）完全對不上。設計定案是亮色，不做深色版。 */
     :root{
       --ink:#4E342E; --ink2:#8D6E63; --paper:#FFF9E8; --surface:#FFFFFF;
-      --orange:#E8491D; --yellow:#FBC02D; --yellow-soft:#FFE08A; --line:#E7D8BE;
+      --orange:#E8491D; --yellow:#F9C73B; --yellow-soft:#FFF3C4; --line:#EFE2C6;
       --brass1:#C9A227; --brass2:#8A6A2F; --brass3:#5E4620;
       color-scheme: light;
     }
@@ -41,7 +41,7 @@
     .brand-bar{display:flex;align-items:center;gap:8px;margin-bottom:2px}
     .logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--ink)}
     .logo .o{color:var(--orange)}
-    .chip{font-size:11px;font-weight:700;border:1.5px solid var(--ink);border-radius:5px;padding:1px 7px;color:var(--ink)}
+    .chip{font-size:11px;font-weight:800;background:var(--yellow);border:1.5px solid rgba(78,52,46,.18);border-radius:6px;padding:2px 8px;color:var(--ink)}
 
     /* ── 標題 ── */
     .hero{position:relative;margin:6px 0 18px}
@@ -94,10 +94,10 @@
     /* ── 主行動：活版印刷，實心位移陰影不是柔光 ── */
     .cta{
       display:block;width:100%;margin:14px 0 0;padding:16px 20px;border:0;border-radius:9px;
-      background:var(--orange);color:#fff;font-size:20px;font-weight:900;font-family:inherit;
-      letter-spacing:.04em;cursor:pointer;box-shadow:0 4px 0 #B8401A;transition:transform .1s, box-shadow .1s;
+      background:var(--yellow);color:var(--ink);font-size:20px;font-weight:900;font-family:inherit;
+      letter-spacing:.04em;cursor:pointer;box-shadow:0 4px 0 #D9A81F;transition:transform .1s, box-shadow .1s;
     }
-    .cta:active{transform:translateY(3px);box-shadow:0 1px 0 #B8401A}
+    .cta:active{transform:translateY(3px);box-shadow:0 1px 0 #D9A81F}
     .cta:disabled{background:var(--line);color:var(--paper);box-shadow:0 4px 0 rgba(0,0,0,.18);cursor:default}
     .cta.ghost{background:transparent;color:var(--orange);border:2px solid var(--orange);box-shadow:none}
     .cta.ghost:active{transform:translateY(1px)}
@@ -242,14 +242,10 @@
         <div class="canvas-wrap"><canvas id="wheel" width="720" height="720"></canvas></div>
         <!-- 扁平深棕外框＋圓點（覆蓋在 canvas 上） -->
         <svg class="ring" viewBox="0 0 200 200" aria-hidden="true">
-          <circle cx="100" cy="100" r="93" fill="none" stroke="#4E342E" stroke-width="9"/>
-          <circle cx="100" cy="100" r="84.5" fill="none" stroke="#4E342E" stroke-width="3.4"/>
+          <circle cx="100" cy="100" r="96" fill="none" stroke="#4E342E" stroke-width="3.2"/>
+          <circle cx="100" cy="100" r="88" fill="none" stroke="#4E342E" stroke-width="3.2"/>
           <g stroke="#4E342E" stroke-width="2.6">
-            <circle cx="100" cy="11" r="4.2" fill="#FBC02D"/>
-            <circle cx="184.6" cy="72.5" r="4.2" fill="#E8491D"/>
-            <circle cx="152.3" cy="171.9" r="4.2" fill="#FFFFFF"/>
-            <circle cx="47.7" cy="171.9" r="4.2" fill="#E8491D"/>
-            <circle cx="15.4" cy="72.5" r="4.2" fill="#FBC02D"/>
+            <circle cx="100" cy="92" r="0" fill="none"/>
           </g>
         </svg>
         <button type="button" id="spin-btn" class="hub" aria-label="開始轉">SPIN</button>
@@ -374,10 +370,11 @@
           ctx.closePath();
           // 設計配色：米白 / 品牌黃 / 橘，三色輪替；大獎固定橘。
           // n % 3 === 1 時最後一格會跟第一格同色且相鄰，往後推一格避開。
-          var ci = i % 3;
+          // 白／淡黃兩色交替；格數為奇數時最後一格會跟第一格同色且相鄰，往後推一格避開
+          var ci = i % 2;
           if (i === n - 1 && n > 2 && ci === 0) ci = 1;
-          if (p.is_grand_prize) ctx.fillStyle = '#D9451F';
-          else ctx.fillStyle = ['#FFFDF7', '#FBC02D', '#FFE08A'][ci];
+          if (p.is_grand_prize) ctx.fillStyle = '#F9C73B';
+          else ctx.fillStyle = ['#FFFFFF', '#FFF3C4'][ci];
           ctx.fill();
         });
 
@@ -387,7 +384,7 @@
           ctx.beginPath();
           ctx.moveTo(cx, cy);
           ctx.lineTo(cx + Math.cos(angle) * R, cy + Math.sin(angle) * R);
-          ctx.lineWidth = 5;
+          ctx.lineWidth = 4;
           ctx.strokeStyle = '#4E342E';
           ctx.lineCap = 'round';
           ctx.stroke();
@@ -438,7 +435,7 @@
           ctx.save();
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillStyle = p.is_grand_prize ? '#FFFFFF' : '#4E342E';
+          ctx.fillStyle = '#4E342E';
 
           var bigPx = fitText(lab.big, Math.round(baseFs * 1.15), maxW);
           var smallPx = Math.max(9, Math.round(bigPx * 0.55));
