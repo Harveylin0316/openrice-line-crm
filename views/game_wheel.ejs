@@ -198,14 +198,18 @@
       .stage.landed .hub{animation:none}
       .cta,.modal-btn{transition:none}
     }
-  </style>
+  
+    /* 官方 logo（去背 PNG）——文字版拼出來的 logo 字距與品牌不一致，統一改用圖檔 */
+    .logo-img{height:26px;width:auto;display:block}
+    .logo{font-size:0 !important;letter-spacing:0 !important}
+    </style>
 </head>
 <body>
   <div class="page">
 
     <header class="brand-bar">
       <!-- 正式上線請換成專案內的官方 OpenRice Logo 資產 -->
-      <div class="logo"><span class="o">Open</span>Rice</div>
+      <div class="logo"><img src="/images/openrice-wordmark.png" alt="OpenRice 開飯喇" class="logo-img" /></div>
       <div class="chip">台灣</div>
     </header>
 

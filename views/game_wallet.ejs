@@ -291,16 +291,17 @@
       .brand-bar, .hero, .wallet-card, .empty, .state { animation: none; }
       .spinner { animation-duration: 1.6s; }
     }
-  </style>
+  
+    /* 官方 logo（去背 PNG）——文字版拼出來的 logo 字距與品牌不一致，統一改用圖檔 */
+    .logo-img{height:26px;width:auto;display:block}
+    .logo{font-size:0 !important;letter-spacing:0 !important}
+    </style>
 </head>
 <body>
   <div class="page">
 
     <header class="brand-bar">
-      <div class="logo">
-        <span class="dot"></span>
-        OpenRice
-      </div>
+      <div class="logo"><img src="/images/openrice-wordmark.png" alt="OpenRice 開飯喇" class="logo-img" /></div>
       <div class="chip">優惠券</div>
     </header>
 
