@@ -443,6 +443,132 @@ function registerMgmMilesRoutes(app, deps) {
     }
   });
 
+  // ── 後台：查一個人（用戶抱怨「我明明邀請成功卻沒拿到次數」時用）──
+  //    把這個人在這檔活動的一切攤開：次數怎麼算出來的、邀請成功幾筆、
+  //    失敗或沒算到的嘗試各是什麼原因、玩過幾次、人工補過幾次。
+  app.get('/admin/mgm/api/user', requireAdmin, async (req, res) => {
+    try {
+      const q = String(req.query.q || '').trim();
+      if (!q) return jsonErr(res, 400, 'need_query', { detail: '要貼 LINE ID 或打名字' });
+      const act = await resolveActivity(req.query.activity_id);
+      if (!act) return jsonErr(res, 404, 'no_activity');
+
+      let uid = null, matches = [];
+      if (/^U[0-9a-f]{32}$/i.test(q)) {
+        uid = q;
+      } else {
+        matches = (await query(
+          `SELECT line_user_id AS uid, COALESCE(line_display_name, '(沒有名字)') AS display_name
+             FROM users
+            WHERE archived_at IS NULL AND line_display_name ILIKE '%' || $1 || '%'
+            ORDER BY line_display_name LIMIT 20`, [q])).rows;
+        if (matches.length === 1) uid = matches[0].uid;
+        if (matches.length !== 1) return res.json({ ok: true, activity: { id: act.id, name: act.name }, matches, user: null });
+      }
+
+      const prof = (await query(
+        `SELECT COALESCE(line_display_name, '(沒有名字)') AS display_name, created_at, blocked_at, archived_at
+           FROM users WHERE line_user_id = $1 LIMIT 1`, [uid])).rows[0] || null;
+
+      // 次數怎麼算出來的
+      const refCount = (await query(
+        `SELECT COUNT(*) FILTER (WHERE invitee_was_existing IS FALSE)::int AS new_friends,
+                COUNT(*) FILTER (WHERE invitee_was_existing IS NOT FALSE)::int AS existing_friends
+           FROM activity_referrals WHERE activity_id = $1 AND inviter_line_user_id = $2`,
+        [act.id, uid])).rows[0];
+      const playedRow = (await query(
+        `SELECT COUNT(*)::int AS c FROM activity_plays
+          WHERE activity_id = $1 AND line_user_id = $2
+            AND COALESCE(prize_snapshot->>'kind','') <> 'draw_win'`, [act.id, uid])).rows[0];
+      const bonusRow = (await query(
+        `SELECT COALESCE(SUM(plays),0)::int AS b FROM activity_bonus_plays
+          WHERE activity_id = $1 AND line_user_id = $2`, [act.id, uid])).rows[0];
+      const perBonus = Math.max(1, Number(act.referral_invites_per_bonus || 1));
+      const refPer = Number(act.referral_bonus_per || 0);
+      const refMax = Number(act.referral_bonus_max || 0);
+      const referralBonus = Math.min(refMax, Math.floor(refCount.new_friends / perBonus) * refPer);
+      const base = Number(act.base_plays_per_user || 0);
+      const bonus = Number(bonusRow.b || 0);
+      const total = base + referralBonus + bonus;
+      const played = Number(playedRow.c || 0);
+
+      const referrals = (await query(
+        `SELECT r.created_at, r.invitee_line_user_id AS uid,
+                COALESCE(u.line_display_name, '(沒有名字)') AS display_name,
+                COALESCE(r.invitee_was_existing, false) AS was_existing
+           FROM activity_referrals r
+           LEFT JOIN users u ON u.line_user_id = r.invitee_line_user_id
+          WHERE r.activity_id = $1 AND r.inviter_line_user_id = $2
+          ORDER BY r.created_at DESC LIMIT 200`, [act.id, uid])).rows;
+
+      // 沒算到的嘗試：他當邀請人、而且那位被邀請人最後沒有成功入帳
+      const attempts = (await query(
+        `SELECT t.created_at, t.outcome, t.invitee_line_user_id AS uid,
+                COALESCE(u.line_display_name, '(沒有名字)') AS display_name
+           FROM activity_referral_attempts t
+           LEFT JOIN users u ON u.line_user_id = t.invitee_line_user_id
+          WHERE t.activity_slug = $1 AND t.inviter_line_user_id = $2
+            AND t.outcome NOT IN ('counted')
+            AND NOT EXISTS (SELECT 1 FROM activity_referrals ar
+                             WHERE ar.activity_id = $3
+                               AND ar.invitee_line_user_id = t.invitee_line_user_id)
+          ORDER BY t.created_at DESC LIMIT 200`, [act.slug, uid, act.id])).rows;
+
+      const plays = (await query(
+        `SELECT p.played_at, COALESCE(p.prize_snapshot->>'name','—') AS prize_name,
+                (p.prize_snapshot->>'miles')::int AS miles, p.coupon_code,
+                COALESCE(p.is_redeemed,false) AS granted_done
+           FROM activity_plays p
+          WHERE p.activity_id = $1 AND p.line_user_id = $2
+            AND COALESCE(p.prize_snapshot->>'kind','') <> 'draw_win'
+          ORDER BY p.played_at DESC LIMIT 200`, [act.id, uid])).rows;
+
+      const bonuses = (await query(
+        `SELECT created_at, plays, COALESCE(reason,'') AS reason
+           FROM activity_bonus_plays WHERE activity_id = $1 AND line_user_id = $2
+          ORDER BY created_at DESC LIMIT 100`, [act.id, uid])).rows;
+
+      res.json({ ok: true,
+        activity: { id: act.id, name: act.name, slug: act.slug,
+                    base_plays_per_user: base, referral_bonus_per: refPer,
+                    referral_invites_per_bonus: perBonus, referral_bonus_max: refMax },
+        user: { uid: uid, display_name: prof ? prof.display_name : '(查不到這個人)',
+                is_member: !!prof && !prof.archived_at, blocked: !!(prof && prof.blocked_at),
+                joined_at: prof ? prof.created_at : null },
+        quota: { base: base, referral_bonus: referralBonus, manual_bonus: bonus,
+                 total: total, played: played, remaining: Math.max(0, total - played),
+                 new_friends: refCount.new_friends, existing_friends: refCount.existing_friends },
+        referrals, attempts, plays, bonuses });
+    } catch (err) {
+      console.error('user lookup error:', err && err.message);
+      jsonErr(res, 500, 'lookup_failed', { detail: err && err.message });
+    }
+  });
+
+  // 人工補次數（留備註，永久紀錄）
+  app.post('/admin/mgm/api/grant-play', requireAdmin, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const uid = String(body.line_user_id || '').trim();
+      if (!/^U[0-9a-f]{32}$/i.test(uid)) return jsonErr(res, 400, 'bad_uid', { detail: 'LINE ID 格式不對' });
+      const plays = Math.max(1, Math.min(20, Number(body.plays) || 1));
+      const note = String(body.note || '').trim().slice(0, 120);
+      const act = await resolveActivity(body.activity_id);
+      if (!act) return jsonErr(res, 404, 'no_activity');
+      const by = (req.authUser && req.authUser.un) || 'admin';
+      const key = 'manual:' + act.slug + ':' + uid + ':' + Date.now().toString(36);
+      const ins = await query(
+        `INSERT INTO activity_bonus_plays (activity_id, line_user_id, plays, reason, granted_key)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [act.id, uid, plays, '人工補發（' + by + '）' + (note ? '：' + note : ''), key]
+      );
+      res.json({ ok: true, id: ins.rows[0].id, plays: plays });
+    } catch (err) {
+      console.error('grant play error:', err && err.message);
+      jsonErr(res, 500, 'grant_failed', { detail: err && err.message });
+    }
+  });
+
   // ── 後台：大獎抽獎（只有你自己玩）──────────────────────────
   //    參加者 = 有抽獎資格的人。抽出來的結果寫進 activity_plays（kind=draw_win），
   //    不影響四張表；重抽要先把那一輪作廢，紀錄永遠留著。
