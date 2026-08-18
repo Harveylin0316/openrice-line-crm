@@ -47,7 +47,10 @@
           <thead>
             <tr>
               <th>用戶</th>
-              <th style="text-align:right;">抽次</th>
+              <th>被誰邀請</th>
+              <th style="text-align:right;">總共有幾次<div class="muted" style="font-size:10px;font-weight:400;">基本＋邀請＋人工補</div></th>
+              <th style="text-align:right;">用了幾次</th>
+              <th style="text-align:right;">還剩</th>
               <th style="text-align:right;">中獎</th>
               <th style="text-align:right;">邀請成功<div class="muted" style="font-size:10px;font-weight:400;">只算本來不是好友的</div></th>
               <th>最後活動</th>
@@ -56,7 +59,7 @@
             </tr>
           </thead>
           <tbody id="players-tbody">
-            <tr><td colspan="7" class="muted" style="text-align:center;padding:18px 0;">載入中…</td></tr>
+            <tr><td colspan="10" class="muted" style="text-align:center;padding:18px 0;">載入中…</td></tr>
           </tbody>
         </table>
       </div>
@@ -166,7 +169,7 @@
           .then(function (r) { return r.json(); })
           .then(function (resp) {
             if (!resp.ok) {
-              tbody.innerHTML = '<tr><td colspan="7" class="muted">載入失敗</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="10" class="muted">載入失敗</td></tr>';
               return;
             }
             allPlayers = resp.players || [];
@@ -180,13 +183,13 @@
             render(allPlayers);
           })
           .catch(function () {
-            tbody.innerHTML = '<tr><td colspan="7" class="muted">載入失敗</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="muted">載入失敗</td></tr>';
           });
       }
 
       function render(list) {
         if (!list.length) {
-          tbody.innerHTML = '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px 0;">尚無玩家。等用戶開始抽就會出現在這裡。</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="10" class="muted" style="text-align:center;padding:24px 0;">尚無玩家。等用戶開始抽就會出現在這裡。</td></tr>';
           return;
         }
         tbody.innerHTML = list.map(function (p) {
@@ -204,7 +207,17 @@
               '<div class="player-name">' + name + '</div>' +
               '<button type="button" class="player-uid" data-uid="' + esc(uid) + '">' + esc(shortUid(uid)) + '</button>' +
             '</td>' +
+            '<td>' + (p.invited_by_uid
+                ? ('<div style="font-size:12.5px;">' + esc(p.invited_by_name || '(沒有名字)') + '</div>' +
+                   '<div class="muted" style="font-size:10.5px;">' + esc(shortUid(p.invited_by_uid)) +
+                   (p.invited_was_existing ? '｜本來就是好友，不加次數' : '｜計獎') + '</div>')
+                : '<span class="muted" style="font-size:11.5px;">自己來的</span>') + '</td>' +
+            '<td style="text-align:right;font-weight:700;font-size:15px;">' + fmt(p.quota_total) +
+              (Number(p.manual_bonus) > 0 ? '<div class="muted" style="font-size:10.5px;">含人工補 ' + fmt(p.manual_bonus) + ' 次</div>' : '') + '</td>' +
             '<td style="text-align:right;font-weight:600;">' + fmt(p.plays) + '</td>' +
+            '<td style="text-align:right;">' + (Number(p.quota_remaining) > 0
+                ? ('<b>' + fmt(p.quota_remaining) + '</b>')
+                : '<span class="muted">用完了</span>') + '</td>' +
             '<td style="text-align:right;">' + fmt(p.wins) + grandPill + '</td>' +
             '<td style="text-align:right;">' + fmt(p.referrals) +
               (Number(p.referrals_existing) > 0

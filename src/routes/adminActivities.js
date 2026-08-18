@@ -314,7 +314,7 @@ function registerAdminActivitiesRoutes(app, deps) {
           pl.line_user_id,
           -- GROUP BY 只留 line_user_id（改過名的用戶不拆列），顯示名取最新一筆
           (ARRAY_AGG(pl.line_display_name ORDER BY pl.played_at DESC))[1] AS line_display_name,
-          COUNT(*) AS plays,
+          COUNT(*) FILTER (WHERE COALESCE(pl.prize_snapshot->>'kind','') <> 'draw_win') AS plays,
           COUNT(*) FILTER (WHERE pl.prize_id IS NOT NULL) AS wins,
           COUNT(*) FILTER (WHERE pr.is_grand_prize = TRUE) AS grand_wins,
           MAX(pl.played_at) AS last_played_at,
@@ -328,6 +328,18 @@ function registerAdminActivitiesRoutes(app, deps) {
           (SELECT COUNT(*) FROM activity_referrals r
            WHERE r.activity_id = $1 AND r.inviter_line_user_id = pl.line_user_id
              AND r.invitee_was_existing IS NOT FALSE) AS referrals_existing,
+          (SELECT COALESCE(SUM(b.plays),0) FROM activity_bonus_plays b
+            WHERE b.activity_id = $1 AND b.line_user_id = pl.line_user_id) AS manual_bonus,
+          (SELECT r.inviter_line_user_id FROM activity_referrals r
+            WHERE r.activity_id = $1 AND r.invitee_line_user_id = pl.line_user_id
+            ORDER BY r.created_at LIMIT 1) AS invited_by_uid,
+          (SELECT COALESCE(iu.line_display_name, '(沒有名字)') FROM activity_referrals r
+             LEFT JOIN users iu ON iu.line_user_id = r.inviter_line_user_id
+            WHERE r.activity_id = $1 AND r.invitee_line_user_id = pl.line_user_id
+            ORDER BY r.created_at LIMIT 1) AS invited_by_name,
+          (SELECT r.invitee_was_existing FROM activity_referrals r
+            WHERE r.activity_id = $1 AND r.invitee_line_user_id = pl.line_user_id
+            ORDER BY r.created_at LIMIT 1) AS invited_was_existing,
           u.line_display_name AS crm_display_name
         FROM activity_plays pl
         LEFT JOIN activity_prizes pr ON pr.id = pl.prize_id
@@ -340,6 +352,28 @@ function registerAdminActivitiesRoutes(app, deps) {
         LIMIT $2
       `;
       const { rows } = await query(sql, [id, limit]);
+      // 次數一律用 gamePlayEngine 的共用公式算，不在這裡另寫一份
+      const { computeQuotaNumbers } = require('../core/gamePlayEngine');
+      const { rows: actRows } = await query(
+        `SELECT base_plays_per_user, referral_bonus_per, referral_bonus_max, referral_invites_per_bonus
+           FROM activities WHERE id = $1`, [id]);
+      const actCfg = actRows[0] || {};
+      const attachQuota = (r) => {
+        const q = computeQuotaNumbers({
+          basePlays: actCfg.base_plays_per_user,
+          refPer: actCfg.referral_bonus_per,
+          refMax: actCfg.referral_bonus_max,
+          invitesPer: actCfg.referral_invites_per_bonus,
+          newFriends: Number(r.referrals || 0),
+          manualBonus: Number(r.manual_bonus || 0),
+          played: Number(r.plays || 0),
+          override: r.max_plays_override == null ? null : Number(r.max_plays_override)
+        });
+        r.quota_total = q.total;
+        r.quota_remaining = q.remaining;
+        return r;
+      };
+      rows.forEach(attachQuota);
       // 也加上「有 override 但沒玩過」的用戶（後台設了配額但用戶還沒抽）
       const { rows: orphanQuotas } = await query(
         `SELECT q.line_user_id, q.line_display_name, q.max_plays_override, q.note, q.granted_by,
@@ -353,6 +387,7 @@ function registerAdminActivitiesRoutes(app, deps) {
            )`,
         [id]
       );
+      const beforeOrphans = rows.length;
       orphanQuotas.forEach(o => {
         rows.push({
           line_user_id: o.line_user_id,
@@ -364,8 +399,11 @@ function registerAdminActivitiesRoutes(app, deps) {
           quota_granted_by: o.granted_by,
           referrals: 0,
           referrals_existing: 0,
+          manual_bonus: 0,
+          invited_by_uid: null, invited_by_name: null, invited_was_existing: null,
           crm_display_name: o.crm_display_name
         });
+      for (let k = beforeOrphans; k < rows.length; k++) attachQuota(rows[k]);
       });
       // overview 統計
       const { rows: ov } = await query(
@@ -531,7 +569,7 @@ function registerAdminActivitiesRoutes(app, deps) {
       const id = Number(req.params.id);
       const overviewSQL = `
         SELECT
-          COUNT(*) AS plays,
+          COUNT(*) FILTER (WHERE COALESCE(pl.prize_snapshot->>'kind','') <> 'draw_win') AS plays,
           COUNT(DISTINCT line_user_id) AS players,
           COUNT(*) FILTER (WHERE prize_id IS NOT NULL) AS wins,
           COUNT(*) FILTER (WHERE played_at >= date_trunc('day', NOW())) AS plays_today

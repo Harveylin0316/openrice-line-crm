@@ -234,6 +234,28 @@ async function selectPrizeAndRecord(opts) {
   }
 }
 
+/**
+ * 次數算式的**唯一一份**。要顯示或判定次數一律呼叫這裡，不要自己算。
+ * 之前「玩的關卡」與「畫面顯示」各寫一份，導致防洗失效、忽略「每幾位換一次」、
+ * 人工補發沒算到——修過一次就是為了這個，不要再複製一份出去。
+ */
+function computeQuotaNumbers(cfg) {
+  const basePlays = Number(cfg.basePlays || 0);
+  const refPer = Number(cfg.refPer || 0);
+  const refMax = Number(cfg.refMax || 0);
+  const invitesPer = Math.max(1, Number(cfg.invitesPer || 1));
+  const newFriends = Number(cfg.newFriends || 0);
+  const manualBonus = Number(cfg.manualBonus || 0);
+  const played = Number(cfg.played || 0);
+  const override = (cfg.override === null || cfg.override === undefined) ? null : Number(cfg.override);
+  const referralBonus = Math.min(refMax, Math.floor(newFriends / invitesPer) * refPer);
+  const nextBonusIn = (referralBonus >= refMax || refPer <= 0)
+    ? 0 : invitesPer - (newFriends % invitesPer);
+  const total = (override === null ? basePlays + referralBonus : override) + manualBonus;
+  return { total, played, remaining: Math.max(0, total - played),
+    referral_bonus: referralBonus, next_bonus_in: nextBonusIn };
+}
+
 async function computeUserQuota(query, activity, lineUserId) {
   const basePlays = Number(activity.base_plays_per_user || 1);
   const refPer = Number(activity.referral_bonus_per || 0);
@@ -273,16 +295,14 @@ async function computeUserQuota(query, activity, lineUserId) {
     [activity.id, lineUserId]
   );
   const bonusPlays = Number(bonusRows[0].b || 0);
-  const referralBonus = Math.min(refMax, Math.floor(referrals / invitesPer) * refPer);
-  // 「再邀幾人就多 1 份」：已達上限就是 0（前端據此顯示進度或收起邀請卡）
-  const nextBonusIn = referralBonus >= refMax || refPer <= 0
-    ? 0
-    : invitesPer - (referrals % invitesPer);
-  // override 直接覆寫 total（取代 base + referral）；否則用標準計算
-  // 加碼次數永遠外加：override 是「基礎+邀請」的覆寫，不該吃掉別的活動發的獎勵
-  const total = (override
-    ? Number(override.max_plays_override)
-    : basePlays + referralBonus) + bonusPlays;
+  const nums = computeQuotaNumbers({
+    basePlays, refPer, refMax, invitesPer,
+    newFriends: referrals, manualBonus: bonusPlays, played,
+    override: override ? Number(override.max_plays_override) : null
+  });
+  const total = nums.total;
+  const referralBonus = nums.referral_bonus;
+  const nextBonusIn = nums.next_bonus_in;
   return {
     total,
     played,
@@ -489,4 +509,4 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
   return { ok: true, counted, same_inviter: sameInviter, invitee_was_existing: inviteeWasExisting };
 }
 
-module.exports = { selectPrizeAndRecord, computeUserQuota, registerReferral, notifyInviterOfReferral };
+module.exports = { selectPrizeAndRecord, computeUserQuota, computeQuotaNumbers, registerReferral, notifyInviterOfReferral };
