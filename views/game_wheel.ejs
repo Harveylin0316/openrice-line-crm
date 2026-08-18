@@ -169,6 +169,15 @@
     .sheet-dismiss{display:block;margin:13px auto 0;border:0;background:transparent;font-family:inherit;
       font-size:13.5px;font-weight:700;color:var(--ink2);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
     .modal-prize.pop{animation:statPop .46s cubic-bezier(.2,1.4,.4,1)}
+    .myprize-head{font-size:15px;font-weight:800;color:var(--ink);margin-bottom:10px}
+    .pz{display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+    .pz:last-child{border-bottom:0}
+    .pz-main{flex:1;min-width:0}
+    .pz-name{font-size:15px;font-weight:800;color:var(--ink);line-height:1.4}
+    .pz-sub{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.6}
+    .pz-code{display:inline-flex;align-items:center;gap:8px;margin-top:6px;padding:6px 10px;border:1px dashed var(--line);border-radius:8px;font-size:13px;font-weight:800;color:var(--ink);letter-spacing:.04em}
+    .pz-copy{border:0;background:var(--orange);color:#fff;font-size:11.5px;font-weight:800;padding:4px 9px;border-radius:6px;cursor:pointer}
+    .pz-when{font-size:11.5px;color:var(--ink2);white-space:nowrap;padding-top:3px}
     .wallet-link{display:inline-block;margin-top:13px;font-size:13.5px;font-weight:800;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
     .modal-foot{font-size:12.5px;color:var(--ink2);margin-top:11px;line-height:1.6}
     .modal-foot .n{color:var(--orange);font-weight:900;font-size:15px;margin:0 2px}
@@ -295,6 +304,12 @@
         <% } %>
       </div>
       <button type="button" class="invite-btn" id="invite-btn">找朋友</button>
+    </section>
+
+    <section class="myprize" id="myprize" hidden>
+      <hr class="dash" />
+      <div class="myprize-head">我抽到的獎</div>
+      <div id="myprize-list"></div>
     </section>
 
   </div>
@@ -900,6 +915,51 @@
       }
 
       // ----- 拉 quota 並更新 UI -----
+      // 我抽到的獎：從 wallet API 撈，只留這檔活動的。哩數獎品也算（沒有優惠碼）
+      function fmtWhen(ts){
+        try{ return new Date(ts).toLocaleDateString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric'}); }
+        catch(e){ return ''; }
+      }
+      function escHtml(x){return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+      async function refreshMyPrizes() {
+        try {
+          if (!profile || !profile.userId) return;
+          var resp = await fetch('/api/games/wallet?line_user_id=' + encodeURIComponent(profile.userId) +
+            '&id_token=' + encodeURIComponent(idToken || '')).then(function (r) { return r.json(); });
+          if (!resp || !resp.ok || !Array.isArray(resp.prizes)) return;
+          var mine = resp.prizes.filter(function (p) { return p.activity_slug === slug; });
+          var box = document.getElementById('myprize');
+          var list = document.getElementById('myprize-list');
+          if (!box || !list) return;
+          if (!mine.length) { box.hidden = true; return; }
+          list.innerHTML = mine.map(function (p, i) {
+            var sub = p.miles
+              ? (p.redeemed ? '哩數已經發放' : '活動結束後統一發放到你的帳戶')
+              : (p.prize_desc || '');
+            var code = p.code
+              ? '<div class="pz-code"><span id="pzc' + i + '">' + escHtml(p.code) + '</span>' +
+                '<button type="button" class="pz-copy" data-i="' + i + '">複製</button></div>'
+              : '';
+            return '<div class="pz"><div class="pz-main">' +
+              '<div class="pz-name">' + escHtml(p.prize_name) + '</div>' +
+              (sub ? '<div class="pz-sub">' + escHtml(sub) + '</div>' : '') + code +
+              '</div><div class="pz-when">' + fmtWhen(p.won_at) + '</div></div>';
+          }).join('');
+          box.hidden = false;
+          [].slice.call(list.querySelectorAll('.pz-copy')).forEach(function (b) {
+            b.addEventListener('click', function () {
+              var el = document.getElementById('pzc' + b.getAttribute('data-i'));
+              if (!el) return;
+              try {
+                navigator.clipboard.writeText(el.textContent.trim());
+                b.textContent = '已複製';
+                setTimeout(function () { b.textContent = '複製'; }, 1500);
+              } catch (e) { /* 複製失敗就算了，碼還是看得到 */ }
+            });
+          });
+        } catch (e) { console.warn('my prizes fetch failed:', e); }
+      }
+
       async function refreshQuota() {
         try {
           if (!profile || !profile.userId) return;
@@ -907,6 +967,7 @@
             '/meta?line_user_id=' + encodeURIComponent(profile.userId) + '&id_token=' + encodeURIComponent(idToken || '')).then(function (r) { return r.json(); });
           if (!resp.ok || !resp.quota) return;
           renderQuota(resp.quota);
+          refreshMyPrizes();
         } catch (e) { console.warn('quota fetch failed:', e); }
       }
 

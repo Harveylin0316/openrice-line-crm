@@ -280,6 +280,32 @@ function registerWalletApi(app, deps) {
           LIMIT 100`,
         [lineUserId]
       );
+      // 所有「真的中到的獎」：含沒有優惠碼的（例如哩數）。
+      // 排除銘謝惠顧，也排除後台抽的大獎——那個要等行銷正式公布，
+      // 而且抽錯了還能作廢，先讓用戶看到會出事。
+      const { rows: winRows } = await query(
+        `SELECT a.name AS activity_name, a.slug AS activity_slug,
+                COALESCE(p.prize_snapshot->>'name', '獎品') AS prize_name,
+                COALESCE(p.prize_snapshot->>'description', '') AS prize_desc,
+                (p.prize_snapshot->>'miles')::int AS miles,
+                p.coupon_code AS code,
+                p.played_at AS won_at,
+                COALESCE(p.is_redeemed, false) AS redeemed
+           FROM activity_plays p
+           JOIN activities a ON a.id = p.activity_id
+          WHERE p.line_user_id = $1
+            AND COALESCE(p.prize_snapshot->>'prize_type', '') <> 'none'
+            AND COALESCE(p.prize_snapshot->>'kind', '') <> 'draw_win'
+          ORDER BY p.played_at DESC
+          LIMIT 100`,
+        [lineUserId]
+      );
+      const prizes = winRows.map(r => ({
+        activity_name: r.activity_name, activity_slug: r.activity_slug,
+        prize_name: r.prize_name, prize_desc: r.prize_desc || null,
+        miles: r.miles || null, code: r.code || null,
+        won_at: r.won_at, redeemed: !!r.redeemed
+      }));
       const coupons = rows.map(r => ({
         activity_name: r.activity_name,
         activity_slug: r.activity_slug,
@@ -293,7 +319,7 @@ function registerWalletApi(app, deps) {
         redeem_url_android: r.redeem_url_android || null,
         use_expires_on: r.use_expires_on || null
       }));
-      res.json({ ok: true, coupons });
+      res.json({ ok: true, coupons, prizes });
     } catch (err) {
       console.error('wallet api error:', err && err.message);
       res.status(500).json({ ok: false, error: 'wallet_failed', detail: String(err.message || '').slice(0, 300) });
