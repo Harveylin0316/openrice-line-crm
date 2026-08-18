@@ -357,14 +357,17 @@ async function fetchLineDisplayName(lineUserId) {
   }
 }
 
-async function notifyInviterOfReferral({ query, activity, activitySlug, gameType, inviterId, inviteeId }) {
+async function notifyInviterOfReferral({ query, activity, activitySlug, gameType, inviterId, inviteeId, inviteeWasExisting }) {
   if (shouldSkipReferralNotify(activity.id + ':' + inviterId)) return;
   const refPer = Number(activity.referral_bonus_per || 0);
   const refMax = Number(activity.referral_bonus_max || 0);
   const invitesPer = Math.max(1, Number(activity.referral_invites_per_bonus || 1));
+  // 只算「本來不是好友」的——要跟 computeUserQuota 同一套算法。
+  // 這裡以前算的是所有點過連結的人，於是推播說「+1 次」但實際沒加，兩邊對不上。
   const { rows: refRows } = await query(
     `SELECT COUNT(*) AS c FROM activity_referrals
-     WHERE activity_id = $1 AND inviter_line_user_id = $2`,
+     WHERE activity_id = $1 AND inviter_line_user_id = $2
+       AND invitee_was_existing IS FALSE`,
     [activity.id, inviterId]
   );
   const count = Number(refRows[0].c);
@@ -381,7 +384,12 @@ async function notifyInviterOfReferral({ query, activity, activitySlug, gameType
   let text;
   const capped = bonusAt(count) >= refMax;
   const toNext = invitesPer - (count % invitesPer);
-  if (gained > 0) {
+  if (inviteeWasExisting === true) {
+    // 對方本來就是官方帳號好友：不加次數。要照實說，否則邀請人會等一個永遠不會來的次數。
+    text = who + ' 打開了你的連結，不過他本來就是官方帳號好友，這次不會多一次機會。' +
+      '找還沒加入官方帳號的朋友才會加。';
+    if (gameUrl) text += '你的遊戲在這：' + gameUrl;
+  } else if (gained > 0) {
     text = '邀請成功！' + who + ' 已透過你的連結加入。你獲得 +' + gained +
       ' 次遊戲機會（已邀 ' + count + ' 位，上限 +' + refMax + ' 次）。';
     if (gameUrl) text += '打開遊戲馬上用：' + gameUrl;
@@ -491,10 +499,10 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
   if (counted && gameType !== 'mgm') {
     // 邀請成功 → 即時通知邀請人。fire-and-forget：通知失敗絕不影響 API 回應。
     // MGM（揪友賺哩）有自己的里程碑卡片，不走這個遊戲式通知
-    notifyInviterOfReferral({ query, activity: a, activitySlug, gameType, inviterId, inviteeId })
+    notifyInviterOfReferral({ query, activity: a, activitySlug, gameType, inviterId, inviteeId, inviteeWasExisting })
       .catch(err => console.error('referral inviter notify failed:', err && err.message));
   }
   return { ok: true, counted, same_inviter: sameInviter, invitee_was_existing: inviteeWasExisting };
 }
 
-module.exports = { selectPrizeAndRecord, computeUserQuota, registerReferral };
+module.exports = { selectPrizeAndRecord, computeUserQuota, registerReferral, notifyInviterOfReferral };
