@@ -44,7 +44,9 @@ function registerAdminUsersRoutes(app, deps) {
       const searchRaw = String(req.query.search || '').trim().toLowerCase();
       const search = searchRaw.replace(/[\\%_]/g, '\\$&'); // 跳脫 LIKE 萬用字元
       // 搜尋條件：$1 = like pattern（有搜尋才用）
-      const baseWhere = `line_user_id IS NOT NULL AND BTRIM(line_user_id) <> '' AND is_admin = false`;
+      const tagId = Number(req.query.tag_id) || null;
+      const baseWhere = `line_user_id IS NOT NULL AND BTRIM(line_user_id) <> '' AND is_admin = false` +
+        (tagId ? ` AND line_user_id IN (SELECT line_user_id FROM user_tag_members WHERE tag_id = ${tagId})` : '');
       const searchWhere = searchRaw
         ? ` AND (LOWER(line_user_id) LIKE $1 ESCAPE '\\' OR LOWER(COALESCE(line_display_name,'')) LIKE $1 ESCAPE '\\' OR LOWER(COALESCE(username,'')) LIKE $1 ESCAPE '\\')`
         : '';
@@ -65,6 +67,93 @@ function registerAdminUsersRoutes(app, deps) {
   });
 
   // 單一用戶 360
+  // ── 用戶標籤 ─────────────────────────────────────────────
+  app.get('/admin/users/api/tags', requireAdmin, async (_req, res) => {
+    try {
+      const { rows } = await query(
+        `SELECT t.id, t.name, t.color,
+                (SELECT COUNT(*)::int FROM user_tag_members m WHERE m.tag_id = t.id) AS members
+           FROM user_tags t ORDER BY t.name`);
+      res.json({ ok: true, tags: rows });
+    } catch (err) { jsonErr(res, 500, 'tags_failed', { detail: err && err.message }); }
+  });
+
+  app.post('/admin/users/api/tags', requireAdmin, async (req, res) => {
+    try {
+      const name = String((req.body || {}).name || '').trim().slice(0, 30);
+      const color = /^#[0-9a-fA-F]{6}$/.test(String((req.body || {}).color || '')) ? req.body.color : '#FBC02D';
+      if (!name) return jsonErr(res, 400, 'name_required', { detail: '標籤要有名字' });
+      const by = (req.authUser && req.authUser.un) || 'admin';
+      const ins = await query(
+        `INSERT INTO user_tags (name, color, created_by) VALUES ($1, $2, $3)
+         ON CONFLICT (name) DO UPDATE SET color = EXCLUDED.color
+         RETURNING id, name, color`,
+        [name, color, by]);
+      res.json({ ok: true, tag: ins.rows[0] });
+    } catch (err) { jsonErr(res, 500, 'tag_create_failed', { detail: err && err.message }); }
+  });
+
+  app.post('/admin/users/api/tags/delete', requireAdmin, async (req, res) => {
+    try {
+      const id = Number((req.body || {}).id);
+      if (!id) return jsonErr(res, 400, 'bad_id');
+      await query(`DELETE FROM user_tags WHERE id = $1`, [id]);  // members 連動刪除
+      res.json({ ok: true });
+    } catch (err) { jsonErr(res, 500, 'tag_delete_failed', { detail: err && err.message }); }
+  });
+
+  // 幫單一用戶貼／撕標籤
+  app.post('/admin/users/api/tag', requireAdmin, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const luid = String(body.line_user_id || '').trim();
+      const tagId = Number(body.tag_id);
+      if (!/^U[0-9a-f]{32}$/i.test(luid) || !tagId) return jsonErr(res, 400, 'bad_id');
+      const by = (req.authUser && req.authUser.un) || 'admin';
+      if (body.on === false) {
+        await query(`DELETE FROM user_tag_members WHERE tag_id = $1 AND line_user_id = $2`, [tagId, luid]);
+      } else {
+        await query(
+          `INSERT INTO user_tag_members (tag_id, line_user_id, added_by) VALUES ($1, $2, $3)
+           ON CONFLICT DO NOTHING`, [tagId, luid, by]);
+      }
+      res.json({ ok: true });
+    } catch (err) { jsonErr(res, 500, 'tag_failed', { detail: err && err.message }); }
+  });
+
+  // 把標籤成員存成名單（接群發／圖文選單名單專屬）
+  app.post('/admin/users/api/tags/to-list', requireAdmin, async (req, res) => {
+    try {
+      const tagId = Number((req.body || {}).tag_id);
+      if (!tagId) return jsonErr(res, 400, 'bad_id');
+      const { rows: t } = await query(`SELECT name FROM user_tags WHERE id = $1`, [tagId]);
+      if (!t.length) return jsonErr(res, 404, 'not_found');
+      const { rows: ms } = await query(
+        `SELECT line_user_id FROM user_tag_members WHERE tag_id = $1 LIMIT 20000`, [tagId]);
+      const uids = ms.map(x => String(x.line_user_id || '').trim()).filter(u => /^U[0-9a-f]{32}$/i.test(u));
+      if (!uids.length) return jsonErr(res, 400, 'empty', { detail: '這個標籤還沒有人' });
+      const by = (req.authUser && req.authUser.un) || 'admin';
+      const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      const ins = await query(
+        `INSERT INTO admin_recipient_lists (name, description, total, created_by)
+         VALUES ($1, $2, $3, $4) RETURNING id, name, total`,
+        [('標籤：' + t[0].name + '（' + stamp + '）').slice(0, 120), '從用戶標籤建立', uids.length, by]);
+      const listId = ins.rows[0].id;
+      try {
+        for (let i = 0; i < uids.length; i += 500) {
+          const slice = uids.slice(i, i + 500);
+          const values = [], params = [];
+          slice.forEach((uid, idx) => { values.push('($' + (idx * 2 + 1) + ', $' + (idx * 2 + 2) + ')'); params.push(listId, uid); });
+          await query(`INSERT INTO admin_recipient_list_members (list_id, line_user_id) VALUES ` + values.join(', '), params);
+        }
+      } catch (e) {
+        await query(`DELETE FROM admin_recipient_lists WHERE id=$1`, [listId]).catch(() => {});
+        throw e;
+      }
+      res.json({ ok: true, list: ins.rows[0] });
+    } catch (err) { jsonErr(res, 500, 'to_list_failed', { detail: err && err.message }); }
+  });
+
   app.get('/admin/users/api/profile/:lineUserId', requireAdmin, async (req, res) => {
     const luid = String(req.params.lineUserId || '').trim();
     if (!/^U[0-9a-f]{32}$/i.test(luid)) return jsonErr(res, 400, 'invalid_line_user_id');
@@ -136,6 +225,49 @@ function registerAdminUsersRoutes(app, deps) {
         [luid]
       )).rows;
       const preference = { cuisine: prefCuisine, price_band: prefPrice };
+
+      // 標籤
+      const tags = (await query(
+        `SELECT t.id, t.name, t.color FROM user_tag_members m
+         JOIN user_tags t ON t.id = m.tag_id
+         WHERE m.line_user_id = $1 ORDER BY t.name`,
+        [luid]
+      )).rows;
+
+      // 行為記錄（統一時間軸）：加好友/封鎖、玩遊戲與中獎、邀請、按選單——各表湊起來新到舊
+      const actions = (await query(
+        `SELECT * FROM (
+           SELECT '加入好友' AS kind, NULL::text AS detail, created_at AS at FROM users WHERE line_user_id = $1
+           UNION ALL
+           SELECT '封鎖官方帳號', NULL, blocked_at FROM users WHERE line_user_id = $1 AND blocked_at IS NOT NULL
+           UNION ALL
+           SELECT CASE WHEN COALESCE(p.prize_snapshot->>'prize_type','') = 'none' THEN '玩遊戲（沒中）'
+                       WHEN COALESCE(p.prize_snapshot->>'kind','') = 'draw_win' THEN '被抽中大獎'
+                       ELSE '玩遊戲中獎' END,
+                  COALESCE(a.name,'') || CASE WHEN COALESCE(p.prize_snapshot->>'prize_type','') = 'none' THEN ''
+                       ELSE ('：' || COALESCE(p.prize_snapshot->>'name','')) END,
+                  p.played_at
+             FROM activity_plays p LEFT JOIN activities a ON a.id = p.activity_id
+            WHERE p.line_user_id = $1
+           UNION ALL
+           SELECT '邀請朋友成功',
+                  COALESCE(u2.line_display_name, r.invitee_line_user_id) ||
+                  CASE WHEN r.invitee_was_existing IS FALSE THEN '' ELSE '（本來就是好友，不計獎）' END,
+                  r.created_at
+             FROM activity_referrals r LEFT JOIN users u2 ON u2.line_user_id = r.invitee_line_user_id
+            WHERE r.inviter_line_user_id = $1
+           UNION ALL
+           SELECT '被朋友邀請進來', COALESCE(u3.line_display_name, r2.inviter_line_user_id), r2.created_at
+             FROM activity_referrals r2 LEFT JOIN users u3 ON u3.line_user_id = r2.inviter_line_user_id
+            WHERE r2.invitee_line_user_id = $1
+           UNION ALL
+           SELECT CASE WHEN t.kind = 'tab' THEN '切換選單分頁' ELSE '按圖文選單' END,
+                  COALESCE(t.label, ''), t.created_at
+             FROM rich_menu_taps t WHERE t.line_user_id = $1
+         ) x WHERE at IS NOT NULL
+         ORDER BY at DESC LIMIT 50`,
+        [luid]
+      )).rows;
 
       // 名單歸屬（在哪些名單裡）
       const lists = (await query(
@@ -256,7 +388,7 @@ function registerAdminUsersRoutes(app, deps) {
         tlParams
       )).rows;
 
-      return res.json({ ok: true, profile, counts, interest, preference, lists, timeline, rfm, liff, booking_source: bookingSource });
+      return res.json({ ok: true, profile, counts, interest, preference, lists, tags, actions, timeline, rfm, liff, booking_source: bookingSource });
     } catch (err) {
       return jsonErr(res, 500, 'profile_failed', { detail: err && err.message });
     }

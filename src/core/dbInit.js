@@ -14,6 +14,8 @@ const APP_PUBLIC_TABLES_WITH_RLS = [
   'line_push_media',
   'rich_menus',
   'rich_menu_taps',
+  'user_tags',
+  'user_tag_members',
   'admin_push_settings',
   'admin_manual_bonus_logs',
   'admin_broadcasts',
@@ -236,6 +238,21 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
     ADD COLUMN IF NOT EXISTS schedule_end_at TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS schedule_end_menu_id BIGINT,
     ADD COLUMN IF NOT EXISTS schedule_state TEXT`);
+  await query(`CREATE TABLE IF NOT EXISTS user_tags (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    color TEXT NOT NULL DEFAULT '#FBC02D',
+    created_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await query(`CREATE TABLE IF NOT EXISTS user_tag_members (
+    tag_id BIGINT NOT NULL REFERENCES user_tags(id) ON DELETE CASCADE,
+    line_user_id TEXT NOT NULL,
+    added_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tag_id, line_user_id)
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_user_tag_members_user ON user_tag_members (line_user_id)`);
   await query(`CREATE TABLE IF NOT EXISTS rich_menu_taps (
     id BIGSERIAL PRIMARY KEY,
     menu_id BIGINT NOT NULL,

@@ -10,6 +10,8 @@
         <p class="muted" style="margin-top:6px;">看單一用戶在系統內的所有行為：加入/封鎖、玩遊戲、邀請、點擊、口味偏好、傳訊息、時間軸。</p>
       </div>
       <input type="search" id="us-search" placeholder="搜尋名字或 LINE 編號…" />
+      <div id="us-tagbar" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px;"></div>
+      <div id="us-tagmanage" hidden style="margin-top:10px;padding:10px 12px;border:1px solid #ECECEE;border-radius:10px;font-size:13px;"></div>
     </section>
 
     <div class="us-grid">
@@ -57,6 +59,15 @@
       .us-stat .k{font-size:11px;color:#6b7280;margin-top:3px;}
       .us-sec-title{font-size:13px;font-weight:700;color:#1f2937;margin:18px 0 8px;}
       .us-chip{display:inline-block;background:#f3f4f6;border-radius:20px;padding:4px 11px;font-size:12px;color:#374151;margin:0 6px 6px 0;}
+      .us-tagchip{border:1.5px solid #E5E7EB;background:#fff;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700;color:#374151;cursor:pointer;}
+      .us-tagchip.on{color:#fff;}
+      .us-tagfilter{border:1.5px solid #E5E7EB;background:#fff;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700;color:#6B7280;cursor:pointer;}
+      .us-tagfilter.on{border-color:#1f2937;color:#1f2937;background:#F9FAFB;}
+      .us-actions{max-height:260px;overflow:auto;border:1px solid #F3F4F6;border-radius:10px;padding:6px 10px;}
+      .us-actrow{font-size:12.5px;padding:5px 0;border-bottom:1px solid #F8F8F8;line-height:1.5;}
+      .us-actrow:last-child{border-bottom:0;}
+      .us-act-when{color:#9CA3AF;font-size:11px;margin-right:8px;}
+      #us-tagmanage[hidden]{display:none;}
       .us-pref-chip{background:#FFFBEB;border:1px solid #FCC726;color:#1F2937;font-weight:600;}
       .us-lifecycle-chip{background:#FFFBEB;border:1px solid #FCC726;color:#1F2937;font-weight:600;margin:0;}
       .us-chip-tag{color:#9ca3af;font-size:11px;margin-left:4px;}
@@ -163,6 +174,82 @@
           return '<span class="us-chip us-lifecycle-chip">'+esc(label)+'（'+esc(detail)+'）</span>';
         }
         var curUid=null, timer=null;
+        var TAGS=[], curTag=null;
+        var TAG_COLORS=['#E8491D','#FBC02D','#2E7D32','#1565C0','#6A1B9A','#4E342E','#00838F','#AD1457'];
+
+        function loadTags(cb){
+          fetch('/admin/users/api/tags').then(function(r){return r.json();}).then(function(d){
+            if(d.ok)TAGS=d.tags||[];
+            renderTagBar();
+            if(cb)cb();
+          }).catch(function(){renderTagBar();});
+        }
+        function renderTagBar(){
+          var bar=$('us-tagbar');
+          bar.innerHTML='<button type="button" class="us-tagfilter'+(curTag===null?' on':'')+'" data-tag="">全部</button>'+
+            TAGS.map(function(t){
+              return '<button type="button" class="us-tagfilter'+(curTag===t.id?' on':'')+'" data-tag="'+t.id+'" '+
+                'style="'+(curTag===t.id?('border-color:'+esc(t.color)+';color:'+esc(t.color)+';'):'')+'">'+
+                esc(t.name)+'（'+t.members+'）</button>';
+            }).join('')+
+            '<button type="button" class="us-tagfilter" id="us-tag-manage-btn">管理標籤</button>';
+          [].slice.call(bar.querySelectorAll('.us-tagfilter[data-tag]')).forEach(function(b){
+            b.addEventListener('click',function(){
+              curTag=b.getAttribute('data-tag')?Number(b.getAttribute('data-tag')):null;
+              renderTagBar();loadList(true);
+            });
+          });
+          var mg=document.getElementById('us-tag-manage-btn');
+          if(mg)mg.addEventListener('click',function(){
+            var pane=$('us-tagmanage');
+            if(!pane.hidden){pane.hidden=true;return;}
+            renderTagManage();pane.hidden=false;
+          });
+        }
+        function renderTagManage(){
+          var pane=$('us-tagmanage');
+          pane.innerHTML='<div style="font-weight:700;margin-bottom:8px;">管理標籤</div>'+
+            (TAGS.length?TAGS.map(function(t){
+              return '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'+
+                '<span class="us-tagchip on" style="background:'+esc(t.color)+';border-color:'+esc(t.color)+';">'+esc(t.name)+'</span>'+
+                '<span class="muted" style="font-size:12px;">'+t.members+' 人</span>'+
+                '<button type="button" class="us-tagfilter us-tag-tolist" data-tag="'+t.id+'">存成名單</button>'+
+                '<button type="button" class="us-tagfilter us-tag-del" data-tag="'+t.id+'" data-name="'+esc(t.name)+'" style="color:#b91c1c;">刪除</button>'+
+              '</div>';
+            }).join(''):'<p class="muted" style="font-size:12.5px;">還沒有標籤。</p>')+
+            '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap;">'+
+              '<input type="text" id="us-tag-newname" maxlength="30" placeholder="新標籤名稱（例：VIP、常客、抽獎黑名單）" style="flex:1;min-width:200px;padding:7px 10px;border:1px solid #ECECEE;border-radius:8px;font-size:13px;">'+
+              '<button type="button" class="us-tagfilter" id="us-tag-create">建立</button>'+
+              '<span id="us-tag-note" class="muted" style="font-size:12px;"></span></div>';
+          document.getElementById('us-tag-create').addEventListener('click',function(){
+            var name=document.getElementById('us-tag-newname').value.trim();
+            if(!name){document.getElementById('us-tag-note').textContent='先取個名字';return;}
+            var color=TAG_COLORS[TAGS.length%TAG_COLORS.length];
+            fetch('/admin/users/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({name:name,color:color})}).then(function(r){return r.json();}).then(function(d){
+                if(!d.ok){document.getElementById('us-tag-note').textContent=d.detail||'沒有成功';return;}
+                loadTags(function(){renderTagManage();});
+              });
+          });
+          [].slice.call(pane.querySelectorAll('.us-tag-del')).forEach(function(b){
+            b.addEventListener('click',function(){
+              if(!confirm('刪掉標籤「'+b.getAttribute('data-name')+'」？貼在用戶身上的都會一起撕掉。'))return;
+              fetch('/admin/users/api/tags/delete',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({id:Number(b.getAttribute('data-tag'))})}).then(function(r){return r.json();}).then(function(){
+                  curTag=null;loadTags(function(){renderTagManage();loadList(true);});
+                });
+            });
+          });
+          [].slice.call(pane.querySelectorAll('.us-tag-tolist')).forEach(function(b){
+            b.addEventListener('click',function(){
+              if(!confirm('把這個標籤的成員存成一份名單？群發和圖文選單的名單專屬都能用它。'))return;
+              fetch('/admin/users/api/tags/to-list',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({tag_id:Number(b.getAttribute('data-tag'))})}).then(function(r){return r.json();}).then(function(d){
+                  document.getElementById('us-tag-note').textContent=d.ok?('名單建好了：'+d.list.name+'（'+d.list.total+' 人）'):(d.detail||'沒有成功');
+                });
+            });
+          });
+        }
         var PAGE=80, loaded=0, total=0, loading=false;
 
         function rowHtml(u){
@@ -199,7 +286,7 @@
           var offset=reset?0:loaded;
           var btn=$('us-more-btn');
           if(!reset&&btn){btn.disabled=true;btn.textContent='載入中…';}
-          fetch('/admin/users/api/list?limit='+PAGE+'&offset='+offset+'&search='+encodeURIComponent(s)).then(function(r){return r.json();}).then(function(d){
+          fetch('/admin/users/api/list?limit='+PAGE+'&offset='+offset+'&search='+encodeURIComponent(s)+(curTag?('&tag_id='+curTag):'')).then(function(r){return r.json();}).then(function(d){
             loading=false;
             var box=$('us-list');
             if(!d.ok){if(reset)box.innerHTML='<p class="muted">載入失敗</p>';updateMore();return;}
@@ -288,6 +375,23 @@
                 return '<span class="us-chip">'+esc(i.name)+' ×'+i.clicks+'<span class="us-chip-tag">'+esc(tag)+'</span></span>';
               }).join('')+'</div>';
             }
+            // 標籤：全部標籤列出來，有貼的亮色、點一下貼／再點撕掉
+            h+='<div class="us-sec-title">標籤（點一下貼上或撕掉）</div><div id="us-prof-tags" style="display:flex;gap:6px;flex-wrap:wrap;">'+
+              (TAGS.length?TAGS.map(function(t){
+                var on=(d.tags||[]).some(function(x){return x.id===t.id;});
+                return '<button type="button" class="us-tagchip'+(on?' on':'')+'" data-tag="'+t.id+'" '+
+                  'style="'+(on?('background:'+esc(t.color)+';border-color:'+esc(t.color)+';color:#fff;'):'')+'">'+esc(t.name)+'</button>';
+              }).join(''):'<span class="muted" style="font-size:12px;">還沒有標籤，按上面「管理標籤」建立</span>')+'</div>';
+
+            // 行為記錄：加好友、玩遊戲、中獎、邀請、按選單，新到舊
+            if(d.actions&&d.actions.length){
+              h+='<div class="us-sec-title">行為記錄（最近 '+d.actions.length+' 筆）</div>'+
+                '<div class="us-actions">'+d.actions.map(function(a2){
+                  return '<div class="us-actrow"><span class="us-act-when">'+fmt(a2.at)+'</span>'+
+                    '<b>'+esc(a2.kind)+'</b>'+(a2.detail?('　<span class="muted">'+esc(a2.detail)+'</span>'):'')+'</div>';
+                }).join('')+'</div>';
+            }
+
             if(d.lists&&d.lists.length){
               h+='<div class="us-sec-title">在這些名單裡</div><div>'+d.lists.map(function(l){return '<span class="us-chip">'+esc(l.name)+'</span>';}).join('')+'</div>';
             }
@@ -336,6 +440,16 @@
               return '<div class="us-tl-item"><span class="k">'+esc(KIND[t.kind]||t.kind)+'</span> <span class="l">'+esc(String(lb).slice(0,60))+'</span><div class="t">'+fmt(t.at)+'</div></div>';
             }).join('')+'</div>';}
             box.innerHTML=h;
+            [].slice.call(box.querySelectorAll('.us-tagchip[data-tag]')).forEach(function(chip){
+              chip.addEventListener('click',function(){
+                var on=chip.classList.contains('on');
+                fetch('/admin/users/api/tag',{method:'POST',headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({line_user_id:uid,tag_id:Number(chip.getAttribute('data-tag')),on:!on})})
+                  .then(function(r){return r.json();}).then(function(rr){
+                    if(rr.ok){loadTags();openProfile(uid);}
+                  });
+              });
+            });
             if(p.line_user_id){bindProfileActions(p.line_user_id);}
           }).catch(function(e){var box=$('us-profile');if(box)box.innerHTML='<p class="muted">載入失敗：'+((e&&e.message)||e)+'</p>';});
         }
@@ -388,6 +502,7 @@
         $('us-search').addEventListener('input',function(){clearTimeout(timer);timer=setTimeout(function(){loadList(true);},250);});
         var moreBtn=$('us-more-btn');
         if(moreBtn)moreBtn.addEventListener('click',function(){loadList(false);});
+loadTags();
         loadList(true);
       })();
     </script>

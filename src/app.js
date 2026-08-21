@@ -44,6 +44,7 @@ const { createLineWebhookHandler } = require('./routes/lineWebhook');
 const { createOaContactsWebhookHandler } = require('./routes/oaContactsWebhook');
 const { registerAdminOaContactsRoutes } = require('./routes/adminOaContacts');
 const { registerAdminRichMenuRoutes } = require('./routes/adminRichMenu');
+const { registerAdminInsightRoutes } = require('./routes/adminInsight');
 const { createLinePushService } = require('./core/linePush');
 const { createGoldPigBookingService } = require('./core/goldPigBookings');
 const { registerGoldPigRoutes } = require('./routes/goldPig');
@@ -641,6 +642,8 @@ registerAdminAccountsRoutes(app, { query, pool, authCore });
 registerAdminOaContactsRoutes(app, { query, authCore, oaKey: LINE2_OA_KEY });
 
 registerAdminRichMenuRoutes(app, { query, authCore });
+
+registerAdminInsightRoutes(app, { query, authCore });
 
 registerLiffRoutes(app, {
   query,
