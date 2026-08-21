@@ -43,13 +43,15 @@ function registerAdminRichMenuRoutes(app, deps) {
         `SELECT id, name, config, line_rich_menu_id, status, is_default, published_at, updated_at
            FROM rich_menus ORDER BY updated_at DESC LIMIT 100`);
 
-      // LINE 那邊的實況（token 沒設或網路掛掉時，後台仍要能編草稿）
-      let lineMenus = [], defaultId = null, lineError = null;
+      // LINE 那邊的實況（token 沒設或網路掛掉時，後台仍要能編草稿）；
+      // 兩支分開容錯，一支掛不要拖垮另一支
+      let lineMenus = [], defaultId = null, defaultOwnedElsewhere = false, lineError = null;
+      try { lineMenus = await rm.listRichMenus(); }
+      catch (e) { lineError = String(e.message || e).slice(0, 200); }
       try {
-        [lineMenus, defaultId] = await Promise.all([rm.listRichMenus(), rm.getDefaultRichMenuId()]);
-      } catch (e) {
-        lineError = String(e.message || e).slice(0, 200);
-      }
+        const d = await rm.getDefaultRichMenu();
+        defaultId = d.id; defaultOwnedElsewhere = d.owned_elsewhere;
+      } catch (e) { if (!lineError) lineError = String(e.message || e).slice(0, 200); }
       const ours = new Set(menus.map(m => m.line_rich_menu_id).filter(Boolean));
       const orphans = lineMenus
         .filter(l => !ours.has(l.richMenuId))
@@ -63,7 +65,8 @@ function registerAdminRichMenuRoutes(app, deps) {
            ORDER BY status = 'active' DESC, id DESC LIMIT 30`);
 
       res.json({
-        ok: true, menus, orphans, default_line_id: defaultId, line_error: lineError,
+        ok: true, menus, orphans, default_line_id: defaultId,
+        default_owned_elsewhere: defaultOwnedElsewhere, line_error: lineError,
         liff_id: gamesLiffId(),
         activities: acts.map(a => ({
           id: a.id, slug: a.slug, name: a.name, game_type: a.game_type, status: a.status,

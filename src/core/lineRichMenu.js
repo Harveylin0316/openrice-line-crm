@@ -75,13 +75,19 @@ function createLineRichMenuService({ channelAccessToken }) {
     return Array.isArray(out.richmenus) ? out.richmenus : [];
   }
 
-  /** 目前所有人看到的預設選單 id；沒有設回 null */
-  async function getDefaultRichMenuId() {
+  /** 目前所有人看到的預設選單。
+   *  回 { id, owned_elsewhere }：
+   *  - id=null, owned_elsewhere=false → 沒有預設選單
+   *  - id=null, owned_elsewhere=true  → 預設選單是「LINE 官方後台（OA Manager）」設的，
+   *    API 讀不到內容（LINE 回 403 the richmenu is owned by another channel，實測確認）。
+   *    這不是錯誤——大多數帳號一開始都是這個狀態。 */
+  async function getDefaultRichMenu() {
     try {
       const out = await call('GET', API + '/v2/bot/user/all/richmenu');
-      return out.richMenuId || null;
+      return { id: out.richMenuId || null, owned_elsewhere: false };
     } catch (e) {
-      if (e.status === 404) return null;
+      if (e.status === 404) return { id: null, owned_elsewhere: false };
+      if (e.status === 403) return { id: null, owned_elsewhere: true };
       throw e;
     }
   }
@@ -108,7 +114,7 @@ function createLineRichMenuService({ channelAccessToken }) {
 
   return {
     createRichMenu, uploadImage, downloadImage,
-    listRichMenus, getDefaultRichMenuId, setDefault, clearDefault, deleteRichMenu
+    listRichMenus, getDefaultRichMenu, setDefault, clearDefault, deleteRichMenu
   };
 }
 

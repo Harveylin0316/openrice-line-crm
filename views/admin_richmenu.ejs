@@ -363,7 +363,8 @@
         var live=DATA.default_line_id;
         var note;
         if(DATA.line_error){note='連不上 LINE（'+esc(DATA.line_error)+'）。還是可以編草稿，發布時再試。';}
-        else if(!live){note='目前沒有從這裡設定的預設選單。用戶看到的可能是 LINE 官方後台設定的（這裡看不到），或者沒有選單。';}
+        else if(!live&&DATA.default_owned_elsewhere){note='所有人現在看到的選單是在 <b>LINE 官方後台</b>設定的，這裡看不到它的內容。從這裡發布並「設為所有人看到的」之後就會換成新的。';}
+        else if(!live){note='目前沒有任何預設選單，用戶的聊天室下方沒有選單。';}
         else{var mine=(DATA.menus||[]).filter(function(m){return m.line_rich_menu_id===live;})[0];
           note=mine?('所有人現在看到的是「<b>'+esc(mine.name)+'</b>」。'):'所有人現在看到的是一個不是從這裡建立的選單（下面「其他選單」裡有列出來）。';}
         $('rm-live-note').innerHTML=note;
