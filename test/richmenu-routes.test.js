@@ -69,6 +69,8 @@ function build(opts) {
       return { rows: [{ line_rich_menu_id: row.line_rich_menu_id, audience_list_id: row.audience_list_id }] };
     if (/SELECT line_rich_menu_id FROM rich_menus WHERE id=/.test(f))
       return { rows: [{ line_rich_menu_id: row.line_rich_menu_id }] };
+    if (/FROM admin_test_recipients/.test(f))
+      return { rows: opts.testers || [] };
     if (/SELECT line_user_id FROM admin_recipient_list_members/.test(f))
       return { rows: (opts.members || []).map(u => ({ line_user_id: u })) };
     if (/schedule_state='pending'/.test(f))
@@ -190,6 +192,19 @@ async function run(routes, key, reqBody, extras) {
   r = await run(t.routes, 'POST /admin/richmenu/api/audience', { id: 1, list_id: null });
   ok(r.body && r.body.ok && r.body.cleared === true, '取消名單專屬');
   ok(t.lineCalls.some(c => /bulk\/unlink$/.test(c)), '有解除綁定');
+
+  // 14) 傳到測試手機：綁定測試人員、結束會解除、沒發布擋、清單空擋
+  t = build({ testers: [{ label: 'Hen', line_user_id: 'U' + 'a'.repeat(32) },
+                        { label: 'ice', line_user_id: 'U' + 'b'.repeat(32) }] });
+  r = await run(t.routes, 'POST /admin/richmenu/api/preview', { id: 1 });
+  ok(r.body && r.body.ok && r.body.count === 2, '傳給 2 位測試人員');
+  ok(t.lineCalls.some(c => /bulk\/link$/.test(c)), '有綁定個人專屬選單');
+  t = build({ testers: [{ label: 'Hen', line_user_id: 'U' + 'a'.repeat(32) }] });
+  r = await run(t.routes, 'POST /admin/richmenu/api/preview', { stop: true });
+  ok(r.body && r.body.stopped === true && t.lineCalls.some(c => /bulk\/unlink$/.test(c)), '結束預覽會解除綁定');
+  t = build({ testers: [] });
+  r = await run(t.routes, 'POST /admin/richmenu/api/preview', { id: 1 });
+  ok(r.code === 400 && r.body.error === 'no_testers', '測試清單空的講清楚去哪加');
 
   console.log(failed ? ('\n有 ' + failed + ' 項失敗') : '\n路由情境全部通過');
   process.exit(failed ? 1 : 0);

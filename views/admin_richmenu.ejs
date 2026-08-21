@@ -17,6 +17,10 @@
       <div id="rm-live-note" class="rm-livebar"></div>
       <div id="rm-list" style="margin-top:14px;"><p class="muted">載入中…</p></div>
       <div id="rm-orphans" style="margin-top:6px;"></div>
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button type="button" class="rm-btn2" id="rm-preview-stop">結束測試預覽（測試人員回到一般選單）</button>
+        <span id="rm-preview-note" class="muted" style="font-size:13px;"></span>
+      </div>
     </section>
 
     <section class="card" id="rm-editor-view" hidden>
@@ -717,6 +721,7 @@
                 '<div class="rm-card-btns">'+
                   '<button type="button" class="rm-btn2 rm-edit" data-id="'+m.id+'">編輯</button>'+
                   '<button type="button" class="rm-btn2 rm-dup" data-id="'+m.id+'">複製</button>'+
+                  (m.line_rich_menu_id?'<button type="button" class="rm-btn2 rm-preview" data-id="'+m.id+'">傳到測試手機</button>':'')+
                   (m.line_rich_menu_id?'<button type="button" class="rm-btn2 rm-stats" data-id="'+m.id+'">成效</button>':'')+
                   (m.line_rich_menu_id?'<button type="button" class="rm-btn2 rm-sch" data-id="'+m.id+'">上下架</button>':'')+
                   (m.line_rich_menu_id?'<button type="button" class="rm-btn2 rm-aud" data-id="'+m.id+'">名單</button>':'')+
@@ -774,6 +779,14 @@
                        :'刪掉草稿「'+b.getAttribute('data-name')+'」？';
             if(!confirm(msg))return;
             post('/admin/richmenu/api/delete',{id:Number(b.getAttribute('data-id'))},function(){load();});
+          });});
+        [].slice.call(document.querySelectorAll('.rm-preview')).forEach(function(b){
+          b.addEventListener('click',function(){
+            var btn=b;btn.disabled=true;
+            post('/admin/richmenu/api/preview',{id:Number(b.getAttribute('data-id'))},
+              function(d){btn.disabled=false;
+                $('rm-preview-note').textContent='已傳給 '+d.count+' 位測試人員（'+(d.names||[]).join('、')+'）。打開自己的 LINE 看，看完按左邊「結束測試預覽」。';},
+              function(){btn.disabled=false;});
           });});
         [].slice.call(document.querySelectorAll('.rm-stats')).forEach(function(b){
           b.addEventListener('click',function(){openStats(Number(b.getAttribute('data-id')));});});
@@ -1318,6 +1331,14 @@
               $('rm-pub-note').textContent='';
             });
         });
+      });
+
+      $('rm-preview-stop').addEventListener('click',function(){
+        var btn=this;btn.disabled=true;
+        post('/admin/richmenu/api/preview',{stop:true},
+          function(d){btn.disabled=false;
+            $('rm-preview-note').textContent='已結束，'+d.count+' 位測試人員回到一般選單。';},
+          function(){btn.disabled=false;});
       });
 
       load();

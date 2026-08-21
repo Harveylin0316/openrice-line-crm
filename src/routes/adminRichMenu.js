@@ -525,6 +525,40 @@ function registerAdminRichMenuRoutes(app, deps) {
     }
   });
 
+  // ── 傳到測試手機：發布前只給測試人員看（清單跟群發共用）──────
+  //    掛的是「個人專屬選單」，其他用戶完全不受影響；結束預覽就解除、回到原本的選單。
+  app.post('/admin/richmenu/api/preview', requireAdmin, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const id = Number(body.id);
+      const stop = body.stop === true;
+      const { rows: testers } = await query(
+        `SELECT label, line_user_id FROM admin_test_recipients ORDER BY id ASC`);
+      const uids = testers.map(t => String(t.line_user_id || '').trim())
+        .filter(u => /^U[0-9a-f]{32}$/i.test(u));
+      if (!uids.length) {
+        return jsonErr(res, 400, 'no_testers', {
+          detail: '測試人員清單是空的。到「群發訊息」頁面把自己加進測試人員，回來再按。' });
+      }
+      if (stop) {
+        await rm.bulkUnlink(uids);
+        return res.json({ ok: true, stopped: true, count: uids.length });
+      }
+      if (!id) return jsonErr(res, 400, 'bad_id');
+      const { rows } = await query(`SELECT line_rich_menu_id FROM rich_menus WHERE id=$1`, [id]);
+      if (rows.length === 0) return jsonErr(res, 404, 'not_found');
+      if (!rows[0].line_rich_menu_id) {
+        return jsonErr(res, 400, 'not_published', { detail: '先發布（可以不設為所有人看到的），才能傳到測試手機。' });
+      }
+      await rm.bulkLink(rows[0].line_rich_menu_id, uids);
+      res.json({ ok: true, count: uids.length,
+                 names: testers.map(t => t.label).filter(Boolean).slice(0, 10) });
+    } catch (err) {
+      console.error('richmenu preview error:', err && err.message);
+      jsonErr(res, 500, 'preview_failed', { detail: String(err && err.message || '').slice(0, 300) });
+    }
+  });
+
   // ── 成效：每一格被按幾次 ─────────────────────────────────────
   app.get('/admin/richmenu/api/stats', requireAdmin, async (req, res) => {
     try {
