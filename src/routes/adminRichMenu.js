@@ -15,7 +15,7 @@
  *   GET  /admin/richmenu/api/line-image     取 LINE 上選單的圖（base64，給列表預覽用）
  */
 
-const { createLineRichMenuService, buildLineMenuObject } = require('../core/lineRichMenu');
+const { createLineRichMenuService, buildLineMenuObject, sanitizeMenuConfig } = require('../core/lineRichMenu');
 
 function registerAdminRichMenuRoutes(app, deps) {
   const { query, authCore } = deps;
@@ -68,11 +68,14 @@ function registerAdminRichMenuRoutes(app, deps) {
         ok: true, menus, orphans, default_line_id: defaultId,
         default_owned_elsewhere: defaultOwnedElsewhere, line_error: lineError,
         liff_id: gamesLiffId(),
-        activities: acts.map(a => ({
-          id: a.id, slug: a.slug, name: a.name, game_type: a.game_type, status: a.status,
-          liff_url: 'https://liff.line.me/' + (a.liff_id_override || gamesLiffId()) + '/' +
-                    a.game_type + '/' + encodeURIComponent(a.slug)
-        })),
+        activities: acts.map(a => {
+          const lid = a.liff_id_override || gamesLiffId();
+          return {
+            id: a.id, slug: a.slug, name: a.name, game_type: a.game_type, status: a.status,
+            // 沒設 LIFF ID 時寧可不給連結，也不要組出 liff.line.me//... 這種點了壞掉的網址
+            liff_url: lid ? ('https://liff.line.me/' + lid + '/' + a.game_type + '/' + encodeURIComponent(a.slug)) : null
+          };
+        }),
         wallet_url: gamesLiffId() ? ('https://liff.line.me/' + gamesLiffId() + '/wallet') : ''
       });
     } catch (err) {
@@ -86,11 +89,9 @@ function registerAdminRichMenuRoutes(app, deps) {
       const body = req.body || {};
       const name = String(body.name || '').trim().slice(0, 100);
       if (!name) return jsonErr(res, 400, 'name_required', { detail: '先幫選單取個名字' });
-      const config = body.config;
-      if (!config || typeof config !== 'object') return jsonErr(res, 400, 'bad_config');
-      // 存之前先驗一次，讓錯誤在「儲存」就被講出來，不要等到發布才爆
-      try { buildLineMenuObject({ ...config, name }); }
-      catch (e) { /* 草稿允許沒填完 —— 只在發布時強制 */ }
+      if (!body.config || typeof body.config !== 'object') return jsonErr(res, 400, 'bad_config');
+      // 入庫前洗成固定形狀：這份 jsonb 之後會被直接畫在後台列表上，不能讓任意結構進來
+      const config = sanitizeMenuConfig(body.config);
       const by = (req.authUser && req.authUser.un) || 'admin';
       const id = Number(body.id) || null;
       if (id) {
@@ -131,13 +132,24 @@ function registerAdminRichMenuRoutes(app, deps) {
       }
 
       let menuObj;
-      try { menuObj = buildLineMenuObject({ ...row.config, name: row.name }); }
+      try { menuObj = buildLineMenuObject({ ...sanitizeMenuConfig(row.config), name: row.name }); }
       catch (e) { return jsonErr(res, 400, 'invalid_menu', { detail: e.message }); }
 
-      const setDefault = body.set_default === true || row.is_default === true;
       const oldLineId = row.line_rich_menu_id;
 
-      // 1) 建新選單 → 2) 傳圖（失敗就把剛建的刪掉，LINE 上不留半成品）
+      // 「要不要設為所有人看到的」不信 DB 快照，問 LINE 實況：
+      // 如果正在更新的就是現在所有人看到的那個選單，發布本身就等於換掉它，必須跟著設預設，
+      // 否則舊的被刪掉之後所有用戶會沒有選單。
+      let liveDefault = null;
+      try { liveDefault = (await rm.getDefaultRichMenu()).id; } catch (e) { /* 查不到就當不是 */ }
+      const replacingLive = !!(oldLineId && oldLineId === liveDefault);
+      const setDefault = body.set_default === true || replacingLive;
+
+      // 順序（每一步失敗都不能留下爛狀態）：
+      // 1) 建新選單  2) 傳圖（失敗→刪掉半成品）
+      // 3) 寫 DB（失敗→刪掉半成品；舊選單原封不動）
+      // 4) 設預設（失敗→照實回報，選單已發布成備用，可在列表重按）
+      // 5) 最後才刪舊的（且絕不刪「目前所有人看到的」，除非新的已經接手）
       const newId = await rm.createRichMenu(menuObj);
       try {
         await rm.uploadImage(newId, buffer, contentType);
@@ -145,15 +157,34 @@ function registerAdminRichMenuRoutes(app, deps) {
         await rm.deleteRichMenu(newId).catch(() => {});
         throw e;
       }
-      // 3) 要當預設就先切過去，再刪舊的（順序不能反，反了用戶會有幾秒沒選單）
-      if (setDefault) await rm.setDefault(newId);
-      if (oldLineId && oldLineId !== newId) await rm.deleteRichMenu(oldLineId).catch(() => {});
+      try {
+        await query(
+          `UPDATE rich_menus SET line_rich_menu_id=$2, status='published',
+                  published_at=now(), updated_at=now() WHERE id=$1`,
+          [id, newId]);
+      } catch (e) {
+        await rm.deleteRichMenu(newId).catch(() => {});
+        return jsonErr(res, 500, 'db_failed', {
+          detail: '選單沒有發布出去（後台紀錄寫入失敗），再試一次。' });
+      }
 
-      if (setDefault) await query(`UPDATE rich_menus SET is_default=false WHERE id<>$1`, [id]);
-      await query(
-        `UPDATE rich_menus SET line_rich_menu_id=$2, status='published', is_default=$3,
-                published_at=now(), updated_at=now() WHERE id=$1`,
-        [id, newId, setDefault]);
+      if (setDefault) {
+        try {
+          await rm.setDefault(newId);
+        } catch (e) {
+          return jsonErr(res, 500, 'set_default_failed', {
+            detail: '選單發布成功，但「換成所有人看到的」這一步失敗。回列表對它按「設為所有人看到的」再試一次。' });
+        }
+        // 單一句 SQL 原子更新旗標；用 id 比對，草稿列不會產生 NULL
+        await query(`UPDATE rich_menus SET is_default = (id = $1)`, [id])
+          .catch(() => { /* 旗標沒跟上下次載入列表會照 LINE 實況修正，不擋成功回應 */ });
+      }
+
+      if (oldLineId && oldLineId !== newId) {
+        // 舊選單若仍是所有人看到的（沒設新預設時），刪了會讓全部用戶瞬間沒選單——跳過
+        const oldStillLive = !setDefault && oldLineId === liveDefault;
+        if (!oldStillLive) await rm.deleteRichMenu(oldLineId).catch(() => {});
+      }
 
       res.json({ ok: true, line_rich_menu_id: newId, is_default: setDefault });
     } catch (err) {
@@ -166,7 +197,7 @@ function registerAdminRichMenuRoutes(app, deps) {
     try {
       const body = req.body || {};
       let lineId = String(body.line_rich_menu_id || '').trim();
-      let rowId = Number(body.id) || null;
+      const rowId = Number(body.id) || null;
       if (rowId) {
         const { rows } = await query(`SELECT line_rich_menu_id FROM rich_menus WHERE id=$1`, [rowId]);
         if (rows.length === 0) return jsonErr(res, 404, 'not_found');
@@ -175,7 +206,14 @@ function registerAdminRichMenuRoutes(app, deps) {
       }
       if (!lineId) return jsonErr(res, 400, 'bad_id');
       await rm.setDefault(lineId);
-      await query(`UPDATE rich_menus SET is_default = (line_rich_menu_id = $1)`, [lineId]);
+      // IS NOT DISTINCT FROM：草稿列的 line_rich_menu_id 是 NULL，
+      // 用 = 比對會算出 NULL 塞進 NOT NULL 欄位，整句失敗（審查抓到的實錯）
+      try {
+        await query(`UPDATE rich_menus SET is_default = (line_rich_menu_id IS NOT DISTINCT FROM $1)`, [lineId]);
+      } catch (e) {
+        return jsonErr(res, 500, 'db_failed', {
+          detail: '所有人看到的選單已經換好了，但後台紀錄沒跟上。重新整理頁面就會恢復正常。' });
+      }
       res.json({ ok: true });
     } catch (err) {
       console.error('richmenu set-default error:', err && err.message);
@@ -201,10 +239,21 @@ function registerAdminRichMenuRoutes(app, deps) {
       const rowId = Number(body.id) || null;
       const orphanLineId = String(body.line_rich_menu_id || '').trim();
 
+      // 不管頁面上顯示什麼，刪除前都跟 LINE 確認一次「這是不是所有人正在看的選單」。
+      // 頁面資料可能過期（別的管理員剛切換過），靠前端判斷會出事。
+      async function isLiveDefault(lid) {
+        if (!lid) return false;
+        try { return (await rm.getDefaultRichMenu()).id === lid; } catch (e) { return false; }
+      }
+
       if (rowId) {
         const { rows } = await query(`SELECT line_rich_menu_id, status FROM rich_menus WHERE id=$1`, [rowId]);
         if (rows.length === 0) return jsonErr(res, 404, 'not_found');
         const r = rows[0];
+        if (r.line_rich_menu_id && await isLiveDefault(r.line_rich_menu_id)) {
+          return jsonErr(res, 400, 'is_live', {
+            detail: '這個選單正是所有人看到的，刪掉大家的選單會直接消失。先把別的選單設為所有人看到的，再回來刪。' });
+        }
         if (r.line_rich_menu_id) {
           // 已發布：要動 LINE 上的東西 → 升級成 owner 檢查
           return requireOwner(req, res, async () => {
@@ -220,6 +269,10 @@ function registerAdminRichMenuRoutes(app, deps) {
       }
 
       if (orphanLineId) {
+        if (await isLiveDefault(orphanLineId)) {
+          return jsonErr(res, 400, 'is_live', {
+            detail: '這個選單正是所有人看到的，刪掉大家的選單會直接消失。先把別的選單設為所有人看到的，再回來刪。' });
+        }
         return requireOwner(req, res, async () => {
           try {
             await rm.deleteRichMenu(orphanLineId);

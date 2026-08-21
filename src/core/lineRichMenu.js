@@ -159,6 +159,11 @@ function buildLineMenuObject(config) {
     }
     const label = String(b.label || '').trim().slice(0, 20);
     if (label) action.label = label;
+    // 動作合法之後才檢查外觀：沒字也沒圖示的格子會在正式選單上變成空白（或印出佔位字），
+    // 使用者按了也不知道自己按到什麼——直接擋下。
+    if (!label && !(b.icon && String(b.icon).trim())) {
+      throw new Error('第 ' + (i + 1) + ' 格還沒放文字或圖示');
+    }
     return { bounds, action };
   });
 
@@ -171,4 +176,44 @@ function buildLineMenuObject(config) {
   };
 }
 
-module.exports = { createLineRichMenuService, buildLineMenuObject };
+/**
+ * 把前端送來的 config 洗成固定形狀再入庫。
+ * 只留認識的欄位、限制長度與型別——jsonb 進了 DB 之後會被直接畫在後台頁面上，
+ * 不洗乾淨等於讓任何員工帳號往管理頁塞任意 HTML。
+ */
+function sanitizeMenuConfig(raw) {
+  const c = (raw && typeof raw === 'object') ? raw : {};
+  const str = (v, n) => String(v == null ? '' : v).slice(0, n);
+  const num = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : 0);
+  const cells = (Array.isArray(c.cells) ? c.cells : []).slice(0, 20).map(x => ({
+    x: num(x && x.x), y: num(x && x.y), w: num(x && x.w), h: num(x && x.h)
+  }));
+  const buttons = (Array.isArray(c.buttons) ? c.buttons : []).slice(0, 20).map(b => {
+    b = (b && typeof b === 'object') ? b : {};
+    const a = (b.action && typeof b.action === 'object') ? b.action : null;
+    let action = null;
+    if (a && a.type === 'uri') {
+      action = { type: 'uri', uri: str(a.uri, 1000) };
+      if (a.activity_id != null) action.activity_id = str(a.activity_id, 20);
+    } else if (a && a.type === 'message') {
+      action = { type: 'message', text: str(a.text, 300) };
+    }
+    return {
+      label: str(b.label, 20), sublabel: str(b.sublabel, 30),
+      icon: b.icon ? str(b.icon, 30) : null,
+      bg: b.bg ? str(b.bg, 20) : null,
+      action
+    };
+  });
+  return {
+    size: c.size === 'compact' ? 'compact' : 'large',
+    layout: str(c.layout, 30),
+    bg: str(c.bg, 20) || '#FBC02D',
+    cell_bg: str(c.cell_bg, 20) || '#FFF9E8',
+    chat_bar_text: str(c.chat_bar_text, 14) || '選單',
+    open_by_default: c.open_by_default !== false,
+    cells, buttons
+  };
+}
+
+module.exports = { createLineRichMenuService, buildLineMenuObject, sanitizeMenuConfig };

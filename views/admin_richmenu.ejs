@@ -243,7 +243,8 @@
       function layoutById(id){for(var i=0;i<LAYOUTS.length;i++){if(LAYOUTS[i].id===id)return LAYOUTS[i];}return LAYOUTS[0];}
 
       // ── 畫選單圖（同一支函式負責縮圖、編輯預覽、發布輸出）──
-      function renderMenu(canvas,cfg,selIdx){
+      function renderMenu(canvas,cfg,selIdx,opts){
+        var forExport=!!(opts&&opts.forExport);
         var H=cfg.size==='compact'?843:1686;
         var scale=canvas.width/2500;
         canvas.height=Math.round(H*scale);
@@ -288,10 +289,13 @@
             if(label){labelPx=fit(label,labelPx);ctx.textBaseline='alphabetic';setFont(labelPx);ctx.fillText(label,cx,top+box+labelPx*1.05);}
             if(sub){setFont(subPx,600);ctx.globalAlpha=0.78;ctx.fillText(sub,cx,top+box+(label?labelPx*1.25:0)+subPx*1.15);ctx.globalAlpha=1;}
           }else{
+            var showLabel=label||(forExport?'':'（沒有文字）');
             var bigPx=Math.min(Math.round(w*0.16),Math.round(h*0.3),150);
-            bigPx=fit(label||'（沒有文字）',bigPx);
-            ctx.textBaseline='middle';setFont(bigPx);
-            ctx.fillText(label||'（沒有文字）',cx,y+h/2-(sub?subPx*0.7:0));
+            if(showLabel){
+              bigPx=fit(showLabel,bigPx);
+              ctx.textBaseline='middle';setFont(bigPx);
+              ctx.fillText(showLabel,cx,y+h/2-(sub?subPx*0.7:0));
+            }
             if(sub){setFont(subPx,600);ctx.globalAlpha=0.78;ctx.fillText(sub,cx,y+h/2+bigPx*0.72);ctx.globalAlpha=1;}
           }
           if(typeof selIdx==='number'&&selIdx===i){
@@ -308,7 +312,7 @@
       function actUri(u){return {type:'uri',uri:u};}
       var OR_URL='https://www.openrice.com';
       function firstActivity(){return (DATA&&DATA.activities&&DATA.activities[0])||null;}
-      function activityAction(){var a=firstActivity();return a?{type:'uri',uri:a.liff_url,activity_id:a.id}:actUri(OR_URL);}
+      function activityAction(){var a=firstActivity();return (a&&a.liff_url)?{type:'uri',uri:a.liff_url,activity_id:a.id}:actUri(OR_URL);}
       function activityLabel(){var a=firstActivity();return a?a.name:'最新活動';}
       function walletAction(){return DATA&&DATA.wallet_url?actUri(DATA.wallet_url):actUri(OR_URL);}
       function buildPresets(){return [
@@ -350,7 +354,7 @@
       }
 
       // ── 狀態 ───────────────────────────────────────────────
-      var DATA=null, CFG=null, editingId=null, selCell=0, dirty=false;
+      var DATA=null, CFG=null, editingId=null, selCell=0, dirty=false, editingIsLive=false, saving=false, publishing=false;
 
       function load(){
         return fetch('/admin/richmenu/api/data').then(function(r){return r.json();}).then(function(d){
@@ -383,7 +387,7 @@
               '<div class="rm-card-main">'+
                 '<div class="rm-card-name">'+esc(m.name)+tag+'</div>'+
                 '<div class="muted" style="font-size:12px;margin-top:3px;">'+
-                  ((m.config&&m.config.buttons)?m.config.buttons.length:'?')+' 格・最後修改 '+String(m.updated_at||'').slice(0,10)+'</div>'+
+                  ((m.config&&Array.isArray(m.config.buttons))?m.config.buttons.length:'?')+' 格・最後修改 '+String(m.updated_at||'').slice(0,10)+'</div>'+
                 '<div class="rm-card-btns">'+
                   '<button type="button" class="rm-btn2 rm-edit" data-id="'+m.id+'">編輯</button>'+
                   '<button type="button" class="rm-btn2 rm-dup" data-id="'+m.id+'">複製</button>'+
@@ -403,7 +407,7 @@
         // 其他（LINE 上有、但不是這裡建的）
         var orp=DATA.orphans||[];
         $('rm-orphans').innerHTML=!orp.length?'' :
-          '<h3 style="font-size:14px;margin:18px 0 8px;">其他選單（用 API 建的，不是從這裡）</h3>'+
+          '<h3 style="font-size:14px;margin:18px 0 8px;">其他選單（不是從這裡建立的）</h3>'+
           orp.map(function(o){
             var isLive=o.richMenuId===live;
             return '<div class="rm-cardrow'+(isLive?' live':'')+'">'+
@@ -439,7 +443,7 @@
         [].slice.call(document.querySelectorAll('.rm-del')).forEach(function(b){
           b.addEventListener('click',function(){
             var pub=b.getAttribute('data-pub')==='1';
-            var msg=pub?'這個選單已經發布到 LINE 上（目前是備用，沒人看到）。刪掉會連 LINE 上的一起刪，確定？'
+            var msg=pub?'這個選單已經發布到 LINE 上。刪掉會連 LINE 上的一起刪（如果它正是所有人看到的，系統會擋下來）。確定？'
                        :'刪掉草稿「'+b.getAttribute('data-name')+'」？';
             if(!confirm(msg))return;
             post('/admin/richmenu/api/delete',{id:Number(b.getAttribute('data-id'))},function(){load();});
@@ -455,7 +459,7 @@
           });});
         [].slice.call(document.querySelectorAll('.rm-orphan-live')).forEach(function(b){
           b.addEventListener('click',function(){
-            if(!confirm('把這個選單設為所有人看到的？'))return;
+            if(!confirm('把這個選單設為所有人看到的？會蓋過現在的選單（包含 LINE 官方後台設定的那個）。'))return;
             post('/admin/richmenu/api/set-default',{line_rich_menu_id:b.getAttribute('data-rid')},function(){load();});
           });});
         [].slice.call(document.querySelectorAll('.rm-orphan-del')).forEach(function(b){
@@ -465,14 +469,22 @@
           });});
       }
 
-      function post(url,body,ok){
+      var ERR_WORDS={not_found:'找不到這筆資料，可能已被刪除。重新整理頁面看看。',
+        bad_id:'資料對不上，重新整理頁面再試一次。',
+        not_published:'這個選單還沒發布，先按發布。',
+        is_live:'這個選單正是所有人看到的，先把別的選單設為所有人看到的，再回來刪。',
+        forbidden:'這個操作需要老闆帳號。'};
+      function post(url,body,ok,fail){
         return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
           .then(function(r){return r.json();})
           .then(function(d){
-            if(!d.ok){alert('沒有成功：'+(d.detail||d.error||''));return;}
+            if(!d.ok){
+              alert(d.detail||ERR_WORDS[d.error]||'沒有成功，重新整理頁面再試一次。');
+              if(fail)fail(d);return;
+            }
             if(ok)ok(d);
           })
-          .catch(function(){alert('連線失敗，再試一次');});
+          .catch(function(){alert('連線失敗，再試一次');if(fail)fail(null);});
       }
 
       // ── 範本庫 ─────────────────────────────────────────────
@@ -495,7 +507,7 @@
           b.addEventListener('click',function(){
             var p=all[Number(b.getAttribute('data-i'))];
             $('rm-tpl-modal').hidden=true;
-            CFG=presetToConfig(p); editingId=null; selCell=0; dirty=true;
+            CFG=presetToConfig(p); editingId=null; selCell=0; dirty=true; editingIsLive=false;
             $('rm-name').value=p.blank?'新選單':p.name;
             showEditor();
           });
@@ -512,6 +524,7 @@
         if(!CFG.cells||!CFG.cells.length){var lay=layoutById(CFG.layout||'big-6');CFG.cells=lay.cells;CFG.size=lay.size;}
         if(!CFG.buttons)CFG.buttons=[];
         editingId=id; selCell=0; dirty=false;
+        editingIsLive=!!(m.line_rich_menu_id&&m.line_rich_menu_id===DATA.default_line_id);
         $('rm-name').value=m.name;
         showEditor();
       }
@@ -546,7 +559,7 @@
           b.addEventListener('click',function(){
             var lay=layoutById(b.getAttribute('data-lay'));
             CFG.layout=lay.id;CFG.size=lay.size;CFG.cells=lay.cells;
-            CFG.buttons=CFG.buttons.slice(0,lay.cells.length);
+            // 不截斷：切到格子較少的版型再切回來，原本填好的字和動作要還在
             while(CFG.buttons.length<lay.cells.length)CFG.buttons.push({label:'',sublabel:'',icon:null,action:null,bg:null});
             if(selCell>=lay.cells.length)selCell=0;
             dirty=true;renderLayoutRow();redraw();renderCellPanel();
@@ -631,14 +644,14 @@
         });
       });
       function applyActivity(b,val){
-        var acts=DATA?DATA.activities||[]:[];
-        if(val==='wallet'){b.action={type:'uri',uri:DATA.wallet_url,activity_id:'wallet'};return;}
+        var acts=(DATA?DATA.activities||[]:[]).filter(function(x){return !!x.liff_url;});
+        if(val==='wallet'&&DATA.wallet_url){b.action={type:'uri',uri:DATA.wallet_url,activity_id:'wallet'};return;}
         var a=acts.filter(function(x){return String(x.id)===String(val);})[0]||acts[0];
         if(a)b.action={type:'uri',uri:a.liff_url,activity_id:a.id};
       }
       function fillActivitySelect(){
         var sel=$('rm-act-select');
-        var acts=DATA.activities||[];
+        var acts=(DATA.activities||[]).filter(function(a){return !!a.liff_url;});
         sel.innerHTML=acts.map(function(a){
           return '<option value="'+a.id+'">'+esc(a.name)+(a.status!=='active'?'（還沒上線）':'')+'</option>';
         }).join('')+(DATA.wallet_url?'<option value="wallet">我的獎品（中獎紀錄）</option>':'');
@@ -659,15 +672,25 @@
       $('rm-act-text').addEventListener('input',function(){curBtn().action={type:'message',text:this.value.trim()};dirty=true;});
 
       // ── 儲存 / 發布 ────────────────────────────────────────
+      function setEditButtons(disabled){
+        $('rm-save').disabled=disabled;
+        $('rm-publish').disabled=disabled;
+      }
       function saveDraft(cb){
+        if(saving)return;
         var name=$('rm-name').value.trim();
         if(!name){$('rm-edit-note').textContent='先幫選單取個名字';return;}
+        saving=true;setEditButtons(true);
         $('rm-edit-note').textContent='儲存中…';
         post('/admin/richmenu/api/save',{id:editingId,name:name,config:CFG},function(d){
+          saving=false;setEditButtons(false);
           editingId=d.id;dirty=false;
           $('rm-edit-note').textContent='已儲存';
           setTimeout(function(){$('rm-edit-note').textContent='';},1800);
           if(cb)cb();
+        },function(){
+          saving=false;setEditButtons(false);
+          $('rm-edit-note').textContent='';
         });
       }
       $('rm-save').addEventListener('click',function(){saveDraft();});
@@ -677,9 +700,10 @@
         for(var i=0;i<(CFG.cells||[]).length;i++){
           var b=btns[i]||{};
           var a=b.action||{};
-          if(a.type==='uri'&&String(a.uri||'').indexOf('https://')===0)continue;
-          if(a.type==='message'&&String(a.text||'').trim())continue;
-          return '第 '+(i+1)+' 格還沒設定「按下去做什麼」。點那一格設定好再發布。';
+          var actOk=(a.type==='uri'&&String(a.uri||'').indexOf('https://')===0)||
+                    (a.type==='message'&&String(a.text||'').trim());
+          if(!actOk)return '第 '+(i+1)+' 格還沒設定「按下去做什麼」。點那一格設定好再發布。';
+          if(!String(b.label||'').trim()&&!b.icon)return '第 '+(i+1)+' 格還沒放文字或圖示，發布出去會是一格空白。';
         }
         return null;
       }
@@ -690,9 +714,17 @@
         saveDraft(function(){
           renderMenu($('rm-pub-preview'),CFG);
           var n=(CFG.cells||[]).length;
-          $('rm-pub-summary').innerHTML='共 '+n+' 格。發布會把選單圖和按鍵設定一起傳到 LINE。<br>'+
-            '不勾下面的選項就只是先放著（所有人看到的選單不變），之後隨時可以在列表按「設為所有人看到的」。';
-          $('rm-pub-default').checked=false;
+          if(editingIsLive){
+            $('rm-pub-summary').innerHTML='共 '+n+' 格。<b>這個選單目前正是所有人看到的</b>——按下確定發布，'+
+              '所有用戶的選單立刻換成新版。<br>想先做一版備用不要動到現在的？回列表按「複製」，去編輯那一份。';
+            $('rm-pub-default').checked=true;
+            $('rm-pub-default').disabled=true;
+          }else{
+            $('rm-pub-summary').innerHTML='共 '+n+' 格。發布會把選單圖和按鍵設定一起傳到 LINE。<br>'+
+              '不勾下面的選項就只是先放著（所有人看到的選單不變），之後隨時可以在列表按「設為所有人看到的」。';
+            $('rm-pub-default').checked=false;
+            $('rm-pub-default').disabled=false;
+          }
           $('rm-pub-note').textContent='';
           $('rm-pub-modal').hidden=false;
         });
@@ -701,23 +733,28 @@
       $('rm-pub-cancel').addEventListener('click',function(){$('rm-pub-modal').hidden=true;});
 
       $('rm-pub-go').addEventListener('click',function(){
+        if(publishing)return;   // 在途時再點無效——發布可能要跑十幾秒，解鎖只看結果不看時間
+        publishing=true;
         var btn=this;
-        btn.disabled=true;$('rm-pub-note').textContent='畫圖並上傳中…';
-        // 全尺寸輸出 → JPEG，壓到 1MB 以下
+        btn.disabled=true;$('rm-pub-note').textContent='畫圖並上傳中，最多要等十幾秒…';
+        // 全尺寸輸出 → JPEG，壓到 1MB 以下（正式輸出：空格不畫佔位字）
         var full=document.createElement('canvas');
         full.width=2500;
-        renderMenu(full,CFG);
+        renderMenu(full,CFG,null,{forExport:true});
         var q=0.86,dataUrl=full.toDataURL('image/jpeg',q);
         while(dataUrl.length*0.75>980*1024&&q>0.5){q-=0.08;dataUrl=full.toDataURL('image/jpeg',q);}
         post('/admin/richmenu/api/publish',
           {id:editingId,image:dataUrl,set_default:$('rm-pub-default').checked},
           function(){
-            btn.disabled=false;
+            publishing=false;btn.disabled=false;
             $('rm-pub-modal').hidden=true;
             $('rm-editor-view').hidden=true;$('rm-list-view').hidden=false;
             load();
+          },
+          function(){
+            publishing=false;btn.disabled=false;
+            $('rm-pub-note').textContent='';
           });
-        setTimeout(function(){btn.disabled=false;},15000);
       });
 
       load();

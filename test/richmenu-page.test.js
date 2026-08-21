@@ -41,7 +41,10 @@ const DATA = { ok: true, menus: [], orphans: [], default_line_id: null, line_err
         calls.push({ u, o: o || {} });
         if (u.indexOf('/api/data') >= 0) return Promise.resolve({ json: async () => DATA });
         if (u.indexOf('/api/save') >= 0) return Promise.resolve({ json: async () => ({ ok: true, id: 55 }) });
-        if (u.indexOf('/api/publish') >= 0) return Promise.resolve({ json: async () => ({ ok: true, line_rich_menu_id: 'richmenu-xyz', is_default: false }) });
+        if (u.indexOf('/api/publish') >= 0) {
+          if (w.__hangPublish) return new Promise(function () {});   // 掛起不回，模擬慢速發布
+          return Promise.resolve({ json: async () => ({ ok: true, line_rich_menu_id: 'richmenu-xyz', is_default: false }) });
+        }
         return Promise.resolve({ json: async () => ({ ok: true }) });
       };
       w.confirm = () => true; w.alert = m => { calls.push({ alert: m }); };
@@ -100,6 +103,23 @@ const DATA = { ok: true, menus: [], orphans: [], default_line_id: null, line_err
   ok(body.id === 55, '帶存草稿拿到的 id');
   ok(String(body.image || '').indexOf('data:image/jpeg;base64,') === 0, '帶著畫好的選單圖');
   ok(body.set_default === false, '沒勾就不動所有人看到的選單');
+
+  // ── 慢速發布中連點：只能送出一次（以前的 15 秒盲解鎖會讓第二次點擊重複發布）──
+  doc.getElementById('rm-new').click();
+  await new Promise(r => setTimeout(r, 50));
+  doc.querySelectorAll('.rm-tpl-card')[0].click();
+  await new Promise(r => setTimeout(r, 50));
+  doc.getElementById('rm-publish').click();
+  await new Promise(r => setTimeout(r, 80));
+  w.__hangPublish = true;
+  calls.length = 0;
+  doc.getElementById('rm-pub-go').click();
+  doc.getElementById('rm-pub-go').click();
+  doc.getElementById('rm-pub-go').click();
+  await new Promise(r => setTimeout(r, 60));
+  const hung = calls.filter(c => c.u && c.u.indexOf('/api/publish') >= 0);
+  ok(hung.length === 1, '發布還在跑的時候連點三下，只送出 ' + hung.length + ' 次');
+  ok(doc.getElementById('rm-pub-go').disabled === true, '按鈕維持鎖定直到有結果，不是傻等 15 秒');
 
   console.log(failed ? ('\n有 ' + failed + ' 項失敗') : '\n頁面操作全部通過');
   process.exit(failed ? 1 : 0);

@@ -1,6 +1,6 @@
 // 圖文選單核心：設定 → LINE 物件的轉換與驗證；API 封裝打對主機、擋超大圖。
 const path = require('path');
-const { buildLineMenuObject, createLineRichMenuService } = require(path.join(__dirname, '..', 'src/core/lineRichMenu'));
+const { buildLineMenuObject, createLineRichMenuService, sanitizeMenuConfig } = require(path.join(__dirname, '..', 'src/core/lineRichMenu'));
 
 let failed = 0;
 function ok(cond, label) { console.log((cond ? 'OK  ' : '錯！ ') + label); if (!cond) failed++; }
@@ -43,6 +43,24 @@ function throws(fn, part, label) {
     buttons: [{}] }), '要做什麼', '沒動作要擋');
   throws(() => buildLineMenuObject({ name: 'x', cells: [{ x: 2400, y: 0, w: 200, h: 100 }],
     buttons: [{ action: { type: 'uri', uri: 'https://a.b' } }] }), '超出圖片範圍', '出界要擋');
+  throws(() => buildLineMenuObject({ name: 'x', cells: [{ x: 0, y: 0, w: 100, h: 100 }],
+    buttons: [{ action: { type: 'uri', uri: 'https://a.b' } }] }), '文字或圖示', '沒字沒圖示的空白格要擋');
+  const iconOnly = buildLineMenuObject({ name: 'x', cells: [{ x: 0, y: 0, w: 100, h: 100 }],
+    buttons: [{ icon: 'bowl', action: { type: 'uri', uri: 'https://a.b' } }] });
+  ok(iconOnly.areas.length === 1, '只有圖示沒有字可以過（圖示本身就是內容）');
+
+  // ── sanitizeMenuConfig：把怪東西洗掉 ──
+  const dirty = sanitizeMenuConfig({
+    size: 'huge', layout: 'x'.repeat(99), bg: '#FBC02D', chat_bar_text: '選單選單選單選單選單',
+    buttons: { length: '<img src=x onerror=alert(1)>' },   // 物件冒充陣列（審查抓到的 XSS 路徑）
+    cells: [{ x: '10', y: 5.7, w: 100, h: 100 }, 'garbage'],
+    evil_key: 'x'
+  });
+  ok(Array.isArray(dirty.buttons) && dirty.buttons.length === 0, '假陣列被洗成真的空陣列');
+  ok(dirty.size === 'large', '亂填的尺寸落回大選單');
+  ok(dirty.layout.length <= 30 && dirty.chat_bar_text.length <= 14, '長度都截住');
+  ok(!('evil_key' in dirty), '不認識的欄位丟掉');
+  ok(dirty.cells[0].x === 10 && dirty.cells[0].y === 6, '座標轉成整數');
 
   // ── service：主機、方法、超大圖 ──
   const calls = [];

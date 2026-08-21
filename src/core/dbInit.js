@@ -12,6 +12,7 @@ const APP_PUBLIC_TABLES_WITH_RLS = [
   'campaign_settings',
   'admin_login_throttle',
   'line_push_media',
+  'rich_menus',
   'admin_push_settings',
   'admin_manual_bonus_logs',
   'admin_broadcasts',
