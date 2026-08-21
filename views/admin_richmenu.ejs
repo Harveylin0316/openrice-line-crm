@@ -55,6 +55,51 @@
               <div id="rm-cellbgs" class="rm-swatch-row"></div>
             </div>
             <div class="rm-field">
+              <span>文字顏色（不選＝依底色自動）</span>
+              <div id="rm-textcolors" class="rm-swatch-row"></div>
+            </div>
+            <div class="rm-field">
+              <span>邊框</span>
+              <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;">粗細
+                  <input type="range" id="rm-borderw" min="0" max="24" step="1" style="width:110px;">
+                  <span id="rm-borderw-val" class="muted" style="width:34px;"></span></label>
+                <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;">顏色
+                  <input type="color" id="rm-bordercolor" class="rm-color"></label>
+                <button type="button" class="rm-btn2" id="rm-bordercolor-auto" style="padding:5px 10px;font-size:12px;">跟文字同色</button>
+              </div>
+            </div>
+            <div class="rm-field">
+              <span>形狀</span>
+              <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+                <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;">圓角
+                  <input type="range" id="rm-radius" min="0" max="80" step="2" style="width:110px;">
+                  <span id="rm-radius-val" class="muted" style="width:34px;"></span></label>
+                <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;">格子間距
+                  <input type="range" id="rm-gap" min="0" max="80" step="2" style="width:110px;">
+                  <span id="rm-gap-val" class="muted" style="width:34px;"></span></label>
+              </div>
+            </div>
+            <div class="rm-field">
+              <span>文字大小</span>
+              <div class="rm-actmode" style="max-width:280px;">
+                <button type="button" class="rm-actbtn rm-fs" data-fs="0.8">小</button>
+                <button type="button" class="rm-actbtn rm-fs" data-fs="1">標準</button>
+                <button type="button" class="rm-actbtn rm-fs" data-fs="1.2">大</button>
+              </div>
+            </div>
+            <div class="rm-field" id="rm-tabcolor-field" hidden>
+              <span>分頁頭顏色</span>
+              <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12.5px;">
+                <label style="display:flex;gap:6px;align-items:center;">現在這頁
+                  <input type="color" id="rm-tab-activebg" class="rm-color"></label>
+                <label style="display:flex;gap:6px;align-items:center;">其他頁
+                  <input type="color" id="rm-tab-inactivebg" class="rm-color"></label>
+                <label style="display:flex;gap:6px;align-items:center;">文字
+                  <input type="color" id="rm-tab-textcolor" class="rm-color"></label>
+              </div>
+            </div>
+            <div class="rm-field">
               <span>整張完稿圖（這個分頁）</span>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <input type="file" id="rm-fullimg-file" accept="image/png,image/jpeg" style="font-size:12.5px;">
@@ -85,6 +130,8 @@
           <div class="rm-field"><span>圖示</span><div id="rm-icons" class="rm-icon-grid"></div></div>
           <div class="rm-field"><span>這一格的底色（不選＝跟全部一樣）</span>
             <div id="rm-cellbg-one" class="rm-swatch-row"></div></div>
+          <div class="rm-field"><span>這一格的文字顏色（不選＝跟全部一樣）</span>
+            <div id="rm-cellcolor-one" class="rm-swatch-row"></div></div>
 
           <div class="rm-field"><span>按下去做什麼</span>
             <div class="rm-actmode">
@@ -239,6 +286,8 @@
       .rm-swatch{width:34px;height:34px;border-radius:8px;border:2px solid #E5E7EB;cursor:pointer;padding:0;}
       .rm-swatch.on{border-color:#1f2937;box-shadow:0 0 0 2px #1f2937 inset;}
       .rm-swatch.none{background:repeating-linear-gradient(45deg,#fff,#fff 4px,#eee 4px,#eee 8px);}
+      .rm-color{width:38px;height:34px;padding:0;border:2px solid #E5E7EB;border-radius:8px;background:#fff;cursor:pointer;}
+      #rm-tabcolor-field[hidden]{display:none;}
       .rm-layout-btn{border:2px solid #E5E7EB;border-radius:8px;background:#fff;cursor:pointer;padding:4px;}
       .rm-layout-btn.on{border-color:#1f2937;}
       .rm-right{display:flex;flex-direction:column;gap:14px;border:1px solid #F3F4F6;border-radius:12px;padding:16px;background:#FAFAFA;align-self:start;}
@@ -416,9 +465,9 @@
           if(multi){
             for(var t=0;t<tabs.length;t++){
               var x0=Math.round(t*2500/tabs.length),x1=Math.round((t+1)*2500/tabs.length);
-              ctx.fillStyle=(t===ti)?'#E8491D':'#8E9AAB';
+              ctx.fillStyle=(t===ti)?(cfg.tab_active_bg||'#E8491D'):(cfg.tab_inactive_bg||'#8E9AAB');
               ctx.fillRect(x0,0,x1-x0,TB);
-              ctx.fillStyle='#FFFFFF';
+              ctx.fillStyle=cfg.tab_text_color||'#FFFFFF';
               ctx.textAlign='center';ctx.textBaseline='middle';
               ctx.font='900 76px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
               ctx.fillText(tabs[t].label||('分頁'+String.fromCharCode(65+t)),(x0+x1)/2,TB/2+4);
@@ -427,15 +476,20 @@
           }
           var cells=tab.cells||[];
           var btns=tab.buttons||[];
-          var G=26,R=30;
+          var G=(cfg.gap==null?26:cfg.gap),R=(cfg.radius==null?30:cfg.radius);
+          var BW=(cfg.border_width==null?9:cfg.border_width);
+          var FS=cfg.font_scale||1;
           for(var i=0;i<cells.length;i++){
             var c=cells[i],b=btns[i]||{};
+            var g=Math.min(G,Math.floor(Math.min(c.w,c.h)/3));
             var bg=b.bg||cfg.cell_bg||'#FFF9E8';
-            var ink=inkFor(bg);
-            var x=c.x+G,y=c.y+G,w=c.w-G*2,h=c.h-G*2;
+            var ink=b.color||cfg.text_color||inkFor(bg);
+            var line=cfg.border_color||ink;
+            var x=c.x+g,y=c.y+g,w=c.w-g*2,h=c.h-g*2;
+            var rr=Math.min(R,Math.floor(Math.min(w,h)/2));
             ctx.beginPath();
-            ctx.moveTo(x+R,y);ctx.arcTo(x+w,y,x+w,y+h,R);ctx.arcTo(x+w,y+h,x,y+h,R);
-            ctx.arcTo(x,y+h,x,y,R);ctx.arcTo(x,y,x+w,y,R);ctx.closePath();
+            ctx.moveTo(x+rr,y);ctx.arcTo(x+w,y,x+w,y+h,rr);ctx.arcTo(x+w,y+h,x,y+h,rr);
+            ctx.arcTo(x,y+h,x,y,rr);ctx.arcTo(x,y,x+w,y,rr);ctx.closePath();
             ctx.fillStyle=bg;ctx.fill();
             var cellImg=b.image?getImg(b.image,redraw):null;
             if(b.image&&cellImg){
@@ -447,15 +501,15 @@
                 ctx.fillStyle='rgba(30,20,15,0.55)';
                 ctx.fillRect(x,y+h-barH,w,barH);
                 ctx.fillStyle='#FFFFFF';ctx.textAlign='center';ctx.textBaseline='middle';
-                var px=Math.min(Math.round(barH*0.52),Math.round(w*0.12));
+                var px=Math.round(Math.min(Math.round(barH*0.52),Math.round(w*0.12))*FS);
                 ctx.font='900 '+px+'px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
                 ctx.fillText(lab,x+w/2,y+h-barH/2+2);
               }
               ctx.restore();
-              ctx.lineWidth=9;ctx.strokeStyle=ink;ctx.stroke();
+              if(BW>0){ctx.lineWidth=BW;ctx.strokeStyle=line;ctx.stroke();}
             }else{
-              ctx.lineWidth=9;ctx.strokeStyle=ink;ctx.stroke();
-              drawCellContent(ctx,b,x,y,w,h,ink,forExport);
+              if(BW>0){ctx.lineWidth=BW;ctx.strokeStyle=line;ctx.stroke();}
+              drawCellContent(ctx,b,x,y,w,h,ink,forExport,FS);
             }
           }
         }
@@ -472,13 +526,14 @@
         }
         ctx.setTransform(1,0,0,1,0,0);
       }
-      function drawCellContent(ctx,b,x,y,w,h,ink,forExport){
+      function drawCellContent(ctx,b,x,y,w,h,ink,forExport,fs){
+        fs=fs||1;
         var label=String(b.label||'').trim();
         var sub=String(b.sublabel||'').trim();
         var iconKey=b.icon&&ICONS[b.icon]?b.icon:null;
         var cx=x+w/2;
-        var labelPx=Math.min(Math.round(w*0.14),Math.round(h*0.22),120);
-        var subPx=Math.max(34,Math.round(labelPx*0.5));
+        var labelPx=Math.round(Math.min(Math.round(w*0.14),Math.round(h*0.22),120)*fs);
+        var subPx=Math.max(30,Math.round(labelPx*0.5));
         function setFont(px,weight){ctx.font=(weight||900)+' '+px+'px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';}
         function fit(t,px){setFont(px);while(px>26&&ctx.measureText(t).width>w*0.84){px-=4;setFont(px);}return px;}
         ctx.textAlign='center';ctx.fillStyle=ink;
@@ -497,7 +552,7 @@
           if(sub){setFont(subPx,600);ctx.globalAlpha=0.78;ctx.fillText(sub,cx,top+box+(label?labelPx*1.25:0)+subPx*1.15);ctx.globalAlpha=1;}
         }else{
           var showLabel=label||(forExport?'':'（沒有文字）');
-          var bigPx=Math.min(Math.round(w*0.16),Math.round(h*0.3),150);
+          var bigPx=Math.round(Math.min(Math.round(w*0.16),Math.round(h*0.3),150)*fs);
           if(showLabel){
             bigPx=fit(showLabel,bigPx);
             ctx.textBaseline='middle';setFont(bigPx);
@@ -924,7 +979,7 @@
           CFG.tabs.push({label:'',layout:'big-4',full_image_url:null,cells:[],buttons:[]});
           for(var i=0;i<CFG.tabs.length;i++)relayoutTabOnCfg(CFG,i);   // 變成多分頁後全部重排（內容區下移）
           editTab=CFG.tabs.length-1;selCell=0;dirty=true;
-          renderTabPills();renderLayoutRow();redraw();renderCellPanel();
+          renderTabPills();renderLayoutRow();renderBgRows();redraw();renderCellPanel();
         });
         var del=$('rm-tab-del');
         if(del)del.addEventListener('click',function(){
@@ -932,7 +987,7 @@
           CFG.tabs.splice(editTab,1);
           editTab=0;selCell=0;dirty=true;
           for(var i=0;i<CFG.tabs.length;i++)relayoutTabOnCfg(CFG,i);
-          renderTabPills();renderLayoutRow();redraw();renderCellPanel();
+          renderTabPills();renderLayoutRow();renderBgRows();redraw();renderCellPanel();
         });
       }
 
@@ -964,21 +1019,61 @@
         });
       }
 
-      function swatchRow(el,colors,current,allowNone,onPick){
+      function swatchRow(el,colors,current,allowNone,onPick,noneTitle){
         var html='';
-        if(allowNone)html+='<button type="button" class="rm-swatch none'+(current==null?' on':'')+'" data-c="" title="跟全部一樣"></button>';
+        if(allowNone)html+='<button type="button" class="rm-swatch none'+(current==null?' on':'')+'" data-c="" title="'+(noneTitle||'跟全部一樣')+'"></button>';
         html+=colors.map(function(c){
           return '<button type="button" class="rm-swatch'+(current===c?' on':'')+'" data-c="'+c+'" style="background:'+c+';"></button>';
         }).join('');
+        // 自訂：任何顏色都能挑
+        var isCustom=current&&colors.indexOf(current)<0;
+        html+='<input type="color" class="rm-color rm-swatch-cust" value="'+(isCustom?current:'#FBC02D')+'" title="自訂顏色"'+(isCustom?' style="border-color:#1f2937;"':'')+'>';
         el.innerHTML=html;
         [].slice.call(el.querySelectorAll('.rm-swatch')).forEach(function(b){
           b.addEventListener('click',function(){onPick(b.getAttribute('data-c')||null);});
         });
+        var cust=el.querySelector('.rm-swatch-cust');
+        cust.addEventListener('input',function(){onPick(this.value);});
       }
       function renderBgRows(){
-        swatchRow($('rm-bgs'),BGS,CFG.bg||'#FBC02D',false,function(c){CFG.bg=c;dirty=true;renderBgRows();redraw();});
-        swatchRow($('rm-cellbgs'),CELLBGS,CFG.cell_bg||'#FFF9E8',false,function(c){CFG.cell_bg=c;dirty=true;renderBgRows();redraw();});
+        swatchRow($('rm-bgs'),BGS,CFG.bg||'#FBC02D',false,function(c){CFG.bg=c||'#FBC02D';dirty=true;renderBgRows();redraw();});
+        swatchRow($('rm-cellbgs'),CELLBGS,CFG.cell_bg||'#FFF9E8',false,function(c){CFG.cell_bg=c||'#FFF9E8';dirty=true;renderBgRows();redraw();});
+        swatchRow($('rm-textcolors'),['#4E342E','#FFF9E8','#FFFFFF','#E8491D','#1F2937'],CFG.text_color||null,true,
+          function(c){CFG.text_color=c;dirty=true;renderBgRows();redraw();},'依底色自動');
+        var bw=(CFG.border_width==null?9:CFG.border_width);
+        $('rm-borderw').value=bw;$('rm-borderw-val').textContent=bw===0?'無框':bw;
+        $('rm-bordercolor').value=CFG.border_color||'#4E342E';
+        var rd=(CFG.radius==null?30:CFG.radius);
+        $('rm-radius').value=rd;$('rm-radius-val').textContent=rd;
+        var gp=(CFG.gap==null?26:CFG.gap);
+        $('rm-gap').value=gp;$('rm-gap-val').textContent=gp;
+        var fs=CFG.font_scale||1;
+        [].slice.call(document.querySelectorAll('.rm-fs')).forEach(function(b){
+          b.classList.toggle('on',Number(b.getAttribute('data-fs'))===fs);
+        });
+        var multi=CFG.tabs&&CFG.tabs.length>1;
+        $('rm-tabcolor-field').hidden=!multi;
+        if(multi){
+          $('rm-tab-activebg').value=CFG.tab_active_bg||'#E8491D';
+          $('rm-tab-inactivebg').value=CFG.tab_inactive_bg||'#8E9AAB';
+          $('rm-tab-textcolor').value=CFG.tab_text_color||'#FFFFFF';
+        }
       }
+      $('rm-borderw').addEventListener('input',function(){
+        CFG.border_width=Number(this.value);
+        $('rm-borderw-val').textContent=CFG.border_width===0?'無框':CFG.border_width;
+        dirty=true;redraw();
+      });
+      $('rm-bordercolor').addEventListener('input',function(){CFG.border_color=this.value;dirty=true;redraw();});
+      $('rm-bordercolor-auto').addEventListener('click',function(){CFG.border_color=null;dirty=true;renderBgRows();redraw();});
+      $('rm-radius').addEventListener('input',function(){CFG.radius=Number(this.value);$('rm-radius-val').textContent=CFG.radius;dirty=true;redraw();});
+      $('rm-gap').addEventListener('input',function(){CFG.gap=Number(this.value);$('rm-gap-val').textContent=CFG.gap;dirty=true;redraw();});
+      [].slice.call(document.querySelectorAll('.rm-fs')).forEach(function(b){
+        b.addEventListener('click',function(){CFG.font_scale=Number(b.getAttribute('data-fs'));dirty=true;renderBgRows();redraw();});
+      });
+      $('rm-tab-activebg').addEventListener('input',function(){CFG.tab_active_bg=this.value;dirty=true;redraw();});
+      $('rm-tab-inactivebg').addEventListener('input',function(){CFG.tab_inactive_bg=this.value;dirty=true;redraw();});
+      $('rm-tab-textcolor').addEventListener('input',function(){CFG.tab_text_color=this.value;dirty=true;redraw();});
 
       $('rm-canvas').addEventListener('click',function(ev){
         var cv=$('rm-canvas');
@@ -1021,6 +1116,8 @@
           x.addEventListener('click',function(){b.icon=x.getAttribute('data-ic')||null;dirty=true;renderCellPanel();redraw();});
         });
         swatchRow($('rm-cellbg-one'),CELLBGS,b.bg||null,true,function(c){b.bg=c;dirty=true;renderCellPanel();redraw();});
+        swatchRow($('rm-cellcolor-one'),['#4E342E','#FFF9E8','#FFFFFF','#E8491D','#1F2937'],b.color||null,true,
+          function(c){b.color=c;dirty=true;renderCellPanel();redraw();});
 
         var mode=b.action?(b.action.type==='message'?'message':(b.action.activity_id?'activity':'uri')):'activity';
         [].slice.call(document.querySelectorAll('.rm-actbtn')).forEach(function(x){

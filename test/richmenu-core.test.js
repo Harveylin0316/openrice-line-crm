@@ -62,6 +62,20 @@ function throws(fn, part, label) {
   ok(!('evil_key' in dirty), '不認識的欄位丟掉');
   ok(dirty.cells[0].x === 10 && dirty.cells[0].y === 6, '座標轉成整數');
 
+  // ── 設計欄位全開：合法的收、亂寫的落回預設 ──
+  const design = sanitizeMenuConfig({
+    bg: '#123ABC', cell_bg: '#00FF00', text_color: '#FFFFFF', border_color: '#000000',
+    border_width: 99, radius: -5, gap: 40, font_scale: 1.2,
+    tab_active_bg: '#FF0000', tab_inactive_bg: 'not-a-color', tab_text_color: '#0000FF',
+    cells: [], buttons: [{ label: 'x', color: '#ABCDEF', bg: 'javascript:alert(1)',
+      action: { type: 'message', text: 'hi' } }]
+  });
+  ok(design.bg === '#123ABC' && design.text_color === '#FFFFFF', '任何合法色碼都收');
+  ok(design.border_width === 24 && design.radius === 0 && design.gap === 40, '數字夾在安全範圍（99→24、-5→0）');
+  ok(design.font_scale === 1.2, '文字大小倍率收下');
+  ok(design.tab_active_bg === '#FF0000' && design.tab_inactive_bg === '#8E9AAB', '分頁頭顏色：合法收、亂寫落回預設');
+  ok(design.buttons[0].color === '#ABCDEF' && design.buttons[0].bg === null, '每格文字色收下、危險字串丟掉');
+
   // ── service：主機、方法、超大圖 ──
   const calls = [];
   const origFetch = global.fetch;

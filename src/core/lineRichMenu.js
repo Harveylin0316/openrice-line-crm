@@ -290,10 +290,12 @@ function sanitizeMenuConfig(raw) {
       action = { type: 'message', text: str(a.text, 300) };
     }
     const img = str(b.image, 500);
+    const hexB = (v) => (/^#[0-9a-fA-F]{6}$/.test(String(v || '')) ? String(v) : null);
     return {
       label: str(b.label, 20), sublabel: str(b.sublabel, 30),
       icon: b.icon ? str(b.icon, 30) : null,
-      bg: b.bg ? str(b.bg, 20) : null,
+      bg: hexB(b.bg),
+      color: hexB(b.color),
       image: (/^\/p\/line-media\/[0-9a-f-]+$/i.test(img) || /^https:\/\//.test(img)) ? img : null,
       action
     };
@@ -308,11 +310,26 @@ function sanitizeMenuConfig(raw) {
                  cells: cleanCells(t.cells), buttons: cleanButtons(t.buttons) };
       })
     : null;
+  // 顏色一律驗成 #RRGGBB，數字夾在安全範圍——這些值會直接進 canvas 與後台 DOM
+  const hex = (v, dflt) => (/^#[0-9a-fA-F]{6}$/.test(String(v || '')) ? String(v) : dflt);
+  const clamp = (v, lo, hi, dflt) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : dflt;
+  };
   return {
     size: c.size === 'compact' ? 'compact' : 'large',
     layout: str(c.layout, 30),
-    bg: str(c.bg, 20) || '#FBC02D',
-    cell_bg: str(c.cell_bg, 20) || '#FFF9E8',
+    bg: hex(c.bg, '#FBC02D'),
+    cell_bg: hex(c.cell_bg, '#FFF9E8'),
+    text_color: hex(c.text_color, null),          // null = 依底色自動深棕/奶油白
+    border_color: hex(c.border_color, null),      // null = 跟文字同色
+    border_width: clamp(c.border_width, 0, 24, 9),
+    radius: clamp(c.radius, 0, 80, 30),
+    gap: clamp(c.gap, 0, 80, 26),
+    font_scale: [0.8, 1, 1.2].includes(Number(c.font_scale)) ? Number(c.font_scale) : 1,
+    tab_active_bg: hex(c.tab_active_bg, '#E8491D'),
+    tab_inactive_bg: hex(c.tab_inactive_bg, '#8E9AAB'),
+    tab_text_color: hex(c.tab_text_color, '#FFFFFF'),
     chat_bar_text: str(c.chat_bar_text, 14) || '選單',
     open_by_default: c.open_by_default !== false,
     full_image_url: (() => { const f = str(c.full_image_url, 500);
