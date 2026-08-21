@@ -112,26 +112,109 @@ function createLineRichMenuService({ channelAccessToken }) {
     }
   }
 
+  /** 分頁切換用的別名：先試更新，不存在就建立（別名一經建立 id 永遠不變） */
+  async function upsertAlias(aliasId, richMenuId) {
+    try {
+      await call('POST', API + '/v2/bot/richmenu/alias/' + encodeURIComponent(aliasId),
+        { body: { richMenuId } });
+    } catch (e) {
+      if (e.status !== 404) throw e;
+      await call('POST', API + '/v2/bot/richmenu/alias',
+        { body: { richMenuAliasId: aliasId, richMenuId } });
+    }
+  }
+  async function deleteAlias(aliasId) {
+    try { await call('DELETE', API + '/v2/bot/richmenu/alias/' + encodeURIComponent(aliasId)); }
+    catch (e) { if (e.status !== 404) throw e; }
+  }
+
+  /** 把選單綁到一批用戶（名單專屬選單）；一次最多 500 人，這裡自動分批 */
+  async function bulkLink(richMenuId, userIds) {
+    for (let i = 0; i < userIds.length; i += 500) {
+      await call('POST', API + '/v2/bot/richmenu/bulk/link',
+        { body: { richMenuId, userIds: userIds.slice(i, i + 500) } });
+    }
+  }
+  /** 解除一批用戶的專屬選單（回到所有人看到的那個） */
+  async function bulkUnlink(userIds) {
+    for (let i = 0; i < userIds.length; i += 500) {
+      await call('POST', API + '/v2/bot/richmenu/bulk/unlink',
+        { body: { userIds: userIds.slice(i, i + 500) } });
+    }
+  }
+
   return {
     createRichMenu, uploadImage, downloadImage,
-    listRichMenus, getDefaultRichMenu, setDefault, clearDefault, deleteRichMenu
+    listRichMenus, getDefaultRichMenu, setDefault, clearDefault, deleteRichMenu,
+    upsertAlias, deleteAlias, bulkLink, bulkUnlink
   };
 }
 
+/** 分頁列高度（2500 寬座標系）。有兩個以上分頁時，圖最上面這一條是分頁頭。 */
+const TAB_BAR_H = 176;
+
+/** 把設定攤平成分頁陣列：舊格式（cells/buttons 在最外層）視為單一分頁 */
+function normalizeTabs(config) {
+  if (Array.isArray(config.tabs) && config.tabs.length > 0) {
+    return config.tabs.map(t => ({
+      label: String((t && t.label) || '').slice(0, 10),
+      cells: Array.isArray(t && t.cells) ? t.cells : [],
+      buttons: Array.isArray(t && t.buttons) ? t.buttons : []
+    }));
+  }
+  return [{ label: '', cells: Array.isArray(config.cells) ? config.cells : [],
+            buttons: Array.isArray(config.buttons) ? config.buttons : [] }];
+}
+
 /**
- * 把後台編輯器的設定（layout / buttons / actions）轉成 LINE 的 rich menu 物件。
- * cells: [{ x, y, w, h }]（以 2500×1686 或 2500×843 的像素座標）
- * buttons[i].action: { type: 'uri', uri } 或 { type: 'message', text }
+ * 把後台編輯器的設定轉成 LINE 的 rich menu 物件。
+ * 多分頁時一個分頁＝一張選單：opts.tabIndex 指定要輸出哪一頁，
+ * opts.aliasIds 是每一頁的別名（分頁頭用 richmenuswitch 互切），
+ * opts.trackId 帶在切換動作的 data 裡（webhook 靠它記錄「誰切了分頁」）。
  */
-function buildLineMenuObject(config) {
+function buildLineMenuObject(config, opts) {
+  opts = opts || {};
+  const tabs = normalizeTabs(config);
+  const fullImageTabs = new Set();
+  {
+    const src = Array.isArray(config.tabs) && config.tabs.length ? config.tabs : [config];
+    src.forEach((t, ti) => { if (t && t.full_image_url) fullImageTabs.add(ti); });
+  }
+  const tabIndex = Number(opts.tabIndex || 0);
+  const tab = tabs[tabIndex];
+  if (!tab) throw new Error('找不到第 ' + (tabIndex + 1) + ' 個分頁');
+  const multiTab = tabs.length > 1;
+  if (multiTab && config.size === 'compact') throw new Error('有分頁的選單要用大尺寸');
+  if (tabs.length > 3) throw new Error('分頁最多 3 個');
+
   const width = 2500;
   const height = config.size === 'compact' ? 843 : 1686;
-  const name = String(config.name || '圖文選單').slice(0, 300);
+  const name = String(config.name || '圖文選單').slice(0, 300) + (multiTab ? ('｜' + (tab.label || ('分頁' + (tabIndex + 1)))) : '');
   const chatBarText = String(config.chat_bar_text || '選單').slice(0, 14);
-  const cells = Array.isArray(config.cells) ? config.cells : [];
-  const buttons = Array.isArray(config.buttons) ? config.buttons : [];
-  if (cells.length === 0) throw new Error('選單沒有任何格子');
-  if (cells.length > 20) throw new Error('格子最多 20 個');
+  const cells = tab.cells;
+  const buttons = tab.buttons;
+  if (cells.length === 0) throw new Error((multiTab ? ('「' + (tab.label || ('分頁' + (tabIndex + 1))) + '」') : '選單') + '沒有任何格子');
+  if (cells.length + (multiTab ? tabs.length - 1 : 0) > 20) throw new Error('格子最多 20 個');
+
+  // 分頁頭：其他分頁可點（切過去），自己這頁的頭不放動作
+  const tabAreas = [];
+  if (multiTab) {
+    const aliasIds = Array.isArray(opts.aliasIds) ? opts.aliasIds : [];
+    for (let t = 0; t < tabs.length; t++) {
+      if (t === tabIndex) continue;
+      if (!aliasIds[t]) throw new Error('第 ' + (t + 1) + ' 個分頁還沒有別名，發布流程有問題');
+      const x0 = Math.round(t * width / tabs.length);
+      const x1 = Math.round((t + 1) * width / tabs.length);
+      tabAreas.push({
+        bounds: { x: x0, y: 0, width: x1 - x0, height: TAB_BAR_H },
+        action: {
+          type: 'richmenuswitch',
+          richMenuAliasId: aliasIds[t],
+          data: 'rmtab|' + String(opts.trackId || 0) + '|' + t
+        }
+      });
+    }
+  }
 
   const areas = cells.map((c, i) => {
     const b = buttons[i] || {};
@@ -161,18 +244,25 @@ function buildLineMenuObject(config) {
     if (label) action.label = label;
     // 動作合法之後才檢查外觀：沒字也沒圖示的格子會在正式選單上變成空白（或印出佔位字），
     // 使用者按了也不知道自己按到什麼——直接擋下。
-    if (!label && !(b.icon && String(b.icon).trim())) {
-      throw new Error('第 ' + (i + 1) + ' 格還沒放文字或圖示');
+    if (!fullImageTabs.has(tabIndex) &&
+        !label && !(b.icon && String(b.icon).trim()) && !(b.image && String(b.image).trim())) {
+      throw new Error('第 ' + (i + 1) + ' 格還沒放文字、圖示或圖片');
     }
     return { bounds, action };
   });
+
+  if (multiTab) {
+    for (let i = 0; i < cells.length; i++) {
+      if (cells[i].y < TAB_BAR_H) throw new Error('第 ' + (i + 1) + ' 格壓到分頁列了');
+    }
+  }
 
   return {
     size: { width, height },
     selected: config.open_by_default !== false, // 預設打開選單（LINE 官方預設也是開）
     name,
     chatBarText,
-    areas
+    areas: tabAreas.concat(areas)
   };
 }
 
@@ -185,10 +275,11 @@ function sanitizeMenuConfig(raw) {
   const c = (raw && typeof raw === 'object') ? raw : {};
   const str = (v, n) => String(v == null ? '' : v).slice(0, n);
   const num = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : 0);
-  const cells = (Array.isArray(c.cells) ? c.cells : []).slice(0, 20).map(x => ({
+  const cleanCells = (arr) => (Array.isArray(arr) ? arr : []).slice(0, 20).map(x => ({
     x: num(x && x.x), y: num(x && x.y), w: num(x && x.w), h: num(x && x.h)
   }));
-  const buttons = (Array.isArray(c.buttons) ? c.buttons : []).slice(0, 20).map(b => {
+  const cells = cleanCells(c.cells);
+  const cleanButtons = (arr) => (Array.isArray(arr) ? arr : []).slice(0, 20).map(b => {
     b = (b && typeof b === 'object') ? b : {};
     const a = (b.action && typeof b.action === 'object') ? b.action : null;
     let action = null;
@@ -198,13 +289,25 @@ function sanitizeMenuConfig(raw) {
     } else if (a && a.type === 'message') {
       action = { type: 'message', text: str(a.text, 300) };
     }
+    const img = str(b.image, 500);
     return {
       label: str(b.label, 20), sublabel: str(b.sublabel, 30),
       icon: b.icon ? str(b.icon, 30) : null,
       bg: b.bg ? str(b.bg, 20) : null,
+      image: (/^\/p\/line-media\/[0-9a-f-]+$/i.test(img) || /^https:\/\//.test(img)) ? img : null,
       action
     };
   });
+  const buttons = cleanButtons(c.buttons);
+  const tabs = Array.isArray(c.tabs)
+    ? c.tabs.slice(0, 3).map(t => {
+        t = (t && typeof t === 'object') ? t : {};
+        const fimg = str(t.full_image_url, 500);
+        return { label: str(t.label, 10), layout: str(t.layout, 30),
+                 full_image_url: (/^\/p\/line-media\/[0-9a-f-]+$/i.test(fimg) || /^https:\/\//.test(fimg)) ? fimg : null,
+                 cells: cleanCells(t.cells), buttons: cleanButtons(t.buttons) };
+      })
+    : null;
   return {
     size: c.size === 'compact' ? 'compact' : 'large',
     layout: str(c.layout, 30),
@@ -212,8 +315,11 @@ function sanitizeMenuConfig(raw) {
     cell_bg: str(c.cell_bg, 20) || '#FFF9E8',
     chat_bar_text: str(c.chat_bar_text, 14) || '選單',
     open_by_default: c.open_by_default !== false,
-    cells, buttons
+    full_image_url: (() => { const f = str(c.full_image_url, 500);
+      return (/^\/p\/line-media\/[0-9a-f-]+$/i.test(f) || /^https:\/\//.test(f)) ? f : null; })(),
+    cells, buttons,
+    ...(tabs ? { tabs } : {})
   };
 }
 
-module.exports = { createLineRichMenuService, buildLineMenuObject, sanitizeMenuConfig };
+module.exports = { createLineRichMenuService, buildLineMenuObject, sanitizeMenuConfig, normalizeTabs, TAB_BAR_H };

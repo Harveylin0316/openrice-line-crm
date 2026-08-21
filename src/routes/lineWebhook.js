@@ -316,6 +316,20 @@ function createLineWebhookHandler({
           });
           continue;
         }
+        // 圖文選單分頁切換（richmenuswitch 的 postback）：記一筆行為，不回話
+        if (event?.type === 'postback') {
+          const data = String(event?.postback?.data || '');
+          const mTab = /^rmtab\|(\d+)\|(\d+)$/.exec(data);
+          if (mTab) {
+            await pool.query(
+              `INSERT INTO rich_menu_taps (menu_id, tab, cell, kind, label, line_user_id)
+               VALUES ($1, $2, NULL, 'tab', NULL, $3)`,
+              [Number(mTab[1]), Number(mTab[2]), event?.source?.userId || null]
+            ).catch(e => console.error('richmenu tab tap log failed:', e.message));
+          }
+          continue;
+        }
+
         // 任何 message 事件（含圖片/貼圖）都先把人收進 users 會員表。
         // 為什麼需要：LINE 只在「加好友當下」送 follow 事件，在本 webhook 建立之前就已經加過好友的
         // 舊好友永遠不會再有 follow 事件；若只靠 follow 收人，他們就算天天傳訊息也永遠不在會員表，
@@ -407,6 +421,36 @@ function createLineWebhookHandler({
           // 與手機登記同放在關鍵字比對之前短路（replyToken 一次性）。
           // 只在一對一聊天觸發：登記綁個人身分，群組裡傳手機號碼不該被當成登記。
           const isOneOnOne = event?.source?.type === 'user';
+          // 圖文選單「發送文字」按鍵的行為記錄：比對已發布選單的按鍵文字。
+          // 手動打出一樣的字也會被算進去——對成效統計來說是同一個觸發，可接受。
+          if (isOneOnOne) {
+            try {
+              const now = Date.now();
+              if (!globalThis.__rmBtnCache || now - globalThis.__rmBtnCache.at > 60000) {
+                const { rows: pubs } = await pool.query(
+                  `SELECT id, published_config FROM rich_menus WHERE status='published' AND published_config IS NOT NULL LIMIT 30`);
+                const map = new Map();
+                for (const r of pubs) {
+                  const tabsArr = Array.isArray(r.published_config.tabs) && r.published_config.tabs.length
+                    ? r.published_config.tabs
+                    : [{ buttons: r.published_config.buttons || [] }];
+                  tabsArr.forEach((t, ti) => (t.buttons || []).forEach((b, ci) => {
+                    if (b && b.action && b.action.type === 'message' && b.action.text) {
+                      map.set(String(b.action.text).trim(), { menu: r.id, tab: ti, cell: ci, label: b.label || null });
+                    }
+                  }));
+                }
+                globalThis.__rmBtnCache = { at: now, map };
+              }
+              const hit = globalThis.__rmBtnCache.map.get(String(event.message.text || '').trim());
+              if (hit) {
+                await pool.query(
+                  `INSERT INTO rich_menu_taps (menu_id, tab, cell, kind, label, line_user_id)
+                   VALUES ($1,$2,$3,'message',$4,$5)`,
+                  [hit.menu, hit.tab, hit.cell, hit.label, event.source.userId || null]);
+              }
+            } catch (e) { console.error('richmenu msg tap log failed:', e.message); }
+          }
           // 打活動名稱（例如「分享超有哩」）就回那個遊戲的卡片。
           // 用活動名稱當關鍵字＝以後開新活動不用改程式，取好名字就能用。
           const typed = String(event.message.text || '').trim();

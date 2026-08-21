@@ -44,7 +44,7 @@ function throws(fn, part, label) {
   throws(() => buildLineMenuObject({ name: 'x', cells: [{ x: 2400, y: 0, w: 200, h: 100 }],
     buttons: [{ action: { type: 'uri', uri: 'https://a.b' } }] }), '超出圖片範圍', '出界要擋');
   throws(() => buildLineMenuObject({ name: 'x', cells: [{ x: 0, y: 0, w: 100, h: 100 }],
-    buttons: [{ action: { type: 'uri', uri: 'https://a.b' } }] }), '文字或圖示', '沒字沒圖示的空白格要擋');
+    buttons: [{ action: { type: 'uri', uri: 'https://a.b' } }] }), '還沒放文字', '沒字沒圖示的空白格要擋');
   const iconOnly = buildLineMenuObject({ name: 'x', cells: [{ x: 0, y: 0, w: 100, h: 100 }],
     buttons: [{ icon: 'bowl', action: { type: 'uri', uri: 'https://a.b' } }] });
   ok(iconOnly.areas.length === 1, '只有圖示沒有字可以過（圖示本身就是內容）');

@@ -89,8 +89,9 @@ const DATA = { ok: true, menus: [], orphans: [], default_line_id: null, line_err
   const saveCall = calls.filter(c => c.u && c.u.indexOf('/api/save') >= 0)[0];
   ok(!!saveCall, '發布前自動存草稿');
   const savedCfg = saveCall ? JSON.parse(saveCall.o.body) : null;
-  ok(savedCfg && savedCfg.config.buttons[5].label === '客服中心', '改的字有存進去');
-  ok(savedCfg && savedCfg.config.cells.length === 6, '六格座標都在');
+  const tab0 = savedCfg && savedCfg.config.tabs ? savedCfg.config.tabs[0] : null;
+  ok(tab0 && tab0.buttons[5].label === '客服中心', '改的字有存進去');
+  ok(tab0 && tab0.cells.length === 6, '六格座標都在');
   ok(!doc.getElementById('rm-pub-modal').hidden, '發布確認視窗打開');
 
   // 確認發布
@@ -101,8 +102,29 @@ const DATA = { ok: true, menus: [], orphans: [], default_line_id: null, line_err
   ok(!!pub, '送出發布請求');
   const body = pub ? JSON.parse(pub.o.body) : {};
   ok(body.id === 55, '帶存草稿拿到的 id');
-  ok(String(body.image || '').indexOf('data:image/jpeg;base64,') === 0, '帶著畫好的選單圖');
+  ok(Array.isArray(body.images) && String(body.images[0] || '').indexOf('data:image/jpeg;base64,') === 0, '帶著畫好的選單圖');
   ok(body.set_default === false, '沒勾就不動所有人看到的選單');
+
+  // ── 分頁：加一頁、切換編輯、發布會帶兩張圖 ──
+  doc.getElementById('rm-new').click();
+  await new Promise(r => setTimeout(r, 50));
+  doc.querySelectorAll('.rm-tpl-card')[0].click();   // 經典六格
+  await new Promise(r => setTimeout(r, 50));
+  ok(!doc.getElementById('rm-tab-add') === false, '編輯器有「＋ 分頁」按鈕');
+  doc.getElementById('rm-tab-add').click();
+  await new Promise(r => setTimeout(r, 50));
+  ok(doc.querySelectorAll('.rm-tabpill').length === 2, '變成兩個分頁');
+  // 分頁B 的第一格設定內容與動作
+  const lbl2 = doc.getElementById('rm-label');
+  lbl2.value = '服務台'; lbl2.dispatchEvent(new w.Event('input'));
+  doc.getElementById('rm-act-text').value = '我想找客服';
+  doc.getElementById('rm-act-text').dispatchEvent(new w.Event('input'));
+  // 分頁B 其他格給預設動作（直接改資料最快——這裡驗的是發布流程不是點擊）
+  calls.length = 0;
+  doc.getElementById('rm-publish').click();
+  await new Promise(r => setTimeout(r, 120));
+  const alertMsg = calls.filter(c => c.alert)[0];
+  ok(!!alertMsg, '分頁B還有格子沒設定 → 發布被擋（' + (alertMsg ? alertMsg.alert.slice(0, 24) : '沒擋') + '）');
 
   // ── 慢速發布中連點：只能送出一次（以前的 15 秒盲解鎖會讓第二次點擊重複發布）──
   doc.getElementById('rm-new').click();

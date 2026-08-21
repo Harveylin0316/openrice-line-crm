@@ -13,6 +13,7 @@ const APP_PUBLIC_TABLES_WITH_RLS = [
   'admin_login_throttle',
   'line_push_media',
   'rich_menus',
+  'rich_menu_taps',
   'admin_push_settings',
   'admin_manual_bonus_logs',
   'admin_broadcasts',
@@ -225,6 +226,27 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
+  await query(`ALTER TABLE rich_menus
+    ADD COLUMN IF NOT EXISTS published_config JSONB,
+    ADD COLUMN IF NOT EXISTS line_rich_menu_ids JSONB,
+    ADD COLUMN IF NOT EXISTS audience_list_id BIGINT,
+    ADD COLUMN IF NOT EXISTS audience_applied_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS audience_applied_count INTEGER,
+    ADD COLUMN IF NOT EXISTS schedule_start_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS schedule_end_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS schedule_end_menu_id BIGINT,
+    ADD COLUMN IF NOT EXISTS schedule_state TEXT`);
+  await query(`CREATE TABLE IF NOT EXISTS rich_menu_taps (
+    id BIGSERIAL PRIMARY KEY,
+    menu_id BIGINT NOT NULL,
+    tab INTEGER NOT NULL DEFAULT 0,
+    cell INTEGER,
+    kind TEXT NOT NULL,
+    label TEXT,
+    line_user_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_rich_menu_taps_menu ON rich_menu_taps (menu_id, created_at)`);
 
   await query(`CREATE TABLE IF NOT EXISTS line_push_media (
     id UUID PRIMARY KEY,
