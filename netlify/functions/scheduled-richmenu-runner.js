@@ -10,14 +10,19 @@ exports.handler = async () => {
   const secret = process.env.SCHEDULED_RUNNER_SECRET || '';
   if (!baseUrl) return { statusCode: 500, body: JSON.stringify({ error: 'missing_URL_env' }) };
   if (!secret) return { statusCode: 200, body: JSON.stringify({ skipped: 'no_SCHEDULED_RUNNER_SECRET' }) };
-  try {
-    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/admin/richmenu/run-schedule`, {
+  const base = baseUrl.replace(/\/+$/, '');
+  const call = async (path) => {
+    const res = await fetch(base + path, {
       method: 'POST',
       headers: { 'X-Scheduler-Secret': secret, 'Content-Type': 'application/json' },
       body: JSON.stringify({ source: 'netlify-scheduled-richmenu' })
     });
-    const text = await res.text();
-    return { statusCode: res.status, body: text };
+    return { status: res.status, body: await res.text() };
+  };
+  try {
+    const menu = await call('/admin/richmenu/run-schedule');   // 圖文選單上下架
+    const tags = await call('/admin/users/run-tag-rules');     // 自動貼標籤
+    return { statusCode: 200, body: JSON.stringify({ menu, tags }) };
   } catch (e) {
     return { statusCode: 500, body: JSON.stringify({ error: String(e.message || e) }) };
   }

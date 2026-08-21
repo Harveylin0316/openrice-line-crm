@@ -102,6 +102,117 @@ function registerAdminUsersRoutes(app, deps) {
     } catch (err) { jsonErr(res, 500, 'tag_delete_failed', { detail: err && err.message }); }
   });
 
+  // ── 自動貼標籤規則 ────────────────────────────────────────
+  // 規則＝「做過某件事滿 N 次 → 自動貼某標籤」。只會貼、不會自動撕（要撕手動）。
+  const RULE_SQL = {
+    won_prize: `SELECT line_user_id AS uid FROM activity_plays
+                 WHERE COALESCE(prize_snapshot->>'prize_type','') <> 'none'
+                   AND COALESCE(prize_snapshot->>'kind','') <> 'draw_win'
+                   AND line_user_id IS NOT NULL
+                 GROUP BY line_user_id HAVING COUNT(*) >= $2`,
+    played:    `SELECT line_user_id AS uid FROM activity_plays
+                 WHERE COALESCE(prize_snapshot->>'kind','') <> 'draw_win' AND line_user_id IS NOT NULL
+                 GROUP BY line_user_id HAVING COUNT(*) >= $2`,
+    invited:   `SELECT inviter_line_user_id AS uid FROM activity_referrals
+                 WHERE invitee_was_existing IS FALSE
+                 GROUP BY inviter_line_user_id HAVING COUNT(*) >= $2`,
+    was_invited:`SELECT invitee_line_user_id AS uid FROM activity_referrals
+                 GROUP BY invitee_line_user_id HAVING COUNT(*) >= $2`,
+    menu_tap:  `SELECT line_user_id AS uid FROM rich_menu_taps
+                 WHERE line_user_id IS NOT NULL
+                 GROUP BY line_user_id HAVING COUNT(*) >= $2`,
+    messaged:  `SELECT line_user_id AS uid FROM line_webhook_events
+                 WHERE event_type = 'message' AND line_user_id IS NOT NULL
+                 GROUP BY line_user_id HAVING COUNT(*) >= $2`
+  };
+
+  async function runTagRules() {
+    const { rows: rules } = await query(
+      `SELECT r.id, r.tag_id, r.rule_kind, r.threshold, t.name AS tag_name
+         FROM user_tag_rules r JOIN user_tags t ON t.id = r.tag_id
+        WHERE r.active = true ORDER BY r.id`);
+    const results = [];
+    for (const r of rules) {
+      const src = RULE_SQL[r.rule_kind];
+      if (!src) continue;
+      try {
+        const ins = await query(
+          `INSERT INTO user_tag_members (tag_id, line_user_id, added_by)
+           SELECT $1, x.uid, '自動規則' FROM (` + src + `) x
+           ON CONFLICT DO NOTHING RETURNING line_user_id`,
+          [r.tag_id, Math.max(1, Number(r.threshold) || 1)]);
+        await query(`UPDATE user_tag_rules SET last_run_at = now(), last_added = $2 WHERE id = $1`,
+          [r.id, ins.rows.length]);
+        results.push({ id: r.id, tag: r.tag_name, added: ins.rows.length });
+      } catch (e) {
+        console.error('tag rule failed:', r.id, e.message);
+        results.push({ id: r.id, tag: r.tag_name, error: true });
+      }
+    }
+    return results;
+  }
+
+  app.get('/admin/users/api/tag-rules', requireAdmin, async (_req, res) => {
+    try {
+      const { rows } = await query(
+        `SELECT r.id, r.tag_id, r.rule_kind, r.threshold, r.active, r.last_run_at, r.last_added,
+                t.name AS tag_name, t.color AS tag_color
+           FROM user_tag_rules r JOIN user_tags t ON t.id = r.tag_id ORDER BY r.id`);
+      res.json({ ok: true, rules: rows });
+    } catch (err) { jsonErr(res, 500, 'rules_failed', { detail: err && err.message }); }
+  });
+
+  app.post('/admin/users/api/tag-rules', requireAdmin, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const tagId = Number(body.tag_id);
+      const kind = String(body.rule_kind || '');
+      const threshold = Math.max(1, Math.min(1000, Number(body.threshold) || 1));
+      if (!tagId || !RULE_SQL[kind]) return jsonErr(res, 400, 'bad_rule', { detail: '規則沒選齊' });
+      const by = (req.authUser && req.authUser.un) || 'admin';
+      const ins = await query(
+        `INSERT INTO user_tag_rules (tag_id, rule_kind, threshold, created_by)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [tagId, kind, threshold, by]);
+      res.json({ ok: true, id: ins.rows[0].id });
+    } catch (err) { jsonErr(res, 500, 'rule_create_failed', { detail: err && err.message }); }
+  });
+
+  app.post('/admin/users/api/tag-rules/delete', requireAdmin, async (req, res) => {
+    try {
+      const id = Number((req.body || {}).id);
+      if (!id) return jsonErr(res, 400, 'bad_id');
+      await query(`DELETE FROM user_tag_rules WHERE id = $1`, [id]);
+      res.json({ ok: true });
+    } catch (err) { jsonErr(res, 500, 'rule_delete_failed', { detail: err && err.message }); }
+  });
+
+  app.post('/admin/users/api/tag-rules/toggle', requireAdmin, async (req, res) => {
+    try {
+      const id = Number((req.body || {}).id);
+      if (!id) return jsonErr(res, 400, 'bad_id');
+      const upd = await query(
+        `UPDATE user_tag_rules SET active = NOT active WHERE id = $1 RETURNING active`, [id]);
+      if (!upd.rows.length) return jsonErr(res, 404, 'not_found');
+      res.json({ ok: true, active: upd.rows[0].active });
+    } catch (err) { jsonErr(res, 500, 'rule_toggle_failed', { detail: err && err.message }); }
+  });
+
+  // 手動立即執行（後台按鈕）
+  app.post('/admin/users/api/tag-rules/run', requireAdmin, async (_req, res) => {
+    try { res.json({ ok: true, results: await runTagRules() }); }
+    catch (err) { jsonErr(res, 500, 'run_failed', { detail: err && err.message }); }
+  });
+
+  // 排程執行（每 5 分鐘，跟其他排程共用 secret）
+  app.post('/admin/users/run-tag-rules', async (req, res) => {
+    try {
+      const secret = process.env.SCHEDULED_RUNNER_SECRET || '';
+      if (!secret || req.get('X-Scheduler-Secret') !== secret) return jsonErr(res, 403, 'forbidden');
+      res.json({ ok: true, results: await runTagRules() });
+    } catch (err) { jsonErr(res, 500, 'run_failed', { detail: err && err.message }); }
+  });
+
   // 幫單一用戶貼／撕標籤
   app.post('/admin/users/api/tag', requireAdmin, async (req, res) => {
     try {

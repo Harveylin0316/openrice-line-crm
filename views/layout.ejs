@@ -69,48 +69,51 @@
           <div class="navgrp">
             <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">訊息 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
-              <a href="/admin/insight">數據總覽</a>
               <a href="/admin/broadcast">群發訊息</a>
               <a href="/admin/broadcast/history">發送紀錄</a>
+              <a href="/admin/messages">訊息庫</a>
+              <a href="/admin/keyword-replies">關鍵字回覆</a>
+              <a href="/admin/flows">自動化流程</a>
+              <a href="/admin/richmenu">圖文選單</a>
+            </div>
+          </div>
+          <div class="navgrp">
+            <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">數據 <span class="navgrp-caret" aria-hidden="true"></span></button>
+            <div class="navgrp-menu">
+              <a href="/admin/insight">數據總覽</a>
               <a href="/admin/reports">成效報表</a>
               <a href="/admin/attribution">轉換歸因</a>
-              <a href="/admin/messages">訊息庫</a>
-              <a href="/admin/flows">自動化流程</a>
-              <a href="/admin/keyword-replies">關鍵字回覆</a>
-              <a href="/admin/richmenu">圖文選單</a>
-              <a href="/admin/email-domain">Email 網域驗證</a>
+              <a href="/admin/referrals">邀請成效</a>
+              <a href="/admin/liff/random-rice">活動頁面數據</a>
+              <a href="/admin/rfm">會員分級分析</a>
             </div>
           </div>
           <div class="navgrp">
             <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">名單與用戶 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
-              <a href="/admin/recipient-lists">名單庫</a>
               <a href="/admin/users">用戶檔案</a>
-              <a href="/admin/restaurants">餐廳目錄</a>
-              <a href="/admin/rfm">會員分級分析</a>
+              <a href="/admin/recipient-lists">名單庫</a>
               <a href="/admin/oa-contacts">新 OA 名單</a>
+              <a href="/admin/restaurants">餐廳目錄</a>
             </div>
           </div>
           <div class="navgrp">
             <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">活動 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
               <a href="/admin/activities">活動管理</a>
+              <a href="/admin/mgm">活動成效</a>
               <a href="/admin/coupons">優惠券</a>
-              <a href="/admin/referrals">邀請成效</a>
               <a href="/admin/booking-reg">訂位抽獎登記</a>
-              <a href="/admin/mgm">揪友賺哩</a>
               <a href="/admin/campaigns/spring">春日饗里活動</a>
               <a href="/admin/campaigns/ludian">旅電借電券</a>
-              <a href="/admin/liff/random-rice">活動頁面數據</a>
             </div>
           </div>
           <div class="navgrp">
             <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">設定 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
-              <% if (typeof currentRole !== 'undefined' && currentRole === 'admin') { %>
               <a href="/admin/accounts">帳號管理</a>
-              <% } %>
               <a href="/admin/account/password">改密碼</a>
+              <a href="/admin/email-domain">Email 網域驗證</a>
             </div>
           </div>
           <% } %>

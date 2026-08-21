@@ -88,6 +88,38 @@ function appStub(routes) {
   r = await run(routes, 'POST /admin/users/api/tag', { body: { line_user_id: 'bad', tag_id: 1 } });
   ok(r.code === 400, '亂寫的編號要擋');
 
+  // ── 自動貼標籤規則 ──
+  const ruleCalls = [];
+  routes = {};
+  const ruleQuery = async (sql, params) => {
+    const f = String(sql).replace(/\s+/g, ' ');
+    ruleCalls.push({ f, params });
+    if (/FROM user_tag_rules r JOIN user_tags t/.test(f) && /r.active = true/.test(f))
+      return { rows: [{ id: 1, tag_id: 5, rule_kind: 'won_prize', threshold: 2, tag_name: '中獎客' }] };
+    if (/FROM user_tag_rules r JOIN user_tags t/.test(f))
+      return { rows: [{ id: 1, tag_id: 5, rule_kind: 'won_prize', threshold: 2, active: true, tag_name: '中獎客', tag_color: '#E8491D' }] };
+    if (/INSERT INTO user_tag_members/.test(f))
+      return { rows: [{ line_user_id: 'U1' }, { line_user_id: 'U2' }] };
+    if (/INSERT INTO user_tag_rules/.test(f)) return { rows: [{ id: 9 }] };
+    return { rows: [] };
+  };
+  registerAdminUsersRoutes(appStub(routes), { query: ruleQuery, authCore: { requireAdmin: pass } });
+  r = await run(routes, 'POST /admin/users/api/tag-rules', { body: { tag_id: 5, rule_kind: 'won_prize', threshold: 2 } });
+  ok(r.body && r.body.ok, '建立規則');
+  r = await run(routes, 'POST /admin/users/api/tag-rules', { body: { tag_id: 5, rule_kind: 'evil_kind' } });
+  ok(r.code === 400, '不認識的規則要擋');
+  r = await run(routes, 'POST /admin/users/api/tag-rules/run', {});
+  ok(r.body && r.body.ok && r.body.results[0].added === 2, '手動執行：中獎客貼了 2 人');
+  ok(ruleCalls.some(c => /HAVING COUNT\(\*\) >= \$2/.test(c.f) && /ON CONFLICT DO NOTHING/.test(c.f)), '規則 SQL 有門檻且不重複貼');
+  // 排程入口要通關密語
+  process.env.SCHEDULED_RUNNER_SECRET = 'sch-secret';
+  routes = {};
+  registerAdminUsersRoutes(appStub(routes), { query: ruleQuery, authCore: { requireAdmin: pass } });
+  const hs2 = routes['POST /admin/users/run-tag-rules'];
+  const r2 = res();
+  await hs2[0]({ body: {}, query: {}, params: {}, get: () => '' }, r2, () => {});
+  ok(r2.code === 403, '排程入口沒帶通關密語要擋');
+
   console.log(failed ? ('\n有 ' + failed + ' 項失敗') : '\n數據總覽與標籤全部通過');
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error('爆掉:', e); process.exit(2); });
