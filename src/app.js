@@ -43,6 +43,7 @@ const { buildPushImageBaseCandidates } = require('./core/linePushImageResolve');
 const { createLineWebhookHandler } = require('./routes/lineWebhook');
 const { createOaContactsWebhookHandler } = require('./routes/oaContactsWebhook');
 const { registerAdminOaContactsRoutes } = require('./routes/adminOaContacts');
+const { registerAdminRichMenuRoutes } = require('./routes/adminRichMenu');
 const { createLinePushService } = require('./core/linePush');
 const { createGoldPigBookingService } = require('./core/goldPigBookings');
 const { registerGoldPigRoutes } = require('./routes/goldPig');
@@ -638,6 +639,8 @@ registerAdminRecipientListsRoutes(app, { query, pool, authCore, flowEngine });
 registerAdminAccountsRoutes(app, { query, pool, authCore });
 
 registerAdminOaContactsRoutes(app, { query, authCore, oaKey: LINE2_OA_KEY });
+
+registerAdminRichMenuRoutes(app, { query, authCore });
 
 registerLiffRoutes(app, {
   query,

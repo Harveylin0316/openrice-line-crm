@@ -212,6 +212,19 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
 
+  await query(`CREATE TABLE IF NOT EXISTS rich_menus (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    line_rich_menu_id TEXT,
+    status TEXT NOT NULL DEFAULT 'draft',
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    published_at TIMESTAMPTZ,
+    created_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+
   await query(`CREATE TABLE IF NOT EXISTS line_push_media (
     id UUID PRIMARY KEY,
     mime_type TEXT NOT NULL,
