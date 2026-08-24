@@ -229,7 +229,7 @@
             var div=document.createElement('div');
             div.style.cssText='margin-top:14px;padding-top:12px;border-top:1px solid #F3F4F6;';
             div.innerHTML='<div style="font-weight:700;margin-bottom:4px;">自動貼標籤</div>'+
-              '<p class="muted" style="font-size:12px;margin:0 0 8px;line-height:1.6;">做過某件事滿幾次，就自動貼上標籤（每五分鐘檢查一次，新達標的人會自動貼上；只會貼、不會自動撕）。</p>'+
+              '<p class="muted" style="font-size:12px;margin:0 0 8px;line-height:1.6;">做過某件事滿幾次，就自動貼上標籤（每五分鐘檢查一次，新達標的人會自動貼上；只會貼、不會自動撕；測試人員清單裡的帳號不會被貼）。</p>'+
               (rd.rules.length?rd.rules.map(function(rl){
                 return '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12.5px;flex-wrap:wrap;">'+
                   '<span>'+(KIND_WORDS[rl.rule_kind]||rl.rule_kind)+'滿 '+rl.threshold+' 次 → </span>'+

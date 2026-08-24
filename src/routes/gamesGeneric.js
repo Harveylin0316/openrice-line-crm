@@ -155,8 +155,11 @@ function registerGameType(app, deps, opts) {
     ]);
     if (!idCheck.pass) return res.status(idCheck.reject.status).json({ ok: false, error: idCheck.reject.code, detail: idCheck.reject.detail });
     if (followerOk === false) return res.status(403).json({ ok: false, error: 'must_follow_oa', detail: '請先加入官方帳號好友才能參加。' });
+    // 防重複扣次數的鑰匙：前端每一次「想抽」產一把；網路斷掉重送會帶同一把
+    const rawKey = String((req.body || {}).play_key || '').trim();
+    const playKey = /^[A-Za-z0-9_-]{8,64}$/.test(rawKey) ? rawKey : null;
     const result = await selectPrizeAndRecord({
-      pool, activitySlug: slug, gameType, lineUserId, lineDisplayName, req
+      pool, activitySlug: slug, gameType, lineUserId, lineDisplayName, req, playKey
     });
     if (result.error) {
       return res.status(result.error.status).json({

@@ -351,8 +351,8 @@
       function renderEmpty() {
         renderState(
           '<div class="empty">' +
-            '<div class="glyph">券</div>' +
-            '<div class="t">你還沒有優惠券</div>' +
+            '<div class="glyph">禮</div>' +
+            '<div class="t">你還沒有獎品</div>' +
             '<div class="s">快去玩遊戲抽獎</div>' +
           '</div>'
         );
@@ -377,9 +377,36 @@
         return c.redeem_url_ios || c.redeem_url_android || '';
       }
 
-      function renderCoupons(coupons) {
-        if (!coupons || coupons.length === 0) { renderEmpty(); return; }
-        var cards = coupons.map(function (c) {
+      function renderWallet(coupons, prizes) {
+        // 沒有序號的獎品（哩數、實體、虛擬）：優惠券之外也要看得到，
+        // 不然中了哩數的人點進「我的獎品」會以為獎不見了
+        var others = (prizes || []).filter(function (p) {
+          return p.is_win !== false && !p.code;
+        });
+        var otherCards = others.map(function (p) {
+          var status = p.miles
+            ? (p.redeemed ? '已發放' : '入帳處理中')
+            : '已取得';
+          var note = p.miles
+            ? (p.redeemed ? '哩數已經發放到你的帳戶' : '活動結束後統一發放，發放完成會通知你')
+            : (p.prize_desc || '');
+          return (
+            '<div class="wallet-card unused">' +
+              '<div class="wc-top">' +
+                '<div class="wc-meta">' +
+                  '<div class="wc-activity">' + esc(p.activity_name) + '</div>' +
+                  '<div class="wc-prize">' + esc(p.prize_name) + '</div>' +
+                '</div>' +
+                '<span class="wc-status ' + (p.miles && p.redeemed ? 'used' : 'unused') + '">' + status + '</span>' +
+              '</div>' +
+              '<div class="wc-foot">取得時間 ' + esc(fmtDate(p.won_at)) + '</div>' +
+              (note ? '<div class="wc-hint">' + esc(note) + '</div>' : '') +
+            '</div>'
+          );
+        }).join('');
+
+        if ((!coupons || coupons.length === 0) && others.length === 0) { renderEmpty(); return; }
+        var cards = (coupons || []).map(function (c) {
           var used = !!c.redeemed;
           var statusCls = used ? 'used' : 'unused';
           var statusTxt = used ? '已使用' : '未使用';
@@ -418,7 +445,7 @@
             '</div>'
           );
         }).join('');
-        renderState('<div class="wallet-list">' + cards + '</div>');
+        renderState('<div class="wallet-list">' + otherCards + cards + '</div>');
       }
 
       // ----- LIFF init（比照各 game view 骨架）-----
@@ -462,7 +489,7 @@
             encodeURIComponent(profile.userId) + '&id_token=' + encodeURIComponent(idToken || ''))
             .then(function (r) { return r.json(); });
           if (!resp || !resp.ok) { renderError((resp && (resp.detail || resp.error)) || '載入失敗'); return; }
-          renderCoupons(resp.coupons || []);
+          renderWallet(resp.coupons || [], resp.prizes || []);
         } catch (e) {
           renderError('連線錯誤');
         }

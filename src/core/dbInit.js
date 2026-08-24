@@ -276,6 +276,9 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
   await query(`CREATE INDEX IF NOT EXISTS idx_rich_menu_taps_menu ON rich_menu_taps (menu_id, created_at)`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_plays_play_key
+    ON activity_plays ((properties->>'play_key'))
+    WHERE properties->>'play_key' IS NOT NULL`);
 
   await query(`CREATE TABLE IF NOT EXISTS line_push_media (
     id UUID PRIMARY KEY,

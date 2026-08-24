@@ -139,6 +139,8 @@ function registerAdminUsersRoutes(app, deps) {
         const ins = await query(
           `INSERT INTO user_tag_members (tag_id, line_user_id, added_by)
            SELECT $1, x.uid, '自動規則' FROM (` + src + `) x
+           WHERE x.uid ~ '^U[0-9a-f]{32}$'
+             AND x.uid NOT IN (SELECT line_user_id FROM admin_test_recipients)
            ON CONFLICT DO NOTHING RETURNING line_user_id`,
           [r.tag_id, Math.max(1, Number(r.threshold) || 1)]);
         await query(`UPDATE user_tag_rules SET last_run_at = now(), last_added = $2 WHERE id = $1`,

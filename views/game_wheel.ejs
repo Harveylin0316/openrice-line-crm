@@ -339,6 +339,7 @@
       var modal = document.getElementById('modal');
 
       var spinning = false;
+      var pendingPlayKey = null;   // 防重複扣次數的鑰匙（收到回應就換新）
       var currentRotation = 0;
       var profile = null;
       var idToken = null;
@@ -635,15 +636,22 @@
         buzz(12);
 
         try {
+          // 防重複扣次數：每一次「想抽」產一把鑰匙；只有網路斷掉（沒收到任何回應）
+          // 才保留同一把，下次按就帶同一把重送——伺服器認得就回原結果，不再扣一次
+          if (!pendingPlayKey) {
+            pendingPlayKey = 'pk' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+          }
           var resp = await fetch('/api/games/wheel/' + encodeURIComponent(slug) + '/spin', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               line_user_id: profile.userId,
               line_display_name: profile.displayName || null,
-              id_token: idToken
+              id_token: idToken,
+              play_key: pendingPlayKey
             })
           }).then(function (r) { return r.json(); });
+          pendingPlayKey = null;   // 有收到回應（不管成敗）就換新鑰匙
 
           if (!resp.ok) {
             if (resp.error === 'must_follow_oa') {
@@ -660,7 +668,8 @@
           await highlightWinner(resp.prize); // 停頓：高亮 pulse ~0.55s
           showResult(resp.prize, resp);
         } catch (e) {
-          statusEl.textContent = '錯誤';
+          // 網路斷掉：鑰匙留著，下一次按會重送同一把，結果不會被扣兩次
+          statusEl.textContent = '收訊不穩，再按一次「開始轉」';
         } finally {
           spinning = false;
           spinBtn.disabled = false;

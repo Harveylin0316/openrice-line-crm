@@ -12,8 +12,28 @@
  */
 const { verifyOaFollower } = require('./oaFollower');
 
+/** 從已存的遊玩紀錄還原回應——同一個 play_key 重送時回同一個結果，不重複扣次數 */
+function replayFromRow(row) {
+  const snap = row.prize_snapshot || {};
+  return {
+    ok: true,
+    replayed: true,
+    play_id: row.id,
+    coupon_code: row.coupon_code || null,
+    coupon_out_of_stock: false,
+    prize: {
+      id: row.prize_id,
+      name: snap.name, description: snap.description,
+      image_url: snap.image_url || null, position: snap.position || 0,
+      is_grand_prize: !!snap.is_grand_prize,
+      prize_type: snap.prize_type, prize_value: snap.prize_value || {},
+      coupon_code: row.coupon_code || null
+    }
+  };
+}
+
 async function selectPrizeAndRecord(opts) {
-  const { pool, activitySlug, gameType, lineUserId, lineDisplayName, req } = opts;
+  const { pool, activitySlug, gameType, lineUserId, lineDisplayName, req, playKey } = opts;
   if (!lineUserId) return { error: { status: 400, code: 'missing_line_user_id' } };
   // 註：require_follow_oa 的好友驗證已移到 /play 路由，與 token 驗證「並行」執行（加速「準備中」）。
 
@@ -34,6 +54,19 @@ async function selectPrizeAndRecord(opts) {
       return { error: { status: 404, code: 'activity_not_found' } };
     }
     const a = actRows[0];
+    // 防重複扣次數：收訊差的用戶按了但回應沒送達，再按一次會帶同一把鑰匙——
+    // 查到同鑰匙的紀錄就回原本的結果，次數只扣一次。必須在扣次數檢查之前查，
+    // 否則重送的那次會因為「次數已用完」被擋，用戶永遠拿不到他抽到的結果。
+    if (playKey) {
+      const { rows: dup } = await client.query(
+        `SELECT id, prize_id, prize_snapshot, coupon_code FROM activity_plays
+          WHERE activity_id = $1 AND line_user_id = $2 AND properties->>'play_key' = $3 LIMIT 1`,
+        [a.id, lineUserId, playKey]);
+      if (dup.length) {
+        await client.query('ROLLBACK');
+        return replayFromRow(dup[0]);
+      }
+    }
     if (a.status !== 'active') {
       await client.query('ROLLBACK');
       return { error: { status: 403, code: 'activity_not_active', detail: '活動目前不可玩' } };
@@ -150,6 +183,7 @@ async function selectPrizeAndRecord(opts) {
     const prizeSnapshot = {
       name: pick.name,
       description: pick.description,
+      position: pick.position,
       prize_type: pick.prize_type,
       prize_value: pick.prize_value || {},
       image_url: pick.image_url || null,
@@ -165,6 +199,7 @@ async function selectPrizeAndRecord(opts) {
         JSON.stringify(prizeSnapshot),
         JSON.stringify({
           game_type: gameType,
+          play_key: playKey || undefined,
           ua: req && req.headers && req.headers['user-agent'] || null,
           ip: req && ((req.headers && req.headers['x-forwarded-for']) || req.ip || '')
             ? (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim() || null
@@ -227,6 +262,17 @@ async function selectPrizeAndRecord(opts) {
     };
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (_e) {}
+    if (playKey && String(err && err.message || '').includes('uq_plays_play_key')) {
+      // 同鑰匙的另一個請求剛好先寫進去了——把那筆撈出來照樣回給用戶
+      try {
+        const { rows: dup } = await pool.query(
+          `SELECT p.id, p.prize_id, p.prize_snapshot, p.coupon_code FROM activity_plays p
+            JOIN activities a2 ON a2.id = p.activity_id
+           WHERE a2.slug = $1 AND p.line_user_id = $2 AND p.properties->>'play_key' = $3 LIMIT 1`,
+          [activitySlug, lineUserId, playKey]);
+        if (dup.length) return replayFromRow(dup[0]);
+      } catch (_e2) { /* 撈不到就走一般錯誤 */ }
+    }
     console.error('selectPrizeAndRecord error:', err && err.message);
     return { error: { status: 500, code: 'play_failed', detail: String(err.message || '').slice(0, 300) } };
   } finally {
