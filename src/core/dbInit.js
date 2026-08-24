@@ -28,7 +28,31 @@ const APP_PUBLIC_TABLES_WITH_RLS = [
   'admin_broadcast_views',
   'admin_message_templates',
   'admin_keyword_replies',
-  'restaurant_catalog'
+  'restaurant_catalog',
+  'activities',
+  'activity_prizes',
+  'activity_plays',
+  'activity_referrals',
+  'activity_referral_attempts',
+  'activity_user_quotas',
+  'activity_bonus_plays',
+  'user_events',
+  'user_restaurant_clicks',
+  'admin_flows',
+  'admin_flow_nodes',
+  'admin_flow_enrollments',
+  'admin_flow_event_cursor',
+  'admin_flow_schedule_runs',
+  'admin_flow_clicks',
+  'admin_email_unsubscribes',
+  'rfm_profiles',
+  'liff_token_probe',
+  'liff_asset_blobs',
+  'booking_source_answers',
+  'oa_contacts',
+  'line_follow_sources',
+  'campaign_phone_registrations',
+  'campaign_draw_winners'
 ];
 
 /**
@@ -418,28 +442,15 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
 
   // Supabase exposes public schema via PostgREST by default.
   // Enable RLS on app tables to prevent direct external reads/writes.
-  await query('ALTER TABLE users ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE prizes ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE draw_logs ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE prize_change_logs ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE line_invites ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE line_webhook_events ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE line_push_logs ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE campaign_settings ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_login_throttle ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE line_push_media ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_push_settings ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_manual_bonus_logs ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_broadcasts ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_broadcast_recipients ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_test_recipients ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_recipient_lists ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_recipient_list_members ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_broadcast_clicks ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_broadcast_views ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_message_templates ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_keyword_replies ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE restaurant_catalog ENABLE ROW LEVEL SECURITY');
+  // 名單只維護 APP_PUBLIC_TABLES_WITH_RLS 一份；不存在的表跳過（有些表在別的模組建）。
+  for (const t of APP_PUBLIC_TABLES_WITH_RLS) {
+    await query(`
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename='${t}') THEN
+          EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', '${t}');
+        END IF;
+      END $$;`);
+  }
 
   await query(
     'CREATE INDEX IF NOT EXISTS admin_login_throttle_ip_created_idx ON admin_login_throttle (ip_key, created_at DESC)'
