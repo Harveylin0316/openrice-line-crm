@@ -650,6 +650,18 @@
       var DATA=null, CFG=null, editingId=null, editTab=0, selCell=0,
           dirty=false, editingIsLive=false, saving=false, publishing=false, modalRow=null;
 
+      // 「點了沒反應」是最難查的狀況：頁面出錯時要講出來，不能靜靜吞掉。
+      // 版本也一起顯示——多數時候是瀏覽器還停在舊版，重新整理就好。
+      window.addEventListener('error', function (e) {
+        try {
+          var bar = document.getElementById('rm-live-note');
+          if (!bar) return;
+          bar.innerHTML = '<b style="color:#b91c1c;">這個頁面出了狀況：' +
+            String((e && e.message) || '不明錯誤') +
+            '</b><br>先按 Cmd+Shift+R（Windows 是 Ctrl+F5）重新整理一次；還是一樣的話把這行字截圖給我。';
+        } catch (x) {}
+      });
+
       var ERR_WORDS={not_found:'找不到這筆資料，可能已被刪除。重新整理頁面看看。',
         bad_id:'資料對不上，重新整理頁面再試一次。',
         not_published:'這個選單還沒發布，先按發布。',
@@ -814,7 +826,11 @@
         [].slice.call(document.querySelectorAll('.rm-stats')).forEach(function(b){
           b.addEventListener('click',function(){openStats(Number(b.getAttribute('data-id')));});});
         [].slice.call(document.querySelectorAll('.rm-sch')).forEach(function(b){
-          b.addEventListener('click',function(){openSchedule(Number(b.getAttribute('data-id')));});});
+          b.addEventListener('click',function(){
+            try{ openSchedule(Number(b.getAttribute('data-id'))); }
+            catch(err){ alert('上下架視窗開不起來：'+(err&&err.message||err)+
+              '。先重新整理頁面試試（Cmd+Shift+R）。'); }
+          });});
         [].slice.call(document.querySelectorAll('.rm-aud')).forEach(function(b){
           b.addEventListener('click',function(){openAudience(Number(b.getAttribute('data-id')));});});
         [].slice.call(document.querySelectorAll('.rm-orphan-img')).forEach(function(b){
