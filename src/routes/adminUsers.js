@@ -104,45 +104,179 @@ function registerAdminUsersRoutes(app, deps) {
 
   // ── 自動貼標籤規則 ────────────────────────────────────────
   // 規則＝「做過某件事滿 N 次 → 自動貼某標籤」。只會貼、不會自動撕（要撕手動）。
-  const RULE_SQL = {
-    won_prize: `SELECT line_user_id AS uid FROM activity_plays
-                 WHERE COALESCE(prize_snapshot->>'prize_type','') <> 'none'
-                   AND COALESCE(prize_snapshot->>'kind','') <> 'draw_win'
-                   AND line_user_id IS NOT NULL
-                 GROUP BY line_user_id HAVING COUNT(*) >= $2`,
-    played:    `SELECT line_user_id AS uid FROM activity_plays
-                 WHERE COALESCE(prize_snapshot->>'kind','') <> 'draw_win' AND line_user_id IS NOT NULL
-                 GROUP BY line_user_id HAVING COUNT(*) >= $2`,
-    invited:   `SELECT inviter_line_user_id AS uid FROM activity_referrals
-                 WHERE invitee_was_existing IS FALSE
-                 GROUP BY inviter_line_user_id HAVING COUNT(*) >= $2`,
-    was_invited:`SELECT invitee_line_user_id AS uid FROM activity_referrals
-                 GROUP BY invitee_line_user_id HAVING COUNT(*) >= $2`,
-    menu_tap:  `SELECT line_user_id AS uid FROM rich_menu_taps
-                 WHERE line_user_id IS NOT NULL
-                 GROUP BY line_user_id HAVING COUNT(*) >= $2`,
-    messaged:  `SELECT line_user_id AS uid FROM line_webhook_events
-                 WHERE event_type = 'message' AND line_user_id IS NOT NULL
-                 GROUP BY line_user_id HAVING COUNT(*) >= $2`
+  // ── 自動貼標籤：事件目錄 ────────────────────────────────────────
+  // 一條規則 ＝ 做過哪件事 ＋（可選）指定哪一個 ＋ 滿幾次 ＋（可選）只算最近幾天 → 貼哪個標籤
+  //
+  // 每個事件給的是一段 SELECT，一定要回 uid 這個欄位，並且用固定的參數位置：
+  //   $1 = 標籤編號（外層 INSERT 用）  $2 = 門檻次數  $3 = 指定對象  $4 = 最近幾天
+  // 「指定對象」與「幾天」一律用參數傳，絕不把使用者輸入接進 SQL 文字裡。
+  // target_kind：後台要顯示哪一種挑選器（activity＝活動、menu＝圖文選單、
+  //   broadcast＝群發、text＝自己打字、source＝加入管道、none＝這個事件不用選）
+  const RULE_CATALOG = {
+    played: {
+      label: '玩過遊戲', target_kind: 'activity', unit: '次',
+      hint: '抽過轉盤／刮刮樂等等，不管有沒有中',
+      sql: `SELECT p.line_user_id AS uid FROM activity_plays p
+              JOIN activities a ON a.id = p.activity_id
+             WHERE COALESCE(p.prize_snapshot->>'kind','') <> 'draw_win'
+               AND p.line_user_id IS NOT NULL
+               AND ($3::text IS NULL OR a.slug = $3::text)
+               AND ($4::int IS NULL OR p.played_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY p.line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    won_prize: {
+      label: '中過獎', target_kind: 'activity', unit: '次',
+      hint: '抽到的不是「銘謝惠顧」就算',
+      sql: `SELECT p.line_user_id AS uid FROM activity_plays p
+              JOIN activities a ON a.id = p.activity_id
+             WHERE COALESCE(p.prize_snapshot->>'prize_type','') <> 'none'
+               AND COALESCE(p.prize_snapshot->>'kind','') <> 'draw_win'
+               AND p.line_user_id IS NOT NULL
+               AND ($3::text IS NULL OR a.slug = $3::text)
+               AND ($4::int IS NULL OR p.played_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY p.line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    got_coupon: {
+      label: '領到優惠券', target_kind: 'activity', unit: '張',
+      hint: '抽中而且真的拿到序號的人',
+      sql: `SELECT c.claimed_line_user_id AS uid FROM coupon_codes c
+              LEFT JOIN activities a ON a.id = c.activity_id
+             WHERE c.claimed_line_user_id IS NOT NULL
+               AND ($3::text IS NULL OR a.slug = $3::text)
+               AND ($4::int IS NULL OR c.claimed_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY c.claimed_line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    invited: {
+      label: '邀請朋友成功', target_kind: 'activity', unit: '位',
+      hint: '只算「本來還不是好友」的朋友，跟送次數的算法一致',
+      sql: `SELECT r.inviter_line_user_id AS uid FROM activity_referrals r
+              JOIN activities a ON a.id = r.activity_id
+             WHERE r.invitee_was_existing IS FALSE
+               AND ($3::text IS NULL OR a.slug = $3::text)
+               AND ($4::int IS NULL OR r.created_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY r.inviter_line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    was_invited: {
+      label: '被朋友邀請進來', target_kind: 'activity', unit: '次',
+      hint: '透過別人的邀請連結加入的人',
+      sql: `SELECT r.invitee_line_user_id AS uid FROM activity_referrals r
+              JOIN activities a ON a.id = r.activity_id
+             WHERE ($3::text IS NULL OR a.slug = $3::text)
+               AND ($4::int IS NULL OR r.created_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY r.invitee_line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    menu_tap: {
+      label: '按過選單的文字按鍵', target_kind: 'menu', unit: '次',
+      hint: '只算會送出文字的按鍵；直接開網址的按鍵記不到是誰按的',
+      sql: `SELECT t.line_user_id AS uid FROM rich_menu_taps t
+             WHERE t.line_user_id IS NOT NULL
+               AND ($3::text IS NULL OR t.menu_id = ($3::text)::int)
+               AND ($4::int IS NULL OR t.created_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY t.line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    messaged: {
+      label: '傳過訊息', target_kind: 'text', unit: '則',
+      hint: '想只算特定內容，右邊填要包含的字（留空＝任何訊息都算）',
+      sql: `SELECT e.line_user_id AS uid FROM line_webhook_events e
+             WHERE e.event_type = 'message' AND e.line_user_id IS NOT NULL
+               AND ($3::text IS NULL OR e.raw_event->'message'->>'text' ILIKE '%' || $3::text || '%')
+               AND ($4::int IS NULL OR e.created_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY e.line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    clicked_broadcast: {
+      label: '點過群發訊息裡的連結', target_kind: 'broadcast', unit: '次',
+      hint: '看得出誰對哪一波推播有反應',
+      sql: `SELECT c.line_user_id AS uid FROM admin_broadcast_clicks c
+             WHERE c.line_user_id IS NOT NULL
+               AND ($3::text IS NULL OR c.broadcast_id = ($3::text)::int)
+               AND ($4::int IS NULL OR c.clicked_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY c.line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    viewed_broadcast: {
+      label: '看過群發訊息', target_kind: 'broadcast', unit: '次',
+      hint: '有打開來看，但不一定點了連結',
+      sql: `SELECT v.line_user_id AS uid FROM admin_broadcast_views v
+             WHERE v.line_user_id IS NOT NULL
+               AND ($3::text IS NULL OR v.broadcast_id = ($3::text)::int)
+               AND ($4::int IS NULL OR v.viewed_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY v.line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    left_phone: {
+      label: '留過電話', target_kind: 'text', unit: '次',
+      hint: '訂位抽獎之類的登記；右邊可填活動代號（留空＝全部）',
+      sql: `SELECT g.line_user_id AS uid FROM campaign_phone_registrations g
+             WHERE g.line_user_id IS NOT NULL
+               AND ($3::text IS NULL OR g.campaign_key = $3::text)
+               AND ($4::int IS NULL OR g.registered_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY g.line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    from_source: {
+      label: '從某個管道加入', target_kind: 'source', unit: '次',
+      hint: '掃某張海報的 QR code、點某個網頁連結進來的人',
+      sql: `SELECT s.line_user_id AS uid FROM line_follow_sources s
+             WHERE s.line_user_id IS NOT NULL
+               AND ($3::text IS NULL OR s.source_key = $3::text)
+               AND ($4::int IS NULL OR s.first_seen_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY s.line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    used_app: {
+      label: '用過「吃什麼」小程式', target_kind: 'text', unit: '次',
+      hint: '右邊可填動作代號（例如 map_booking_click）；留空＝任何動作都算',
+      sql: `SELECT u.line_id AS uid FROM user_events u
+             WHERE u.line_id IS NOT NULL
+               AND ($3::text IS NULL OR u.event_name = $3::text)
+               AND ($4::int IS NULL OR u.created_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY u.line_id HAVING COUNT(*) >= $2::int`
+    },
+    joined_days: {
+      label: '加好友滿幾天', target_kind: 'none', unit: '天',
+      hint: '「滿幾次」這格填天數。適合做新朋友追蹤',
+      sql: `SELECT u.line_user_id AS uid FROM users u
+             WHERE u.line_user_id IS NOT NULL AND u.is_admin = false
+               AND u.archived_at IS NULL AND u.blocked_at IS NULL
+               AND u.created_at <= now() - ($2::int || ' days')::interval
+               AND ($3::text IS NULL OR $3::text = $3::text)
+               AND ($4::int IS NULL OR u.created_at >= now() - ($4::int || ' days')::interval)`
+    },
+    blocked: {
+      label: '封鎖了我們', target_kind: 'none', unit: '次',
+      hint: '想把封鎖過的人挑出來另外看的話用這個',
+      sql: `SELECT u.line_user_id AS uid FROM users u
+             WHERE u.line_user_id IS NOT NULL AND u.blocked_at IS NOT NULL
+               AND ($2::int >= 1)
+               AND ($3::text IS NULL OR $3::text = $3::text)
+               AND ($4::int IS NULL OR u.blocked_at >= now() - ($4::int || ' days')::interval)`
+    }
   };
+  // 舊資料相容：這六個代號在改版前就存在，語意不變
+  const RULE_SQL = Object.fromEntries(Object.entries(RULE_CATALOG).map(([k, v]) => [k, v.sql]));
+
+  /** 規則的參數：$2 門檻、$3 指定對象、$4 只算最近幾天。一律走參數，不接進 SQL 文字。 */
+  function ruleParams(r) {
+    const target = (r.target == null || String(r.target).trim() === '') ? null : String(r.target).trim().slice(0, 200);
+    const win = (r.window_days == null || !Number(r.window_days)) ? null : Math.max(1, Math.min(3650, Number(r.window_days)));
+    return [Math.max(1, Math.min(100000, Number(r.threshold) || 1)), target, win];
+  }
+  /** 測試帳號與非標準編號永遠不貼——這是引擎層的規矩，撕掉的標籤才不會被排程貼回來 */
+  const EXCLUDE = `x.uid ~ '^U[0-9a-f]{32}$'
+             AND x.uid NOT IN (SELECT line_user_id FROM admin_test_recipients)`;
 
   async function runTagRules() {
     const { rows: rules } = await query(
-      `SELECT r.id, r.tag_id, r.rule_kind, r.threshold, t.name AS tag_name
+      `SELECT r.id, r.tag_id, r.rule_kind, r.threshold, r.target, r.window_days, t.name AS tag_name
          FROM user_tag_rules r JOIN user_tags t ON t.id = r.tag_id
         WHERE r.active = true ORDER BY r.id`);
     const results = [];
     for (const r of rules) {
-      const src = RULE_SQL[r.rule_kind];
-      if (!src) continue;
+      const def = RULE_CATALOG[r.rule_kind];
+      if (!def) continue;
       try {
         const ins = await query(
           `INSERT INTO user_tag_members (tag_id, line_user_id, added_by)
-           SELECT $1, x.uid, '自動規則' FROM (` + src + `) x
-           WHERE x.uid ~ '^U[0-9a-f]{32}$'
-             AND x.uid NOT IN (SELECT line_user_id FROM admin_test_recipients)
+           SELECT $1, x.uid, '自動規則' FROM (` + def.sql + `) x
+           WHERE ` + EXCLUDE + `
            ON CONFLICT DO NOTHING RETURNING line_user_id`,
-          [r.tag_id, Math.max(1, Number(r.threshold) || 1)]);
+          [r.tag_id, ...ruleParams(r)]);
         await query(`UPDATE user_tag_rules SET last_run_at = now(), last_added = $2 WHERE id = $1`,
           [r.id, ins.rows.length]);
         results.push({ id: r.id, tag: r.tag_name, added: ins.rows.length });
@@ -154,14 +288,76 @@ function registerAdminUsersRoutes(app, deps) {
     return results;
   }
 
+  /** 先看看：這條規則現在會貼到誰（存檔前用，不寫任何資料） */
+  async function previewRule(kind, threshold, target, windowDays) {
+    const def = RULE_CATALOG[kind];
+    if (!def) return null;
+    const params = ruleParams({ threshold, target, window_days: windowDays });
+    const { rows } = await query(
+      `SELECT COUNT(*)::int AS n,
+              COALESCE(array_agg(nm ORDER BY nm) FILTER (WHERE nm IS NOT NULL), '{}') AS names
+         FROM (
+           SELECT x.uid, (SELECT u.line_display_name FROM users u
+                           WHERE u.line_user_id = x.uid AND u.archived_at IS NULL LIMIT 1) AS nm
+             FROM (` + def.sql + `) x
+            WHERE ` + EXCLUDE + `
+              AND $1::int IS NOT NULL
+            LIMIT 500
+         ) y`,
+      [0, ...params]);   // 預覽不寫資料，$1 只是佔位（規則本體的參數從 $2 開始）
+    return { count: rows[0].n, names: (rows[0].names || []).slice(0, 8) };
+  }
+
+  app.get('/admin/tag-rules', requireAdmin, (req, res) => {
+    res.render('admin_tag_rules', {
+      title: '自動貼標籤',
+      bodyClass: 'admin-shell',
+      user: (req.authUser && req.authUser.un) || '',
+      isAdmin: true
+    });
+  });
+
   app.get('/admin/users/api/tag-rules', requireAdmin, async (_req, res) => {
     try {
       const { rows } = await query(
-        `SELECT r.id, r.tag_id, r.rule_kind, r.threshold, r.active, r.last_run_at, r.last_added,
+        `SELECT r.id, r.tag_id, r.rule_kind, r.threshold, r.target, r.target_label, r.window_days,
+                r.active, r.last_run_at, r.last_added,
                 t.name AS tag_name, t.color AS tag_color
            FROM user_tag_rules r JOIN user_tags t ON t.id = r.tag_id ORDER BY r.id`);
-      res.json({ ok: true, rules: rows });
+      // 事件目錄（後台用來畫挑選器）＋可以挑的對象清單
+      const catalog = Object.entries(RULE_CATALOG).map(([k, v]) => ({
+        kind: k, label: v.label, target_kind: v.target_kind, unit: v.unit, hint: v.hint
+      }));
+      const [acts, menus, casts, sources, tags] = await Promise.all([
+        query(`SELECT slug, name FROM activities WHERE game_type <> 'mgm' ORDER BY id DESC LIMIT 40`),
+        query(`SELECT id, name FROM rich_menus WHERE status='published' ORDER BY updated_at DESC LIMIT 30`),
+        query(`SELECT id, COALESCE(NULLIF(email_subject,''), to_char(created_at AT TIME ZONE 'Asia/Taipei','MM/DD HH24:MI') || ' 的群發') AS name
+                 FROM admin_broadcasts WHERE status IN ('sent','sending','done') ORDER BY id DESC LIMIT 30`),
+        query(`SELECT source_key, COUNT(*)::int AS n FROM line_follow_sources GROUP BY source_key ORDER BY n DESC LIMIT 30`),
+        query(`SELECT id, name, color FROM user_tags ORDER BY id`)
+      ]);
+      res.json({ ok: true, rules: rows, catalog, tags: tags.rows,
+        targets: {
+          activity: acts.rows.map(a => ({ value: a.slug, label: a.name })),
+          menu: menus.rows.map(m => ({ value: String(m.id), label: m.name })),
+          broadcast: casts.rows.map(b => ({ value: String(b.id), label: b.name })),
+          source: sources.rows.map(sc => ({ value: sc.source_key, label: sc.source_key + '（' + sc.n + ' 人）' }))
+        } });
     } catch (err) { jsonErr(res, 500, 'rules_failed', { detail: err && err.message }); }
+  });
+
+  /** 存檔前先看看會貼到誰——不寫任何資料 */
+  app.post('/admin/users/api/tag-rules/preview', requireAdmin, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const kind = String(b.rule_kind || '');
+      if (!RULE_CATALOG[kind]) return jsonErr(res, 400, 'bad_rule', { detail: '先選一個條件' });
+      const out = await previewRule(kind, Number(b.threshold) || 1, b.target, b.window_days);
+      res.json({ ok: true, ...out });
+    } catch (err) {
+      console.error('tag rule preview failed:', err && err.message);
+      jsonErr(res, 500, 'preview_failed', { detail: '試算失敗，換個條件再試一次' });
+    }
   });
 
   app.post('/admin/users/api/tag-rules', requireAdmin, async (req, res) => {
@@ -169,13 +365,19 @@ function registerAdminUsersRoutes(app, deps) {
       const body = req.body || {};
       const tagId = Number(body.tag_id);
       const kind = String(body.rule_kind || '');
-      const threshold = Math.max(1, Math.min(1000, Number(body.threshold) || 1));
-      if (!tagId || !RULE_SQL[kind]) return jsonErr(res, 400, 'bad_rule', { detail: '規則沒選齊' });
+      const def = RULE_CATALOG[kind];
+      const threshold = Math.max(1, Math.min(100000, Number(body.threshold) || 1));
+      if (!tagId || !def) return jsonErr(res, 400, 'bad_rule', { detail: '規則沒選齊' });
+      // 不需要挑對象的事件，就算前端誤送也不存
+      const target = def.target_kind === 'none' ? null
+        : (String(body.target || '').trim().slice(0, 200) || null);
+      const targetLabel = target ? (String(body.target_label || '').trim().slice(0, 120) || target) : null;
+      const win = Number(body.window_days) ? Math.max(1, Math.min(3650, Number(body.window_days))) : null;
       const by = (req.authUser && req.authUser.un) || 'admin';
       const ins = await query(
-        `INSERT INTO user_tag_rules (tag_id, rule_kind, threshold, created_by)
-         VALUES ($1, $2, $3, $4) RETURNING id`,
-        [tagId, kind, threshold, by]);
+        `INSERT INTO user_tag_rules (tag_id, rule_kind, threshold, target, target_label, window_days, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [tagId, kind, threshold, target, targetLabel, win, by]);
       res.json({ ok: true, id: ins.rows[0].id });
     } catch (err) { jsonErr(res, 500, 'rule_create_failed', { detail: err && err.message }); }
   });

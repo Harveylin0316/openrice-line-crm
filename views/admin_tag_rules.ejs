@@ -1,0 +1,266 @@
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="card tr-hero">
+      <div>
+        <h1>自動貼標籤</h1>
+        <p class="muted" style="margin-top:6px;line-height:1.7;">
+          設定「做過某件事的人，自動貼上某個標籤」。系統每五分鐘檢查一次，新符合的人會自動貼上。<br>
+          標籤貼上去之後只會留著，不會自動撕掉；測試人員清單裡的帳號永遠不會被貼。
+        </p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="tr-h2">加一條規則</h2>
+      <div class="tr-builder">
+        <span class="tr-word">當用戶</span>
+        <select id="tr-kind" class="tr-sel"></select>
+        <span class="tr-word tr-tgt-wrap" id="tr-tgt-word">在</span>
+        <select id="tr-target" class="tr-sel tr-tgt-wrap"></select>
+        <input type="text" id="tr-target-text" class="tr-input tr-tgt-wrap" placeholder="留空＝不限" style="width:150px;">
+        <span class="tr-word">滿</span>
+        <input type="number" id="tr-n" class="tr-input" min="1" max="100000" value="1" style="width:74px;">
+        <span class="tr-word" id="tr-unit">次</span>
+        <select id="tr-window" class="tr-sel">
+          <option value="">不限時間</option>
+          <option value="7">最近 7 天內</option>
+          <option value="30">最近 30 天內</option>
+          <option value="90">最近 90 天內</option>
+          <option value="180">最近半年內</option>
+        </select>
+        <span class="tr-word">就貼上</span>
+        <select id="tr-tag" class="tr-sel"></select>
+      </div>
+      <p class="muted tr-hint" id="tr-hint"></p>
+      <div class="tr-actions">
+        <button type="button" class="tr-btn2" id="tr-preview">先看看會貼到誰</button>
+        <button type="button" class="tr-btn1" id="tr-add">加這條規則</button>
+        <span id="tr-note" class="muted" style="font-size:13px;"></span>
+      </div>
+      <div id="tr-preview-box" hidden class="tr-preview"></div>
+    </section>
+
+    <section class="card">
+      <div class="tr-listhead">
+        <h2 class="tr-h2" style="margin:0;">目前的規則</h2>
+        <button type="button" class="tr-btn2" id="tr-run">立刻跑一次</button>
+      </div>
+      <div id="tr-list"><p class="muted">載入中…</p></div>
+    </section>
+
+    <style>
+      .tr-hero h1{margin:0;}
+      .tr-h2{font-size:15px;margin:0 0 12px;font-weight:700;}
+      .tr-builder{display:flex;flex-wrap:wrap;gap:8px;align-items:center;line-height:2.2;}
+      .tr-word{font-size:14px;color:#3C3C43;}
+      .tr-sel,.tr-input{padding:7px 10px;border:1px solid #ECECEE;border-radius:8px;font-size:13.5px;
+        font-family:inherit;background:#fff;color:#1D1D1F;max-width:280px;}
+      .tr-sel:focus,.tr-input:focus{outline:2px solid #E8491D33;border-color:#E8491D;}
+      .tr-hint{font-size:12.5px;margin:10px 0 0;line-height:1.6;min-height:18px;}
+      .tr-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px;}
+      .tr-btn1{padding:9px 16px;border:0;border-radius:8px;background:#1D1D1F;color:#fff;
+        font-size:13.5px;font-weight:600;font-family:inherit;cursor:pointer;}
+      .tr-btn2{padding:9px 16px;border:1px solid #ECECEE;border-radius:8px;background:#fff;color:#1D1D1F;
+        font-size:13.5px;font-family:inherit;cursor:pointer;}
+      .tr-btn1:disabled,.tr-btn2:disabled{opacity:.5;cursor:default;}
+      .tr-preview{margin-top:14px;padding:12px 14px;border:1px solid #ECECEE;border-radius:10px;
+        background:#FAFAFA;font-size:13.5px;line-height:1.7;}
+      .tr-preview[hidden]{display:none;}
+      .tr-preview .big{font-size:20px;font-weight:700;color:#E8491D;margin-right:4px;}
+      .tr-listhead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;}
+      .tr-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:11px 0;
+        border-bottom:1px solid #F3F4F6;font-size:13.5px;}
+      .tr-row:last-child{border-bottom:0;}
+      .tr-cond{flex:1;min-width:240px;line-height:1.6;}
+      .tr-chip{display:inline-block;padding:2px 9px;border-radius:20px;color:#fff;font-size:12px;font-weight:600;}
+      .tr-meta{font-size:12px;color:#86868B;}
+      .tr-off{opacity:.5;}
+      .tr-mini{padding:5px 11px;border:1px solid #ECECEE;border-radius:7px;background:#fff;
+        font-size:12.5px;font-family:inherit;cursor:pointer;color:#1D1D1F;}
+      [hidden]{display:none !important;}
+    </style>
+
+    <script>
+      var $=function(i){return document.getElementById(i);};
+      function esc(x){return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+      var DATA={rules:[],catalog:[],tags:[],targets:{}};
+      var COUNTS={};   // 每個事件目前有幾人符合（選單上直接顯示，才知道哪個有資料可用）
+
+      function post(url,body,ok,fail){
+        return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+          .then(function(r){return r.json();})
+          .then(function(d){
+            if(!d.ok){ $('tr-note').textContent=d.detail||'沒有成功，再試一次'; if(fail)fail(d); return; }
+            if(ok)ok(d);
+          })
+          .catch(function(){ $('tr-note').textContent='連線失敗，再試一次'; if(fail)fail(null); });
+      }
+
+      function curDef(){
+        var k=$('tr-kind').value;
+        for(var i=0;i<DATA.catalog.length;i++) if(DATA.catalog[i].kind===k) return DATA.catalog[i];
+        return null;
+      }
+
+      // 事件換了：對象挑選器要跟著換，單位字（次／位／天）也要換
+      function syncBuilder(){
+        var d=curDef(); if(!d)return;
+        $('tr-unit').textContent=d.unit||'次';
+        $('tr-hint').textContent=d.hint||'';
+        var tk=d.target_kind;
+        var sel=$('tr-target'), txt=$('tr-target-text'), word=$('tr-tgt-word');
+        var opts=(DATA.targets&&DATA.targets[tk])||null;
+        if(tk==='none'){
+          word.hidden=true; sel.hidden=true; txt.hidden=true;
+        }else if(tk==='text'){
+          word.hidden=false; word.textContent='內容包含'; sel.hidden=true; txt.hidden=false;
+        }else{
+          word.hidden=false;
+          word.textContent = tk==='activity'?'在活動' : (tk==='menu'?'在選單' : (tk==='broadcast'?'在那一封':'從管道'));
+          txt.hidden=true; sel.hidden=false;
+          sel.innerHTML='<option value="">全部</option>'+
+            (opts||[]).map(function(o){return '<option value="'+esc(o.value)+'">'+esc(o.label)+'</option>';}).join('');
+          if(!opts||!opts.length){ sel.innerHTML='<option value="">（還沒有可以挑的，先用「全部」）</option>'; }
+        }
+        $('tr-preview-box').hidden=true;
+      }
+
+      function buildKindSelect(){
+        $('tr-kind').innerHTML=DATA.catalog.map(function(c){
+          var n=COUNTS[c.kind];
+          var suffix = (n==null) ? '' : ('（現在 '+n+' 人）');
+          return '<option value="'+esc(c.kind)+'">'+esc(c.label)+suffix+'</option>';
+        }).join('');
+      }
+
+      function condText(r){
+        var label=r.rule_kind, unit='次';
+        for(var i=0;i<DATA.catalog.length;i++) if(DATA.catalog[i].kind===r.rule_kind){
+          label=DATA.catalog[i].label; unit=DATA.catalog[i].unit||'次';
+        }
+        var s='當用戶 <b>'+esc(label)+'</b>';
+        if(r.target) s+=' 「'+esc(r.target_label||r.target)+'」';
+        s+=' 滿 '+r.threshold+' '+unit;
+        if(r.window_days) s+='（只算最近 '+r.window_days+' 天）';
+        return s;
+      }
+
+      function renderList(){
+        var box=$('tr-list');
+        if(!DATA.rules.length){ box.innerHTML='<p class="muted">還沒有規則。上面設一條，之後就會自動貼。</p>'; return; }
+        box.innerHTML=DATA.rules.map(function(r){
+          var when=r.last_run_at?new Date(r.last_run_at).toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'還沒跑過';
+          return '<div class="tr-row'+(r.active?'':' tr-off')+'">'+
+            '<div class="tr-cond">'+condText(r)+' → <span class="tr-chip" style="background:'+esc(r.tag_color||'#8E8E93')+';">'+esc(r.tag_name)+'</span></div>'+
+            '<span class="tr-meta">'+(r.active?('上次 '+when+' 貼了 '+(r.last_added==null?'—':r.last_added)+' 人'):'已停用')+'</span>'+
+            '<button type="button" class="tr-mini tr-toggle" data-id="'+r.id+'">'+(r.active?'停用':'啟用')+'</button>'+
+            '<button type="button" class="tr-mini tr-del" data-id="'+r.id+'" style="color:#b91c1c;">刪除</button>'+
+          '</div>';
+        }).join('');
+        [].slice.call(box.querySelectorAll('.tr-toggle')).forEach(function(b){
+          b.addEventListener('click',function(){
+            post('/admin/users/api/tag-rules/toggle',{id:Number(b.getAttribute('data-id'))},function(){load();});
+          });});
+        [].slice.call(box.querySelectorAll('.tr-del')).forEach(function(b){
+          b.addEventListener('click',function(){
+            if(!confirm('刪掉這條規則？已經貼上去的標籤會留著，只是以後不再自動貼。'))return;
+            post('/admin/users/api/tag-rules/delete',{id:Number(b.getAttribute('data-id'))},function(){load();});
+          });});
+      }
+
+      function currentRule(){
+        var d=curDef(); if(!d)return null;
+        var tk=d.target_kind;
+        var target = tk==='none' ? '' : (tk==='text' ? $('tr-target-text').value.trim() : $('tr-target').value);
+        var label='';
+        if(tk!=='none'&&tk!=='text'&&target){
+          var sel=$('tr-target'); label=sel.options[sel.selectedIndex]?sel.options[sel.selectedIndex].text:'';
+        }else if(tk==='text'){ label=target; }
+        return { rule_kind:d.kind, threshold:Number($('tr-n').value)||1,
+                 target:target||null, target_label:label||null,
+                 window_days:Number($('tr-window').value)||null,
+                 tag_id:Number($('tr-tag').value)||null };
+      }
+
+      function load(){
+        return fetch('/admin/users/api/tag-rules').then(function(r){return r.json();}).then(function(d){
+          if(!d.ok){ $('tr-list').innerHTML='<p class="muted">載入失敗，重新整理看看</p>'; return; }
+          DATA=d;
+          buildKindSelect();
+          $('tr-tag').innerHTML=(d.tags||[]).map(function(t){
+            return '<option value="'+t.id+'">'+esc(t.name)+'</option>';
+          }).join('')||'<option value="">還沒有標籤</option>';
+          syncBuilder();
+          renderList();
+          countAll();
+        });
+      }
+
+      // 每個事件現在有幾人符合：一個一個問，回來就更新選單文字。
+      // 這樣選之前就知道哪些事件真的有資料，不會建了規則才發現貼 0 人。
+      function countAll(){
+        var list=DATA.catalog.slice();
+        (function next(){
+          var c=list.shift(); if(!c)return;
+          fetch('/admin/users/api/tag-rules/preview',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({rule_kind:c.kind,threshold:1})})
+            .then(function(r){return r.json();}).then(function(d){
+              if(d&&d.ok)COUNTS[c.kind]=d.count;
+              var keep=$('tr-kind').value;
+              buildKindSelect();
+              $('tr-kind').value=keep;
+            }).catch(function(){}).then(next);
+        })();
+      }
+
+      $('tr-kind').addEventListener('change',syncBuilder);
+      ['tr-target','tr-target-text','tr-n','tr-window'].forEach(function(id){
+        $(id).addEventListener('change',function(){$('tr-preview-box').hidden=true;});
+      });
+
+      $('tr-preview').addEventListener('click',function(){
+        var r=currentRule(); if(!r)return;
+        var btn=this; btn.disabled=true; $('tr-note').textContent='';
+        var box=$('tr-preview-box'); box.hidden=false; box.textContent='試算中…';
+        post('/admin/users/api/tag-rules/preview',r,function(d){
+          btn.disabled=false;
+          var names=(d.names||[]).filter(Boolean);
+          if(!d.count){
+            box.innerHTML='<b>目前沒有人符合。</b><br><span class="muted">' +
+              '可能是條件太嚴，或這種行為還沒有累積到資料。放著也沒關係——以後有人達標就會自動貼上。</span>';
+            return;
+          }
+          box.innerHTML='<span class="big">'+d.count+'</span> 人現在就符合，加了規則後五分鐘內會貼上。'+
+            (names.length?('<br><span class="muted">例如：'+names.map(esc).join('、')+(d.count>names.length?' 等等':'')+'</span>'):'');
+        },function(){ btn.disabled=false; box.hidden=true; });
+      });
+
+      $('tr-add').addEventListener('click',function(){
+        var r=currentRule(); if(!r)return;
+        if(!r.tag_id){ $('tr-note').textContent='先去用戶檔案頁建一個標籤'; return; }
+        var btn=this; btn.disabled=true; $('tr-note').textContent='';
+        post('/admin/users/api/tag-rules',r,function(){
+          btn.disabled=false; $('tr-note').textContent='加好了。五分鐘內會自動跑，等不及就按「立刻跑一次」。';
+          $('tr-preview-box').hidden=true; load();
+        },function(){ btn.disabled=false; });
+      });
+
+      $('tr-run').addEventListener('click',function(){
+        var btn=this; btn.disabled=true; btn.textContent='執行中…';
+        post('/admin/users/api/tag-rules/run',{},function(d){
+          btn.disabled=false; btn.textContent='立刻跑一次';
+          var total=(d.results||[]).reduce(function(a,x){return a+(x.added||0);},0);
+          $('tr-note').textContent='跑完了，這次新貼了 '+total+' 人。';
+          load();
+        },function(){ btn.disabled=false; btn.textContent='立刻跑一次'; });
+      });
+
+      load();
+    </script>
+    `
+  })
+%>

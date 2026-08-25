@@ -283,12 +283,19 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
     tag_id BIGINT NOT NULL REFERENCES user_tags(id) ON DELETE CASCADE,
     rule_kind TEXT NOT NULL,
     threshold INTEGER NOT NULL DEFAULT 1,
+    target TEXT,
+    target_label TEXT,
+    window_days INTEGER,
     active BOOLEAN NOT NULL DEFAULT true,
     last_run_at TIMESTAMPTZ,
     last_added INTEGER,
     created_by TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
+  await query(`ALTER TABLE user_tag_rules
+    ADD COLUMN IF NOT EXISTS target TEXT,
+    ADD COLUMN IF NOT EXISTS target_label TEXT,
+    ADD COLUMN IF NOT EXISTS window_days INTEGER`);
   await query(`CREATE TABLE IF NOT EXISTS rich_menu_taps (
     id BIGSERIAL PRIMARY KEY,
     menu_id BIGINT NOT NULL,
