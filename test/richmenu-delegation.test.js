@@ -15,7 +15,7 @@ const CFG = { size: 'large', tabs: [{ label: '', layout: 'big-6',
   cells: [], buttons: [] };
 const DATA = { ok: true, build: 'testbld', liff_id: 'LID',
   default_line_id: 'richmenu-live', default_owned_elsewhere: false, line_error: null,
-  menus: [{ id: 2, name: '長青A', status: 'published', line_rich_menu_id: 'richmenu-live',
+  menus: [{ id: "2", name: '長青A', status: 'published', line_rich_menu_id: 'richmenu-live',
     line_rich_menu_ids: [{ id: 'richmenu-live', tab: 0, alias: null }], is_default: true, config: CFG,
     schedule_start_at: null, schedule_end_at: null, schedule_end_menu_id: null, schedule_state: null,
     audience_list_id: null, audience_applied_at: null, audience_applied_count: null,

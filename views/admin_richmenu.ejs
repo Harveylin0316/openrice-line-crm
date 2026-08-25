@@ -700,7 +700,11 @@
         }).catch(function(){$('rm-list').innerHTML='<p class="muted">載入失敗，請重新整理</p>';});
       }
 
-      function menuById(id){return (DATA.menus||[]).filter(function(m){return m.id===id;})[0];}
+      // 編號一律用字串比對：資料庫的編號欄位回來是字串（"2"），
+      // 按鈕上轉出來的是數字（2），用 === 永遠找不到 →
+      // 後面每個函式第一行的 if(!m)return 就靜靜跳掉，變成「點了沒反應」。
+      function sameId(a,b){return String(a)===String(b);}
+      function menuById(id){return (DATA.menus||[]).filter(function(m){return sameId(m.id,id);})[0];}
 
       function scheduleText(m){
         if(!m.schedule_state)return '';
@@ -711,7 +715,7 @@
       }
       function audienceText(m){
         if(!m.audience_list_id)return '';
-        var l=(DATA.lists||[]).filter(function(x){return x.id===m.audience_list_id;})[0];
+        var l=(DATA.lists||[]).filter(function(x){return sameId(x.id,m.audience_list_id);})[0];
         var name=l?l.name:('名單 '+m.audience_list_id);
         if(!m.audience_applied_at)return '名單專屬：'+name+'（新版還沒套用，按「名單」再套用一次）';
         return '名單專屬：'+name+'・已套用 '+(m.audience_applied_count||0)+' 人';
@@ -725,7 +729,7 @@
         else if(!live){note='<b>現在沒有任何選單</b>：用戶打開聊天室，下方是空的。'+
           '如果你在 LINE 官方後台有設長青選單，去官方後台把它重新設成使用中就會回來；'+
           '或是在這裡發布一個選單並「設為所有人看到的」。';}
-        else{var mine=(DATA.menus||[]).filter(function(m){return m.line_rich_menu_id===live;})[0];
+        else{var mine=(DATA.menus||[]).filter(function(m){return sameId(m.line_rich_menu_id,live);})[0];
           note=mine?('所有人現在看到的是「<b>'+esc(mine.name)+'</b>」。'):'所有人現在看到的是一個不是從這裡建立的選單（下面「其他選單」裡有列出來）。';}
         // 版本代號放在最後面，平常不礙眼，出事時一眼就知道手上是不是最新版
         $('rm-live-note').innerHTML=note+
@@ -736,7 +740,7 @@
         if(!menus.length){box.innerHTML='<p class="muted" style="font-size:13.5px;">還沒有選單。按上面「＋ 從範本開新選單」開始。</p>';}
         else{
           box.innerHTML=menus.map(function(m){
-            var isLive=m.line_rich_menu_id&&m.line_rich_menu_id===live;
+            var isLive=m.line_rich_menu_id&&sameId(m.line_rich_menu_id,live);
             var tabsN=(m.config&&Array.isArray(m.config.tabs))?m.config.tabs.length:1;
             var cellsN=0;
             if(m.config){
@@ -878,12 +882,12 @@
         $('rm-sch-start').value=dtLocal(m.schedule_start_at);
         $('rm-sch-end').value=dtLocal(m.schedule_end_at);
         var sel=$('rm-sch-endmenu');
-        var others=(DATA.menus||[]).filter(function(x){return x.id!==id&&x.line_rich_menu_id;});
+        var others=(DATA.menus||[]).filter(function(x){return !sameId(x.id,id)&&x.line_rich_menu_id;});
         // 實測確認：「所有人都看不到選單」是把預設選單整個取消掉，
         // 連 LINE 官方後台設的長青選單也會一起被關掉，而且不會自動回來。
         // 所以它不能長得像一個中性的預設選項。
         sel.innerHTML=others.map(function(x){
-          return '<option value="'+x.id+'"'+(m.schedule_end_menu_id===x.id?' selected':'')+'>'+esc(x.name)+'</option>';
+          return '<option value="'+x.id+'"'+(sameId(m.schedule_end_menu_id,x.id)?' selected':'')+'>'+esc(x.name)+'</option>';
         }).join('')+'<option value="">所有人都看不到選單（危險）</option>';
         if(!others.length){
           sel.innerHTML='<option value="">所有人都看不到選單（危險）</option>';
@@ -924,7 +928,7 @@
         modalRow=m;
         var sel=$('rm-aud-select');
         sel.innerHTML=(DATA.lists||[]).map(function(l){
-          return '<option value="'+l.id+'"'+(m.audience_list_id===l.id?' selected':'')+'>'+esc(l.name)+'（'+l.total+' 人）</option>';
+          return '<option value="'+l.id+'"'+(sameId(m.audience_list_id,l.id)?' selected':'')+'>'+esc(l.name)+'（'+l.total+' 人）</option>';
         }).join('')||'<option value="">名單庫還沒有名單</option>';
         $('rm-aud-note').textContent=m.audience_list_id&&!m.audience_applied_at?'發布了新版之後還沒套用，按「套用到名單成員」。':'';
         $('rm-aud-modal').hidden=false;
@@ -1026,7 +1030,7 @@
         CFG=toTabForm(JSON.parse(JSON.stringify(m.config||{})));
         if(!CFG.tabs[0].cells||!CFG.tabs[0].cells.length)relayoutTabOnCfg(CFG,0);
         editingId=id; editTab=0; selCell=0; dirty=false;
-        editingIsLive=!!(m.line_rich_menu_id&&m.line_rich_menu_id===DATA.default_line_id);
+        editingIsLive=!!(m.line_rich_menu_id&&sameId(m.line_rich_menu_id,DATA.default_line_id));
         $('rm-name').value=m.name;
         showEditor();
       }
