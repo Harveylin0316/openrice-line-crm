@@ -81,7 +81,9 @@ function registerAdminRichMenuRoutes(app, deps) {
             liff_url: lid ? ('https://liff.line.me/' + lid + '/' + a.game_type + '/' + encodeURIComponent(a.slug)) : null
           };
         }),
-        wallet_url: gamesLiffId() ? ('https://liff.line.me/' + gamesLiffId() + '/wallet') : ''
+        wallet_url: gamesLiffId() ? ('https://liff.line.me/' + gamesLiffId() + '/wallet') : '',
+        // 版本代號：出問題時第一個要問的是「你手上這頁是哪一版」，讓它直接看得到
+        build: String(process.env.COMMIT_REF || '').slice(0, 7) || '本機'
       });
     } catch (err) {
       console.error('richmenu data error:', err && err.message);

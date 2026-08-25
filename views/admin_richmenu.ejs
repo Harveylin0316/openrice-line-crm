@@ -716,7 +716,9 @@
           '或是在這裡發布一個選單並「設為所有人看到的」。';}
         else{var mine=(DATA.menus||[]).filter(function(m){return m.line_rich_menu_id===live;})[0];
           note=mine?('所有人現在看到的是「<b>'+esc(mine.name)+'</b>」。'):'所有人現在看到的是一個不是從這裡建立的選單（下面「其他選單」裡有列出來）。';}
-        $('rm-live-note').innerHTML=note;
+        // 版本代號放在最後面，平常不礙眼，出事時一眼就知道手上是不是最新版
+        $('rm-live-note').innerHTML=note+
+          '<span style="float:right;color:#B0B0B5;font-size:11px;">版本 '+esc(DATA.build||'—')+'</span>';
 
         var box=$('rm-list');
         var menus=DATA.menus||[];

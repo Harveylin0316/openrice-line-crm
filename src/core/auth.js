@@ -60,6 +60,10 @@ function createAuthCore({ jwtSecret, isProduction, adminLoginPath = '/admin/logi
   }
 
   function requireAdmin(req, res, next) {
+    // 後台頁面一律不准快取：改版後瀏覽器還拿舊的 HTML，症狀是「按鈕點了沒反應」，
+    // 而且極難查（程式是對的，使用者手上的不是）。後台流量很小，不值得為了快取冒這個險。
+    res.setHeader('Cache-Control', 'no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
     if (!req.authUser || !req.authUser.adm) {
       if (req.authUser && !req.authUser.adm) {
         clearAuthCookie(res);
