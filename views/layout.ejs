@@ -127,6 +127,13 @@
         </nav>
       </div>
     </header>
+    <% if (typeof authDegraded !== 'undefined' && authDegraded) { %>
+      <div style="max-width:1200px;margin:12px auto 0;padding:11px 14px;border:1px solid #FDE68A;
+                  background:#FFFBEB;border-radius:10px;font-size:13.5px;color:#92400E;line-height:1.7;">
+        <b>現在連不上資料庫，先讓你看畫面</b>：這段時間畫面上的資料可能不是最新的，而且<b>不能存檔或送出任何動作</b>。
+        過一下重新整理，正常了就會恢復。
+      </div>
+    <% } %>
     <main class="container">
       <%- body %>
     </main>

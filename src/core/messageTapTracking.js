@@ -12,9 +12,28 @@
  * 按鈕編號 = 走訪順序（0, 1, 2…），前後端用同一套走訪才對得起來。
  */
 
-/** 目的地已經是自家 LIFF 的按鈕不包跳板：那種頁面本來就認得出是誰，包了只是多一層等待 */
-function isOwnLiff(uri) {
-  return /^https:\/\/liff\.line\.me\//i.test(String(uri || ''));
+/**
+ * 是不是「我們自己的」活動頁。
+ *
+ * 只看網域不夠：合作夥伴（國泰、LINE Pay 那類）的活動頁也是 liff.line.me，
+ * 那種頁面我們沒有任何紀錄，當成自家的會讓那顆按鍵兩邊都收不到資料。
+ * 所以要比對編號：只有我們自己開的 LIFF 編號才算數。
+ * 沒有提供編號清單時，退回只看網域（維持舊行為，總比誤判成外部好）。
+ */
+function ownLiffIds() {
+  const ids = [process.env.GAMES_LIFF_ID, process.env.WHEEL_LIFF_ID, process.env.LIFF_ID]
+    .map(x => String(x || '').trim()).filter(Boolean);
+  return Array.from(new Set(ids));
+}
+function isOwnLiff(uri, extraIds) {
+  const u = String(uri || '');
+  const m = /^https:\/\/liff\.line\.me\/([^/?#]+)/i.exec(u);
+  if (!m) return false;
+  const id = m[1];
+  const known = ownLiffIds().concat(Array.isArray(extraIds) ? extraIds.map(x => String(x || '').trim()) : [])
+    .filter(Boolean);
+  if (!known.length) return true;             // 不知道自家有哪些編號 → 沿用舊行為
+  return known.some(k => k.toLowerCase() === id.toLowerCase());
 }
 
 function isTrackableUri(uri) {
@@ -98,4 +117,4 @@ function findUriButton(config, index) {
   return list.find(b => b.index === n) || null;
 }
 
-module.exports = { walkUriActions, listUriButtons, withMessageTracking, findUriButton, isTrackableUri, isOwnLiff };
+module.exports = { walkUriActions, listUriButtons, withMessageTracking, findUriButton, isTrackableUri, isOwnLiff, ownLiffIds };

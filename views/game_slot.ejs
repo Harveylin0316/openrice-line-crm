@@ -469,6 +469,17 @@
 
       var profile = null;
       var idToken = null;
+      // 防重複扣次數的鑰匙。存進瀏覽器暫存：收訊斷掉後如果使用者是「重新整理」
+      // 而不是按按鈕（刮刮樂開頁就自動抽，最容易這樣），重載後還撿得回同一把，
+      // 伺服器認得就回原結果，不會被扣第二次。
+      var PLAYKEY_STORE = 'orplaykey:' + 'slot' + ':' + slug;
+      function loadPlayKey() {
+        try { return sessionStorage.getItem(PLAYKEY_STORE) || null; } catch (e) { return null; }
+      }
+      function savePlayKey(k) {
+        try { if (k) sessionStorage.setItem(PLAYKEY_STORE, k); else sessionStorage.removeItem(PLAYKEY_STORE); } catch (e) {}
+      }
+      var pendingPlayKey = loadPlayKey();
       var liffReady = false;
       var spinning = false;
 
@@ -853,12 +864,20 @@
         spinReel(2, preTargets[2], 1000, { keepMotion: true });
 
         try {
+          // 防重複扣次數：每次「想抽」產一把鑰匙；只有網路斷掉（沒收到任何回應）
+          // 才保留同一把，下次按就帶同一把重送——伺服器認得就回原結果，不再扣一次
+          if (!pendingPlayKey) {
+            pendingPlayKey = 'pk' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+            savePlayKey(pendingPlayKey);
+          }
           var resp = await fetch('/api/games/slot/' + encodeURIComponent(slug) + '/play', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ line_user_id: profile.userId, line_display_name: profile.displayName || null, id_token: idToken })
+            body: JSON.stringify({ line_user_id: profile.userId, line_display_name: profile.displayName || null,
+                                   id_token: idToken, play_key: pendingPlayKey })
           }).then(function (r) { return r.json(); });
 
           if (!resp.ok) {
+            pendingPlayKey = null; savePlayKey(null);   // 伺服器明確拒絕（沒扣次數）→ 換新鑰匙
             stopSpinVisuals();
             if (resp.error === 'must_follow_oa') {
               if (window.ORMGM) ORMGM.gate.serverDenied();
@@ -914,10 +933,12 @@
           }
           await wait(650);
           showResult(resp.prize, resp);
+          pendingPlayKey = null; savePlayKey(null);   // 結果已經呈現出來，這一把用完了
           setTimeout(refreshQuota, 800);
         } catch (e) {
+          // 收不到回應：鑰匙留著，下次按會帶同一把重送，不會被扣兩次
           stopSpinVisuals();
-          statusEl.textContent = '錯誤';
+          statusEl.textContent = '收訊不穩，再按一次';
         } finally {
           spinning = false;
           spinBtn.disabled = false;

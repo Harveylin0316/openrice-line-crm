@@ -2,6 +2,7 @@
 const path = require('path');
 const { registerAdminRichMenuRoutes } = require(path.join(__dirname, '..', 'src/routes/adminRichMenu'));
 const { sanitizeMenuConfig } = require(path.join(__dirname, '..', 'src/core/lineRichMenu'));
+const { isOwnLiff: isOwnLiffFn } = require(path.join(__dirname, '..', 'src/core/messageTapTracking'));
 
 process.env.LINE_CHANNEL_ACCESS_TOKEN = 'tok';
 process.env.URL = 'https://example.netlify.app';
@@ -175,6 +176,50 @@ const UID = 'U' + 'a'.repeat(32);
     await run(m.routes, 'POST /t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)/hit',
       { line_user_id: UID }, { params: { source: 'keyword', refId: '1_0' } });
   ok(m.taps.length === 1, '訊息按鈕同一人連按三次也只記一筆');
+
+  // 12) 指向自家活動頁的按鍵不包轉址：那些頁面本來就認得出是誰，
+  //     包一層只是多繞一圈、還可能影響開啟
+  {
+    const OWN = { size: 'large', chat_bar_text: '選單',
+      cells: [{ x: 0, y: 0, w: 1250, h: 1686 }, { x: 1250, y: 0, w: 1250, h: 1686 }],
+      buttons: [
+        { label: '今天吃什麼', identify: true, action: { type: 'uri', uri: 'https://liff.line.me/1234-abcd/wheel/x' } },
+        { label: '立即訂位', identify: true, action: { type: 'uri', uri: 'https://s.openrice.com/abc' } }
+      ] };
+    const sent = [];
+    const routes2 = {}; let created2 = 0;
+    const app2 = { get: (p2, ...h) => { routes2['GET ' + p2] = h; },
+                   post: (p2, ...h) => { routes2['POST ' + p2] = h; }, delete: () => {}, put: () => {} };
+    const query2 = async (sql) => {
+      const f = String(sql).replace(/\s+/g, ' ');
+      if (/SELECT id, name, config, line_rich_menu_id/.test(f))
+        return { rows: [{ id: 1, name: '長青', config: OWN, line_rich_menu_id: null, line_rich_menu_ids: null,
+          is_default: false, audience_list_id: null, published_config: null, status: 'draft',
+          published_at: null, audience_applied_at: null }] };
+      return { rows: [] };
+    };
+    const pass2 = (rq, rs, nx) => nx();
+    registerAdminRichMenuRoutes(app2, { query: query2, authCore: { requireAdmin: pass2, requireOwner: pass2 } });
+    global.fetch = async (url, o) => {
+      const method = (o && o.method) || 'GET';
+      if (method === 'GET' && /user\/all\/richmenu$/.test(url)) return { ok: false, status: 404, text: async () => '{}' };
+      if (method === 'POST' && /\/v2\/bot\/richmenu$/.test(url)) {
+        created2++;
+        JSON.parse(o.body).areas.forEach(a => { if (a.action && a.action.uri) sent.push(a.action.uri); });
+        return { ok: true, status: 200, text: async () => JSON.stringify({ richMenuId: 'richmenu-own' }) };
+      }
+      return { ok: true, status: 200, text: async () => '{}' };
+    };
+    const IMG2 = 'data:image/jpeg;base64,' + Buffer.from('x').toString('base64');
+    await run(routes2, 'POST /admin/richmenu/api/publish', { id: 1, image: IMG2 });
+    // 自家活動頁：次數照記（/r 轉址），但不走記名跳板（/t）——
+    // 那種頁面自己認得出是誰，多包一層只是多等一秒
+    ok(sent.some(u => /\/r\/1\/0\/0$/.test(u)), '自家活動頁的按鍵：次數照記');
+    // 別人家的 LIFF（合作夥伴活動頁）不算自家——那種頁面我們沒有任何紀錄
+    ok(!isOwnLiffFn('https://liff.line.me/9999-partner/page'), '合作夥伴的活動頁不會被當成自家的');
+    ok(!sent.some(u => /\/t\/1\/0\/0$/.test(u)), '自家活動頁的按鍵：不走記名跳板');
+    ok(sent.some(u => /\/t\/1\/0\/1$/.test(u)), '外部網址勾了記名的照樣走跳板');
+  }
 
   console.log(failed ? ('\n有 ' + failed + ' 項失敗') : '\n記名追蹤全部通過');
   process.exit(failed ? 1 : 0);

@@ -342,7 +342,17 @@
       var ctaBtn = document.getElementById('cta-spin');
 
       var spinning = false;
-      var pendingPlayKey = null;   // 防重複扣次數的鑰匙（收到回應就換新）
+      // 防重複扣次數的鑰匙。存進瀏覽器暫存：收訊斷掉後如果使用者是「重新整理」
+      // 而不是按按鈕（刮刮樂開頁就自動抽，最容易這樣），重載後還撿得回同一把，
+      // 伺服器認得就回原結果，不會被扣第二次。
+      var PLAYKEY_STORE = 'orplaykey:' + 'wheel' + ':' + slug;
+      function loadPlayKey() {
+        try { return sessionStorage.getItem(PLAYKEY_STORE) || null; } catch (e) { return null; }
+      }
+      function savePlayKey(k) {
+        try { if (k) sessionStorage.setItem(PLAYKEY_STORE, k); else sessionStorage.removeItem(PLAYKEY_STORE); } catch (e) {}
+      }
+      var pendingPlayKey = loadPlayKey();
       var currentRotation = 0;
       var profile = null;
       var idToken = null;
@@ -643,6 +653,7 @@
           // 才保留同一把，下次按就帶同一把重送——伺服器認得就回原結果，不再扣一次
           if (!pendingPlayKey) {
             pendingPlayKey = 'pk' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+            savePlayKey(pendingPlayKey);
           }
           var resp = await fetch('/api/games/wheel/' + encodeURIComponent(slug) + '/spin', {
             method: 'POST',
@@ -656,7 +667,7 @@
           }).then(function (r) { return r.json(); });
 
           if (!resp.ok) {
-            pendingPlayKey = null;   // 伺服器明確拒絕（沒扣次數）→ 換新鑰匙
+            pendingPlayKey = null; savePlayKey(null);   // 伺服器明確拒絕（沒扣次數）→ 換新鑰匙
             if (resp.error === 'must_follow_oa') {
               if (window.ORMGM) ORMGM.gate.serverDenied();
               openFollowGate('要先加「OpenRice 開飯喇」好友才能參加，加完回來就可以玩。');
@@ -672,7 +683,7 @@
           showResult(resp.prize, resp);
           // 鑰匙撐到結果真的顯示出來才換新：萬一動畫或顯示途中出錯，
           // 用戶照提示再按一次會帶同一把鑰匙→伺服器回原結果，不會被多扣一次
-          pendingPlayKey = null;
+          pendingPlayKey = null; savePlayKey(null);
         } catch (e) {
           // 收不到回應或顯示途中出錯：鑰匙留著，下一次按會重送同一把，
           // 伺服器認得就回原本的結果，不會扣兩次

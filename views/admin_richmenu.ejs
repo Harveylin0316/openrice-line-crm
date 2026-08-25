@@ -979,7 +979,7 @@
           if(!d||!d.ok){$('rm-stats-body').innerHTML='<p class="muted">載入失敗</p>';return;}
           // 回傳缺欄位時要當成「沒有資料」，不能直接讀 .length——
           // 那會在 Promise 鏈裡拋錯，畫面上什麼都不會說
-          var rows=Array.isArray(rows)?rows:[];
+          var rows=Array.isArray(d.stats)?d.stats:[];
           if(!rows.length){$('rm-stats-body').innerHTML='<p class="muted" style="font-size:13px;">還沒有任何點擊。</p>';return;}
           var tabs=getTabs(m.config||{});
           function cellName(r){
@@ -1204,6 +1204,31 @@
         }
       });
 
+      // 我們自己的活動頁編號有哪些（預設的，加上各活動自訂的）
+      function ownLiffIds(){
+        var ids=[];
+        if(DATA&&DATA.liff_id)ids.push(String(DATA.liff_id));
+        ((DATA&&DATA.activities)||[]).forEach(function(a){
+          var u=a.liff_url||'';
+          var p1=u.indexOf('liff.line.me/');
+          if(p1>=0){
+            var rest=u.slice(p1+13);
+            var seg=rest.split('/')[0].split('?')[0];
+            if(seg)ids.push(seg);
+          }
+        });
+        return ids;
+      }
+      function isOwnActivityUrl(url){
+        var u=String(url||'').toLowerCase();
+        var pre='https://liff.line.me/';
+        if(u.indexOf(pre)!==0)return false;
+        var id=u.slice(pre.length).split('/')[0].split('?')[0];
+        var known=ownLiffIds().map(function(x){return String(x).toLowerCase();});
+        if(!known.length)return true;   // 不知道自家有哪些編號就沿用舊行為
+        return known.indexOf(id)>=0;
+      }
+
       function curBtn(){
         var t=curTab();
         while((t.buttons||(t.buttons=[])).length<=selCell)t.buttons.push({label:'',sublabel:'',icon:null,image:null,action:null,bg:null});
@@ -1241,12 +1266,25 @@
           $('rm-act-url').value=(b.action&&b.action.uri)||'';
           var idc=$('rm-act-identify');
           idc.checked=b.identify===true;
-          // 沒設好 LIFF 就記不到身分，與其讓人勾了沒用，不如直接鎖起來說明
+          var url=(b.action&&b.action.uri)||'';
+          // 這頁不能用正規表示式（樣板字串會吃掉反斜線，整段 JS 會壞）——用字串比對。
+          // 判準要跟後端一致：只有「我們自己的活動頁編號」才算自家，
+          // 合作夥伴的活動頁也是同一個網域，但我們對那種頁面沒有任何紀錄。
+          var isOwn=isOwnActivityUrl(url);
           var hasLiff=!!(DATA&&DATA.liff_id);
-          idc.disabled=!hasLiff;
-          $('rm-act-idhint').innerHTML = hasLiff
-            ? '不勾：只知道被按了幾次，跳過去比較快。<br>勾了：跳過去前會多花約一秒確認身分，換來「誰按了這顆」的名單。'
-            : '這個功能需要先設定好活動頁的連結設定，現在只能記次數、記不到是誰。';
+          // 三種情況分開講，不要讓人勾一個不會有作用的格子
+          idc.disabled=isOwn||!hasLiff;
+          if(isOwn){
+            idc.checked=false;
+            delete b.identify;   // 這種按鍵勾了也不會生效，別在設定檔留一個假的
+            $('rm-act-idhint').innerHTML='這是我們自己的活動頁，<b>本來就知道是誰打開的</b>，不用另外設定。'+
+              '要抓這批人，去「自動貼標籤」用「在活動頁做過某件事」或「玩過遊戲」。';
+          }else if(!hasLiff){
+            $('rm-act-idhint').innerHTML='這個功能需要先設定好活動頁的連結設定，現在只能記次數、記不到是誰。';
+          }else{
+            $('rm-act-idhint').innerHTML='不勾：只知道被按了幾次，跳過去比較快。<br>'+
+              '勾了：跳過去前會多花約一秒確認身分，換來「誰按了這顆」的名單。';
+          }
         }
         if(mode==='message')$('rm-act-text').value=(b.action&&b.action.text)||'';
         if(mode==='activity'&&b.action&&b.action.activity_id)$('rm-act-select').value=String(b.action.activity_id);

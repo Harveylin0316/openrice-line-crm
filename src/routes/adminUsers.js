@@ -19,7 +19,7 @@ const LIFF_RECENT_LIMIT = 10;
 const LIFF_RESTAURANT_LIMIT = 5;
 const LIFF_RESTAURANT_SCAN = 300;
 
-const { listUriButtons } = require('../core/messageTapTracking');
+const { listUriButtons, isOwnLiff } = require('../core/messageTapTracking');
 
 function registerAdminUsersRoutes(app, deps) {
   const { query, authCore } = deps;
@@ -389,7 +389,13 @@ function registerAdminUsersRoutes(app, deps) {
             const nm = b.label || ('第 ' + (ci + 1) + ' 格');
             const tabName = tabs.length > 1 ? ('｜' + (t.label || ('分頁' + (ti + 1)))) : '';
             let note = '';
-            if (kind === 'uri' && b.identify !== true) note = '（記不到是誰，要先去勾）';
+            if (kind === 'uri') {
+              // 自家活動頁的按鍵抓不到人（那顆的勾選框在編輯器也是鎖住的），
+              // 要照實講清楚該用哪一條規則，不要叫人去勾一個勾不了的格子
+              const uri = String((b.action && b.action.uri) || '');
+              if (isOwnLiff(uri)) note = '（這顆抓不到人，改用「在活動頁做過某件事」）';
+              else if (b.identify !== true) note = '（記不到是誰，要先去圖文選單勾「記錄是誰點的」）';
+            }
             buttons.push({ value: m.id + ':' + ti + ':' + ci,
                            label: m.name + tabName + '｜' + nm + note });
           });

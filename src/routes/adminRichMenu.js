@@ -16,7 +16,7 @@
  */
 
 const { createLineRichMenuService, buildLineMenuObject, sanitizeMenuConfig, normalizeTabs } = require('../core/lineRichMenu');
-const { findUriButton, listUriButtons } = require('../core/messageTapTracking');
+const { findUriButton, listUriButtons, isOwnLiff } = require('../core/messageTapTracking');
 
 function registerAdminRichMenuRoutes(app, deps) {
   const { query, authCore } = deps;
@@ -133,7 +133,7 @@ function registerAdminRichMenuRoutes(app, deps) {
 
   /** 發布用：把每一格的「開啟網址」包成站內轉址（記一筆點擊再跳過去）。
    *  published_config 存的是原始網址，/r 轉址靠它查目的地——選單上的是追蹤網址。 */
-  function withTrackingLinks(config, rowId) {
+  function withTrackingLinks(config, rowId, ownIds) {
     const base = baseUrl();
     if (!base) return config; // 本機沒有站台網址就直接用原始連結
     const liff = gamesLiffId();
@@ -141,9 +141,13 @@ function registerAdminRichMenuRoutes(app, deps) {
     const tabs = Array.isArray(clone.tabs) && clone.tabs.length ? clone.tabs : null;
     const wrap = (buttons, tabIdx) => (buttons || []).forEach((b, ci) => {
       if (b && b.action && b.action.type === 'uri' && /^https:\/\//.test(String(b.action.uri || ''))) {
+        // 指向自家活動頁的按鍵不走「記名跳板」：那些頁面本身就認得出是誰
+        // （活動頁自己有紀錄），多包一層 LIFF 跳板只是多等一秒還可能影響開啟。
+        // 但一般轉址（只算次數）要保留——不然最常見的活動按鍵會整列從成效表消失。
+        const own = isOwnLiff(b.action.uri, ownIds);
         // 勾了「記錄是誰點的」→ 走 LIFF 跳板（拿得到身分，可以貼標籤）；
         // 沒勾就走一般轉址（只算次數，但快）。沒設 LIFF ID 時只能走一般轉址。
-        const named = b.identify === true && !!liff;
+        const named = b.identify === true && !!liff && !own;
         b.action = { ...b.action, uri: named
           ? ('https://liff.line.me/' + liff + '/t/' + rowId + '/' + tabIdx + '/' + ci)
           : (base + '/r/' + rowId + '/' + tabIdx + '/' + ci) };
@@ -186,7 +190,14 @@ function registerAdminRichMenuRoutes(app, deps) {
       }
       // 別名 id 由選單編號決定，永遠不變——分頁切換靠它
       const aliasIds = tabs.map((_, t) => 'crm-r' + id + '-t' + t);
-      const trackedConfig = withTrackingLinks(cleanConfig, id);
+      // 活動可以各自指定 LIFF 編號，那些也算「自家活動頁」
+      let ownLiffExtra = [];
+      try {
+        const { rows: la } = await query(
+          `SELECT DISTINCT liff_id_override FROM activities WHERE liff_id_override IS NOT NULL`);
+        ownLiffExtra = la.map(x => x.liff_id_override).filter(Boolean);
+      } catch (e) { /* 查不到就只用預設編號，不影響發布 */ }
+      const trackedConfig = withTrackingLinks(cleanConfig, id, ownLiffExtra);
 
       const menuObjs = [];
       try {
