@@ -64,7 +64,7 @@ function build(opts) {
     if (/SELECT id, name, config, line_rich_menu_id, line_rich_menu_ids, is_default, audience_list_id/.test(f))
       return { rows: [row] };
     if (/SELECT published_config FROM rich_menus/.test(f)) return { rows: [row] };
-    if (/SELECT line_rich_menu_id, line_rich_menu_ids, status FROM rich_menus/.test(f)) return { rows: [row] };
+    if (/SELECT line_rich_menu_id, line_rich_menu_ids, status,[\s\S]*FROM rich_menus WHERE id=\$1/.test(f)) return { rows: [row] };
     if (/SELECT line_rich_menu_id, audience_list_id FROM rich_menus/.test(f))
       return { rows: [{ line_rich_menu_id: row.line_rich_menu_id, audience_list_id: row.audience_list_id }] };
     if (/SELECT line_rich_menu_id FROM rich_menus WHERE id=/.test(f))

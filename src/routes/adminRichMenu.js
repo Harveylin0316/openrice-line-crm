@@ -141,7 +141,8 @@ function registerAdminRichMenuRoutes(app, deps) {
       const id = Number(body.id);
       if (!id) return jsonErr(res, 400, 'bad_id');
       const { rows } = await query(
-        `SELECT id, name, config, line_rich_menu_id, line_rich_menu_ids, is_default, audience_list_id
+        `SELECT id, name, config, line_rich_menu_id, line_rich_menu_ids, is_default, audience_list_id,
+                published_config, status, published_at, audience_applied_at
            FROM rich_menus WHERE id=$1`, [id]);
       if (rows.length === 0) return jsonErr(res, 404, 'not_found');
       const row = rows[0];
@@ -211,13 +212,29 @@ function registerAdminRichMenuRoutes(app, deps) {
         return jsonErr(res, 500, 'db_failed', { detail: '選單沒有發布出去（後台紀錄寫入失敗），再試一次。' });
       }
 
-      // 3) 分頁別名指到新選單（切換靠這個；失敗就先不刪舊的，讓人重試）
+      // 3) 分頁別名指到新選單（切換靠這個）。失敗＝全數退回：
+      //    刪掉這次建的、DB 復原舊版、別名指回舊選單——用戶看到的完全不變。
+      //    不能停在「DB 指新版、別名指舊版」的半套狀態：那時候按重試或清理，
+      //    會把正在被所有人看到的舊版誤刪，全體用戶的分頁直接斷掉。
       if (tabs.length > 1) {
         try {
           for (let t = 0; t < tabs.length; t++) await rm.upsertAlias(aliasIds[t], newIds[t]);
         } catch (e) {
+          for (const nid of newIds) await rm.deleteRichMenu(nid).catch(() => {});
+          if (Array.isArray(row.line_rich_menu_ids)) {
+            for (const x of row.line_rich_menu_ids) {
+              if (x && x.alias && x.id) await rm.upsertAlias(x.alias, x.id).catch(() => {});
+            }
+          }
+          await query(
+            `UPDATE rich_menus SET line_rich_menu_id=$2, line_rich_menu_ids=$3::jsonb,
+                    published_config=$4::jsonb, status=$5, published_at=$6, audience_applied_at=$7,
+                    updated_at=now() WHERE id=$1`,
+            [id, row.line_rich_menu_id, JSON.stringify(row.line_rich_menu_ids),
+             JSON.stringify(row.published_config), row.status, row.published_at, row.audience_applied_at]
+          ).catch(() => {});
           return jsonErr(res, 500, 'alias_failed', {
-            detail: '選單發布了，但分頁切換沒接好。再按一次發布就會修好。' });
+            detail: '分頁切換沒接好，這次發布已整批退回，大家看到的還是原本的選單。再按一次發布重試。' });
         }
       }
 
@@ -264,6 +281,10 @@ function registerAdminRichMenuRoutes(app, deps) {
       // 用 = 比對會算出 NULL 塞進 NOT NULL 欄位，整句失敗（審查抓到的實錯）
       try {
         await query(`UPDATE rich_menus SET is_default = (line_rich_menu_id IS NOT DISTINCT FROM $1)`, [lineId]);
+        // 手動換選單＝接管：別的選單殘留的「已上架、等下架」排程從此失效，
+        // 不然那個排程到點會把現在手動設好的選單收掉
+        await query(`UPDATE rich_menus SET schedule_state='done', updated_at=now()
+                      WHERE schedule_state='live' AND line_rich_menu_id IS DISTINCT FROM $1`, [lineId]);
       } catch (e) {
         return jsonErr(res, 500, 'db_failed', {
           detail: '所有人看到的選單已經換好了，但後台紀錄沒跟上。重新整理頁面就會恢復正常。' });
@@ -279,6 +300,9 @@ function registerAdminRichMenuRoutes(app, deps) {
     try {
       await rm.clearDefault();
       await query(`UPDATE rich_menus SET is_default=false`);
+      // 手動收掉選單＝接管：殘留的「已上架、等下架」排程一併失效
+      await query(`UPDATE rich_menus SET schedule_state='done', updated_at=now()
+                    WHERE schedule_state='live'`);
       res.json({ ok: true });
     } catch (err) {
       console.error('richmenu clear-default error:', err && err.message);
@@ -301,7 +325,10 @@ function registerAdminRichMenuRoutes(app, deps) {
       }
 
       if (rowId) {
-        const { rows } = await query(`SELECT line_rich_menu_id, line_rich_menu_ids, status FROM rich_menus WHERE id=$1`, [rowId]);
+        const { rows } = await query(
+          `SELECT line_rich_menu_id, line_rich_menu_ids, status,
+                  audience_list_id, audience_applied_at, audience_applied_count
+             FROM rich_menus WHERE id=$1`, [rowId]);
         if (rows.length === 0) return jsonErr(res, 404, 'not_found');
         const r = rows[0];
         const allIds = Array.isArray(r.line_rich_menu_ids) && r.line_rich_menu_ids.length
@@ -313,12 +340,29 @@ function registerAdminRichMenuRoutes(app, deps) {
               detail: '這個選單正是所有人看到的，刪掉大家的選單會直接消失。先把別的選單設為所有人看到的，再回來刪。' });
           }
         }
+        // 名單專屬還掛在人身上：不能不聲不響就刪——那些人的專屬選單會無預警消失。
+        // 前端拿到這個錯誤會照實再問一次，確認才帶 confirm_audience 重送。
+        const audienceAttached = !!(r.audience_applied_at && Number(r.audience_applied_count) > 0);
+        if (audienceAttached && body.confirm_audience !== true) {
+          return jsonErr(res, 400, 'audience_attached', {
+            detail: '這個選單是 ' + Number(r.audience_applied_count) + ' 位名單成員的專屬選單。刪掉之後他們會立刻退回一般選單。確定要刪，再按一次確認。',
+            applied_count: Number(r.audience_applied_count) });
+        }
         if (allIds.length) {
           // 已發布：要動 LINE 上的東西 → 升級成 owner 檢查；分頁別名一併清掉
           const aliases = Array.isArray(r.line_rich_menu_ids)
             ? r.line_rich_menu_ids.map(x => x && x.alias).filter(Boolean) : [];
           return requireOwner(req, res, async () => {
             try {
+              // 先把名單成員安置好：在別的名單裡的人轉掛過去，其他人回一般選單
+              if (audienceAttached && r.audience_list_id) {
+                const { rows: ms } = await query(
+                  `SELECT line_user_id FROM admin_recipient_list_members WHERE list_id=$1 LIMIT 20000`,
+                  [r.audience_list_id]);
+                const uids = ms.map(x => String(x.line_user_id || '').trim()).filter(u => /^U[0-9a-f]{32}$/i.test(u));
+                if (uids.length) await unlinkOrRelink(uids, rowId).catch(e =>
+                  console.error('richmenu delete relink failed:', e && e.message));
+              }
               for (const a of aliases) await rm.deleteAlias(a).catch(() => {});
               for (const lid of allIds) await rm.deleteRichMenu(lid);
               await query(`DELETE FROM rich_menus WHERE id=$1`, [rowId]);
@@ -350,6 +394,10 @@ function registerAdminRichMenuRoutes(app, deps) {
   });
 
   // ── 公開轉址：選單上的「開啟網址」按鍵都指到這裡，記一筆點擊再跳到真正的目的地 ──
+  // 這是公開端點：只有真的解析到選單上的按鍵才記點擊，亂湊的編號一律只跳轉不入庫，
+  // 否則任何人都能用腳本灌假點擊，把成效報表灌到不能看。
+  // 同一人連點同一格 60 秒內只記一筆（每台伺服器各自算，夠擋手滑與粗暴的灌水迴圈）。
+  const rTapSeen = new Map();
   app.get('/r/:id(\\d+)/:tab(\\d+)/:cell(\\d+)', async (req, res) => {
     const FALLBACK = 'https://www.openrice.com';
     try {
@@ -364,10 +412,22 @@ function registerAdminRichMenuRoutes(app, deps) {
           uri = b.action.uri; label = b.label || null;
         }
       }
-      // 記錄失敗不能擋跳轉——用戶體驗優先
-      await query(
-        `INSERT INTO rich_menu_taps (menu_id, tab, cell, kind, label) VALUES ($1,$2,$3,'link',$4)`,
-        [id, tab, cell, label]).catch(() => {});
+      if (uri) {
+        const ip = String((req.headers && req.headers['x-forwarded-for']) || req.ip || '').split(',')[0].trim();
+        const key = id + ':' + tab + ':' + cell + ':' + ip;
+        const now = Date.now();
+        const last = rTapSeen.get(key);
+        if (!last || now - last > 60 * 1000) {
+          rTapSeen.set(key, now);
+          if (rTapSeen.size > 5000) {
+            for (const [k, v] of rTapSeen) { if (now - v > 60 * 1000) rTapSeen.delete(k); }
+          }
+          // 記錄失敗不能擋跳轉——用戶體驗優先
+          await query(
+            `INSERT INTO rich_menu_taps (menu_id, tab, cell, kind, label) VALUES ($1,$2,$3,'link',$4)`,
+            [id, tab, cell, label]).catch(() => {});
+        }
+      }
       res.redirect(uri || FALLBACK);
     } catch (e) {
       res.redirect(FALLBACK);
@@ -397,12 +457,19 @@ function registerAdminRichMenuRoutes(app, deps) {
       const body = req.body || {};
       const id = Number(body.id);
       if (!id) return jsonErr(res, 400, 'bad_id');
-      const { rows } = await query(`SELECT line_rich_menu_id FROM rich_menus WHERE id=$1`, [id]);
+      const { rows } = await query(`SELECT line_rich_menu_id, line_rich_menu_ids FROM rich_menus WHERE id=$1`, [id]);
       if (rows.length === 0) return jsonErr(res, 404, 'not_found');
       const startAt = body.start_at ? new Date(body.start_at) : null;
       const endAt = body.end_at ? new Date(body.end_at) : null;
       if ((startAt && isNaN(startAt)) || (endAt && isNaN(endAt))) return jsonErr(res, 400, 'bad_time', { detail: '時間格式不對' });
       if (startAt && endAt && endAt <= startAt) return jsonErr(res, 400, 'bad_time', { detail: '下架時間要在上架時間之後' });
+      // 過去的上架時間會讓排程永遠不執行，卻被標成「已上架」——寧可當場擋下講清楚
+      if (startAt && startAt <= new Date()) {
+        return jsonErr(res, 400, 'bad_time', { detail: '上架時間要選未來的時間。想現在就上，直接按「設為所有人看到的」就好。' });
+      }
+      if (endAt && endAt <= new Date()) {
+        return jsonErr(res, 400, 'bad_time', { detail: '下架時間要選未來的時間。' });
+      }
       if ((startAt || endAt) && !rows[0].line_rich_menu_id) {
         return jsonErr(res, 400, 'not_published', { detail: '先發布這個選單，才能排上下架時間' });
       }
@@ -414,7 +481,22 @@ function registerAdminRichMenuRoutes(app, deps) {
         }
       }
       if (!endAt) endMenuId = null;
-      const state = (!startAt && !endAt) ? null : (startAt && startAt > new Date() ? 'pending' : (endAt ? 'live' : null));
+      // 只排下架（沒排上架）＝「現在檯面上這個選單，到時候收掉」——
+      // 那它得真的是所有人看到的那個，否則「已排上架」的狀態是在騙人，
+      // 到點還會把別人正在線上的選單收掉
+      if (endAt && !startAt) {
+        const allIds = new Set([rows[0].line_rich_menu_id].filter(Boolean));
+        if (Array.isArray(rows[0].line_rich_menu_ids)) {
+          rows[0].line_rich_menu_ids.forEach(x => { if (x && x.id) allIds.add(x.id); });
+        }
+        let cur = null;
+        try { cur = (await rm.getDefaultRichMenu()).id; } catch (e) { /* 查不到就照舊放行 */ }
+        if (cur && !allIds.has(cur)) {
+          return jsonErr(res, 400, 'not_live', {
+            detail: '這個選單現在不是所有人看到的，沒有「下架」可排。想讓它之後自動上架，把上架時間也填上。' });
+        }
+      }
+      const state = (!startAt && !endAt) ? null : (startAt ? 'pending' : 'live');
       await query(
         `UPDATE rich_menus SET schedule_start_at=$2, schedule_end_at=$3, schedule_end_menu_id=$4,
                 schedule_state=$5, updated_at=now() WHERE id=$1`,
@@ -434,6 +516,41 @@ function registerAdminRichMenuRoutes(app, deps) {
         return jsonErr(res, 403, 'forbidden');
       }
       const done = [];
+      // 順序鐵則：先下架、再上架。
+      // 反過來的話，同一個 tick 內換檔（舊選單下架＋新選單上架同時到點）
+      // 會先把新選單設上去、再被舊選單的下架動作清掉——所有人選單直接消失。
+      //
+      // 到點下架：換成指定選單，或不顯示。
+      // 動手前先跟 LINE 確認「檯面上的預設選單真的還是我」——中途有人手動換過選單
+      // 的話，過期排程不可以把別人正在線上的選單收掉；只把自己標結束、不動 LINE。
+      const { rows: toEnd } = await query(
+        `SELECT id, name, line_rich_menu_id, line_rich_menu_ids, schedule_end_menu_id FROM rich_menus
+          WHERE schedule_state='live' AND schedule_end_at IS NOT NULL AND schedule_end_at <= now() LIMIT 10`);
+      for (const r of toEnd) {
+        try {
+          const myIds = new Set([r.line_rich_menu_id].filter(Boolean));
+          if (Array.isArray(r.line_rich_menu_ids)) {
+            r.line_rich_menu_ids.forEach(x => { if (x && x.id) myIds.add(x.id); });
+          }
+          let cur = null;
+          try { cur = (await rm.getDefaultRichMenu()).id; } catch (e) { /* 查不到就保守跳過動作 */ }
+          const stillMine = !!(cur && myIds.has(cur));
+          if (stillMine) {
+            if (r.schedule_end_menu_id) {
+              const { rows: em } = await query(`SELECT line_rich_menu_id FROM rich_menus WHERE id=$1`, [r.schedule_end_menu_id]);
+              if (em.length && em[0].line_rich_menu_id) {
+                await rm.setDefault(em[0].line_rich_menu_id);
+                await query(`UPDATE rich_menus SET is_default = (id = $1) WHERE true`, [r.schedule_end_menu_id]);
+              }
+            } else {
+              await rm.clearDefault();
+              await query(`UPDATE rich_menus SET is_default=false WHERE true`);
+            }
+          }
+          await query(`UPDATE rich_menus SET schedule_state='done', updated_at=now() WHERE id=$1`, [r.id]);
+          done.push({ id: r.id, action: stillMine ? 'end' : 'end_skipped_not_live' });
+        } catch (e) { console.error('richmenu schedule end failed:', r.id, e.message); }
+      }
       // 到點上架：設為所有人看到的
       const { rows: toStart } = await query(
         `SELECT id, name, line_rich_menu_id FROM rich_menus
@@ -449,26 +566,6 @@ function registerAdminRichMenuRoutes(app, deps) {
           done.push({ id: r.id, action: 'start' });
         } catch (e) { console.error('richmenu schedule start failed:', r.id, e.message); }
       }
-      // 到點下架：換成指定選單，或不顯示
-      const { rows: toEnd } = await query(
-        `SELECT id, name, schedule_end_menu_id FROM rich_menus
-          WHERE schedule_state='live' AND schedule_end_at IS NOT NULL AND schedule_end_at <= now() LIMIT 10`);
-      for (const r of toEnd) {
-        try {
-          if (r.schedule_end_menu_id) {
-            const { rows: em } = await query(`SELECT line_rich_menu_id FROM rich_menus WHERE id=$1`, [r.schedule_end_menu_id]);
-            if (em.length && em[0].line_rich_menu_id) {
-              await rm.setDefault(em[0].line_rich_menu_id);
-              await query(`UPDATE rich_menus SET is_default = (id = $1) WHERE true`, [r.schedule_end_menu_id]);
-            }
-          } else {
-            await rm.clearDefault();
-            await query(`UPDATE rich_menus SET is_default=false WHERE true`);
-          }
-          await query(`UPDATE rich_menus SET schedule_state='done', updated_at=now() WHERE id=$1`, [r.id]);
-          done.push({ id: r.id, action: 'end' });
-        } catch (e) { console.error('richmenu schedule end failed:', r.id, e.message); }
-      }
       res.json({ ok: true, done });
     } catch (err) {
       console.error('richmenu run-schedule error:', err && err.message);
@@ -477,6 +574,31 @@ function registerAdminRichMenuRoutes(app, deps) {
   });
 
   // ── 名單專屬選單（用名單庫當「用戶標籤」）────────────────────
+
+  // 解除一批人的專屬選單。有人同時也在「別的選單」生效中的名單裡→改連到那個選單，
+  // 不是一律退回預設——全域解除會把其他選單的名單專屬一併打掉（審查抓到的實錯）。
+  // 同一人掛在多個名單時，以最近套用的那個選單為準。
+  async function unlinkOrRelink(uids, exceptRowId) {
+    if (!uids.length) return;
+    const { rows: owned } = await query(
+      `SELECT DISTINCT ON (m.line_user_id) m.line_user_id, r.line_rich_menu_id
+         FROM rich_menus r
+         JOIN admin_recipient_list_members m ON m.list_id = r.audience_list_id
+        WHERE r.audience_applied_at IS NOT NULL AND r.line_rich_menu_id IS NOT NULL
+          AND r.id <> $1 AND m.line_user_id = ANY($2)
+        ORDER BY m.line_user_id, r.audience_applied_at DESC`,
+      [exceptRowId || 0, uids]);
+    const byMenu = new Map();
+    for (const o of owned) {
+      if (!byMenu.has(o.line_rich_menu_id)) byMenu.set(o.line_rich_menu_id, []);
+      byMenu.get(o.line_rich_menu_id).push(o.line_user_id);
+    }
+    const keepSet = new Set(owned.map(o => o.line_user_id));
+    const plain = uids.filter(u => !keepSet.has(u));
+    if (plain.length) await rm.bulkUnlink(plain);
+    for (const [mid, us] of byMenu) await rm.bulkLink(mid, us);
+  }
+
   app.post('/admin/richmenu/api/audience', requireAdmin, async (req, res) => {
     try {
       const body = req.body || {};
@@ -487,18 +609,26 @@ function registerAdminRichMenuRoutes(app, deps) {
       if (rows.length === 0) return jsonErr(res, 404, 'not_found');
       const row = rows[0];
       const listId = Number(body.list_id) || null;
+      // 一次呼叫最多處理 4000 人（8 次 LINE API）。大名單分好幾次呼叫跑完，
+      // 免得撞上 serverless 的 10 秒斷頭：斷在一半會變成「上千人已綁定、後台卻說沒套用」。
+      const CHUNK = 4000;
+      const offset = Math.max(0, Number(body.offset) || 0);
 
       const memberUids = async (lid) => {
         const { rows: ms } = await query(
-          `SELECT line_user_id FROM admin_recipient_list_members WHERE list_id=$1 LIMIT 20000`, [lid]);
+          `SELECT line_user_id FROM admin_recipient_list_members WHERE list_id=$1 ORDER BY line_user_id LIMIT 20000`, [lid]);
         return ms.map(x => String(x.line_user_id || '').trim()).filter(u => /^U[0-9a-f]{32}$/i.test(u));
       };
 
       if (!listId) {
-        // 取消名單專屬：把原名單成員解除綁定（回到所有人看到的）
+        // 取消名單專屬：把原名單成員解除綁定（在別的名單裡的人轉掛過去，其他人回到所有人看到的）
         if (row.audience_list_id) {
           const uids = await memberUids(row.audience_list_id);
-          if (uids.length) await rm.bulkUnlink(uids);
+          const slice = uids.slice(offset, offset + CHUNK);
+          if (slice.length) await unlinkOrRelink(slice, id);
+          if (offset + CHUNK < uids.length) {
+            return res.json({ ok: true, partial: true, done: offset + CHUNK, total: uids.length, next_offset: offset + CHUNK });
+          }
         }
         await query(`UPDATE rich_menus SET audience_list_id=NULL, audience_applied_at=NULL,
                      audience_applied_count=NULL, updated_at=now() WHERE id=$1`, [id]);
@@ -508,16 +638,24 @@ function registerAdminRichMenuRoutes(app, deps) {
       if (!row.line_rich_menu_id) return jsonErr(res, 400, 'not_published', { detail: '先發布這個選單，才能指定名單' });
       const uids = await memberUids(listId);
       if (!uids.length) return jsonErr(res, 400, 'empty_list', { detail: '這份名單沒有可用的成員' });
-      // 換名單時，先把舊名單裡「不在新名單」的人解除
-      if (row.audience_list_id && row.audience_list_id !== listId) {
+      // 換名單時，第一批先把舊名單裡「不在新名單」的人解除（或轉掛到他所屬的其他選單）
+      if (offset === 0 && row.audience_list_id && row.audience_list_id !== listId) {
         const oldUids = await memberUids(row.audience_list_id);
         const keep = new Set(uids);
         const drop = oldUids.filter(u => !keep.has(u));
-        if (drop.length) await rm.bulkUnlink(drop);
+        if (drop.length) await unlinkOrRelink(drop, id);
       }
-      await rm.bulkLink(row.line_rich_menu_id, uids);
-      await query(`UPDATE rich_menus SET audience_list_id=$2, audience_applied_at=now(),
-                   audience_applied_count=$3, updated_at=now() WHERE id=$1`, [id, listId, uids.length]);
+      const slice = uids.slice(offset, offset + CHUNK);
+      await rm.bulkLink(row.line_rich_menu_id, slice);
+      const doneCount = Math.min(offset + CHUNK, uids.length);
+      const finished = doneCount >= uids.length;
+      await query(`UPDATE rich_menus SET audience_list_id=$2,
+                   audience_applied_at = CASE WHEN $4 THEN now() ELSE audience_applied_at END,
+                   audience_applied_count=$3, updated_at=now() WHERE id=$1`,
+                  [id, listId, doneCount, finished]);
+      if (!finished) {
+        return res.json({ ok: true, partial: true, done: doneCount, total: uids.length, next_offset: doneCount });
+      }
       res.json({ ok: true, applied: uids.length });
     } catch (err) {
       console.error('richmenu audience error:', err && err.message);
@@ -541,7 +679,9 @@ function registerAdminRichMenuRoutes(app, deps) {
           detail: '測試人員清單是空的。到「群發訊息」頁面把自己加進測試人員，回來再按。' });
       }
       if (stop) {
-        await rm.bulkUnlink(uids);
+        // 不能一律 unlink：測試人員若本來就在某個「名單專屬選單」的名單裡，
+        // 結束預覽要回到那個選單，不是退回所有人看到的
+        await unlinkOrRelink(uids, 0);
         return res.json({ ok: true, stopped: true, count: uids.length });
       }
       if (!id) return jsonErr(res, 400, 'bad_id');

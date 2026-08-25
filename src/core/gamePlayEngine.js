@@ -20,7 +20,9 @@ function replayFromRow(row) {
     replayed: true,
     play_id: row.id,
     coupon_code: row.coupon_code || null,
-    coupon_out_of_stock: false,
+    // 第一次抽中優惠券但碼池剛好發完的人，重播也要看到「這份券剛好發完了」的說明，
+    // 不能只給獎名沒序號讓他以為頁面壞掉
+    coupon_out_of_stock: !row.coupon_code && snap.prize_type === 'coupon_code',
     prize: {
       id: row.prize_id,
       name: snap.name, description: snap.description,
@@ -67,6 +69,19 @@ async function selectPrizeAndRecord(opts) {
         return replayFromRow(dup[0]);
       }
     }
+    // 收訊差重送的最後防線：判定「次數用完」前一律再查一次同鑰匙紀錄。
+    // 開頭那次查重看不到「還在執行中、尚未 commit 的第一個請求」；
+    // 這個請求等鎖等到第一個 commit 之後，次數看起來已滿——不補查的話，
+    // 重送會拿到「次數已用完」而不是他原本抽到的結果，防重播機制在它
+    // 唯一要保護的情境下反而失效。
+    const replayIfDuplicate = async () => {
+      if (!playKey) return null;
+      const { rows: dup } = await client.query(
+        `SELECT id, prize_id, prize_snapshot, coupon_code FROM activity_plays
+          WHERE activity_id = $1 AND line_user_id = $2 AND properties->>'play_key' = $3 LIMIT 1`,
+        [a.id, lineUserId, playKey]);
+      return dup.length ? replayFromRow(dup[0]) : null;
+    };
     if (a.status !== 'active') {
       await client.query('ROLLBACK');
       return { error: { status: 403, code: 'activity_not_active', detail: '活動目前不可玩' } };
@@ -91,7 +106,9 @@ async function selectPrizeAndRecord(opts) {
     const totalQuota = quota.total;
     const played = quota.played;
     if (played >= totalQuota) {
+      const rp = await replayIfDuplicate();
       await client.query('ROLLBACK');
+      if (rp) return rp;
       const canEarnMore = !quota.override && quota.referral_bonus_per > 0 &&
         quota.referral_bonus < quota.referral_bonus_max;
       return {
@@ -116,7 +133,9 @@ async function selectPrizeAndRecord(opts) {
         [a.id, lineUserId]
       );
       if (Number(dCount[0].c) >= a.daily_plays_per_user) {
+        const rp = await replayIfDuplicate();
         await client.query('ROLLBACK');
+        if (rp) return rp;
         return {
           error: {
             status: 429,
@@ -152,7 +171,9 @@ async function selectPrizeAndRecord(opts) {
       [a.id, lineUserId]
     );
     if (Number(reCount[0].c) >= totalQuota) {
+      const rp = await replayIfDuplicate();
       await client.query('ROLLBACK');
+      if (rp) return rp;
       return { error: { status: 429, code: 'quota_exhausted', detail: '次數已用完。' } };
     }
 
@@ -547,10 +568,13 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
     } catch (e) { /* 查不到就回 null，前端當作靜默處理 */ }
   }
   if (counted && gameType !== 'mgm') {
-    // 邀請成功 → 即時通知邀請人。fire-and-forget：通知失敗絕不影響 API 回應。
+    // 邀請成功 → 即時通知邀請人。必須 await：serverless（Lambda）在 response 送出後
+    // 會凍結，不 await 的話這個推播多數時候根本不會送出（lineWebhook.js 的同一條鐵則）。
+    // 失敗只記 log，絕不影響 API 回應本體。
     // MGM（揪友賺哩）有自己的里程碑卡片，不走這個遊戲式通知
-    notifyInviterOfReferral({ query, activity: a, activitySlug, gameType, inviterId, inviteeId, inviteeWasExisting })
-      .catch(err => console.error('referral inviter notify failed:', err && err.message));
+    try {
+      await notifyInviterOfReferral({ query, activity: a, activitySlug, gameType, inviterId, inviteeId, inviteeWasExisting });
+    } catch (err) { console.error('referral inviter notify failed:', err && err.message); }
   }
   return { ok: true, counted, same_inviter: sameInviter, invitee_was_existing: inviteeWasExisting };
 }

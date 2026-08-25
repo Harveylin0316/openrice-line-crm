@@ -738,7 +738,8 @@
         try {
           if (!profile || !profile.userId) return;
           var resp = await fetch('/api/games/fortune/' + encodeURIComponent(slug) +
-            '/meta?line_user_id=' + encodeURIComponent(profile.userId) + '&id_token=' + encodeURIComponent(idToken || '')).then(function (r) { return r.json(); });
+            '/meta?line_user_id=' + encodeURIComponent(profile.userId),
+            { headers: { 'Authorization': 'Bearer ' + (idToken || '') } }).then(function (r) { return r.json(); });
           if (!resp.ok || !resp.quota) return;
           renderQuota(resp.quota);
         } catch (e) { console.warn('quota fetch failed:', e); }

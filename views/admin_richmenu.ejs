@@ -196,7 +196,7 @@
           <h3 style="margin:0;">上下架時間</h3>
           <button type="button" class="rm-x" id="rm-sch-close">×</button>
         </div>
-        <p class="muted" style="font-size:13px;margin:4px 0 14px;">到點自動生效，前後最多差五分鐘。留空＝不排。</p>
+        <p class="muted" style="font-size:13px;margin:4px 0 14px;line-height:1.7;">到點自動生效，前後最多差五分鐘。留空＝不排。時間要選未來的。<br>下架時間到的時候，如果中間已經有人手動換過選單，排程就不會去動它。</p>
         <div style="display:flex;flex-direction:column;gap:12px;">
           <label class="rm-field"><span>上架時間（到點自動設為所有人看到的）</span>
             <input type="datetime-local" id="rm-sch-start"></label>
@@ -653,8 +653,10 @@
           .then(function(r){return r.json();})
           .then(function(d){
             if(!d.ok){
-              alert(d.detail||ERR_WORDS[d.error]||'沒有成功，重新整理頁面再試一次。');
-              if(fail)fail(d);return;
+              // fail 回傳 true＝呼叫端自己處理了這個錯誤（例如改問一次確認），不要再跳預設訊息
+              var handled=fail?fail(d):false;
+              if(!handled)alert(d.detail||ERR_WORDS[d.error]||'沒有成功，重新整理頁面再試一次。');
+              return;
             }
             if(ok)ok(d);
           })
@@ -769,16 +771,28 @@
           });});
         [].slice.call(document.querySelectorAll('.rm-live-btn')).forEach(function(b){
           b.addEventListener('click',function(){
-            if(!confirm('把這個選單設為所有人看到的？會蓋過現在的選單（包含 LINE 官方後台設定的）。'))return;
+            if(!confirm('把這個選單設為所有人看到的？會蓋過現在的選單（包含 LINE 官方後台設定的）。舊選單如果有分頁，之前切換過分頁的人要等舊選單被刪掉才會換過來。'))return;
             post('/admin/richmenu/api/set-default',{id:Number(b.getAttribute('data-id'))},function(){load();});
           });});
+        function doDelete(id,confirmAudience){
+          var body={id:id};
+          if(confirmAudience)body.confirm_audience=true;
+          post('/admin/richmenu/api/delete',body,function(){load();},function(d){
+            // 這個選單是某份名單的專屬選單：後端擋下來並說了後果，這裡照實再問一次
+            if(d&&d.error==='audience_attached'){
+              if(confirm(d.detail))doDelete(id,true);
+              return true;
+            }
+            return false;
+          });
+        }
         [].slice.call(document.querySelectorAll('.rm-del')).forEach(function(b){
           b.addEventListener('click',function(){
             var pub=b.getAttribute('data-pub')==='1';
             var msg=pub?'這個選單已經發布到 LINE 上。刪掉會連 LINE 上的一起刪（如果它正是所有人看到的，系統會擋下來）。確定？'
                        :'刪掉草稿「'+b.getAttribute('data-name')+'」？';
             if(!confirm(msg))return;
-            post('/admin/richmenu/api/delete',{id:Number(b.getAttribute('data-id'))},function(){load();});
+            doDelete(Number(b.getAttribute('data-id')),false);
           });});
         [].slice.call(document.querySelectorAll('.rm-preview')).forEach(function(b){
           b.addEventListener('click',function(){
@@ -857,22 +871,32 @@
         $('rm-aud-modal').hidden=false;
       }
       $('rm-aud-close').addEventListener('click',function(){$('rm-aud-modal').hidden=true;});
+      // 大名單一次跑不完（伺服器有十秒上限），伺服器會回「還沒跑完、從第幾個接著跑」，
+      // 這裡就接著送下一批，直到跑完為止——中途斷掉會變成「一半的人換了、後台卻說沒套用」
+      function applyAudience(id,listId,offset,btn,done){
+        post('/admin/richmenu/api/audience',{id:id,list_id:listId,offset:offset||0},
+          function(d){
+            if(d.partial){
+              $('rm-aud-note').textContent='套用中… '+d.done+' / '+d.total+' 人';
+              applyAudience(id,listId,d.next_offset,btn,done);
+              return;
+            }
+            btn.disabled=false;done();
+          },
+          function(){btn.disabled=false;$('rm-aud-note').textContent='';});
+      }
       $('rm-aud-apply').addEventListener('click',function(){
         if(!modalRow)return;
         var lid=Number($('rm-aud-select').value);
         if(!lid){$('rm-aud-note').textContent='先去名單庫建一份名單';return;}
         var btn=this;btn.disabled=true;$('rm-aud-note').textContent='套用中…';
-        post('/admin/richmenu/api/audience',{id:modalRow.id,list_id:lid},
-          function(d){btn.disabled=false;$('rm-aud-modal').hidden=true;load();},
-          function(){btn.disabled=false;$('rm-aud-note').textContent='';});
+        applyAudience(modalRow.id,lid,0,btn,function(){$('rm-aud-modal').hidden=true;load();});
       });
       $('rm-aud-clear').addEventListener('click',function(){
         if(!modalRow)return;
-        if(!confirm('取消名單專屬？名單裡的人會回到「所有人看到的」那個選單。'))return;
-        var btn=this;btn.disabled=true;
-        post('/admin/richmenu/api/audience',{id:modalRow.id,list_id:null},
-          function(){btn.disabled=false;$('rm-aud-modal').hidden=true;load();},
-          function(){btn.disabled=false;});
+        if(!confirm('取消名單專屬？名單裡的人會回到「所有人看到的」那個選單（本來就在別份名單裡的人，會換成那份名單的選單）。'))return;
+        var btn=this;btn.disabled=true;$('rm-aud-note').textContent='處理中…';
+        applyAudience(modalRow.id,null,0,btn,function(){$('rm-aud-modal').hidden=true;load();});
       });
 
       // ── 成效視窗 ───────────────────────────────────────────

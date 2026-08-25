@@ -224,12 +224,14 @@
           // 自動貼標籤規則
           fetch('/admin/users/api/tag-rules').then(function(r){return r.json();}).then(function(rd){
             if(!rd.ok)return;
+            // menu_tap 只認得到「發送文字」與「切換分頁」的按鍵；
+            // 「開啟網址」的按鍵記不到是誰按的，名稱要照實講，別讓人以為漏貼是壞掉
             var KIND_WORDS={won_prize:'中過獎',played:'玩過遊戲',invited:'邀請朋友成功',
-              was_invited:'被朋友邀請進來',menu_tap:'按過圖文選單',messaged:'傳過訊息'};
+              was_invited:'被朋友邀請進來',menu_tap:'按過選單的文字按鍵',messaged:'傳過訊息'};
             var div=document.createElement('div');
             div.style.cssText='margin-top:14px;padding-top:12px;border-top:1px solid #F3F4F6;';
             div.innerHTML='<div style="font-weight:700;margin-bottom:4px;">自動貼標籤</div>'+
-              '<p class="muted" style="font-size:12px;margin:0 0 8px;line-height:1.6;">做過某件事滿幾次，就自動貼上標籤（每五分鐘檢查一次，新達標的人會自動貼上；只會貼、不會自動撕；測試人員清單裡的帳號不會被貼）。</p>'+
+              '<p class="muted" style="font-size:12px;margin:0 0 8px;line-height:1.6;">做過某件事滿幾次，就自動貼上標籤（每五分鐘檢查一次，新達標的人會自動貼上；只會貼、不會自動撕；測試人員清單裡的帳號不會被貼）。<br>「按過選單的文字按鍵」只算得到會送出文字的按鍵；直接開啟網址的按鍵（找餐廳、訂位那種）記不到是誰按的，不會算進來。</p>'+
               (rd.rules.length?rd.rules.map(function(rl){
                 return '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12.5px;flex-wrap:wrap;">'+
                   '<span>'+(KIND_WORDS[rl.rule_kind]||rl.rule_kind)+'滿 '+rl.threshold+' 次 → </span>'+
@@ -351,15 +353,29 @@
         }
 
         // reset=true：搜尋或首次載入，offset 歸 0、清空列表；reset=false：載入更多，append
+        // 載入中又改了搜尋字或標籤時，記下最新條件，等這次回來再自動補跑一次——
+        // 直接 return 丟掉的話，畫面會停在舊條件的結果（打字快就會看到）
+        var pendingReload=null;
         function loadList(reset){
-          if(loading)return;
+          if(loading){ if(reset) pendingReload=true; return; }
           loading=true;
           var s=$('us-search').value.trim();
           var offset=reset?0:loaded;
           var btn=$('us-more-btn');
+          var reqTag=curTag;
           if(!reset&&btn){btn.disabled=true;btn.textContent='載入中…';}
-          fetch('/admin/users/api/list?limit='+PAGE+'&offset='+offset+'&search='+encodeURIComponent(s)+(curTag?('&tag_id='+curTag):'')).then(function(r){return r.json();}).then(function(d){
+          function afterDone(){
             loading=false;
+            // 條件在途中被改過（或有被丟掉的請求）就立刻用最新條件重跑
+            if(pendingReload||reqTag!==curTag||s!==$('us-search').value.trim()){
+              pendingReload=null;
+              loadList(true);
+              return true;
+            }
+            return false;
+          }
+          fetch('/admin/users/api/list?limit='+PAGE+'&offset='+offset+'&search='+encodeURIComponent(s)+(reqTag?('&tag_id='+reqTag):'')).then(function(r){return r.json();}).then(function(d){
+            if(afterDone())return;
             var box=$('us-list');
             if(!d.ok){if(reset)box.innerHTML='<p class="muted">載入失敗</p>';updateMore();return;}
             if(reset){
@@ -378,7 +394,7 @@
             updateCount();
             updateMore();
           }).catch(function(e){
-            loading=false;
+            if(afterDone())return;
             var box=$('us-list');
             if(reset){if(box)box.innerHTML='<p class="muted">載入失敗，請重新整理</p>';}
             else{updateMore();}

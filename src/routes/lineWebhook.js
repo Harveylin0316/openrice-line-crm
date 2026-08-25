@@ -427,8 +427,13 @@ function createLineWebhookHandler({
             try {
               const now = Date.now();
               if (!globalThis.__rmBtnCache || now - globalThis.__rmBtnCache.at > 60000) {
+                // 同一段文字可能出現在好幾個已發布選單上；訊息事件分不出用戶按的是哪個。
+                // 排序讓「現役預設選單」最後蓋進 map ＝ 同字歸因給現役那個，
+                // 統計至少穩定偏向大家實際看得到的選單，不會隨機記到備用選單頭上。
                 const { rows: pubs } = await pool.query(
-                  `SELECT id, published_config FROM rich_menus WHERE status='published' AND published_config IS NOT NULL LIMIT 30`);
+                  `SELECT id, published_config FROM rich_menus
+                    WHERE status='published' AND published_config IS NOT NULL
+                    ORDER BY is_default ASC, published_at ASC NULLS FIRST LIMIT 30`);
                 const map = new Map();
                 for (const r of pubs) {
                   const tabsArr = Array.isArray(r.published_config.tabs) && r.published_config.tabs.length

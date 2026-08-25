@@ -337,6 +337,9 @@
       var statusEl = document.getElementById('status');
       var statusRow = document.getElementById('status-row');
       var modal = document.getElementById('modal');
+      // 一定要在 bootstrap 之前取到：晚宣告的話（var hoisting）bootstrap 讀到 undefined，
+      // 「尚未開放」「稍等一下」的初始鎖定完全不會套用
+      var ctaBtn = document.getElementById('cta-spin');
 
       var spinning = false;
       var pendingPlayKey = null;   // 防重複扣次數的鑰匙（收到回應就換新）
@@ -651,9 +654,9 @@
               play_key: pendingPlayKey
             })
           }).then(function (r) { return r.json(); });
-          pendingPlayKey = null;   // 有收到回應（不管成敗）就換新鑰匙
 
           if (!resp.ok) {
+            pendingPlayKey = null;   // 伺服器明確拒絕（沒扣次數）→ 換新鑰匙
             if (resp.error === 'must_follow_oa') {
               if (window.ORMGM) ORMGM.gate.serverDenied();
               openFollowGate('要先加「OpenRice 開飯喇」好友才能參加，加完回來就可以玩。');
@@ -667,8 +670,12 @@
           await animateToPrize(resp.prize);
           await highlightWinner(resp.prize); // 停頓：高亮 pulse ~0.55s
           showResult(resp.prize, resp);
+          // 鑰匙撐到結果真的顯示出來才換新：萬一動畫或顯示途中出錯，
+          // 用戶照提示再按一次會帶同一把鑰匙→伺服器回原結果，不會被多扣一次
+          pendingPlayKey = null;
         } catch (e) {
-          // 網路斷掉：鑰匙留著，下一次按會重送同一把，結果不會被扣兩次
+          // 收不到回應或顯示途中出錯：鑰匙留著，下一次按會重送同一把，
+          // 伺服器認得就回原本的結果，不會扣兩次
           statusEl.textContent = '收訊不穩，再按一次「開始轉」';
         } finally {
           spinning = false;
@@ -948,8 +955,8 @@
       async function refreshMyPrizes() {
         try {
           if (!profile || !profile.userId) return;
-          var resp = await fetch('/api/games/wallet?line_user_id=' + encodeURIComponent(profile.userId) +
-            '&id_token=' + encodeURIComponent(idToken || '')).then(function (r) { return r.json(); });
+          var resp = await fetch('/api/games/wallet?line_user_id=' + encodeURIComponent(profile.userId),
+            { headers: { 'Authorization': 'Bearer ' + (idToken || '') } }).then(function (r) { return r.json(); });
           if (!resp || !resp.ok || !Array.isArray(resp.prizes)) return;
           var mine = resp.prizes.filter(function (p) { return p.activity_slug === slug; });
           var box = document.getElementById('myprize');
@@ -996,7 +1003,8 @@
         try {
           if (!profile || !profile.userId) return;
           var resp = await fetch('/api/games/wheel/' + encodeURIComponent(slug) +
-            '/meta?line_user_id=' + encodeURIComponent(profile.userId) + '&id_token=' + encodeURIComponent(idToken || '')).then(function (r) { return r.json(); });
+            '/meta?line_user_id=' + encodeURIComponent(profile.userId),
+            { headers: { 'Authorization': 'Bearer ' + (idToken || '') } }).then(function (r) { return r.json(); });
           if (!resp.ok || !resp.quota) return;
           renderQuota(resp.quota);
           refreshMyPrizes();
@@ -1016,7 +1024,7 @@
 
       // 主 CTA 有三種身分：轉、找朋友、看券。次數用完時把主鈕換成邀請，
       // 是整個 MGM 能不能擴散的關鍵，不能只把鈕變灰。
-      var ctaBtn = document.getElementById('cta-spin');
+      // （ctaBtn 本身在最上面宣告——bootstrap 比這裡早跑，需要用到它）
       var ctaMode = 'spin';
       function setCtaMode(mode) {
         if (!ctaBtn) return;
