@@ -29,6 +29,15 @@ function registerAdminRichMenuRoutes(app, deps) {
   const gamesLiffId = () =>
     process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '';
 
+  /** 這份程式是哪一版（建置時寫進 build-info.json；本機沒有就顯示「本機」） */
+  let _build = null;
+  const buildId = () => {
+    if (_build !== null) return _build;
+    try { _build = (require('../build-info.json').build || '').slice(0, 7) || '本機'; }
+    catch (e) { _build = String(process.env.COMMIT_REF || '').slice(0, 7) || '本機'; }
+    return _build;
+  };
+
   app.get('/admin/richmenu', requireAdmin, (req, res) => {
     res.render('admin_richmenu', {
       title: '圖文選單',
@@ -82,8 +91,9 @@ function registerAdminRichMenuRoutes(app, deps) {
           };
         }),
         wallet_url: gamesLiffId() ? ('https://liff.line.me/' + gamesLiffId() + '/wallet') : '',
-        // 版本代號：出問題時第一個要問的是「你手上這頁是哪一版」，讓它直接看得到
-        build: String(process.env.COMMIT_REF || '').slice(0, 7) || '本機'
+        // 版本代號：出問題時第一個要問的是「你手上這頁是哪一版」，讓它直接看得到。
+        // COMMIT_REF 只有建置階段讀得到，所以建置時寫進檔案，這裡再讀出來。
+        build: buildId()
       });
     } catch (err) {
       console.error('richmenu data error:', err && err.message);

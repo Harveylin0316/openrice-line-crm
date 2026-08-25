@@ -652,6 +652,17 @@
 
       // 「點了沒反應」是最難查的狀況：頁面出錯時要講出來，不能靜靜吞掉。
       // 版本也一起顯示——多數時候是瀏覽器還停在舊版，重新整理就好。
+      // 資料載入走 Promise 鏈，裡面拋的錯不會觸發下面那個 error 事件，
+      // 只會變成「沒人接的 rejection」——這正是這次「按鈕沒反應又沒訊息」的原因。
+      window.addEventListener('unhandledrejection', function (e) {
+        try {
+          var bar = document.getElementById('rm-live-note');
+          if (!bar) return;
+          var msg = (e && e.reason && (e.reason.message || e.reason)) || '不明錯誤';
+          bar.innerHTML = '<b style="color:#b91c1c;">這個頁面載入時出了狀況：' + String(msg) +
+            '</b><br>把這行字截圖給我。';
+        } catch (x) {}
+      });
       window.addEventListener('error', function (e) {
         try {
           var bar = document.getElementById('rm-live-note');
@@ -783,78 +794,82 @@
         bindList();
       }
 
-      function bindList(){
-        [].slice.call(document.querySelectorAll('.rm-edit')).forEach(function(b){
-          b.addEventListener('click',function(){openEditor(Number(b.getAttribute('data-id')));});});
-        [].slice.call(document.querySelectorAll('.rm-dup')).forEach(function(b){
-          b.addEventListener('click',function(){
-            var m=menuById(Number(b.getAttribute('data-id')));
-            if(!m)return;
-            post('/admin/richmenu/api/save',{name:m.name+'（複製）',config:m.config},function(){load();});
-          });});
-        [].slice.call(document.querySelectorAll('.rm-live-btn')).forEach(function(b){
-          b.addEventListener('click',function(){
-            if(!confirm('把這個選單設為所有人看到的？會蓋過現在的選單（包含 LINE 官方後台設定的）。舊選單如果有分頁，之前切換過分頁的人要等舊選單被刪掉才會換過來。'))return;
-            post('/admin/richmenu/api/set-default',{id:Number(b.getAttribute('data-id'))},function(){load();});
-          });});
-        function doDelete(id,confirmAudience){
-          var body={id:id};
-          if(confirmAudience)body.confirm_audience=true;
-          post('/admin/richmenu/api/delete',body,function(){load();},function(d){
-            // 這個選單是某份名單的專屬選單：後端擋下來並說了後果，這裡照實再問一次
-            if(d&&d.error==='audience_attached'){
-              if(confirm(d.detail))doDelete(id,true);
-              return true;
-            }
-            return false;
+      // 列表按鈕改成「委派」：事件掛在整個列表容器上，用點到的按鈕決定做什麼。
+      //
+      // 原本是逐顆 addEventListener，只要中間任何一顆綁定出錯，後面的按鈕就
+      // 全部變成點了沒反應——而且列表是在 Promise 鏈裡重繪的，那種錯誤連
+      // 主控台以外都看不到。委派只綁一次、跟重繪無關，中間出錯也不會波及其他按鈕。
+      var LIST_ACTIONS = {
+        'rm-edit':       function(b){ openEditor(Number(b.getAttribute('data-id'))); },
+        'rm-dup':        function(b){
+          var m=menuById(Number(b.getAttribute('data-id')));
+          if(!m)return;
+          post('/admin/richmenu/api/save',{name:m.name+'（複製）',config:m.config},function(){load();});
+        },
+        'rm-live-btn':   function(b){
+          if(!confirm('把這個選單設為所有人看到的？會蓋過現在的選單（包含 LINE 官方後台設定的）。舊選單如果有分頁，之前切換過分頁的人要等舊選單被刪掉才會換過來。'))return;
+          post('/admin/richmenu/api/set-default',{id:Number(b.getAttribute('data-id'))},function(){load();});
+        },
+        'rm-del':        function(b){
+          var pub=b.getAttribute('data-pub')==='1';
+          var msg=pub?'這個選單已經發布到 LINE 上。刪掉會連 LINE 上的一起刪（如果它正是所有人看到的，系統會擋下來）。確定？'
+                     :'刪掉草稿「'+b.getAttribute('data-name')+'」？';
+          if(!confirm(msg))return;
+          doDelete(Number(b.getAttribute('data-id')),false);
+        },
+        'rm-preview':    function(b){
+          b.disabled=true;
+          post('/admin/richmenu/api/preview',{id:Number(b.getAttribute('data-id'))},
+            function(d){ b.disabled=false;
+              $('rm-preview-note').textContent='已傳給 '+d.count+' 位測試人員（'+(d.names||[]).join('、')+'）。打開自己的 LINE 看，看完按左邊「結束測試預覽」。'; },
+            function(){ b.disabled=false; });
+        },
+        'rm-stats':      function(b){ openStats(Number(b.getAttribute('data-id'))); },
+        'rm-sch':        function(b){ openSchedule(Number(b.getAttribute('data-id'))); },
+        'rm-aud':        function(b){ openAudience(Number(b.getAttribute('data-id'))); },
+        'rm-orphan-img': function(b){
+          var rid=b.getAttribute('data-rid');
+          fetch('/admin/richmenu/api/line-image?rid='+encodeURIComponent(rid)).then(function(r){return r.json();}).then(function(d){
+            var img=document.querySelector('img[data-orphan-img="'+rid+'"]');
+            if(d.ok&&img){img.src=d.data_url;img.style.display='block';b.disabled=true;}
+            else if(!d.ok){b.textContent='沒有圖';b.disabled=true;}
           });
+        },
+        'rm-orphan-live':function(b){
+          if(!confirm('把這個選單設為所有人看到的？會蓋過現在的選單（包含 LINE 官方後台設定的那個）。'))return;
+          post('/admin/richmenu/api/set-default',{line_rich_menu_id:b.getAttribute('data-rid')},function(){load();});
+        },
+        'rm-orphan-del': function(b){
+          if(!confirm('從 LINE 上刪掉這個選單？如果它正是所有人看到的，系統會擋下來。'))return;
+          post('/admin/richmenu/api/delete',{line_rich_menu_id:b.getAttribute('data-rid')},function(){load();});
         }
-        [].slice.call(document.querySelectorAll('.rm-del')).forEach(function(b){
-          b.addEventListener('click',function(){
-            var pub=b.getAttribute('data-pub')==='1';
-            var msg=pub?'這個選單已經發布到 LINE 上。刪掉會連 LINE 上的一起刪（如果它正是所有人看到的，系統會擋下來）。確定？'
-                       :'刪掉草稿「'+b.getAttribute('data-name')+'」？';
-            if(!confirm(msg))return;
-            doDelete(Number(b.getAttribute('data-id')),false);
-          });});
-        [].slice.call(document.querySelectorAll('.rm-preview')).forEach(function(b){
-          b.addEventListener('click',function(){
-            var btn=b;btn.disabled=true;
-            post('/admin/richmenu/api/preview',{id:Number(b.getAttribute('data-id'))},
-              function(d){btn.disabled=false;
-                $('rm-preview-note').textContent='已傳給 '+d.count+' 位測試人員（'+(d.names||[]).join('、')+'）。打開自己的 LINE 看，看完按左邊「結束測試預覽」。';},
-              function(){btn.disabled=false;});
-          });});
-        [].slice.call(document.querySelectorAll('.rm-stats')).forEach(function(b){
-          b.addEventListener('click',function(){openStats(Number(b.getAttribute('data-id')));});});
-        [].slice.call(document.querySelectorAll('.rm-sch')).forEach(function(b){
-          b.addEventListener('click',function(){
-            try{ openSchedule(Number(b.getAttribute('data-id'))); }
-            catch(err){ alert('上下架視窗開不起來：'+(err&&err.message||err)+
-              '。先重新整理頁面試試（Cmd+Shift+R）。'); }
-          });});
-        [].slice.call(document.querySelectorAll('.rm-aud')).forEach(function(b){
-          b.addEventListener('click',function(){openAudience(Number(b.getAttribute('data-id')));});});
-        [].slice.call(document.querySelectorAll('.rm-orphan-img')).forEach(function(b){
-          b.addEventListener('click',function(){
-            var rid=b.getAttribute('data-rid');
-            fetch('/admin/richmenu/api/line-image?rid='+encodeURIComponent(rid)).then(function(r){return r.json();}).then(function(d){
-              var img=document.querySelector('img[data-orphan-img="'+rid+'"]');
-              if(d.ok&&img){img.src=d.data_url;img.style.display='block';b.disabled=true;}
-              else if(!d.ok){b.textContent='沒有圖';b.disabled=true;}
-            });
-          });});
-        [].slice.call(document.querySelectorAll('.rm-orphan-live')).forEach(function(b){
-          b.addEventListener('click',function(){
-            if(!confirm('把這個選單設為所有人看到的？會蓋過現在的選單（包含 LINE 官方後台設定的那個）。'))return;
-            post('/admin/richmenu/api/set-default',{line_rich_menu_id:b.getAttribute('data-rid')},function(){load();});
-          });});
-        [].slice.call(document.querySelectorAll('.rm-orphan-del')).forEach(function(b){
-          b.addEventListener('click',function(){
-            if(!confirm('從 LINE 上刪掉這個選單？如果它正是所有人看到的，系統會擋下來。'))return;
-            post('/admin/richmenu/api/delete',{line_rich_menu_id:b.getAttribute('data-rid')},function(){load();});
-          });});
+      };
+      function doDelete(id,confirmAudience){
+        var body={id:id};
+        if(confirmAudience)body.confirm_audience=true;
+        post('/admin/richmenu/api/delete',body,function(){load();},function(d){
+          // 這個選單是某份名單的專屬選單：後端擋下來並說了後果，這裡照實再問一次
+          if(d&&d.error==='audience_attached'){
+            if(confirm(d.detail))doDelete(id,true);
+            return true;
+          }
+          return false;
+        });
       }
+      // 整頁只綁這一次，永遠有效——列表怎麼重繪都不影響
+      document.addEventListener('click',function(e){
+        var b=e.target&&e.target.closest?e.target.closest('button'):null;
+        if(!b)return;
+        var names=Object.keys(LIST_ACTIONS);
+        for(var i=0;i<names.length;i++){
+          if(b.classList.contains(names[i])){
+            try{ LIST_ACTIONS[names[i]](b); }
+            catch(err){ alert('這個按鈕出了狀況：'+(err&&err.message||err)+'。把這句話截圖給我。'); }
+            return;
+          }
+        }
+      });
+      function bindList(){ /* 改用委派，不需要每次重繪都重新綁 */ }
 
       // ── 上下架視窗 ─────────────────────────────────────────
       function openSchedule(id){
@@ -949,8 +964,11 @@
         $('rm-stats-body').innerHTML='<p class="muted">載入中…</p>';
         $('rm-stats-modal').hidden=false;
         fetch('/admin/richmenu/api/stats?id='+id).then(function(r){return r.json();}).then(function(d){
-          if(!d.ok){$('rm-stats-body').innerHTML='<p class="muted">載入失敗</p>';return;}
-          if(!d.stats.length){$('rm-stats-body').innerHTML='<p class="muted" style="font-size:13px;">還沒有任何點擊。</p>';return;}
+          if(!d||!d.ok){$('rm-stats-body').innerHTML='<p class="muted">載入失敗</p>';return;}
+          // 回傳缺欄位時要當成「沒有資料」，不能直接讀 .length——
+          // 那會在 Promise 鏈裡拋錯，畫面上什麼都不會說
+          var rows=Array.isArray(rows)?rows:[];
+          if(!rows.length){$('rm-stats-body').innerHTML='<p class="muted" style="font-size:13px;">還沒有任何點擊。</p>';return;}
           var tabs=getTabs(m.config||{});
           function cellName(r){
             if(r.kind==='tab')return '切到分頁'+String.fromCharCode(65+r.tab);
@@ -961,7 +979,7 @@
           var kindName={link:'開啟網址',message:'發送文字',tab:'分頁切換'};
           $('rm-stats-body').innerHTML='<table class="rm-stat-table"><thead><tr>'+
             '<th>按鍵</th><th>類型</th><th style="text-align:right;">總點擊</th><th style="text-align:right;">近 7 天</th><th style="text-align:right;">不重複人數</th></tr></thead><tbody>'+
-            d.stats.map(function(r){
+            rows.map(function(r){
               return '<tr><td>'+esc(cellName(r))+'</td><td>'+(kindName[r.kind]||esc(r.kind))+'</td>'+
                 '<td style="text-align:right;font-weight:700;">'+r.taps+'</td>'+
                 '<td style="text-align:right;">'+r.taps_7d+'</td>'+

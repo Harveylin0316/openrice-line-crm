@@ -13,3 +13,4 @@ supabase_restore.log
 
 # Local Netlify folder
 .netlify
+src/build-info.json

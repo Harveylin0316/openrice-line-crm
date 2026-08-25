@@ -143,6 +143,7 @@ const DATA = { ok: true, menus: [], orphans: [], default_line_id: null, line_err
   ok(hung.length === 1, '發布還在跑的時候連點三下，只送出 ' + hung.length + ' 次');
   ok(doc.getElementById('rm-pub-go').disabled === true, '按鈕維持鎖定直到有結果，不是傻等 15 秒');
 
+
   console.log(failed ? ('\n有 ' + failed + ' 項失敗') : '\n頁面操作全部通過');
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error('爆掉:', e); process.exit(2); });

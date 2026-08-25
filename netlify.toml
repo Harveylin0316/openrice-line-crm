@@ -1,7 +1,7 @@
 [build]
   functions = "netlify/functions"
   publish = "public"
-  command = "npm ci"
+  command = "npm ci && node -e \"require('fs').writeFileSync('src/build-info.json', JSON.stringify({ build: (process.env.COMMIT_REF||'').slice(0,7) }))\""
 
 [build.environment]
   NODE_VERSION = "18"
