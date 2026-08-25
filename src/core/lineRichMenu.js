@@ -97,7 +97,15 @@ function createLineRichMenuService({ channelAccessToken }) {
     await call('POST', API + '/v2/bot/user/all/richmenu/' + encodeURIComponent(richMenuId));
   }
 
-  /** 取消預設（所有人都看不到選單） */
+  /** 取消預設選單。
+   *
+   *  實測（2026-08-25，正式帳號）：這支會取消「目前生效的預設選單」，
+   *  **不管那是用 API 設的，還是 LINE 官方後台（OA Manager）設的長青選單**。
+   *  取消之後查預設選單會從 403（官方後台擁有中）變成 404（沒有預設選單），
+   *  也就是說 **官方後台的長青選單不會自動回來**，要有人進官方後台重新啟用。
+   *
+   *  「API 動不到官方後台的選單」只適用於讀取與編輯；取消是動得到的。
+   *  所以呼叫這支等於讓全體用戶的選單消失，務必當成危險操作。 */
   async function clearDefault() {
     await call('DELETE', API + '/v2/bot/user/all/richmenu');
   }

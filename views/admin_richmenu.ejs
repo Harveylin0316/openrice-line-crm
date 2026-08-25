@@ -699,7 +699,9 @@
         var note;
         if(DATA.line_error){note='連不上 LINE（'+esc(DATA.line_error)+'）。還是可以編草稿，發布時再試。';}
         else if(!live&&DATA.default_owned_elsewhere){note='所有人現在看到的選單是在 <b>LINE 官方後台</b>設定的，這裡看不到它的內容。從這裡發布並「設為所有人看到的」之後就會換成新的。';}
-        else if(!live){note='目前沒有任何預設選單，用戶的聊天室下方沒有選單。';}
+        else if(!live){note='<b>現在沒有任何選單</b>：用戶打開聊天室，下方是空的。'+
+          '如果你在 LINE 官方後台有設長青選單，去官方後台把它重新設成使用中就會回來；'+
+          '或是在這裡發布一個選單並「設為所有人看到的」。';}
         else{var mine=(DATA.menus||[]).filter(function(m){return m.line_rich_menu_id===live;})[0];
           note=mine?('所有人現在看到的是「<b>'+esc(mine.name)+'</b>」。'):'所有人現在看到的是一個不是從這裡建立的選單（下面「其他選單」裡有列出來）。';}
         $('rm-live-note').innerHTML=note;
@@ -844,16 +846,33 @@
         $('rm-sch-end').value=dtLocal(m.schedule_end_at);
         var sel=$('rm-sch-endmenu');
         var others=(DATA.menus||[]).filter(function(x){return x.id!==id&&x.line_rich_menu_id;});
-        sel.innerHTML='<option value="">不顯示選單</option>'+others.map(function(x){
+        // 實測確認：「所有人都看不到選單」是把預設選單整個取消掉，
+        // 連 LINE 官方後台設的長青選單也會一起被關掉，而且不會自動回來。
+        // 所以它不能長得像一個中性的預設選項。
+        sel.innerHTML=others.map(function(x){
           return '<option value="'+x.id+'"'+(m.schedule_end_menu_id===x.id?' selected':'')+'>'+esc(x.name)+'</option>';
-        }).join('');
-        $('rm-sch-note').textContent='';
+        }).join('')+'<option value="">所有人都看不到選單（危險）</option>';
+        if(!others.length){
+          sel.innerHTML='<option value="">所有人都看不到選單（危險）</option>';
+          $('rm-sch-note').textContent='目前沒有其他已發布的選單可以接手。建議先把平常在用的選單也發布一份到這裡，下架時才有東西換過去。';
+        }else{
+          $('rm-sch-note').textContent='';
+        }
+        if(m.schedule_end_menu_id)sel.value=String(m.schedule_end_menu_id);
+        else sel.value=others.length?String(others[0].id):'';
         $('rm-sch-modal').hidden=false;
       }
       $('rm-sch-close').addEventListener('click',function(){$('rm-sch-modal').hidden=true;});
       $('rm-sch-save').addEventListener('click',function(){
         if(!modalRow)return;
         var sv=$('rm-sch-start').value,ev=$('rm-sch-end').value;
+        // 選了「所有人都看不到選單」＝到點會把全體用戶的選單清空，而且不會自己恢復。
+        // 這種事不能靜靜地排下去。
+        if(ev&&!$('rm-sch-endmenu').value){
+          if(!confirm('確定要「所有人都看不到選單」嗎？到了下架時間，全體用戶的圖文選單會直接消失，'+
+                      '連你在 LINE 官方後台設的長青選單也會一起被關掉，而且不會自動回來——'+
+                      '要有人手動去官方後台重新開啟。建議改成指定一個選單接手。'))return;
+        }
         post('/admin/richmenu/api/schedule',{id:modalRow.id,
           start_at:sv?new Date(sv+':00+08:00').toISOString():null,
           end_at:ev?new Date(ev+':00+08:00').toISOString():null,

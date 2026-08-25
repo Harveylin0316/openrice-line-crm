@@ -303,8 +303,15 @@ function registerAdminRichMenuRoutes(app, deps) {
     }
   });
 
-  app.post('/admin/richmenu/api/clear-default', requireOwner, async (_req, res) => {
+  // 讓所有人都看不到選單。實測確認：這會把「目前生效的預設選單」整個取消，
+  // 不管那是 CRM 設的還是 LINE 官方後台設的長青選單——而且官方後台那個不會自動回來，
+  // 要有人進官方後台重新啟用。所以是老闆帳號限定，而且要明講「我知道」。
+  app.post('/admin/richmenu/api/clear-default', requireOwner, async (req, res) => {
     try {
+      if ((req.body || {}).confirm !== true) {
+        return jsonErr(res, 400, 'need_confirm', {
+          detail: '這會讓全體用戶的圖文選單消失，包含你在 LINE 官方後台設的長青選單，而且不會自動回來。確定的話再按一次。' });
+      }
       await rm.clearDefault();
       await query(`UPDATE rich_menus SET is_default=false`);
       // 手動收掉選單＝接管：殘留的「已上架、等下架」排程一併失效
@@ -632,6 +639,13 @@ function registerAdminRichMenuRoutes(app, deps) {
           return jsonErr(res, 400, 'not_live', {
             detail: '這個選單現在不是所有人看到的，沒有「下架」可排。想讓它之後自動上架，把上架時間也填上。' });
         }
+      }
+      // 沒指定接手的選單＝到點把預設選單整個取消。實測確認：這會連 LINE 官方後台
+      // 設的長青選單一起關掉，而且不會自動回來，要有人手動去官方後台重開。
+      // 前端會先問一次，這裡是後端的第二道：沒有明講「我知道」就不給排。
+      if (endAt && !endMenuId && body.confirm_no_menu !== true) {
+        return jsonErr(res, 400, 'no_end_menu', {
+          detail: '沒有指定接手的選單。到了下架時間，全體用戶的圖文選單會直接消失（包含官方後台設的長青選單），而且不會自動回來。要嘛指定一個選單接手，要嘛再確認一次。' });
       }
       const state = (!startAt && !endAt) ? null : (startAt ? 'pending' : 'live');
       await query(
