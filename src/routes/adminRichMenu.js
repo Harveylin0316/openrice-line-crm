@@ -16,6 +16,7 @@
  */
 
 const { createLineRichMenuService, buildLineMenuObject, sanitizeMenuConfig, normalizeTabs } = require('../core/lineRichMenu');
+const { findUriButton, listUriButtons } = require('../core/messageTapTracking');
 
 function registerAdminRichMenuRoutes(app, deps) {
   const { query, authCore } = deps;
@@ -506,19 +507,23 @@ function registerAdminRichMenuRoutes(app, deps) {
   // 關鍵字回覆、活動卡片這些訊息的按鈕，本來直接指向目的地，點了誰都不知道。
   // 改成先過這個跳板（跟圖文選單同一套：LIFF 拿身分 → 記一筆 → 跳走）。
   // 目的地不從網址帶（不然變成任何人都能拿它當轉址跳板），一律回頭查設定。
-  async function messageTapTarget(source, refId) {
+  // refId 形狀是「編號_第幾顆按鈕」（例如 12_0）：一則訊息可能有好幾顆按鈕，
+  // 要分得出來按的是哪一顆。目的地一律回頭查設定，不從網址帶。
+  async function messageTapTarget(source, refIdRaw) {
     try {
+      const [idPart, idxPart] = String(refIdRaw || '').split('_');
+      const idx = Number(idxPart || 0);
+      let cfg = null;
       if (source === 'keyword') {
         const { rows } = await query(
           `SELECT t.message_config FROM admin_keyword_replies k
              JOIN admin_message_templates t ON t.id = k.message_template_id
-            WHERE k.id = $1`, [Number(refId) || 0]);
-        const cfg = rows[0] && rows[0].message_config;
-        const url = (cfg && cfg.mode === 'template' && cfg.template && cfg.template.ctaUrl)
-          ? String(cfg.template.ctaUrl).trim() : '';
-        const label = (cfg && cfg.template && cfg.template.ctaLabel) ? String(cfg.template.ctaLabel) : null;
-        return /^https?:\/\//i.test(url) ? { uri: url, label } : null;
+            WHERE k.id = $1`, [Number(idPart) || 0]);
+        cfg = rows[0] && rows[0].message_config;
       }
+      if (!cfg) return null;
+      const b = findUriButton(cfg, idx);
+      return b ? { uri: b.uri, label: b.label } : null;
     } catch (e) { console.error('message tap target failed:', e && e.message); }
     return null;
   }

@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { applyInviteFollowReward } = require('../core/inviteReward');
 const { buildInviteRewardPushMessages } = require('../core/inviteRewardPushMessages');
 const { buildLineMessages } = require('../core/broadcastTemplates');
+const { withMessageTracking } = require('../core/messageTapTracking');
 const { fetchOaProfile } = require('../core/oaFollower');
 const { normalizeTwMobile, maskTwMobile } = require('../core/twPhone');
 
@@ -279,17 +280,15 @@ function createLineWebhookHandler({
     );
     if (rs.rowCount === 0) return false;
     // 按鈕改指到記名跳板：這樣才知道「誰點了這則關鍵字回覆的按鈕」，
-    // 拿得到人才能貼標籤、之後打這一包人。沒設 LIFF 就維持原本的直接連結。
+    // 拿得到人才能貼標籤、之後打這一包人。模板訊息與自訂 Flex 訊息都吃得下；
+    // 本來就指向自家頁面的按鈕不包（那種頁面自己認得出是誰）。
+    // 沒設 LIFF、或包的過程出任何狀況，就用原本的設定——訊息一定要發得出去。
     const cfg = rs.rows[0].message_config;
     const liffId = process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '';
     let useCfg = cfg;
     try {
-      const cta = cfg && cfg.template && cfg.template.ctaUrl;
-      if (liffId && cta && /^https?:\/\//i.test(String(cta))) {
-        useCfg = { ...cfg, template: { ...cfg.template,
-          ctaUrl: 'https://liff.line.me/' + liffId + '/t/m/keyword/' + rule.id } };
-      }
-    } catch (e) { /* 包不起來就用原本的連結，訊息一定要發得出去 */ }
+      useCfg = withMessageTracking(cfg, { source: 'keyword', refId: String(rule.id), liffId }) || cfg;
+    } catch (e) { console.error('keyword reply tracking wrap failed:', e && e.message); useCfg = cfg; }
     const built = buildLineMessages(useCfg, { heroImageBaseUrl: getKeywordReplyOrigin() });
     if (!built.ok) return false;
     return await linePush.replyLineMessages(replyToken, built.messages, {

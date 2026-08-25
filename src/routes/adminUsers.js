@@ -19,6 +19,8 @@ const LIFF_RECENT_LIMIT = 10;
 const LIFF_RESTAURANT_LIMIT = 5;
 const LIFF_RESTAURANT_SCAN = 300;
 
+const { listUriButtons } = require('../core/messageTapTracking');
+
 function registerAdminUsersRoutes(app, deps) {
   const { query, authCore } = deps;
   const { requireAdmin } = authCore;
@@ -365,7 +367,10 @@ function registerAdminUsersRoutes(app, deps) {
                  LEFT JOIN admin_message_templates t ON t.id = n.message_template_id
                 WHERE n.message_template_id IS NOT NULL
                 GROUP BY n.message_template_id, f.name, t.name ORDER BY n.message_template_id DESC LIMIT 30`),
-        query(`SELECT id, keywords FROM admin_keyword_replies WHERE is_active = true ORDER BY id DESC LIMIT 30`),
+        query(`SELECT k.id, k.keywords, t.message_config
+                 FROM admin_keyword_replies k
+                 LEFT JOIN admin_message_templates t ON t.id = k.message_template_id
+                WHERE k.is_active = true ORDER BY k.id DESC LIMIT 30`),
         query(`SELECT source_key, COUNT(*)::int AS n FROM line_follow_sources GROUP BY source_key ORDER BY n DESC LIMIT 30`),
         query(`SELECT id, name, color FROM user_tags ORDER BY id`)
       ]);
@@ -416,8 +421,15 @@ function registerAdminUsersRoutes(app, deps) {
             ...casts.rows.map(b => ({ value: 'broadcast:' + b.id, label: '群發｜' + b.name })),
             ...flowMsgs.rows.map(f => ({ value: 'flow:' + f.mid,
               label: '自動訊息｜' + (f.flow_name || '') + (f.msg_name ? ('｜' + f.msg_name) : '') })),
-            ...keywords.rows.map(k => ({ value: 'keyword:' + k.id,
-              label: '關鍵字回覆｜' + String(k.keywords || '').split(',').slice(0, 3).join('、') }))
+            // 關鍵字回覆一則可能有好幾顆按鈕，逐顆列出來才挑得準
+            ...keywords.rows.flatMap(k => {
+              const kw = String(k.keywords || '').split(',').slice(0, 2).map(x => x.trim()).join('、');
+              let btns = [];
+              try { btns = listUriButtons(k.message_config); } catch (e) { btns = []; }
+              if (!btns.length) return [];
+              return btns.map(b => ({ value: 'keyword:' + k.id + '_' + b.index,
+                label: '關鍵字回覆｜' + kw + '｜' + (b.label || ('第 ' + (b.index + 1) + ' 顆按鈕')) }));
+            })
           ],
           source: sources.rows.map(sc => ({ value: sc.source_key, label: sc.source_key + '（' + sc.n + ' 人）' })),
           appaction: appActs.map(a => ({ value: a.event_name,
