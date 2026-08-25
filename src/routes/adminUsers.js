@@ -200,7 +200,7 @@ function registerAdminUsersRoutes(app, deps) {
     },
     clicked_message: {
       label: '點過訊息裡的按鈕', target_kind: 'message', unit: '次',
-      hint: '群發、自動訊息、關鍵字回覆的按鈕都算；可以指定是哪一則',
+      hint: '群發、自動訊息、關鍵字回覆的按鈕都算。直接開自家活動頁的按鈕不在這裡——那種用「玩過遊戲」或「領到優惠券」抓',
       // 三種訊息的點擊本來分散在三個地方，這裡合成同一份名單。
       // 對象格式：來源:編號（broadcast:7 / flow:3 / keyword:1），由後台挑選器產生。
       sql: `SELECT x.uid FROM (
