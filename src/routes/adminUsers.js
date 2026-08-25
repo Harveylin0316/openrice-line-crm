@@ -196,14 +196,27 @@ function registerAdminUsersRoutes(app, deps) {
                AND ($4::int IS NULL OR e.created_at >= now() - ($4::int || ' days')::interval)
              GROUP BY e.line_user_id HAVING COUNT(*) >= $2::int`
     },
-    clicked_broadcast: {
-      label: '點過群發訊息裡的連結', target_kind: 'broadcast', unit: '次',
-      hint: '看得出誰對哪一波推播有反應',
-      sql: `SELECT c.line_user_id AS uid FROM admin_broadcast_clicks c
-             WHERE c.line_user_id IS NOT NULL
-               AND ($3::text IS NULL OR c.broadcast_id = ($3::text)::int)
-               AND ($4::int IS NULL OR c.clicked_at >= now() - ($4::int || ' days')::interval)
-             GROUP BY c.line_user_id HAVING COUNT(*) >= $2::int`
+    clicked_message: {
+      label: '點過訊息裡的按鈕', target_kind: 'message', unit: '次',
+      hint: '群發、自動訊息、關鍵字回覆的按鈕都算；可以指定是哪一則',
+      // 三種訊息的點擊本來分散在三個地方，這裡合成同一份名單。
+      // 對象格式：來源:編號（broadcast:7 / flow:3 / keyword:1），由後台挑選器產生。
+      sql: `SELECT x.uid FROM (
+              SELECT c.line_user_id AS uid, c.clicked_at AS at,
+                     'broadcast' AS src, c.broadcast_id::text AS rid
+                FROM admin_broadcast_clicks c WHERE c.line_user_id IS NOT NULL
+              UNION ALL
+              SELECT f.line_user_id, f.clicked_at, 'flow', f.message_id::text
+                FROM admin_flow_clicks f WHERE f.line_user_id IS NOT NULL
+              UNION ALL
+              SELECT m.line_user_id, m.created_at, m.source, m.ref_id
+                FROM message_taps m WHERE m.line_user_id IS NOT NULL
+            ) x
+             WHERE ($3::text IS NULL OR (
+                     x.src = split_part($3::text, ':', 1)
+                 AND x.rid = split_part($3::text, ':', 2)))
+               AND ($4::int IS NULL OR x.at >= now() - ($4::int || ' days')::interval)
+             GROUP BY x.uid HAVING COUNT(*) >= $2::int`
     },
     viewed_broadcast: {
       label: '看過群發訊息', target_kind: 'broadcast', unit: '次',
@@ -341,11 +354,18 @@ function registerAdminUsersRoutes(app, deps) {
       const catalog = Object.entries(RULE_CATALOG).map(([k, v]) => ({
         kind: k, label: v.label, target_kind: v.target_kind, unit: v.unit, hint: v.hint
       }));
-      const [acts, menus, casts, sources, tags] = await Promise.all([
+      const [acts, menus, casts, flowMsgs, keywords, sources, tags] = await Promise.all([
         query(`SELECT slug, name FROM activities WHERE game_type <> 'mgm' ORDER BY id DESC LIMIT 40`),
         query(`SELECT id, name, published_config FROM rich_menus WHERE status='published' ORDER BY updated_at DESC LIMIT 30`),
         query(`SELECT id, COALESCE(NULLIF(email_subject,''), to_char(created_at AT TIME ZONE 'Asia/Taipei','MM/DD HH24:MI') || ' 的群發') AS name
                  FROM admin_broadcasts WHERE status IN ('sent','sending','done') ORDER BY id DESC LIMIT 30`),
+        query(`SELECT n.message_template_id AS mid, f.name AS flow_name, t.name AS msg_name
+                 FROM admin_flow_nodes n
+                 JOIN admin_flows f ON f.id = n.flow_id
+                 LEFT JOIN admin_message_templates t ON t.id = n.message_template_id
+                WHERE n.message_template_id IS NOT NULL
+                GROUP BY n.message_template_id, f.name, t.name ORDER BY n.message_template_id DESC LIMIT 30`),
+        query(`SELECT id, keywords FROM admin_keyword_replies WHERE is_active = true ORDER BY id DESC LIMIT 30`),
         query(`SELECT source_key, COUNT(*)::int AS n FROM line_follow_sources GROUP BY source_key ORDER BY n DESC LIMIT 30`),
         query(`SELECT id, name, color FROM user_tags ORDER BY id`)
       ]);
@@ -391,6 +411,14 @@ function registerAdminUsersRoutes(app, deps) {
           menu: menus.rows.map(m => ({ value: String(m.id), label: m.name })),
           button: buttons,
           broadcast: casts.rows.map(b => ({ value: String(b.id), label: b.name })),
+          // 三種訊息列在同一份清單，老闆只要挑「哪一則」，不用管它是哪個系統發的
+          message: [
+            ...casts.rows.map(b => ({ value: 'broadcast:' + b.id, label: '群發｜' + b.name })),
+            ...flowMsgs.rows.map(f => ({ value: 'flow:' + f.mid,
+              label: '自動訊息｜' + (f.flow_name || '') + (f.msg_name ? ('｜' + f.msg_name) : '') })),
+            ...keywords.rows.map(k => ({ value: 'keyword:' + k.id,
+              label: '關鍵字回覆｜' + String(k.keywords || '').split(',').slice(0, 3).join('、') }))
+          ],
           source: sources.rows.map(sc => ({ value: sc.source_key, label: sc.source_key + '（' + sc.n + ' 人）' })),
           appaction: appActs.map(a => ({ value: a.event_name,
             label: (APP_WORDS[a.event_name] || a.event_name) + '（' + a.n + ' 人做過）' }))

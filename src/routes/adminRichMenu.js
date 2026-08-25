@@ -502,6 +502,70 @@ function registerAdminRichMenuRoutes(app, deps) {
     }
   });
 
+  // ── 訊息裡按鈕的記名追蹤：/t/m/:source/:refId ─────────────────
+  // 關鍵字回覆、活動卡片這些訊息的按鈕，本來直接指向目的地，點了誰都不知道。
+  // 改成先過這個跳板（跟圖文選單同一套：LIFF 拿身分 → 記一筆 → 跳走）。
+  // 目的地不從網址帶（不然變成任何人都能拿它當轉址跳板），一律回頭查設定。
+  async function messageTapTarget(source, refId) {
+    try {
+      if (source === 'keyword') {
+        const { rows } = await query(
+          `SELECT t.message_config FROM admin_keyword_replies k
+             JOIN admin_message_templates t ON t.id = k.message_template_id
+            WHERE k.id = $1`, [Number(refId) || 0]);
+        const cfg = rows[0] && rows[0].message_config;
+        const url = (cfg && cfg.mode === 'template' && cfg.template && cfg.template.ctaUrl)
+          ? String(cfg.template.ctaUrl).trim() : '';
+        const label = (cfg && cfg.template && cfg.template.ctaLabel) ? String(cfg.template.ctaLabel) : null;
+        return /^https?:\/\//i.test(url) ? { uri: url, label } : null;
+      }
+    } catch (e) { console.error('message tap target failed:', e && e.message); }
+    return null;
+  }
+
+  app.get('/t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)', async (req, res) => {
+    const FALLBACK = 'https://www.openrice.com';
+    try {
+      const hit = await messageTapTarget(req.params.source, req.params.refId);
+      if (!hit) return res.redirect(FALLBACK);
+      res.render('tap_bounce', {
+        target: hit.uri,
+        liffId: gamesLiffId(),
+        recordUrl: '/t/m/' + req.params.source + '/' + req.params.refId + '/hit'
+      });
+    } catch (e) {
+      console.error('message tap bounce error:', e && e.message);
+      res.redirect(FALLBACK);
+    }
+  });
+
+  const msgTapSeen = new Map();
+  app.post('/t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)/hit', async (req, res) => {
+    try {
+      const source = req.params.source, refId = req.params.refId;
+      const raw = String((req.body || {}).line_user_id || '').trim();
+      const uid = /^U[0-9a-f]{32}$/i.test(raw) ? raw : null;
+      const hit = await messageTapTarget(source, refId);
+      if (!hit) return res.json({ ok: true, skipped: true });
+      const ip = String((req.headers && req.headers['x-forwarded-for']) || req.ip || '').split(',')[0].trim();
+      const key = source + ':' + refId + ':' + (uid || ip);
+      const now = Date.now();
+      const last = msgTapSeen.get(key);
+      if (last && now - last <= 60 * 1000) return res.json({ ok: true, deduped: true });
+      msgTapSeen.set(key, now);
+      if (msgTapSeen.size > 5000) {
+        for (const [k, v] of msgTapSeen) { if (now - v > 60 * 1000) msgTapSeen.delete(k); }
+      }
+      await query(
+        `INSERT INTO message_taps (source, ref_id, label, target_url, line_user_id) VALUES ($1,$2,$3,$4,$5)`,
+        [source, String(refId), hit.label, hit.uri, uid]);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('message tap hit error:', e && e.message);
+      res.json({ ok: true });   // 記錄失敗絕不擋用戶
+    }
+  });
+
   // ── 圖片上傳（每格的圖／整張完稿圖共用）：存進 line_push_media，回公開網址路徑 ──
   app.post('/admin/richmenu/api/upload-image', requireAdmin, async (req, res) => {
     try {

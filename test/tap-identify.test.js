@@ -126,6 +126,56 @@ const UID = 'U' + 'a'.repeat(32);
     { line_user_id: '我是假的' }, { params: { id: '1', tab: '0', cell: '0' } });
   ok(t.taps.length === 1 && t.taps[0][4] === null, '格式不對的身分記成「不知道是誰」，不會存進髒資料');
 
+  // ── 訊息裡的按鈕 ──
+  function buildMsg(opts) {
+    opts = opts || {};
+    const routes = {}, taps = [];
+    const app = { get: (p2, ...h) => { routes['GET ' + p2] = h; },
+                  post: (p2, ...h) => { routes['POST ' + p2] = h; }, delete: () => {}, put: () => {} };
+    global.fetch = async () => ({ ok: false, status: 404, text: async () => '{}' });
+    const query = async (sql, params) => {
+      const f = String(sql).replace(/\s+/g, ' ');
+      if (/INSERT INTO message_taps/.test(f)) { taps.push(params); return { rows: [] }; }
+      if (/FROM admin_keyword_replies k/.test(f)) {
+        if (opts.noKeyword) return { rows: [] };
+        return { rows: [{ message_config: { mode: 'template',
+          template: { ctaUrl: 'https://www.openrice.com/promo', ctaLabel: '看優惠' } } }] };
+      }
+      return { rows: [] };
+    };
+    const pass = (req, r2, next) => next();
+    registerAdminRichMenuRoutes(app, { query, authCore: { requireAdmin: pass, requireOwner: pass } });
+    return { routes, taps };
+  }
+
+  // 8) 關鍵字回覆的按鈕：跳板帶著設定裡的目的地
+  let m = buildMsg({});
+  r = await run(m.routes, 'GET /t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)', null,
+    { params: { source: 'keyword', refId: '1' } });
+  ok(r.rendered === 'tap_bounce' && r.locals.target === 'https://www.openrice.com/promo',
+     '關鍵字回覆的按鈕跳板帶著正確目的地');
+
+  // 9) 目的地一律回頭查設定，不從網址帶（不然變成誰都能拿它當轉址跳板）
+  m = buildMsg({ noKeyword: true });
+  r = await run(m.routes, 'GET /t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)', null,
+    { params: { source: 'keyword', refId: '999' }, query: { url: 'https://evil.example.com' } });
+  ok(r.redirected && r.redirected.indexOf('evil') === -1,
+     '查不到設定就回自家頁面，不會被拿來轉址到別的地方');
+
+  // 10) 回報記下是誰
+  m = buildMsg({});
+  await run(m.routes, 'POST /t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)/hit',
+    { line_user_id: UID }, { params: { source: 'keyword', refId: '1' } });
+  ok(m.taps.length === 1 && m.taps[0][0] === 'keyword' && m.taps[0][1] === '1' &&
+     m.taps[0][2] === '看優惠' && m.taps[0][4] === UID,
+     '記下誰點了哪一則訊息的哪顆按鈕');
+
+  // 11) 同人連按只記一筆
+  for (let i = 0; i < 3; i++)
+    await run(m.routes, 'POST /t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)/hit',
+      { line_user_id: UID }, { params: { source: 'keyword', refId: '1' } });
+  ok(m.taps.length === 1, '訊息按鈕同一人連按三次也只記一筆');
+
   console.log(failed ? ('\n有 ' + failed + ' 項失敗') : '\n記名追蹤全部通過');
   process.exit(failed ? 1 : 0);
 })();

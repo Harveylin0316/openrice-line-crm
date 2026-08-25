@@ -278,7 +278,19 @@ function createLineWebhookHandler({
       [rule.message_template_id]
     );
     if (rs.rowCount === 0) return false;
-    const built = buildLineMessages(rs.rows[0].message_config, { heroImageBaseUrl: getKeywordReplyOrigin() });
+    // 按鈕改指到記名跳板：這樣才知道「誰點了這則關鍵字回覆的按鈕」，
+    // 拿得到人才能貼標籤、之後打這一包人。沒設 LIFF 就維持原本的直接連結。
+    const cfg = rs.rows[0].message_config;
+    const liffId = process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '';
+    let useCfg = cfg;
+    try {
+      const cta = cfg && cfg.template && cfg.template.ctaUrl;
+      if (liffId && cta && /^https?:\/\//i.test(String(cta))) {
+        useCfg = { ...cfg, template: { ...cfg.template,
+          ctaUrl: 'https://liff.line.me/' + liffId + '/t/m/keyword/' + rule.id } };
+      }
+    } catch (e) { /* 包不起來就用原本的連結，訊息一定要發得出去 */ }
+    const built = buildLineMessages(useCfg, { heroImageBaseUrl: getKeywordReplyOrigin() });
     if (!built.ok) return false;
     return await linePush.replyLineMessages(replyToken, built.messages, {
       lineUserId: lineUserId || null,

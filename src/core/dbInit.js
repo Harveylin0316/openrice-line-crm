@@ -14,6 +14,7 @@ const APP_PUBLIC_TABLES_WITH_RLS = [
   'line_push_media',
   'rich_menus',
   'rich_menu_taps',
+  'message_taps',
   'user_tags',
   'user_tag_members',
   'user_tag_rules',
@@ -296,6 +297,17 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
     ADD COLUMN IF NOT EXISTS target TEXT,
     ADD COLUMN IF NOT EXISTS target_label TEXT,
     ADD COLUMN IF NOT EXISTS window_days INTEGER`);
+  await query(`CREATE TABLE IF NOT EXISTS message_taps (
+    id BIGSERIAL PRIMARY KEY,
+    source TEXT NOT NULL,
+    ref_id TEXT,
+    label TEXT,
+    target_url TEXT,
+    line_user_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_message_taps_user ON message_taps (line_user_id, created_at DESC)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_message_taps_ref ON message_taps (source, ref_id, created_at DESC)`);
   await query(`CREATE TABLE IF NOT EXISTS rich_menu_taps (
     id BIGSERIAL PRIMARY KEY,
     menu_id BIGINT NOT NULL,

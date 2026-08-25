@@ -121,7 +121,8 @@
         }else{
           word.hidden=false;
           word.textContent = tk==='activity'?'在活動' : (tk==='menu'?'在選單'
-            : (tk==='broadcast'?'在那一封' : (tk==='button'?'按的是' : (tk==='appaction'?'做的是':'從管道'))));
+            : (tk==='message'?'在那一則' : (tk==='broadcast'?'在那一封'
+            : (tk==='button'?'按的是' : (tk==='appaction'?'做的是':'從管道')))));
           txt.hidden=true; sel.hidden=false;
           sel.innerHTML='<option value="">全部</option>'+
             (opts||[]).map(function(o){return '<option value="'+esc(o.value)+'">'+esc(o.label)+'</option>';}).join('');
