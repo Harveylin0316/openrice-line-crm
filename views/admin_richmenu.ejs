@@ -12,7 +12,8 @@
       <p class="muted" style="margin-top:8px;line-height:1.7;">
         選範本、改字、按發布，選單圖自動畫好傳上去；也可以整張用自己上傳的完稿圖。<br>
         支援分頁切換、上下架時間、名單專屬選單，每一格被按幾次都有紀錄。<br>
-        從這裡發布並「設為所有人看到的」之後，會蓋過你在 LINE 官方後台設定的選單；官方後台做的選單這裡看不到。
+        <b>選單有三種狀態</b>：<b>草稿</b>（只存在這裡）→ 按「發布」變成<b>備用</b>（送上 LINE，但用戶還看不到）→ 按「設為所有人看到的」才真的換掉用戶的選單。<br>
+        換成「所有人看到的」之後，會蓋過你在 LINE 官方後台設定的選單；官方後台做的選單這裡看不到。
       </p>
       <div id="rm-live-note" class="rm-livebar"></div>
       <div id="rm-list" style="margin-top:14px;"><p class="muted">載入中…</p></div>
@@ -185,8 +186,12 @@
         </div>
         <div id="rm-pub-previews"></div>
         <div id="rm-pub-summary" class="muted" style="font-size:13px;line-height:1.8;margin:10px 0;"></div>
-        <label class="rm-check" style="margin-bottom:12px;"><input type="checkbox" id="rm-pub-default">
-          發布後立刻設為<b>所有人看到的選單</b>（會蓋過現在的，包含 LINE 官方後台設定的那個）</label>
+        <label class="rm-check" style="margin-bottom:4px;"><input type="checkbox" id="rm-pub-default">
+          <b>發布後直接讓所有人看到</b></label>
+        <div class="rm-pub-hint">
+          <div><b>勾</b>：所有用戶的選單立刻換成這一個（連 LINE 官方後台設的那個也會被蓋過去）</div>
+          <div><b>不勾</b>：先放著備用，<b>用戶看到的還是原本那個</b>；之後隨時可以在列表按「設為所有人看到的」切換</div>
+        </div>
         <div style="display:flex;gap:8px;">
           <button type="button" class="rm-btn1" id="rm-pub-go">確定發布</button>
           <button type="button" class="rm-btn2" id="rm-pub-cancel">取消</button>
@@ -326,6 +331,8 @@
       .rm-stat-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
       .rm-stat-table th,.rm-stat-table td{padding:8px 10px;border-bottom:1px solid #F3F4F6;text-align:left;}
       .rm-stat-table th{background:#FAFAFA;font-size:11px;color:#6B7280;font-weight:600;}
+      .rm-pub-hint{font-size:12.5px;color:#6B6B70;line-height:1.9;margin:0 0 14px 24px;}
+      .rm-pub-hint b{color:#1D1D1F;}
       .rm-idcheck{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12.5px;color:#3C3C43;cursor:pointer;}
       .rm-idcheck input{width:15px;height:15px;cursor:pointer;}
     </style>
@@ -747,9 +754,10 @@
               if(Array.isArray(m.config.tabs))m.config.tabs.forEach(function(t){cellsN+=(Array.isArray(t.cells)?t.cells.length:0);});
               else if(Array.isArray(m.config.buttons))cellsN=m.config.buttons.length;
             }
+            // 三種狀態都直接回答「用戶看得到嗎」，不要讓人猜「已發布」到底上了沒
             var tag=isLive?'<span class="rm-tag">所有人看到的</span>'
-                   :(m.status==='published'?'<span class="rm-tag draft" style="background:#ECFDF5;color:#047857;">已發布（備用）</span>'
-                   :'<span class="rm-tag draft">草稿</span>');
+                   :(m.status==='published'?'<span class="rm-tag draft" style="background:#ECFDF5;color:#047857;">備用・用戶還看不到</span>'
+                   :'<span class="rm-tag draft">草稿・還沒送上 LINE</span>');
             var meta=[(tabsN>1?(tabsN+' 個分頁・'):'')+cellsN+' 格・最後修改 '+String(m.updated_at||'').slice(0,10)];
             var st=scheduleText(m); if(st)meta.push(st);
             var at=audienceText(m); if(at)meta.push(at);
@@ -811,7 +819,7 @@
           post('/admin/richmenu/api/save',{name:m.name+'（複製）',config:m.config},function(){load();});
         },
         'rm-live-btn':   function(b){
-          if(!confirm('把這個選單設為所有人看到的？會蓋過現在的選單（包含 LINE 官方後台設定的）。舊選單如果有分頁，之前切換過分頁的人要等舊選單被刪掉才會換過來。'))return;
+          if(!confirm('這一步會真的換掉用戶看到的選單：所有人的聊天室下方會變成這一個，蓋過現在那個（包含 LINE 官方後台設定的）。舊選單如果有分頁，之前切換過分頁的人要等舊選單被刪掉才會換過來。確定嗎？'))return;
           post('/admin/richmenu/api/set-default',{id:Number(b.getAttribute('data-id'))},function(){load();});
         },
         'rm-del':        function(b){
@@ -1389,13 +1397,15 @@
           var n=CFG.tabs.reduce(function(s,t){return s+(t.cells||[]).length;},0);
           var tabsTxt=CFG.tabs.length>1?(CFG.tabs.length+' 個分頁、'):'';
           if(editingIsLive){
-            $('rm-pub-summary').innerHTML='共 '+tabsTxt+n+' 格。<b>這個選單目前正是所有人看到的</b>——按下確定發布，'+
-              '所有用戶的選單立刻換成新版。<br>想先做一版備用不要動到現在的？回列表按「複製」，去編輯那一份。';
+            $('rm-pub-summary').innerHTML='共 '+tabsTxt+n+' 格。<br>'+
+              '<b>這個選單正是所有人看到的那一個</b>——按下確定發布，所有用戶的選單立刻換成新版，沒有預覽期。<br>'+
+              '想先做一版備用、不要動到現在的：回列表按「複製」，去編輯複製出來的那一份。';
             $('rm-pub-default').checked=true;
             $('rm-pub-default').disabled=true;
           }else{
-            $('rm-pub-summary').innerHTML='共 '+tabsTxt+n+' 格。發布會把選單圖和按鍵設定一起傳到 LINE。<br>'+
-              '不勾下面的選項就只是先放著（所有人看到的選單不變），之後隨時可以在列表按「設為所有人看到的」。';
+            $('rm-pub-summary').innerHTML='共 '+tabsTxt+n+' 格。<br>'+
+              '<b>發布</b>是把選單圖和按鍵設定送上 LINE 備著——<b>光是發布，用戶還看不到</b>。<br>'+
+              '要讓用戶看到，才勾下面那一格。';
             $('rm-pub-default').checked=false;
             $('rm-pub-default').disabled=false;
           }

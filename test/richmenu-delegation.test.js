@@ -19,7 +19,11 @@ const DATA = { ok: true, build: 'testbld', liff_id: 'LID',
     line_rich_menu_ids: [{ id: 'richmenu-live', tab: 0, alias: null }], is_default: true, config: CFG,
     schedule_start_at: null, schedule_end_at: null, schedule_end_menu_id: null, schedule_state: null,
     audience_list_id: null, audience_applied_at: null, audience_applied_count: null,
-    published_at: '2026-08-25', updated_at: '2026-08-25' }],
+    published_at: '2026-08-25', updated_at: '2026-08-25' }  , { id: "3", name: '備用選單', status: 'published', line_rich_menu_id: 'richmenu-backup',
+    line_rich_menu_ids: null, is_default: false, config: CFG,
+    schedule_start_at: null, schedule_end_at: null, schedule_end_menu_id: null, schedule_state: null,
+    audience_list_id: null, audience_applied_at: null, audience_applied_count: null,
+    published_at: '2026-08-25', updated_at: '2026-08-24' }],
   orphans: [], lists: [], activities: [], wallet_url: '' };
 
 function fakeCtx() {
@@ -84,6 +88,24 @@ function fakeCtx() {
   w.dispatchEvent(new w.Event('unhandledrejection'));
   await new Promise(r => setTimeout(r, 20));
   ok(true, '有攔截載入階段的錯誤（不會再無聲無息）');
+
+  // 文案：同事不用問人就要知道「發布」跟「讓用戶看到」是兩件事
+  {
+    const vis = doc.body.cloneNode(true);
+    [].slice.call(vis.querySelectorAll('script,style')).forEach(n => n.remove());
+    const text = vis.textContent.replace(/\s+/g, '');
+    ok(/選單有三種狀態/.test(text) && /草稿/.test(text) && /用戶還看不到/.test(text),
+       '頁面開頭說明三種狀態，並講明備用時用戶看不到');
+    ok(/備用・用戶還看不到/.test(text), '列表標籤直接回答「用戶看得到嗎」');
+
+    // 發布視窗：勾與不勾的結果都要寫出來
+    const hint = doc.querySelector('.rm-pub-hint');
+    const hintText = hint ? hint.textContent.replace(/\s+/g, '') : '';
+    ok(/勾：/.test(hintText) && /不勾：/.test(hintText),
+       '發布視窗把「勾」和「不勾」兩種結果都寫出來');
+    ok(/用戶看到的還是原本那個/.test(hintText), '不勾的結果講得很白（不會動到現在的選單）');
+    ok(!/預設|參數|設定值|API/.test(hintText), '說明裡沒有工程術語');
+  }
 
   console.log(failed ? ('\n有 ' + failed + ' 項失敗') : '\n列表按鈕委派全部通過');
   process.exit(failed ? 1 : 0);
