@@ -166,11 +166,24 @@ function registerAdminUsersRoutes(app, deps) {
              GROUP BY r.invitee_line_user_id HAVING COUNT(*) >= $2::int`
     },
     menu_tap: {
-      label: '按過選單的文字按鍵', target_kind: 'menu', unit: '次',
-      hint: '只算會送出文字的按鍵；直接開網址的按鍵記不到是誰按的',
+      label: '按過選單（任何按鍵）', target_kind: 'menu', unit: '次',
+      hint: '整個選單算在一起。要指定某一顆按鍵，選下面那一項',
       sql: `SELECT t.line_user_id AS uid FROM rich_menu_taps t
              WHERE t.line_user_id IS NOT NULL
                AND ($3::text IS NULL OR t.menu_id = ($3::text)::int)
+               AND ($4::int IS NULL OR t.created_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY t.line_user_id HAVING COUNT(*) >= $2::int`
+    },
+    button_tap: {
+      label: '按過某一顆按鍵', target_kind: 'button', unit: '次',
+      hint: '「開啟網址」的按鍵要在圖文選單那邊勾「記錄是誰點的」才算得到人',
+      // 對象格式：選單編號:分頁:第幾格（例如 3:0:2），由後台的挑選器產生
+      sql: `SELECT t.line_user_id AS uid FROM rich_menu_taps t
+             WHERE t.line_user_id IS NOT NULL
+               AND ($3::text IS NULL OR (
+                     t.menu_id = split_part($3::text, ':', 1)::int
+                 AND t.tab     = split_part($3::text, ':', 2)::int
+                 AND t.cell    = split_part($3::text, ':', 3)::int))
                AND ($4::int IS NULL OR t.created_at >= now() - ($4::int || ' days')::interval)
              GROUP BY t.line_user_id HAVING COUNT(*) >= $2::int`
     },
@@ -220,8 +233,8 @@ function registerAdminUsersRoutes(app, deps) {
              GROUP BY s.line_user_id HAVING COUNT(*) >= $2::int`
     },
     used_app: {
-      label: '用過「吃什麼」小程式', target_kind: 'text', unit: '次',
-      hint: '右邊可填動作代號（例如 map_booking_click）；留空＝任何動作都算',
+      label: '在活動頁做過某件事', target_kind: 'appaction', unit: '次',
+      hint: '打開好康地圖、按訂位、看餐廳這些站內動作',
       sql: `SELECT u.line_id AS uid FROM user_events u
              WHERE u.line_id IS NOT NULL
                AND ($3::text IS NULL OR u.event_name = $3::text)
@@ -330,18 +343,57 @@ function registerAdminUsersRoutes(app, deps) {
       }));
       const [acts, menus, casts, sources, tags] = await Promise.all([
         query(`SELECT slug, name FROM activities WHERE game_type <> 'mgm' ORDER BY id DESC LIMIT 40`),
-        query(`SELECT id, name FROM rich_menus WHERE status='published' ORDER BY updated_at DESC LIMIT 30`),
+        query(`SELECT id, name, published_config FROM rich_menus WHERE status='published' ORDER BY updated_at DESC LIMIT 30`),
         query(`SELECT id, COALESCE(NULLIF(email_subject,''), to_char(created_at AT TIME ZONE 'Asia/Taipei','MM/DD HH24:MI') || ' 的群發') AS name
                  FROM admin_broadcasts WHERE status IN ('sent','sending','done') ORDER BY id DESC LIMIT 30`),
         query(`SELECT source_key, COUNT(*)::int AS n FROM line_follow_sources GROUP BY source_key ORDER BY n DESC LIMIT 30`),
         query(`SELECT id, name, color FROM user_tags ORDER BY id`)
       ]);
+      // 每一顆按鍵都列出來讓人挑：選單名 → 按鍵名。
+      // 「開啟網址」的按鍵沒勾「記錄是誰點的」就算不到人，這裡照實標出來，
+      // 免得挑了一顆永遠是 0 人的按鍵還以為系統壞了。
+      const buttons = [];
+      for (const m of menus.rows) {
+        const cfg = m.published_config;
+        if (!cfg) continue;
+        const tabs = (Array.isArray(cfg.tabs) && cfg.tabs.length) ? cfg.tabs : [cfg];
+        tabs.forEach((t, ti) => {
+          (t.buttons || []).forEach((b, ci) => {
+            if (!b) return;
+            const kind = b.action && b.action.type;
+            const nm = b.label || ('第 ' + (ci + 1) + ' 格');
+            const tabName = tabs.length > 1 ? ('｜' + (t.label || ('分頁' + (ti + 1)))) : '';
+            let note = '';
+            if (kind === 'uri' && b.identify !== true) note = '（記不到是誰，要先去勾）';
+            buttons.push({ value: m.id + ':' + ti + ':' + ci,
+                           label: m.name + tabName + '｜' + nm + note });
+          });
+        });
+      }
+      // 站內動作代號翻成人話；沒對到的就照原樣列出來（至少挑得到）
+      const APP_WORDS = {
+        app_open: '打開活動頁', map_open: '打開好康地圖', map_locate: '用定位找附近',
+        map_pin_click: '點地圖上的店', map_restaurant_view: '看餐廳詳情',
+        map_booking_click: '按訂位', map_search: '搜尋餐廳', map_decide_click: '按「幫我決定」',
+        map_decide_result: '看到決定結果', map_parking_shown: '看停車資訊',
+        map_filter_toggle: '用篩選', map_sheet_open: '展開店家清單',
+        map_cat_chip: '點分類', map_streak: '連續來訪', submit_draw: '送出抽獎',
+        result_shown: '看到抽獎結果', redraw: '再抽一次', ad_shown: '看到廣告'
+      };
+      const { rows: appActs } = await query(
+        `SELECT event_name, COUNT(DISTINCT line_id)::int AS n FROM user_events
+          WHERE line_id IS NOT NULL AND created_at >= now() - interval '180 days'
+          GROUP BY event_name HAVING COUNT(DISTINCT line_id) > 0 ORDER BY n DESC LIMIT 40`);
+
       res.json({ ok: true, rules: rows, catalog, tags: tags.rows,
         targets: {
           activity: acts.rows.map(a => ({ value: a.slug, label: a.name })),
           menu: menus.rows.map(m => ({ value: String(m.id), label: m.name })),
+          button: buttons,
           broadcast: casts.rows.map(b => ({ value: String(b.id), label: b.name })),
-          source: sources.rows.map(sc => ({ value: sc.source_key, label: sc.source_key + '（' + sc.n + ' 人）' }))
+          source: sources.rows.map(sc => ({ value: sc.source_key, label: sc.source_key + '（' + sc.n + ' 人）' })),
+          appaction: appActs.map(a => ({ value: a.event_name,
+            label: (APP_WORDS[a.event_name] || a.event_name) + '（' + a.n + ' 人做過）' }))
         } });
     } catch (err) { jsonErr(res, 500, 'rules_failed', { detail: err && err.message }); }
   });

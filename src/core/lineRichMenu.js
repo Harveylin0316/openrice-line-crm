@@ -297,6 +297,8 @@ function sanitizeMenuConfig(raw) {
       bg: hexB(b.bg),
       color: hexB(b.color),
       image: (/^\/p\/line-media\/[0-9a-f-]+$/i.test(img) || /^https:\/\//.test(img)) ? img : null,
+      // 「開啟網址」的按鍵才有意義：勾了就走 LIFF 跳板，記得住是誰按的（可以拿來貼標籤）
+      identify: (b.identify === true && a && a.type === 'uri') ? true : undefined,
       action
     };
   });

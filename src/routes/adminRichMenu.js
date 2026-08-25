@@ -123,11 +123,17 @@ function registerAdminRichMenuRoutes(app, deps) {
   function withTrackingLinks(config, rowId) {
     const base = baseUrl();
     if (!base) return config; // 本機沒有站台網址就直接用原始連結
+    const liff = gamesLiffId();
     const clone = JSON.parse(JSON.stringify(config));
     const tabs = Array.isArray(clone.tabs) && clone.tabs.length ? clone.tabs : null;
     const wrap = (buttons, tabIdx) => (buttons || []).forEach((b, ci) => {
       if (b && b.action && b.action.type === 'uri' && /^https:\/\//.test(String(b.action.uri || ''))) {
-        b.action = { ...b.action, uri: base + '/r/' + rowId + '/' + tabIdx + '/' + ci };
+        // 勾了「記錄是誰點的」→ 走 LIFF 跳板（拿得到身分，可以貼標籤）；
+        // 沒勾就走一般轉址（只算次數，但快）。沒設 LIFF ID 時只能走一般轉址。
+        const named = b.identify === true && !!liff;
+        b.action = { ...b.action, uri: named
+          ? ('https://liff.line.me/' + liff + '/t/' + rowId + '/' + tabIdx + '/' + ci)
+          : (base + '/r/' + rowId + '/' + tabIdx + '/' + ci) };
       }
     });
     if (tabs) tabs.forEach((t, ti) => wrap(t.buttons, ti));
@@ -431,6 +437,68 @@ function registerAdminRichMenuRoutes(app, deps) {
       res.redirect(uri || FALLBACK);
     } catch (e) {
       res.redirect(FALLBACK);
+    }
+  });
+
+  // ── 記名追蹤跳板：/t/:id/:tab/:cell ──────────────────────────
+  // 「開啟網址」的按鍵本身不帶 LINE 身分，所以直接轉址永遠不知道是誰按的。
+  // 勾了「記錄是誰點的」的按鍵，發布時網址會改指到這裡（LIFF 頁）：
+  // 用 LIFF 拿到身分、記一筆、再跳到真正的目的地。代價是多約 1 秒，
+  // 所以只有要拿來貼標籤／分眾的按鍵才勾。
+  function cellTarget(cfg, tab, cell) {
+    if (!cfg) return null;
+    const tabs = normalizeTabs(cfg);
+    const b = tabs[tab] && tabs[tab].buttons ? tabs[tab].buttons[cell] : null;
+    if (b && b.action && b.action.type === 'uri' && /^https:\/\//.test(String(b.action.uri || ''))) {
+      return { uri: b.action.uri, label: b.label || null };
+    }
+    return null;
+  }
+
+  app.get('/t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)', async (req, res) => {
+    const FALLBACK = 'https://www.openrice.com';
+    try {
+      const id = Number(req.params.id), tab = Number(req.params.tab), cell = Number(req.params.cell);
+      const { rows } = await query(`SELECT published_config FROM rich_menus WHERE id=$1`, [id]);
+      const hit = cellTarget(rows.length ? rows[0].published_config : null, tab, cell);
+      res.render('tap_bounce', {
+        target: hit ? hit.uri : FALLBACK,
+        liffId: gamesLiffId(),
+        recordUrl: '/t/' + id + '/' + tab + '/' + cell + '/hit'
+      });
+    } catch (e) {
+      console.error('tap bounce error:', e && e.message);
+      res.redirect(FALLBACK);
+    }
+  });
+
+  // 跳板回報「是誰按的」。公開端點：只認選單上真的存在的按鍵，
+  // 而且同一人同一格 60 秒只記一筆（跟 /r 同一套防灌水規矩）。
+  const tapSeen = new Map();
+  app.post('/t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)/hit', async (req, res) => {
+    try {
+      const id = Number(req.params.id), tab = Number(req.params.tab), cell = Number(req.params.cell);
+      const raw = String((req.body || {}).line_user_id || '').trim();
+      const uid = /^U[0-9a-f]{32}$/i.test(raw) ? raw : null;
+      const { rows } = await query(`SELECT published_config FROM rich_menus WHERE id=$1`, [id]);
+      const hit = cellTarget(rows.length ? rows[0].published_config : null, tab, cell);
+      if (!hit) return res.json({ ok: true, skipped: true });
+      const ip = String((req.headers && req.headers['x-forwarded-for']) || req.ip || '').split(',')[0].trim();
+      const key = id + ':' + tab + ':' + cell + ':' + (uid || ip);
+      const now = Date.now();
+      const last = tapSeen.get(key);
+      if (last && now - last <= 60 * 1000) return res.json({ ok: true, deduped: true });
+      tapSeen.set(key, now);
+      if (tapSeen.size > 5000) {
+        for (const [k, v] of tapSeen) { if (now - v > 60 * 1000) tapSeen.delete(k); }
+      }
+      await query(
+        `INSERT INTO rich_menu_taps (menu_id, tab, cell, kind, label, line_user_id) VALUES ($1,$2,$3,'link',$4,$5)`,
+        [id, tab, cell, hit.label, uid]);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('tap hit error:', e && e.message);
+      res.json({ ok: true });   // 記錄失敗絕不擋用戶
     }
   });
 

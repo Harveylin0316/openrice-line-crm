@@ -149,7 +149,12 @@
             </div>
             <div id="rm-act-uri" class="rm-actbody" hidden>
               <input type="text" id="rm-act-url" placeholder="https://...">
-              <small class="muted">會經過站內轉一下再跳過去，這樣才記得住誰按了。</small>
+              <label class="rm-idcheck">
+                <input type="checkbox" id="rm-act-identify">
+                <span>記錄是誰點的（之後可以拿這批人貼標籤、發訊息）</span>
+              </label>
+              <small class="muted" id="rm-act-idhint">不勾：只知道被按了幾次，跳過去比較快。<br>
+                勾了：跳過去前會多花約一秒確認身分，換來「誰按了這顆」的名單。</small>
             </div>
             <div id="rm-act-message" class="rm-actbody" hidden>
               <input type="text" id="rm-act-text" maxlength="100" placeholder="用戶按下去會自動送出這句話">
@@ -239,8 +244,8 @@
         </div>
         <div id="rm-stats-body"><p class="muted">載入中…</p></div>
         <p class="muted" style="font-size:12px;margin-top:10px;line-height:1.7;">
-          「開啟網址」記在按下去的當下；「發送文字」是比對訊息內容（手動打一樣的字也會算進來）；
-          「開啟網址」記不到是誰按的，只有次數。</p>
+          「開啟網址」記在按下去的當下；「發送文字」是比對訊息內容（手動打一樣的字也會算進來）。<br>
+          開啟網址的按鍵，有勾「記錄是誰點的」才算得出人數，沒勾的只有次數。</p>
       </div>
     </div>
 
@@ -321,6 +326,8 @@
       .rm-stat-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
       .rm-stat-table th,.rm-stat-table td{padding:8px 10px;border-bottom:1px solid #F3F4F6;text-align:left;}
       .rm-stat-table th{background:#FAFAFA;font-size:11px;color:#6B7280;font-weight:600;}
+      .rm-idcheck{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12.5px;color:#3C3C43;cursor:pointer;}
+      .rm-idcheck input{width:15px;height:15px;cursor:pointer;}
     </style>
 
     <script>
@@ -1163,7 +1170,17 @@
         $('rm-act-activity').hidden=mode!=='activity';
         $('rm-act-uri').hidden=mode!=='uri';
         $('rm-act-message').hidden=mode!=='message';
-        if(mode==='uri')$('rm-act-url').value=(b.action&&b.action.uri)||'';
+        if(mode==='uri'){
+          $('rm-act-url').value=(b.action&&b.action.uri)||'';
+          var idc=$('rm-act-identify');
+          idc.checked=b.identify===true;
+          // 沒設好 LIFF 就記不到身分，與其讓人勾了沒用，不如直接鎖起來說明
+          var hasLiff=!!(DATA&&DATA.liff_id);
+          idc.disabled=!hasLiff;
+          $('rm-act-idhint').innerHTML = hasLiff
+            ? '不勾：只知道被按了幾次，跳過去比較快。<br>勾了：跳過去前會多花約一秒確認身分，換來「誰按了這顆」的名單。'
+            : '這個功能需要先設定好活動頁的連結設定，現在只能記次數、記不到是誰。';
+        }
         if(mode==='message')$('rm-act-text').value=(b.action&&b.action.text)||'';
         if(mode==='activity'&&b.action&&b.action.activity_id)$('rm-act-select').value=String(b.action.activity_id);
       }
@@ -1214,8 +1231,12 @@
       [].slice.call(document.querySelectorAll('.rm-actbtn')).forEach(function(x){
         x.addEventListener('click',function(){
           var b=curBtn(),m=x.getAttribute('data-mode');
+          if(m!=='uri')delete b.identify;   // 只有「開啟網址」用得到
           if(m==='activity'){var sel=$('rm-act-select');applyActivity(b,sel.value);}
-          else if(m==='uri'){b.action={type:'uri',uri:$('rm-act-url').value.trim()};}
+          else if(m==='uri'){
+            b.action={type:'uri',uri:$('rm-act-url').value.trim()};
+            if($('rm-act-identify').checked)b.identify=true;
+          }
           else{b.action={type:'message',text:$('rm-act-text').value.trim()};}
           dirty=true;renderCellPanel();
         });
@@ -1246,6 +1267,11 @@
         });
       }
       $('rm-act-url').addEventListener('input',function(){curBtn().action={type:'uri',uri:this.value.trim()};dirty=true;});
+      $('rm-act-identify').addEventListener('change',function(){
+        var b=curBtn();
+        if(this.checked)b.identify=true; else delete b.identify;
+        dirty=true;
+      });
       $('rm-act-text').addEventListener('input',function(){curBtn().action={type:'message',text:this.value.trim()};dirty=true;});
 
       // ── 儲存 / 發布 ────────────────────────────────────────

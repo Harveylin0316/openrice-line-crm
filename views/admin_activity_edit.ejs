@@ -35,11 +35,11 @@
           </select>
         </label>
         <label class="ae-field">
-          <span>開始時間</span>
+          <span>開始時間（到點自動變「進行中」）</span>
           <input type="datetime-local" id="ae-start" />
         </label>
         <label class="ae-field">
-          <span>結束時間</span>
+          <span>結束時間（到點自動變「已結束」）</span>
           <input type="datetime-local" id="ae-end" />
         </label>
         <label class="ae-field">
@@ -322,16 +322,36 @@
         var banner = $('ae-link-status-banner');
         if (!banner) return;
         var s = $('ae-status-select').value;
+        var startVal = $('ae-start') ? $('ae-start').value : '';
+        var endVal = $('ae-end') ? $('ae-end').value : '';
+        var startFuture = startVal && new Date(startVal).getTime() > Date.now();
+        var when = function (v) {
+          var d = new Date(v);
+          return (d.getMonth() + 1) + '/' + d.getDate() + ' ' +
+                 String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        };
         if (s === 'active') {
           banner.setAttribute('style', 'margin:4px 0 12px;font-size:13px;color:#15803d;');
-          banner.textContent = '活動進行中，連結可正常使用。';
+          banner.textContent = '活動進行中，連結可正常使用。' +
+            (endVal ? ('到 ' + when(endVal) + ' 會自動結束。') : '');
+        } else if (s === 'draft' && startFuture) {
+          // 排定上線：不是忘了開，是刻意排的——講清楚免得有人手動提前打開
+          banner.setAttribute('style', 'margin:4px 0 12px;padding:10px 12px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:6px;font-size:13px;color:#166534;');
+          banner.textContent = '已排定 ' + when(startVal) + ' 自動上線' +
+            (endVal ? ('、' + when(endVal) + ' 自動結束') : '') +
+            '，不用自己回來開。在那之前用戶點連結看不到活動。';
         } else {
           var label = ({draft:'草稿',paused:'暫停',ended:'已結束'})[s] || s;
           banner.setAttribute('style', 'margin:4px 0 12px;padding:10px 12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;font-size:13px;color:#92400E;');
-          banner.textContent = '目前狀態是『' + label + '』，用戶點這個連結會看不到活動。請把上方狀態改成『進行中』再按更新。';
+          banner.textContent = '目前狀態是『' + label + '』，用戶點這個連結會看不到活動。' +
+            (s === 'draft' ? '想排定時間自動上線，就把上面的開始時間填成未來的時間；要現在就開，把狀態改成『進行中』。'
+                           : '請把上方狀態改成『進行中』再按更新。');
         }
       }
       $('ae-status-select').addEventListener('change', updateLinkStatusBanner);
+      ['ae-start', 'ae-end'].forEach(function (id) {
+        var el = $(id); if (el) el.addEventListener('change', updateLinkStatusBanner);
+      });
 
       // ---- save activity ----
       $('ae-save').addEventListener('click', function () {

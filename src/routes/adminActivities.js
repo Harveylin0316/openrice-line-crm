@@ -33,6 +33,52 @@ function registerAdminActivitiesRoutes(app, deps) {
   const { requireAdmin, requireOwner } = authCore;
 
   // ------------------------------------------------------------------
+  // 活動上下架排程：時間到自動換狀態（每 5 分鐘檢查一次）
+  //
+  //   草稿／排定中 + 到了開始時間 → 自動變「進行中」
+  //   進行中 + 過了結束時間       → 自動變「已結束」
+  //
+  // 「暫停」是人為決定，排程一律不碰——不然有人手動喊停，五分鐘後又被打開。
+  // 沒設時間的活動也完全不碰。
+  // ------------------------------------------------------------------
+  async function runActivitySchedule() {
+    const done = [];
+    // 先下架，再上架：同一時間換檔時，舊活動先收才不會蓋掉剛上的新活動
+    const ended = await query(
+      `UPDATE activities SET status='ended', updated_at=now()
+        WHERE status='active' AND end_at IS NOT NULL AND end_at <= now()
+        RETURNING id, name`);
+    ended.rows.forEach(r => done.push({ id: r.id, name: r.name, action: 'end' }));
+    const started = await query(
+      `UPDATE activities SET status='active', updated_at=now()
+        WHERE status='draft' AND start_at IS NOT NULL AND start_at <= now()
+          AND (end_at IS NULL OR end_at > now())
+        RETURNING id, name`);
+    started.rows.forEach(r => done.push({ id: r.id, name: r.name, action: 'start' }));
+    return done;
+  }
+
+  // 排程執行（Netlify 每 5 分鐘打一次，跟圖文選單／自動標籤共用同一把通關密語）
+  app.post('/admin/activities/run-schedule', async (req, res) => {
+    try {
+      const secret = process.env.SCHEDULED_RUNNER_SECRET || '';
+      if (!secret || req.get('X-Scheduler-Secret') !== secret) {
+        return res.status(403).json({ ok: false, error: 'forbidden' });
+      }
+      res.json({ ok: true, done: await runActivitySchedule() });
+    } catch (err) {
+      console.error('activity schedule error:', err && err.message);
+      res.status(500).json({ ok: false, error: 'run_failed', detail: String(err && err.message || '').slice(0, 200) });
+    }
+  });
+
+  // 後台按「立刻套用時間」時用（不想等五分鐘）
+  app.post('/admin/activities/api/apply-schedule', requireAdmin, async (_req, res) => {
+    try { res.json({ ok: true, done: await runActivitySchedule() }); }
+    catch (err) { res.status(500).json({ ok: false, error: 'run_failed', detail: err && err.message }); }
+  });
+
+  // ------------------------------------------------------------------
   // 頁面：列表
   // ------------------------------------------------------------------
   app.get('/admin/activities', requireAdmin, (req, res) => {

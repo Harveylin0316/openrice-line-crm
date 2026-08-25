@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#FFF9E8" />
+<title>前往中</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  html,body{margin:0;height:100%;background:#FFF9E8;color:#4E342E;
+    font-family:"PingFang TC","Heiti TC","Microsoft JhengHei",sans-serif;}
+  .w{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;}
+  .sp{width:26px;height:26px;border:3px solid #F1E3C4;border-top-color:#E8491D;border-radius:50%;
+    animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  p{margin:0;font-size:14px;color:#8D6E63;}
+  a{color:#E8491D;font-size:14px;}
+</style>
+</head>
+<body>
+  <div class="w">
+    <div class="sp"></div>
+    <p id="msg">前往中…</p>
+    <a id="manual" href="<%= target %>" hidden>沒有自動跳過去？點這裡</a>
+  </div>
+<script>
+  (function () {
+    var TARGET = <%- JSON.stringify(target) %>;
+    var LIFF_ID = <%- JSON.stringify(liffId) %>;
+    var REC = <%- JSON.stringify(recordUrl) %>;
+    var went = false;
+    function go() {
+      if (went) return; went = true;
+      location.replace(TARGET);
+    }
+    // 保險：不管記錄成不成功，1.6 秒內一定要把人送過去。
+    // 追蹤絕不能擋住用戶要去的地方。
+    var timer = setTimeout(go, 1600);
+    setTimeout(function () {
+      var m = document.getElementById('manual');
+      if (m && !went) m.hidden = false;
+    }, 2500);
+
+    function record(uid) {
+      // 用 sendBeacon：頁面正在跳走時，一般的請求會被瀏覽器取消
+      try {
+        var body = JSON.stringify({ line_user_id: uid || null });
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(REC, new Blob([body], { type: 'application/json' }));
+          return Promise.resolve();
+        }
+        return fetch(REC, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: body, keepalive: true }).catch(function () {});
+      } catch (e) { return Promise.resolve(); }
+    }
+
+    (async function () {
+      try {
+        if (!LIFF_ID || typeof liff === 'undefined') { await record(null); clearTimeout(timer); return go(); }
+        await liff.init({ liffId: LIFF_ID });
+        if (!liff.isInClient() || !liff.isLoggedIn()) { await record(null); clearTimeout(timer); return go(); }
+        var p = await liff.getProfile();
+        await record(p && p.userId);
+      } catch (e) {
+        await record(null);
+      }
+      clearTimeout(timer);
+      go();
+    })();
+  })();
+</script>
+</body>
+</html>

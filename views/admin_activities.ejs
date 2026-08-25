@@ -57,7 +57,14 @@
         var pad = function (n) { return String(n).padStart(2, '0'); };
         return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
       }
-      function statusBadge(s) {
+      // 草稿 + 未來的開始時間 ＝ 排定上線，跟「還沒做完的草稿」不是同一件事，
+      // 列表要分得出來，不然看到「草稿」會以為忘了開
+      function statusBadge(s, a) {
+        if (s === 'draft' && a && a.start_at && new Date(a.start_at).getTime() > Date.now()) {
+          var d = new Date(a.start_at);
+          return '<span class="act-badge badge-active" style="background:#F0FDF4;color:#166534;border-color:#BBF7D0;">排定 ' +
+                 (d.getMonth() + 1) + '/' + d.getDate() + ' 上線</span>';
+        }
         var map = {
           draft:  ['草稿',  'badge-draft'],
           active: ['進行中', 'badge-active'],
@@ -97,7 +104,7 @@
                   '<div class="act-slug">/' + escapeHtml(a.slug) + '</div>' +
                 '</td>' +
                 '<td>' + gameLabel(a.game_type) + '</td>' +
-                '<td>' + statusBadge(a.status) + '</td>' +
+                '<td>' + statusBadge(a.status, a) + '</td>' +
                 '<td>' + fmtDate(a.start_at) + ' → ' + fmtDate(a.end_at) + '</td>' +
                 '<td style="text-align:right;">' + (gt === 'mgm' ? '<span class="muted" title="好友推薦沒有獎品池">—</span>' : a.prize_count) + '</td>' +
                 '<td style="text-align:right;">' + a.player_count + '</td>' +
