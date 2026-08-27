@@ -150,6 +150,11 @@
             </div>
             <div id="rm-act-uri" class="rm-actbody" hidden>
               <input type="text" id="rm-act-url" placeholder="https://...">
+              <div class="rm-linkcheck">
+                <button type="button" class="rm-btn2" id="rm-check-link">檢查這個連結</button>
+                <button type="button" class="rm-btn2" id="rm-use-app">用「App 下載」網址</button>
+                <span id="rm-check-result"></span>
+              </div>
               <label class="rm-idcheck">
                 <input type="checkbox" id="rm-act-identify">
                 <span>記錄是誰點的（之後可以拿這批人貼標籤、發訊息）</span>
@@ -331,6 +336,12 @@
       .rm-stat-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
       .rm-stat-table th,.rm-stat-table td{padding:8px 10px;border-bottom:1px solid #F3F4F6;text-align:left;}
       .rm-stat-table th{background:#FAFAFA;font-size:11px;color:#6B7280;font-weight:600;}
+      .rm-linkcheck{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+      .rm-linkcheck button{padding:6px 12px;font-size:12.5px;}
+      #rm-check-result{font-size:12.5px;line-height:1.6;flex:1;min-width:180px;}
+      #rm-check-result.ok{color:#047857;}
+      #rm-check-result.suspect{color:#B45309;}
+      #rm-check-result.bad{color:#B91C1C;}
       .rm-pub-hint{font-size:12.5px;color:#6B6B70;line-height:1.9;margin:0 0 14px 24px;}
       .rm-pub-hint b{color:#1D1D1F;}
       .rm-idcheck{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12.5px;color:#3C3C43;cursor:pointer;}
@@ -1372,6 +1383,32 @@
         });
       }
       $('rm-act-url').addEventListener('input',function(){curBtn().action={type:'uri',uri:this.value.trim()};dirty=true;});
+      $('rm-check-link').addEventListener('click',function(){
+        var url=$('rm-act-url').value.trim();
+        var out=$('rm-check-result');
+        if(!url){out.className='bad';out.textContent='先把網址填上';return;}
+        var btn=this;btn.disabled=true;
+        out.className='';out.textContent='檢查中…';
+        fetch('/admin/richmenu/api/check-link',{method:'POST',
+          headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url})})
+          .then(function(r){return r.json();}).then(function(d){
+            btn.disabled=false;
+            if(!d.ok){out.className='bad';out.textContent=d.detail||'檢查失敗';return;}
+            out.className=d.verdict;
+            out.textContent=(d.verdict==='ok'?'可以用：':(d.verdict==='suspect'?'要注意：':'有問題：'))+d.note;
+          })
+          .catch(function(){btn.disabled=false;out.className='bad';out.textContent='檢查失敗，再試一次';});
+      });
+      $('rm-use-app').addEventListener('click',function(){
+        // OpenRice 沒有一個網址通吃的下載頁；這個會自動看用戶是 iPhone 還是 Android 再跳
+        var el=$('rm-act-url');
+        el.value=location.origin+'/go/app';
+        curBtn().action={type:'uri',uri:el.value};
+        dirty=true;
+        var out=$('rm-check-result');
+        out.className='ok';
+        out.textContent='已填入。這個網址會自動分辨用戶的手機，跳到對的商店。';
+      });
       $('rm-act-identify').addEventListener('change',function(){
         var b=curBtn();
         if(this.checked)b.identify=true; else delete b.identify;

@@ -533,6 +533,80 @@ function registerAdminRichMenuRoutes(app, deps) {
     }
   });
 
+  // ── 檢查連結：這個網址點下去到底會到哪 ──────────────────────
+  // 打錯路徑的網站多半不會回 404，而是默默把人導回首頁（OpenRice 就是這樣），
+  // 所以「有回應」不等於「是對的」。這裡跟著跳轉走一遍，把最後的落點講出來，
+  // 並在「看起來只是回到首頁」時明講。
+  app.post('/admin/richmenu/api/check-link', requireAdmin, async (req, res) => {
+    const raw = String((req.body || {}).url || '').trim();
+    if (!/^https?:\/\//i.test(raw)) {
+      return jsonErr(res, 400, 'bad_url', { detail: '網址要以 https:// 開頭' });
+    }
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      let resp;
+      try {
+        resp = await fetch(raw, { redirect: 'follow', signal: ctrl.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)' } });
+      } finally { clearTimeout(timer); }
+      const finalUrl = resp.url || raw;
+      const status = resp.status;
+
+      let u1, u2;
+      try { u1 = new URL(raw); u2 = new URL(finalUrl); } catch (e) { u1 = u2 = null; }
+      // 「被導回首頁」的判斷：原本有指定路徑，最後卻落在很淺的路徑上
+      const startPath = u1 ? u1.pathname.replace(/\/+$/, '') : '';
+      const endPath = u2 ? u2.pathname.replace(/\/+$/, '') : '';
+      const endDepth = endPath.split('/').filter(Boolean).length;
+      const landedShallow = startPath.split('/').filter(Boolean).length >= 1 &&
+                            endDepth <= 2 && endPath !== startPath && !u2.search;
+      const changedHost = u1 && u2 && u1.hostname !== u2.hostname;
+
+      let verdict, note;
+      if (status >= 400) {
+        verdict = 'bad';
+        note = '這個網址打不開（伺服器回 ' + status + '）。檢查有沒有打錯字。';
+      } else if (landedShallow) {
+        verdict = 'suspect';
+        note = '打得開，但最後停在「' + endPath + '」——看起來是被導回首頁了，' +
+               '通常表示原本那個路徑不存在。用戶按了不會看到你要的內容。';
+      } else if (changedHost || endPath !== startPath) {
+        verdict = 'ok';
+        note = '可以開，中間會轉一次，最後到「' + (u2 ? u2.host + endPath : finalUrl) + '」。確認一下這是你要的頁面。';
+      } else {
+        verdict = 'ok';
+        note = '可以正常開啟。';
+      }
+      res.json({ ok: true, verdict, note, status, final_url: finalUrl });
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      res.json({ ok: true, verdict: 'bad',
+        note: /abort/i.test(msg) ? '等太久沒有回應（超過八秒），這個網址可能有問題。'
+                                 : '連不上這個網址。檢查有沒有打錯字。',
+        status: 0, final_url: null });
+    }
+  });
+
+  // ── App 下載：自動分辨手機系統 ────────────────────────────
+  // OpenRice 沒有「一個網址通吃」的下載頁（/download-app 這種路徑會被導回首頁），
+  // 選單只能放一個網址，選 iPhone 的話 Android 用戶點了會很怪。
+  // 這支看使用者的手機決定跳哪一家商店，選單放這一個就好。
+  const APP_IOS = 'https://apps.apple.com/tw/app/id310663323';
+  const APP_ANDROID = 'https://play.google.com/store/apps/details?id=com.openrice.android';
+  app.get('/go/app', async (req, res) => {
+    const ua = String((req.headers && req.headers['user-agent']) || '');
+    const isIOS = /iphone|ipad|ipod/i.test(ua) || (/macintosh/i.test(ua) && /mobile/i.test(ua));
+    const target = isIOS ? APP_IOS : APP_ANDROID;
+    // 記一筆「有人要下載 App」（電腦上打開也算，只是分不出系統）
+    try {
+      await query(
+        `INSERT INTO message_taps (source, ref_id, label, target_url, line_user_id) VALUES ('app', $1, 'App 下載', $2, NULL)`,
+        [isIOS ? 'ios' : 'android', target]);
+    } catch (e) { /* 記錄失敗絕不擋跳轉 */ }
+    res.redirect(target);
+  });
+
   // ── 訊息裡按鈕的記名追蹤：/t/m/:source/:refId ─────────────────
   // 關鍵字回覆、活動卡片這些訊息的按鈕，本來直接指向目的地，點了誰都不知道。
   // 改成先過這個跳板（跟圖文選單同一套：LIFF 拿身分 → 記一筆 → 跳走）。
