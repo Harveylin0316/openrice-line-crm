@@ -175,6 +175,14 @@
       .lu-field input{font-family:inherit;font-size:14px;padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;color:#1f2937;background:#fff;}
       .campaign-meta-pill--live{background:#DCFCE7;color:#166534;border-color:#BBF7D0;}
       .campaign-meta-pill--off{background:#F4F4F6;color:#6B6B70;}
+      .lu-copy-g{border:1px solid #ECECEE;border-radius:10px;margin-bottom:10px;background:#fff;}
+      .lu-copy-g summary{cursor:pointer;padding:11px 14px;font-size:14px;font-weight:600;color:#1f2937;
+        list-style:none;display:flex;align-items:center;gap:8px;}
+      .lu-copy-g summary::-webkit-details-marker{display:none;}
+      .lu-copy-g summary::before{content:'▸';color:#9CA3AF;font-size:12px;}
+      .lu-copy-g[open] summary::before{content:'▾';}
+      .lu-copy-g summary .n{margin-left:auto;font-size:12px;font-weight:400;color:#9CA3AF;}
+      .lu-copy-g .lu-copy-grid{padding:4px 14px 16px;}
       .lu-copy-grid{display:grid;gap:14px;}
       .lu-copy-f{display:flex;flex-direction:column;gap:5px;}
       .lu-copy-f label{font-size:13px;font-weight:600;color:#1f2937;}
@@ -480,14 +488,28 @@
             var box=$('lu-copy');
             if(!d.ok){box.innerHTML='<p class="muted">載入失敗，重新整理看看</p>';return;}
             COPY_FIELDS=d.fields||[];
-            box.innerHTML='<div class="lu-copy-grid">'+COPY_FIELDS.map(function(f){
-              var v=(d.values&&d.values[f.key])||'';
-              var input=f.type==='list'
-                ? '<textarea id="cp-'+f.key+'" placeholder="一行一項">'+esc2(v)+'</textarea>'
-                : '<input type="text" id="cp-'+f.key+'" value="'+esc2(v)+'" maxlength="'+f.max+'">';
-              return '<div class="lu-copy-f"><label for="cp-'+f.key+'">'+esc2(f.label)+'</label>'+
-                     input+'<span class="h">'+esc2(f.hint)+'</span></div>';
-            }).join('')+'</div>';
+            // 四十幾個欄位平鋪會看不下去——依用途分組，一次展開一組
+            var groups=[];
+            COPY_FIELDS.forEach(function(f){
+              var g=f.g||'其他';
+              var hit=null;
+              groups.forEach(function(x){if(x.name===g)hit=x;});
+              if(!hit){hit={name:g,items:[]};groups.push(hit);}
+              hit.items.push(f);
+            });
+            box.innerHTML=groups.map(function(g,gi){
+              var inner=g.items.map(function(f){
+                var v=(d.values&&d.values[f.key])||'';
+                var input=f.type==='list'
+                  ? '<textarea id="cp-'+f.key+'" placeholder="一行一項">'+esc2(v)+'</textarea>'
+                  : '<input type="text" id="cp-'+f.key+'" value="'+esc2(v)+'" maxlength="'+f.max+'">';
+                return '<div class="lu-copy-f"><label for="cp-'+f.key+'">'+esc2(f.label)+'</label>'+
+                       input+(f.hint?('<span class="h">'+esc2(f.hint)+'</span>'):'')+'</div>';
+              }).join('');
+              return '<details class="lu-copy-g"'+(gi===0?' open':'')+'>'+
+                     '<summary>'+esc2(g.name)+'<span class="n">'+g.items.length+' 項</span></summary>'+
+                     '<div class="lu-copy-grid">'+inner+'</div></details>';
+            }).join('');
           }).catch(function(){$('lu-copy').innerHTML='<p class="muted">連線錯誤</p>';});
         }
         $('lu-copy-save').addEventListener('click',function(){

@@ -204,22 +204,57 @@ function registerAdminHubRoutes(app, deps) {
   // 要改得找工程師；現在同事自己就能改，存檔後用戶重新整理就會看到。
   // 清單型欄位在畫面上是「一行一項」，存進資料庫時轉成陣列。
   const LUDIAN_COPY_FIELDS = [
-    { key: 'page_title',    label: '大標題（還沒領的時候）', type: 'text',  max: 40,
-      hint: '用戶打開頁面第一眼看到的字' },
-    { key: 'claimed_title', label: '大標題（領完之後）',     type: 'text',  max: 40,
-      hint: '領到序號後標題會換成這句' },
-    { key: 'tagline',       label: '標題下的一句話',         type: 'text',  max: 60,
-      hint: '留空就不顯示' },
-    { key: 'info_link_label', label: '展開說明的按鈕文字',   type: 'text',  max: 20,
-      hint: '留空＝用預設「查看使用說明與注意事項」' },
-    { key: 'how_to_claim',  label: '領取步驟',               type: 'list',  max: 10,
-      hint: '一行一個步驟' },
-    { key: 'campaign_desc', label: '活動說明',               type: 'list',  max: 12,
-      hint: '一行一點' },
-    { key: 'how_to_use',    label: '怎麼使用',               type: 'list',  max: 12,
-      hint: '一行一個步驟' },
-    { key: 'tnc',           label: '注意事項',               type: 'list',  max: 15,
-      hint: '一行一條' }
+    // ── 標題 ──
+    { g: '標題', key: 'page_title',    label: '大標題（還沒領的時候）', type: 'text', max: 40, hint: '打開頁面第一眼看到的字' },
+    { g: '標題', key: 'claimed_title', label: '大標題（領完之後）',     type: 'text', max: 40, hint: '領到序號後標題會換成這句' },
+    { g: '標題', key: 'tagline',       label: '標題下的一句話',         type: 'text', max: 60, hint: '留空就不顯示' },
+    { g: '標題', key: 'ribbon_before', label: '標題上的小標籤（還沒領）', type: 'text', max: 20, hint: '例：LINE 好友限定' },
+    { g: '標題', key: 'ribbon_after',  label: '標題上的小標籤（領完後）', type: 'text', max: 20, hint: '例：OPENRICE 好友禮' },
+
+    // ── 按鈕 ──
+    { g: '按鈕', key: 'btn_claim',    label: '領取按鈕',         type: 'text', max: 20, hint: '例：領取借電券' },
+    { g: '按鈕', key: 'btn_claiming', label: '領取中的按鈕字',   type: 'text', max: 20, hint: '按下去到拿到序號之間顯示' },
+    { g: '按鈕', key: 'btn_copy',     label: '複製序號按鈕',     type: 'text', max: 20, hint: '' },
+    { g: '按鈕', key: 'btn_redeem',   label: '前往兌換按鈕',     type: 'text', max: 20, hint: '' },
+    { g: '按鈕', key: 'code_label',   label: '序號上面的小字',   type: 'text', max: 20, hint: '例：優惠序號' },
+    { g: '按鈕', key: 'copied',       label: '複製成功的提示',   type: 'text', max: 20, hint: '複製後跳出來的小字' },
+    { g: '按鈕', key: 'copy_failed',  label: '複製失敗的提示',   type: 'text', max: 40, hint: '' },
+
+    // ── 卡片上的說明 ──
+    { g: '卡片說明', key: 'claim_note',     label: '領取按鈕下的說明', type: 'text', max: 80, hint: '' },
+    { g: '卡片說明', key: 'redeem_note',    label: '兌換按鈕下的說明', type: 'text', max: 80, hint: '' },
+    { g: '卡片說明', key: 'redeem_pending', label: '兌換連結還沒開放時', type: 'text', max: 80, hint: '' },
+    { g: '卡片說明', key: 'oos_text',       label: '序號發完時顯示',   type: 'text', max: 160,
+      hint: '要換行就打 <br>' },
+
+    // ── 展開說明 ──
+    { g: '展開說明', key: 'info_link_label',  label: '展開的按鈕文字', type: 'text', max: 20, hint: '' },
+    { g: '展開說明', key: 'info_link_close',  label: '收合的按鈕文字', type: 'text', max: 20, hint: '' },
+    { g: '展開說明', key: 'sec_how_to_claim', label: '第一段的標題',   type: 'text', max: 20, hint: '例：領取步驟' },
+    { g: '展開說明', key: 'how_to_claim',     label: '第一段的內容',   type: 'list', max: 10, hint: '一行一項' },
+    { g: '展開說明', key: 'sec_campaign_desc',label: '第二段的標題',   type: 'text', max: 20, hint: '例：活動說明' },
+    { g: '展開說明', key: 'campaign_desc',    label: '第二段的內容',   type: 'list', max: 12, hint: '一行一項' },
+    { g: '展開說明', key: 'sec_how_to_use',   label: '第三段的標題',   type: 'text', max: 20, hint: '例：使用方式' },
+    { g: '展開說明', key: 'how_to_use',       label: '第三段的內容',   type: 'list', max: 12, hint: '一行一項' },
+    { g: '展開說明', key: 'sec_tnc',          label: '第四段的標題',   type: 'text', max: 20, hint: '例：注意事項' },
+    { g: '展開說明', key: 'tnc',              label: '第四段的內容',   type: 'list', max: 15, hint: '一行一項' },
+
+    // ── 各種狀況的訊息 ──
+    { g: '狀況訊息', key: 'loading',    label: '載入中',       type: 'text', max: 20, hint: '' },
+    { g: '狀況訊息', key: 'err_title',  label: '載不出來（標題）', type: 'text', max: 20, hint: '' },
+    { g: '狀況訊息', key: 'err_detail', label: '載不出來（說明）', type: 'text', max: 60, hint: '' },
+    { g: '狀況訊息', key: 'st_notstarted_title',  label: '還沒開始（標題）', type: 'text', max: 20, hint: '' },
+    { g: '狀況訊息', key: 'st_notstarted_detail', label: '還沒開始（說明）', type: 'text', max: 60, hint: '' },
+    { g: '狀況訊息', key: 'st_ended_title',       label: '已結束（標題）',   type: 'text', max: 20, hint: '' },
+    { g: '狀況訊息', key: 'st_ended_detail',      label: '已結束（說明）',   type: 'text', max: 60, hint: '' },
+    { g: '狀況訊息', key: 'st_claimed_title',     label: '已經領過（標題）', type: 'text', max: 20, hint: '' },
+    { g: '狀況訊息', key: 'st_claimed_detail',    label: '已經領過（說明）', type: 'text', max: 60, hint: '' },
+    { g: '狀況訊息', key: 'st_needfollow_title',  label: '還沒加好友（標題）', type: 'text', max: 20, hint: '' },
+    { g: '狀況訊息', key: 'st_needfollow_detail', label: '還沒加好友（說明）', type: 'text', max: 60, hint: '' },
+    { g: '狀況訊息', key: 'st_failed_title',      label: '領取失敗（標題）', type: 'text', max: 20, hint: '' },
+    { g: '狀況訊息', key: 'st_failed_detail',     label: '領取失敗（說明）', type: 'text', max: 60, hint: '' },
+    { g: '狀況訊息', key: 'st_neterr_title',      label: '連線出錯（標題）', type: 'text', max: 20, hint: '' },
+    { g: '狀況訊息', key: 'st_neterr_detail',     label: '連線出錯（說明）', type: 'text', max: 60, hint: '' }
   ];
 
   app.get('/admin/campaigns/ludian/api/copy', requireAdmin, async (_req, res) => {

@@ -58,9 +58,25 @@ async function run(routes, key, body) {
   let r = await run(t.routes, 'GET /admin/campaigns/ludian/api/copy');
   ok(r.body.ok && r.body.values.claimed_title === '你的借電券已準備好', '讀得出「領完之後的大標題」');
   ok(r.body.values.how_to_claim === '點擊領取\n複製序號\n前往兌換', '清單顯示成一行一項');
-  ok(r.body.fields.length >= 8 && r.body.fields.every(f => f.label && f.hint),
-     '每個欄位都有看得懂的名稱與說明');
+  ok(r.body.fields.length >= 40, '頁面上所有的字都開放了（' + r.body.fields.length + ' 個欄位）');
+  ok(r.body.fields.every(f => f.label && f.g), '每個欄位都有名稱、也都歸在某一組');
   ok(!r.body.fields.some(f => /[a-z_]{4,}/.test(f.label)), '欄位名稱是人話，不是代號');
+  const groups = [...new Set(r.body.fields.map(f => f.g))];
+  ok(groups.length >= 4 && groups.length <= 7,
+     '分成 ' + groups.length + ' 組（' + groups.join('、') + '），不是一長串');
+
+  // 領券頁上每一段字，後台都要找得到對應欄位——不然就是有漏掉的
+  const fs = require('fs');
+  const claim = fs.readFileSync(path.join(__dirname, '..', 'views/game_claim.ejs'), 'utf8');
+  const defaults = [...claim.matchAll(/^\s{6}([a-z_]+):\s*'/gm)].map(m => m[1]);
+  ok(defaults.length >= 30, '領券頁的文案表有 ' + defaults.length + ' 個項目');
+  const fieldKeys = new Set(r.body.fields.map(f => f.key));
+  const missing = defaults.filter(k => !fieldKeys.has(k));
+  ok(missing.length === 0, '文案表裡每一項後台都改得到' + (missing.length ? ('（漏了：' + missing.join('、') + '）') : ''));
+
+  // 反過來：頁面上不該再有寫死的中文
+  const hard = [...claim.matchAll(/textContent = '[^']*[\u4e00-\u9fff]/g)];
+  ok(hard.length === 0, '領券頁沒有寫死的文字了' + (hard.length ? ('（還有 ' + hard.length + ' 處）') : ''));
 
   // 2) 改文案
   t = build();
