@@ -29,9 +29,11 @@
     var LIFF_ID = <%- JSON.stringify(liffId) %>;
     var REC = <%- JSON.stringify(recordUrl) %>;
     var went = false;
+    // 跳轉獨立成一個掛在 window 上的動作：自動測試才攔得到「有沒有真的把人送走」
+    window.__bounceGo = function (u) { location.replace(u); };
     function go() {
       if (went) return; went = true;
-      location.replace(TARGET);
+      window.__bounceGo(TARGET);
     }
     // 保險：不管記錄成不成功，1.6 秒內一定要把人送過去。
     // 追蹤絕不能擋住用戶要去的地方。
