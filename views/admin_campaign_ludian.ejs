@@ -95,6 +95,19 @@
     </section>
 
     <section class="card">
+      <h2 style="margin:0;">頁面文案</h2>
+      <p class="muted" style="margin-top:6px;line-height:1.7;">
+        這些字會直接印在用戶手機上。改完按「儲存文案」，用戶重新整理頁面就會看到新的。<br>
+        <a href="/games/claim/ludian-0901?preview=1" target="_blank" rel="noopener">先看看用戶會看到什麼</a>
+      </p>
+      <div id="lu-copy" style="margin-top:14px;"><p class="muted">載入中…</p></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap;">
+        <button type="button" class="lu-btn-main" id="lu-copy-save">儲存文案</button>
+        <span id="lu-copy-note" class="muted" style="font-size:13px;"></span>
+      </div>
+    </section>
+
+    <section class="card">
       <h2 style="margin:0;">檔期設定</h2>
       <p class="muted" style="margin-top:6px;line-height:1.7;">
         設定好時間後，時間到了會<b>自動開放、自動截止</b>，不用半夜手動按。<br>
@@ -162,6 +175,14 @@
       .lu-field input{font-family:inherit;font-size:14px;padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;color:#1f2937;background:#fff;}
       .campaign-meta-pill--live{background:#DCFCE7;color:#166534;border-color:#BBF7D0;}
       .campaign-meta-pill--off{background:#F4F4F6;color:#6B6B70;}
+      .lu-copy-grid{display:grid;gap:14px;}
+      .lu-copy-f{display:flex;flex-direction:column;gap:5px;}
+      .lu-copy-f label{font-size:13px;font-weight:600;color:#1f2937;}
+      .lu-copy-f .h{font-size:12px;color:#86868B;}
+      .lu-copy-f input,.lu-copy-f textarea{font-family:inherit;font-size:14px;padding:9px 11px;
+        border:1px solid #ECECEE;border-radius:8px;color:#1f2937;background:#fff;width:100%;box-sizing:border-box;}
+      .lu-copy-f textarea{min-height:96px;line-height:1.8;resize:vertical;}
+      .lu-copy-f input:focus,.lu-copy-f textarea:focus{outline:2px solid #FCC72655;border-color:#FCC726;}
       [hidden]{display:none !important;}
     </style>
 
@@ -450,6 +471,41 @@
         }
         $('lu-q-btn').addEventListener('click',runLookup);
         $('lu-q').addEventListener('keydown',function(e){if(e.key==='Enter')runLookup();});
+
+        // ── 頁面文案：讀出來、改完存回去 ──
+        var COPY_FIELDS=[];
+        function esc2(x){return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+        function loadCopy(){
+          fetch('/admin/campaigns/ludian/api/copy').then(function(r){return r.json();}).then(function(d){
+            var box=$('lu-copy');
+            if(!d.ok){box.innerHTML='<p class="muted">載入失敗，重新整理看看</p>';return;}
+            COPY_FIELDS=d.fields||[];
+            box.innerHTML='<div class="lu-copy-grid">'+COPY_FIELDS.map(function(f){
+              var v=(d.values&&d.values[f.key])||'';
+              var input=f.type==='list'
+                ? '<textarea id="cp-'+f.key+'" placeholder="一行一項">'+esc2(v)+'</textarea>'
+                : '<input type="text" id="cp-'+f.key+'" value="'+esc2(v)+'" maxlength="'+f.max+'">';
+              return '<div class="lu-copy-f"><label for="cp-'+f.key+'">'+esc2(f.label)+'</label>'+
+                     input+'<span class="h">'+esc2(f.hint)+'</span></div>';
+            }).join('')+'</div>';
+          }).catch(function(){$('lu-copy').innerHTML='<p class="muted">連線錯誤</p>';});
+        }
+        $('lu-copy-save').addEventListener('click',function(){
+          if(!COPY_FIELDS.length)return;
+          var btn=this;btn.disabled=true;
+          var note=$('lu-copy-note');note.textContent='儲存中…';
+          var body={};
+          COPY_FIELDS.forEach(function(f){
+            var el=$('cp-'+f.key); if(el)body[f.key]=el.value;
+          });
+          fetch('/admin/campaigns/ludian/api/copy',{method:'POST',
+            headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+            .then(function(r){return r.json();}).then(function(d){
+              btn.disabled=false;
+              note.textContent=d.ok?'已儲存。用戶重新整理頁面就會看到新的文案。':('沒有成功：'+(d.detail||d.error||''));
+            }).catch(function(){btn.disabled=false;note.textContent='連線錯誤，再試一次';});
+        });
+        loadCopy();
 
         // ── 清除測試碼（雙重確認） ──
         $('lu-clear-qa').addEventListener('click',function(){

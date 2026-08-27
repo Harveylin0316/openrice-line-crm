@@ -199,6 +199,83 @@ function registerAdminHubRoutes(app, deps) {
     }
   });
 
+  // ── 領券頁的文案 ──────────────────────────────────────────
+  // 這些字直接印在用戶手機上（大標、說明、注意事項）。原本只存在資料庫裡，
+  // 要改得找工程師；現在同事自己就能改，存檔後用戶重新整理就會看到。
+  // 清單型欄位在畫面上是「一行一項」，存進資料庫時轉成陣列。
+  const LUDIAN_COPY_FIELDS = [
+    { key: 'page_title',    label: '大標題（還沒領的時候）', type: 'text',  max: 40,
+      hint: '用戶打開頁面第一眼看到的字' },
+    { key: 'claimed_title', label: '大標題（領完之後）',     type: 'text',  max: 40,
+      hint: '領到序號後標題會換成這句' },
+    { key: 'tagline',       label: '標題下的一句話',         type: 'text',  max: 60,
+      hint: '留空就不顯示' },
+    { key: 'info_link_label', label: '展開說明的按鈕文字',   type: 'text',  max: 20,
+      hint: '留空＝用預設「查看使用說明與注意事項」' },
+    { key: 'how_to_claim',  label: '領取步驟',               type: 'list',  max: 10,
+      hint: '一行一個步驟' },
+    { key: 'campaign_desc', label: '活動說明',               type: 'list',  max: 12,
+      hint: '一行一點' },
+    { key: 'how_to_use',    label: '怎麼使用',               type: 'list',  max: 12,
+      hint: '一行一個步驟' },
+    { key: 'tnc',           label: '注意事項',               type: 'list',  max: 15,
+      hint: '一行一條' }
+  ];
+
+  app.get('/admin/campaigns/ludian/api/copy', requireAdmin, async (_req, res) => {
+    try {
+      const { rows } = await query(
+        `SELECT p.id, p.prize_value FROM activity_prizes p
+           JOIN activities a ON a.id = p.activity_id
+          WHERE a.slug = $1 ORDER BY p.id LIMIT 1`, [LUDIAN.slug]);
+      if (rows.length === 0) return res.status(404).json({ ok: false, error: 'prize_not_found' });
+      const pv = rows[0].prize_value || {};
+      const values = {};
+      LUDIAN_COPY_FIELDS.forEach(f => {
+        const v = pv[f.key];
+        values[f.key] = f.type === 'list'
+          ? (Array.isArray(v) ? v.join('\n') : '')
+          : (typeof v === 'string' ? v : '');
+      });
+      res.json({ ok: true, fields: LUDIAN_COPY_FIELDS, values });
+    } catch (err) {
+      console.error('ludian copy read error:', err && err.message);
+      res.status(500).json({ ok: false, error: 'read_failed' });
+    }
+  });
+
+  app.post('/admin/campaigns/ludian/api/copy', requireAdmin, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const { rows } = await query(
+        `SELECT p.id, p.prize_value FROM activity_prizes p
+           JOIN activities a ON a.id = p.activity_id
+          WHERE a.slug = $1 ORDER BY p.id LIMIT 1`, [LUDIAN.slug]);
+      if (rows.length === 0) return res.status(404).json({ ok: false, error: 'prize_not_found' });
+      // 只覆蓋文案欄位：序號兌換網址、效期那些設定不能被這個表單洗掉
+      const pv = Object.assign({}, rows[0].prize_value || {});
+      const changed = [];
+      for (const f of LUDIAN_COPY_FIELDS) {
+        if (!(f.key in body)) continue;
+        const raw = String(body[f.key] == null ? '' : body[f.key]);
+        if (f.type === 'list') {
+          const arr = raw.split('\n').map(x => x.trim()).filter(Boolean).slice(0, f.max);
+          if (arr.length) pv[f.key] = arr; else delete pv[f.key];
+        } else {
+          const t = raw.trim().slice(0, f.max);
+          if (t) pv[f.key] = t; else delete pv[f.key];
+        }
+        changed.push(f.label);
+      }
+      await query(`UPDATE activity_prizes SET prize_value = $2::jsonb WHERE id = $1`,
+        [rows[0].id, JSON.stringify(pv)]);
+      res.json({ ok: true, changed });
+    } catch (err) {
+      console.error('ludian copy save error:', err && err.message);
+      res.status(500).json({ ok: false, error: 'save_failed', detail: '存檔失敗，再試一次' });
+    }
+  });
+
   // 上下架：active=開放（同時開啟關鍵字回覆）；draft=下架（同時關閉關鍵字回覆）
   app.post('/admin/campaigns/ludian/api/status', requireAdmin, async (req, res) => {
     try {

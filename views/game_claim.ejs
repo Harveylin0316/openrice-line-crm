@@ -253,7 +253,7 @@
 
     <!-- 查看說明 -->
     <div class="info-link-wrap" id="info-link-wrap" hidden>
-      <button type="button" class="info-link" id="info-link">查看使用說明與注意事項</button>
+      <button type="button" class="info-link" id="info-link" data-open="<%= pv.info_link_label || '查看使用說明與注意事項' %>"><%= pv.info_link_label || '查看使用說明與注意事項' %></button>
     </div>
 
     <div id="info-sections" hidden>
@@ -571,7 +571,8 @@
       $('info-link').addEventListener('click', function(){
         var s = $('info-sections');
         s.hidden = !s.hidden;
-        $('info-link').textContent = s.hidden ? '查看使用說明與注意事項' : '收合使用說明';
+        var il = $('info-link');
+        il.textContent = s.hidden ? (il.getAttribute('data-open') || '查看使用說明與注意事項') : '收合使用說明';
         if (!s.hidden) { try { s.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {} }
       });
 
