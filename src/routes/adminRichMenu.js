@@ -486,7 +486,11 @@ function registerAdminRichMenuRoutes(app, deps) {
     return null;
   }
 
-  app.get('/t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)', async (req, res) => {
+  // 這個 LIFF 的網頁位置設定在 /games 底下，所以從 LINE 進來的網址會是 /games/t/...；
+  // 直接貼網址測試時則是 /t/...。兩個都註冊，少一個就會看到「Cannot GET」。
+  const tapBouncePaths = ['/t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)',
+                          '/games/t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)'];
+  tapBouncePaths.forEach(pth => app.get(pth, async (req, res) => {
     const FALLBACK = 'https://www.openrice.com';
     try {
       const id = Number(req.params.id), tab = Number(req.params.tab), cell = Number(req.params.cell);
@@ -501,12 +505,14 @@ function registerAdminRichMenuRoutes(app, deps) {
       console.error('tap bounce error:', e && e.message);
       res.redirect(FALLBACK);
     }
-  });
+  }));
 
   // 跳板回報「是誰按的」。公開端點：只認選單上真的存在的按鍵，
   // 而且同一人同一格 60 秒只記一筆（跟 /r 同一套防灌水規矩）。
   const tapSeen = new Map();
-  app.post('/t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)/hit', async (req, res) => {
+  const tapHitPaths = ['/t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)/hit',
+                       '/games/t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)/hit'];
+  tapHitPaths.forEach(pth => app.post(pth, async (req, res) => {
     try {
       const id = Number(req.params.id), tab = Number(req.params.tab), cell = Number(req.params.cell);
       const raw = String((req.body || {}).line_user_id || '').trim();
@@ -531,7 +537,7 @@ function registerAdminRichMenuRoutes(app, deps) {
       console.error('tap hit error:', e && e.message);
       res.json({ ok: true });   // 記錄失敗絕不擋用戶
     }
-  });
+  }));
 
   // ── 檢查連結：這個網址點下去到底會到哪 ──────────────────────
   // 打錯路徑的網站多半不會回 404，而是默默把人導回首頁（OpenRice 就是這樣），
@@ -632,7 +638,9 @@ function registerAdminRichMenuRoutes(app, deps) {
     return null;
   }
 
-  app.get('/t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)', async (req, res) => {
+  const msgBouncePaths = ['/t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)',
+                          '/games/t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)'];
+  msgBouncePaths.forEach(pth => app.get(pth, async (req, res) => {
     const FALLBACK = 'https://www.openrice.com';
     try {
       const hit = await messageTapTarget(req.params.source, req.params.refId);
@@ -646,10 +654,12 @@ function registerAdminRichMenuRoutes(app, deps) {
       console.error('message tap bounce error:', e && e.message);
       res.redirect(FALLBACK);
     }
-  });
+  }));
 
   const msgTapSeen = new Map();
-  app.post('/t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)/hit', async (req, res) => {
+  const msgHitPaths = ['/t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)/hit',
+                       '/games/t/m/:source([a-z]+)/:refId([A-Za-z0-9_-]+)/hit'];
+  msgHitPaths.forEach(pth => app.post(pth, async (req, res) => {
     try {
       const source = req.params.source, refId = req.params.refId;
       const raw = String((req.body || {}).line_user_id || '').trim();
@@ -673,7 +683,7 @@ function registerAdminRichMenuRoutes(app, deps) {
       console.error('message tap hit error:', e && e.message);
       res.json({ ok: true });   // 記錄失敗絕不擋用戶
     }
-  });
+  }));
 
   // ── 圖片上傳（每格的圖／整張完稿圖共用）：存進 line_push_media，回公開網址路徑 ──
   app.post('/admin/richmenu/api/upload-image', requireAdmin, async (req, res) => {
