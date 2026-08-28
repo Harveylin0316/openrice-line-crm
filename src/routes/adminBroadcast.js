@@ -215,7 +215,8 @@ function registerAdminBroadcastRoutes(app, deps) {
           `INSERT INTO admin_broadcast_views (broadcast_id, recipient_id, line_user_id, user_agent, variant)
            SELECT $1, $2, m.line_user_id, $3, $4
            FROM admin_broadcast_recipients m
-           WHERE m.id = $2 AND m.broadcast_id = $1`,
+           WHERE m.id = $2 AND m.broadcast_id = $1
+           ON CONFLICT DO NOTHING`,
           [broadcastId, recipientId, (req.get('user-agent') || '').slice(0, 500), variant]
         );
       } catch (err) { console.error('view log (rid) failed:', err.message); }
@@ -294,7 +295,8 @@ function registerAdminBroadcastRoutes(app, deps) {
           `INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, line_user_id, target_url, user_agent, referer, variant)
            SELECT $1, $2, m.line_user_id, $3, $4, $5, $6
            FROM admin_broadcast_recipients m
-           WHERE m.id = $2 AND m.broadcast_id = $1`,
+           WHERE m.id = $2 AND m.broadcast_id = $1
+           ON CONFLICT DO NOTHING`,
           [
             broadcastId, recipientId, targetUrl,
             (req.get('user-agent') || '').slice(0, 500),
@@ -1983,7 +1985,8 @@ function registerAdminBroadcastRoutes(app, deps) {
       // 寫 view log（去重在 SQL：以 recipient_id 為 key，每筆 broadcast 最多一筆 open）
       await query(
         `INSERT INTO admin_broadcast_views (broadcast_id, recipient_id, line_user_id, email, user_agent, variant)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+         VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT DO NOTHING`,
         [bid, rid, luid, emailVal, (req.get('user-agent') || '').slice(0, 500), variant]
       );
       // 更新 recipient.opened_at（保留最早開信時間）
@@ -2134,11 +2137,14 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
               [recipientId, messageId || null]
             );
           }
-        } else if (evType === 'opened' || evType === 'unique_opened') {
+        // 服務商會同時送 opened 與 unique_opened 兩種通知，只認後者，
+        // 不然同一次開信會被記兩筆（唯一鍵擋得住，但少跑一次是一次）
+        } else if (evType === 'unique_opened') {
           if (broadcastId && recipientId) {
             await query(
               `INSERT INTO admin_broadcast_views (broadcast_id, recipient_id, email, variant, user_agent)
-               VALUES ($1, $2, $3, $4, $5)`,
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT DO NOTHING`,
               [broadcastId, recipientId, email || null, variant, 'brevo-webhook']
             );
             await query(
@@ -2151,7 +2157,8 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
           if (broadcastId && recipientId) {
             await query(
               `INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, email, target_url, variant, user_agent)
-               VALUES ($1, $2, $3, $4, $5, $6)`,
+               VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT DO NOTHING`,
               [broadcastId, recipientId, email || null, link, variant, 'brevo-webhook']
             );
             await query(
@@ -2266,7 +2273,8 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
           if (broadcastId && recipientId) {
             await query(
               `INSERT INTO admin_broadcast_views (broadcast_id, recipient_id, email, variant, user_agent)
-               VALUES ($1, $2, $3, $4, $5)`,
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT DO NOTHING`,
               [broadcastId, recipientId, email || null, variant, 'surenotify-webhook']
             );
             await query(`UPDATE admin_broadcast_recipients SET opened_at = COALESCE(opened_at, NOW()) WHERE id = $1`, [recipientId]);
@@ -2276,7 +2284,8 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
           if (broadcastId && recipientId) {
             await query(
               `INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, email, target_url, variant, user_agent)
-               VALUES ($1, $2, $3, $4, $5, $6)`,
+               VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT DO NOTHING`,
               [broadcastId, recipientId, email || null, link, variant, 'surenotify-webhook']
             );
             await query(`UPDATE admin_broadcast_recipients SET first_clicked_at = COALESCE(first_clicked_at, NOW()) WHERE id = $1`, [recipientId]);

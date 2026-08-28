@@ -297,6 +297,14 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
     ADD COLUMN IF NOT EXISTS target TEXT,
     ADD COLUMN IF NOT EXISTS target_label TEXT,
     ADD COLUMN IF NOT EXISTS window_days INTEGER`);
+  // 群發追蹤去重：同一封信同一收件人只算一次開信／一次點擊
+  // （Email 的一次開信會同時觸發自家追蹤圖與服務商通知，不擋會變兩三倍）
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_broadcast_views_recipient
+    ON admin_broadcast_views (broadcast_id, recipient_id) WHERE recipient_id IS NOT NULL`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_broadcast_clicks_recipient
+    ON admin_broadcast_clicks (broadcast_id, recipient_id, target_url) WHERE recipient_id IS NOT NULL`);
+  // 定時流程分批續跑用：NULL＝這個期間還沒把人加完，下次排程接著加
+  await query(`ALTER TABLE admin_flow_schedule_runs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`);
   await query(`CREATE TABLE IF NOT EXISTS message_taps (
     id BIGSERIAL PRIMARY KEY,
     source TEXT NOT NULL,
