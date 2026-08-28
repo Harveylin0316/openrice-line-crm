@@ -90,8 +90,22 @@
           } catch(e){ return '—'; }
         }
         function post(url, payload){
-          return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload||{})})
-            .then(function(r){ return r.json().then(function(j){ return {status:r.status, body:j}; }); });
+          // 這裡一定要接住所有錯誤：登入過期時後端會回網頁而不是資料，
+          // 直接解析會失敗 → 按鈕變成「點了沒反應」，最難查的那種
+          return fetch(url,{method:'POST',headers:{'Content-Type':'application/json',
+              'Accept':'application/json'},body:JSON.stringify(payload||{})})
+            .then(function(r){
+              return r.json().then(function(j){ return {status:r.status, body:j}; })
+                .catch(function(){
+                  return { status:r.status, body:{ ok:false,
+                    detail: r.status===401||r.status===403||r.status===302
+                      ? '登入好像過期了，重新整理頁面再登入一次。'
+                      : '系統忙線中，等一下再試一次。' } };
+                });
+            })
+            .catch(function(){
+              return { status:0, body:{ ok:false, detail:'連線失敗，檢查網路後再試一次。' } };
+            });
         }
         function showMsg(el, text, ok){
           el.innerHTML = text ? ('<span style="color:'+(ok?'#15803d':'#b91c1c')+';font-weight:600;">'+esc(text)+'</span>') : '';

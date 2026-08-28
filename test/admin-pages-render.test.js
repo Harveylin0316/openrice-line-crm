@@ -2,7 +2,7 @@
 // 這支測試會自己去讀路由：res.render('xxx', { ... }) 裡列了哪些變數就傳哪些，
 // 所以「路由查了資料卻忘了傳給頁面」這種漏洞會直接被抓到
 // （群發頁就是這樣壞掉的：prizes 和 recent 查了沒傳，整頁 500，兩個多月沒人發現）。
-const fs = require('fs'), path = require('path'), ejs = require('ejs');
+const fs = require('fs'), path = require('path'), ejs = require('ejs'), vm = require('vm');
 const REPO = path.join(__dirname, '..');
 let failed = 0;
 function ok(c, l) { console.log((c ? 'OK  ' : '錯！ ') + l); if (!c) failed++; }
@@ -66,6 +66,24 @@ ok(views.length >= 30, '抓得到後台頁面的參數（' + views.length + ' �
     try {
       const html = await ejs.renderFile(file, data, { views: [path.join(REPO, 'views')] });
       ok(html.length > 300, v + ' 渲染得出來');
+      // 渲染成功還不夠：頁面裡的 JavaScript 也要真的能執行。
+      // 語法錯一個字，整段 script 一行都不跑，頁面看起來正常卻永遠停在「載入中」
+      // （用戶檔案頁就這樣壞掉——刪舊功能時留下一個多餘的 }); ）
+      // 只檢查真的會被當程式碼跑的 script：
+      // 外部檔案（src=）與放資料用的（type="application/json" 那種）不算
+      const scripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)]
+        .filter(m => !/\ssrc=/i.test(m[1]))
+        .filter(m => {
+          const t = /type\s*=\s*["']([^"']+)["']/i.exec(m[1]);
+          return !t || /javascript|module/i.test(t[1]);
+        })
+        .map(m => m[2]);
+      const bad = [];
+      scripts.forEach((code, i) => {
+        if (!code.trim()) return;
+        try { new vm.Script(code); } catch (e) { bad.push('第' + (i + 1) + '段：' + e.message); }
+      });
+      ok(bad.length === 0, v + ' 的頁面程式碼沒有語法錯誤' + (bad.length ? ('（' + bad[0] + '）') : ''));
     } catch (e) {
       ok(false, v + ' 渲染失敗：' + String(e.message).split('\n').slice(-1)[0].slice(0, 70));
     }

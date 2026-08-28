@@ -31,13 +31,18 @@ function appStub(routes) {
   const insightQuery = async (sql) => {
     const f = String(sql).replace(/\s+/g, ' ');
     if (/generate_series/.test(f)) return { rows: [dailyRow] };
-    if (/FILTER \(WHERE line_user_id IS NOT NULL AND is_admin = false\)::int AS members/.test(f))
+    if (/AS members/.test(f) && /AS joined_period/.test(f)) {
+      // 這三個數字一定要排除 archived_at（換 LINE 帳號時封存的舊會員），
+      // 不然總覽會虛報——實測曾把 2,351 報成會員數，實際只有 1,676
+      lastTotalsSql = f;
       return { rows: [{ members: 1500, blocked: 59, joined_period: 300 }] };
+    }
     if (/FROM line_follow_sources/.test(f)) return { rows: [{ source_key: 'organic', n: 100 }] };
     if (/FROM rich_menu_taps t LEFT JOIN rich_menus/.test(f)) return { rows: [] };
     if (/JOIN activities a ON/.test(f)) return { rows: [{ name: '分享超有哩', plays: 10, wins: 3, people: 6 }] };
     return { rows: [] };
   };
+  let lastTotalsSql = '';
   global.fetch = async (url) => ({ ok: true, status: 200,
     text: async () => JSON.stringify(/followers/.test(url) ? { followers: 1551, targetedReaches: 1491, blocks: 59 } :
       /demographic/.test(url) ? { available: true, genders: [{ gender: 'female', percentage: 60.3 }] } :
@@ -49,6 +54,10 @@ function appStub(routes) {
   ok(r.body.line.followers.followers === 1551, 'LINE 官方數字有帶');
   ok(r.body.daily.length === 1 && r.body.daily[0].joins === 5, '每日資料有帶');
   ok(r.body.totals.members === 1500, '會員總數有帶');
+  ok(/archived_at IS NULL/.test(lastTotalsSql || ''), '總覽數字有排除封存的舊帳號');
+  ok((lastTotalsSql || '').match(/archived_at IS NULL/g || []).length >= 3,
+     '會員數、封鎖數、近期新加入三個都排除了');
+  ok(/Asia\/Taipei/.test(lastTotalsSql || ''), '「近 N 天」用台北日界線，跟長條圖對得起來');
 
   // LINE 全掛 → 頁面照出，官方欄位是 null
   routes = {};

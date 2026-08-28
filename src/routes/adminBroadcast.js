@@ -1468,7 +1468,9 @@ function registerAdminBroadcastRoutes(app, deps) {
         `SELECT b.id, b.created_at, b.status, b.admin_username, b.scheduled_at,
                 b.recipient_total, b.recipient_ok, b.recipient_fail, b.recipient_skip,
                 b.started_at, b.finished_at,
-                (SELECT COUNT(*) FROM admin_broadcast_clicks WHERE broadcast_id = b.id)::int AS click_count
+                -- 算「幾個人點過」，跟詳情頁同一套口徑（沒有逐人紀錄的舊資料退回用瀏覽器指紋粗估）
+                (SELECT COALESCE(NULLIF(COUNT(DISTINCT line_user_id), 0), COUNT(DISTINCT user_agent))
+                   FROM admin_broadcast_clicks WHERE broadcast_id = b.id)::int AS click_count
          FROM admin_broadcasts b
          ORDER BY b.id DESC
          LIMIT $1 OFFSET $2`,
@@ -1543,8 +1545,13 @@ function registerAdminBroadcastRoutes(app, deps) {
 
       // click 統計
       const clickStatRs = await query(
+        // people = 幾個人點過（算比率要用這個）；clicks = 總次數（只當參考）。
+        // 舊資料沒有逐人紀錄時退回用瀏覽器指紋粗估，至少不會超過 100%。
         `SELECT COUNT(*)::int AS clicks,
+                COALESCE(NULLIF(COUNT(DISTINCT line_user_id)::int, 0),
+                         COUNT(DISTINCT user_agent)::int) AS people,
                 COUNT(DISTINCT user_agent)::int AS unique_ua,
+                COUNT(line_user_id)::int AS with_identity,
                 MIN(clicked_at) AS first_click,
                 MAX(clicked_at) AS last_click
          FROM admin_broadcast_clicks
@@ -1555,6 +1562,9 @@ function registerAdminBroadcastRoutes(app, deps) {
       // view 統計（hero 圖被 fetch — 開信率 proxy）
       const viewStatRs = await query(
         `SELECT COUNT(*)::int AS views,
+                COALESCE(NULLIF(COUNT(DISTINCT line_user_id)::int, 0),
+                         COUNT(DISTINCT user_agent)::int) AS people,
+                COUNT(line_user_id)::int AS with_identity,
                 MIN(viewed_at) AS first_view,
                 MAX(viewed_at) AS last_view
          FROM admin_broadcast_views
@@ -1869,6 +1879,22 @@ function registerAdminBroadcastRoutes(app, deps) {
                    SELECT 1 FROM admin_broadcast_views v
                    WHERE v.broadcast_id = $1 AND v.line_user_id = r.line_user_id
                  )`;
+      }
+      // 【擋下整批重發】「沒點擊／沒開信」是拿全部收件人扣掉有紀錄的人。
+      // 如果這個批次根本沒有逐人追蹤資料（舊批次、或用自訂 Flex 發的），
+      // 扣不掉任何人 → 算出來就是「全部人」，按下去等於對已經看過的人再轟一次
+      // （LINE 推播逐則計費，還會被封鎖）。所以先確認真的有追蹤資料才給做。
+      if (filter === 'not_clicked' || filter === 'not_viewed') {
+        const table = filter === 'not_clicked' ? 'admin_broadcast_clicks' : 'admin_broadcast_views';
+        const { rows: tr } = await query(
+          `SELECT COUNT(*)::int AS n FROM ${table}
+            WHERE broadcast_id = $1 AND line_user_id IS NOT NULL`, [broadcastId]);
+        if (!tr[0] || tr[0].n === 0) {
+          return safeJsonError(res, 400, 'no_tracking_data', {
+            detail: '這個批次沒有記錄到「誰」點過或看過，所以算不出誰沒點——照做會把整批人再發一次。' +
+                    '想重發請改用名單庫挑人，或下次發送時用範本模式（自訂 Flex 訊息不會記錄逐人點擊）。'
+          });
+        }
       }
       const { rows } = await query(sql, [broadcastId]);
       const uids = rows.map(r => r.line_user_id).filter(Boolean);

@@ -66,11 +66,15 @@ function registerAdminRecipientListsRoutes(app, deps) {
            COUNT(*) FILTER (
              WHERE m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id) <> ''
                AND (u.blocked_at IS NULL OR u.id IS NULL)
+               -- 2026-07-29 換 LINE 帳號時封存的舊會員發不出去，不能算進可發送人數
+               AND (u.archived_at IS NULL OR u.id IS NULL)
            )::int AS line_sendable,
            COUNT(*) FILTER (
              WHERE NOT (
                m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id) <> ''
                AND (u.blocked_at IS NULL OR u.id IS NULL)
+               -- 2026-07-29 換 LINE 帳號時封存的舊會員發不出去，不能算進可發送人數
+               AND (u.archived_at IS NULL OR u.id IS NULL)
              )
              AND m.email IS NOT NULL AND BTRIM(m.email) <> ''
            )::int AS email_only,
@@ -78,6 +82,8 @@ function registerAdminRecipientListsRoutes(app, deps) {
              WHERE NOT (
                m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id) <> ''
                AND (u.blocked_at IS NULL OR u.id IS NULL)
+               -- 2026-07-29 換 LINE 帳號時封存的舊會員發不出去，不能算進可發送人數
+               AND (u.archived_at IS NULL OR u.id IS NULL)
              )
              AND (m.email IS NULL OR BTRIM(m.email) = '')
            )::int AS unknown
@@ -145,11 +151,15 @@ function registerAdminRecipientListsRoutes(app, deps) {
            COUNT(*) FILTER (
              WHERE m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id) <> ''
                AND (u.blocked_at IS NULL OR u.id IS NULL)
+               -- 2026-07-29 換 LINE 帳號時封存的舊會員發不出去，不能算進可發送人數
+               AND (u.archived_at IS NULL OR u.id IS NULL)
            )::int AS line_sendable,
            COUNT(*) FILTER (
              WHERE NOT (
                m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id) <> ''
                AND (u.blocked_at IS NULL OR u.id IS NULL)
+               -- 2026-07-29 換 LINE 帳號時封存的舊會員發不出去，不能算進可發送人數
+               AND (u.archived_at IS NULL OR u.id IS NULL)
              )
              AND m.email IS NOT NULL AND BTRIM(m.email) <> ''
            )::int AS email_only,
@@ -157,6 +167,8 @@ function registerAdminRecipientListsRoutes(app, deps) {
              WHERE NOT (
                m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id) <> ''
                AND (u.blocked_at IS NULL OR u.id IS NULL)
+               -- 2026-07-29 換 LINE 帳號時封存的舊會員發不出去，不能算進可發送人數
+               AND (u.archived_at IS NULL OR u.id IS NULL)
              )
              AND (m.email IS NULL OR BTRIM(m.email) = '')
            )::int AS unknown

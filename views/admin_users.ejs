@@ -188,8 +188,11 @@
           var bar=$('us-tagbar');
           bar.innerHTML='<button type="button" class="us-tagfilter'+(curTag===null?' on':'')+'" data-tag="">全部</button>'+
             TAGS.map(function(t){
-              return '<button type="button" class="us-tagfilter'+(curTag===t.id?' on':'')+'" data-tag="'+t.id+'" '+
-                'style="'+(curTag===t.id?('border-color:'+esc(t.color)+';color:'+esc(t.color)+';'):'')+'">'+
+              // 編號一律轉字串比：資料庫回來的是字串、按鈕上讀出來的是數字，
+              // 直接比會永遠不相等，選了哪個標籤畫面上看不出來
+              var on=(curTag!==null&&String(curTag)===String(t.id));
+              return '<button type="button" class="us-tagfilter'+(on?' on':'')+'" data-tag="'+t.id+'" '+
+                'style="'+(on?('border-color:'+esc(t.color)+';color:'+esc(t.color)+';'):'')+'">'+
                 esc(t.name)+'（'+t.members+'）</button>';
             }).join('')+
             '<button type="button" class="us-tagfilter" id="us-tag-manage-btn">管理標籤</button>';
@@ -229,45 +232,6 @@
             '設定「做過某件事就自動貼標籤」的地方搬到獨立頁面了，可以指定哪個活動、哪個選單，還能先看看會貼到誰。</p>'+
             '<a class="us-tagfilter" href="/admin/tag-rules" style="display:inline-block;text-decoration:none;">去設定自動貼標籤</a>';
           pane.appendChild(div);
-            document.getElementById('us-rule-add').addEventListener('click',function(){
-              if(!TAGS.length){document.getElementById('us-rule-note').textContent='先建一個標籤';return;}
-              fetch('/admin/users/api/tag-rules',{method:'POST',headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({tag_id:Number(document.getElementById('us-rule-tag').value),
-                  rule_kind:document.getElementById('us-rule-kind').value,
-                  threshold:Number(document.getElementById('us-rule-n').value)||1})})
-                .then(function(r){return r.json();}).then(function(d2){
-                  if(!d2.ok){document.getElementById('us-rule-note').textContent=d2.detail||'沒有成功';return;}
-                  renderTagManage();
-                });
-            });
-            document.getElementById('us-rule-run').addEventListener('click',function(){
-              var btn=this;btn.disabled=true;
-              document.getElementById('us-rule-note').textContent='執行中…';
-              fetch('/admin/users/api/tag-rules/run',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
-                .then(function(r){return r.json();}).then(function(d2){
-                  btn.disabled=false;
-                  if(!d2.ok){document.getElementById('us-rule-note').textContent='沒有成功';return;}
-                  document.getElementById('us-rule-note').textContent=
-                    d2.results.length?d2.results.map(function(x){return x.tag+'：貼了 '+(x.added||0)+' 人';}).join('、'):'沒有啟用中的規則';
-                  loadTags();
-                });
-            });
-            [].slice.call(div.querySelectorAll('.us-rule-toggle')).forEach(function(b){
-              b.addEventListener('click',function(){
-                fetch('/admin/users/api/tag-rules/toggle',{method:'POST',headers:{'Content-Type':'application/json'},
-                  body:JSON.stringify({id:Number(b.getAttribute('data-id'))})})
-                  .then(function(r){return r.json();}).then(function(){renderTagManage();});
-              });
-            });
-            [].slice.call(div.querySelectorAll('.us-rule-del')).forEach(function(b){
-              b.addEventListener('click',function(){
-                if(!confirm('刪掉這條規則？已經貼上的標籤不會撕掉。'))return;
-                fetch('/admin/users/api/tag-rules/delete',{method:'POST',headers:{'Content-Type':'application/json'},
-                  body:JSON.stringify({id:Number(b.getAttribute('data-id'))})})
-                  .then(function(r){return r.json();}).then(function(){renderTagManage();});
-              });
-            });
-          });
 
           document.getElementById('us-tag-create').addEventListener('click',function(){
             var name=document.getElementById('us-tag-newname').value.trim();

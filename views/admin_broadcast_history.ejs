@@ -98,8 +98,11 @@
                   const ts = fmtTW(r.created_at, 19);
                   const fin = fmtTW(r.finished_at, 19);
                   const sch = fmtTW(r.scheduled_at, 16);
-                  const rate = r.recipient_total > 0
-                    ? Math.round((r.click_count / r.recipient_total) * 100)
+                  // 分母用「成功送達」，跟詳情頁一致（原本用 recipient_total，
+                  // 同一批在兩頁會顯示不同數字）
+                  const rateBase = r.recipient_ok || 0;
+                  const rate = rateBase > 0
+                    ? Math.min(100, Math.round((r.click_count / rateBase) * 100))
                     : 0;
                   return `<tr>
                     <td><a href="/admin/broadcast/${r.id}" style="font-weight:600;">#${r.id}</a></td>

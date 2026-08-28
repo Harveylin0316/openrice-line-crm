@@ -71,10 +71,16 @@ function registerAdminInsightRoutes(app, deps) {
          FROM d ORDER BY d.day`, [days])).rows;
 
       const totals = (await query(
-        `SELECT COUNT(*) FILTER (WHERE line_user_id IS NOT NULL AND is_admin = false)::int AS members,
-                COUNT(*) FILTER (WHERE blocked_at IS NOT NULL)::int AS blocked,
+        // 一律排除 archived_at：那是 2026-07-29 換 LINE 帳號時封存的舊會員，
+        // 不是現行帳號的好友，算進來會讓數字虛高
+        `SELECT COUNT(*) FILTER (WHERE line_user_id IS NOT NULL AND is_admin = false
+                                   AND archived_at IS NULL)::int AS members,
+                COUNT(*) FILTER (WHERE blocked_at IS NOT NULL AND archived_at IS NULL)::int AS blocked,
+                -- 用台北日界線，跟上面的每日長條圖同一套（原本用滾動 24 小時，兩邊會差一天份）
                 COUNT(*) FILTER (WHERE line_user_id IS NOT NULL AND is_admin = false
-                                   AND created_at >= now() - ($1::int || ' days')::interval)::int AS joined_period
+                                   AND archived_at IS NULL
+                                   AND (created_at AT TIME ZONE 'Asia/Taipei')::date
+                                       > (now() AT TIME ZONE 'Asia/Taipei')::date - $1::int)::int AS joined_period
            FROM users`, [days])).rows[0];
 
       const sources = (await query(

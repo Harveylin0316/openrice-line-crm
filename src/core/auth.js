@@ -82,6 +82,12 @@ function createAuthCore({ jwtSecret, isProduction, adminLoginPath = '/admin/logi
       if (req.authUser && !req.authUser.adm) {
         clearAuthCookie(res);
       }
+      // 前端用 fetch 打的端點要回資料，不能回一個登入網頁——
+      // 那會讓前端解析失敗，按鈕變成「點了沒反應」
+      if (req.path && req.path.includes('/api/')) {
+        return res.status(401).json({ ok: false, error: 'no_session',
+          detail: '登入好像過期了，重新整理頁面再登入一次。' });
+      }
       const returnTo = safeAdminNextPath(req.originalUrl || req.url) || '/admin/broadcast';
       const qs = new URLSearchParams({ next: returnTo });
       return res.redirect(`${adminLoginPath}?${qs.toString()}`);

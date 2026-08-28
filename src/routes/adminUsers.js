@@ -250,11 +250,14 @@ function registerAdminUsersRoutes(app, deps) {
     used_app: {
       label: '在活動頁做過某件事', target_kind: 'appaction', unit: '次',
       hint: '打開好康地圖、按訂位、看餐廳這些站內動作',
-      sql: `SELECT u.line_id AS uid FROM user_events u
-             WHERE u.line_id IS NOT NULL
-               AND ($3::text IS NULL OR u.event_name = $3::text)
-               AND ($4::int IS NULL OR u.created_at >= now() - ($4::int || ' days')::interval)
-             GROUP BY u.line_id HAVING COUNT(*) >= $2::int`
+      // 活動頁的事件從 2026-07-17 起改存「雜湊過的編號」，不再是原始的 U 開頭編號，
+      // 所以一定要 JOIN 回會員表換成真正的編號，否則一個人都貼不到。
+      sql: `SELECT m.line_user_id AS uid FROM user_events e
+              JOIN users m ON (m.line_user_id = e.line_id OR m.line_id_hash = e.line_id)
+             WHERE e.line_id IS NOT NULL AND m.line_user_id IS NOT NULL
+               AND ($3::text IS NULL OR e.event_name = $3::text)
+               AND ($4::int IS NULL OR e.created_at >= now() - ($4::int || ' days')::interval)
+             GROUP BY m.line_user_id HAVING COUNT(*) >= $2::int`
     },
     joined_days: {
       label: '加好友滿幾天', target_kind: 'none', unit: '天',
@@ -411,10 +414,15 @@ function registerAdminUsersRoutes(app, deps) {
         map_cat_chip: '點分類', map_streak: '連續來訪', submit_draw: '送出抽獎',
         result_shown: '看到抽獎結果', redraw: '再抽一次', ad_shown: '看到廣告'
       };
+      // 這裡的人數要跟上面 used_app 規則用同一套比對，否則會出現
+      // 「挑選器說 74 人做過、規則卻貼 0 人」這種對不起來的狀況
       const { rows: appActs } = await query(
-        `SELECT event_name, COUNT(DISTINCT line_id)::int AS n FROM user_events
-          WHERE line_id IS NOT NULL AND created_at >= now() - interval '180 days'
-          GROUP BY event_name HAVING COUNT(DISTINCT line_id) > 0 ORDER BY n DESC LIMIT 40`);
+        `SELECT e.event_name, COUNT(DISTINCT m.line_user_id)::int AS n
+           FROM user_events e
+           JOIN users m ON (m.line_user_id = e.line_id OR m.line_id_hash = e.line_id)
+          WHERE e.line_id IS NOT NULL AND e.created_at >= now() - interval '180 days'
+          GROUP BY e.event_name HAVING COUNT(DISTINCT m.line_user_id) > 0
+          ORDER BY n DESC LIMIT 40`);
 
       res.json({ ok: true, rules: rows, catalog, tags: tags.rows,
         targets: {
