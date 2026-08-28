@@ -389,6 +389,10 @@ function registerAdminBroadcastRoutes(app, deps) {
       const msgLibDup = String(req.query.dup || '') === '1';
 
       return res.render('admin_broadcast', {
+        // prizes / recent 一定要傳：頁面直接用它們（獎品篩選清單、最近發送紀錄），
+        // 漏傳整頁會壞掉。這兩個曾經被漏掉，而群發兩個多月沒人用，所以一直沒被發現。
+        prizes,
+        recent,
         title: msgLibMode ? '訊息編輯' : '群發訊息',
         bodyClass: 'admin-shell broadcast-shell' + (msgLibMode ? ' msglib-mode' : ''),
         user: req.authUser && req.authUser.un ? req.authUser.un : '',
