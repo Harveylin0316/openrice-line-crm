@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#FFF9E8" />
+  <meta name="theme-color" content="#F9C73B" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <script src="/games-mgm.js?v=20260811a"></script>
@@ -15,9 +15,8 @@
     /* 這頁固定亮色。原本跟著系統深色模式走，結果手機開深色就整頁變黑，
        跟品牌素材（奶油白底＋暖色扁平插畫）完全對不上。設計定案是亮色，不做深色版。 */
     :root{
-      --ink:#4E342E; --ink2:#8D6E63; --paper:#FFF9E8; --surface:#FFFFFF;
-      --orange:#E8491D; --yellow:#F9C73B; --yellow-soft:#FFF3C4; --line:#EFE2C6;
-      --brass1:#C9A227; --brass2:#8A6A2F; --brass3:#5E4620;
+      --ink:#3F2C25; --ink2:#806A61; --paper:#F7F4EC; --surface:#FFFFFF;
+      --orange:#E8491D; --yellow:#F9C73B; --yellow-soft:#FFF7D6; --line:#EDE4CE;
       color-scheme: light;
     }
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -30,39 +29,33 @@
       -webkit-font-smoothing:antialiased;
       padding-bottom:env(safe-area-inset-bottom);
     }
-    /* 紙質顆粒：純 CSS，很淡（AI 感的解藥，但不能重） */
-    body::before{
-      content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.045;
-      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
-    }
-    .page{position:relative;z-index:1;max-width:520px;margin:0 auto;padding:14px 18px 28px}
+    .page{position:relative;z-index:1;max-width:520px;min-height:100svh;margin:0 auto;padding:16px 18px 32px;background:var(--surface)}
 
     /* ── 品牌列 ── */
-    .brand-bar{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+    .brand-bar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
     .logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--ink)}
     .logo .o{color:var(--orange)}
-    .chip{font-size:11px;font-weight:800;background:var(--yellow);border:1.5px solid rgba(78,52,46,.18);border-radius:6px;padding:2px 8px;color:var(--ink)}
+    .chip{font-size:11px;font-weight:800;background:var(--yellow);border:0;border-radius:999px;padding:3px 9px;color:var(--ink)}
 
     /* ── 標題 ── */
-    .hero{position:relative;margin:6px 0 18px}
+    .hero{position:relative;margin:0 0 14px;padding:17px 18px;border-radius:18px;background:var(--yellow-soft);overflow:hidden}
     .hero h1{
-      margin:0;font-size:34px;line-height:1.15;font-weight:900;letter-spacing:-.01em;
+      margin:0;font-size:32px;line-height:1.15;font-weight:900;letter-spacing:-.01em;
       max-width:76%;
     }
     /* 手寫感底線：兩段不等長，避免電腦畫出來的死板 */
-    .hero .rule{margin-top:7px;max-width:76%}
-    .hero p{margin:9px 0 0;font-size:13px;color:var(--ink2);line-height:1.65;max-width:76%}
-    .hero .art{position:absolute;top:-6px;right:-6px;width:104px;opacity:.72;pointer-events:none}
-    [data-theme="dark"] .hero .art{opacity:.5}
+    .hero .rule{display:none}
+    .hero p{margin:7px 0 0;font-size:13px;color:var(--ink2);line-height:1.55;max-width:76%}
+    .hero .art{position:absolute;top:3px;right:2px;width:98px;opacity:.66;pointer-events:none}
 
     /* ── 轉盤 ── */
-    .stage-wrap{margin:4px 0 0;display:flex;justify-content:center}
-    .stage{position:relative;width:min(88vw,330px);aspect-ratio:1;}
+    .stage-wrap{margin:0;display:flex;justify-content:center}
+    .stage{position:relative;width:min(82vw,318px);aspect-ratio:1;}
     .ring{position:absolute;inset:0;pointer-events:none;z-index:3}
     .canvas-wrap{position:absolute;inset:7.5%;border-radius:50%;overflow:hidden}
     #wheel{width:100%;height:100%;display:block}
     /* 指針：有重量的實體物件，不是三角形 */
-    .pointer{position:absolute;left:50%;top:-9px;transform:translateX(-50%);z-index:5;filter:drop-shadow(0 3px 4px rgba(62,39,35,.34))}
+    .pointer{position:absolute;left:50%;top:-9px;transform:translateX(-50%);z-index:5;filter:drop-shadow(0 3px 3px rgba(62,39,35,.22))}
     /* 中心轂 */
     .hub{
       position:absolute;left:50%;top:50%;width:19%;aspect-ratio:1;transform:translate(-50%,-50%);
@@ -80,9 +73,9 @@
     @keyframes hubKnock{0%{transform:translate(-50%,-50%) scale(1)}30%{transform:translate(-50%,-50%) scale(.93)}100%{transform:translate(-50%,-50%) scale(1)}}
 
     /* ── 狀態行：數字是主角 ── */
-    .status-row{margin:20px 0 0;text-align:center}
+    .status-row{margin:14px 0 0;text-align:center}
     .status-row .big{font-size:22px;font-weight:900;letter-spacing:-.01em;line-height:1.1}
-    .status-row .n{font-size:46px;color:var(--orange);margin:0 5px;vertical-align:-4px;display:inline-block}
+    .status-row .n{font-size:42px;color:var(--orange);margin:0 5px;vertical-align:-4px;display:inline-block}
     .status-row .sub{margin-top:5px;font-size:13px;color:var(--ink2);line-height:1.5;min-height:19px}
     .status-row .sub .name{font-weight:800;color:var(--ink)}
     .status-row.ready .sub{color:var(--ink)}
@@ -93,21 +86,21 @@
 
     /* ── 主行動：活版印刷，實心位移陰影不是柔光 ── */
     .cta{
-      display:block;width:100%;margin:14px 0 0;padding:16px 20px;border:0;border-radius:9px;
+      display:block;width:100%;margin:13px 0 0;padding:16px 20px;border:0;border-radius:14px;
       background:var(--yellow);color:var(--ink);font-size:20px;font-weight:900;font-family:inherit;
-      letter-spacing:.04em;cursor:pointer;box-shadow:0 4px 0 #D9A81F;transition:transform .1s, box-shadow .1s;
+      letter-spacing:.02em;cursor:pointer;box-shadow:0 5px 12px rgba(171,124,0,.18);transition:transform .1s, box-shadow .1s;
     }
-    .cta:active{transform:translateY(3px);box-shadow:0 1px 0 #D9A81F}
-    .cta:disabled{background:var(--line);color:var(--paper);box-shadow:0 4px 0 rgba(0,0,0,.18);cursor:default}
-    .cta.ghost{background:transparent;color:var(--orange);border:2px solid var(--orange);box-shadow:none}
+    .cta:active{transform:translateY(2px);box-shadow:0 2px 6px rgba(171,124,0,.18)}
+    .cta:disabled{background:#EDE9DF;color:#A69B95;box-shadow:none;cursor:default}
+    .cta.ghost{background:#fff;color:var(--ink);border:1.5px solid var(--line);box-shadow:none}
     .cta.ghost:active{transform:translateY(1px)}
 
     /* ── 分隔：虛線，不是實線卡片邊 ── */
-    .dash{border:0;border-top:1.5px dashed var(--line);margin:20px 0}
+    .dash{border:0;border-top:1px solid var(--line);margin:18px 0}
 
     /* ── 邀請區：刻意不做成又一張圓角卡片 ── */
-    .invite-card{display:flex;align-items:center;gap:13px}
-    .invite-card.maxed{opacity:.62}
+    .invite-card{display:flex;align-items:center;gap:13px;padding:15px;border-radius:16px;background:var(--yellow-soft)}
+    .invite-card.maxed{opacity:.72}
     .invite-art{width:52px;flex:0 0 auto;opacity:.85}
     .invite-left{flex:1;min-width:0}
     .invite-title{font-size:16px;font-weight:800;line-height:1.35}
@@ -118,11 +111,11 @@
     .invite-meta .n{font-size:16px;font-weight:900;color:var(--orange);margin:0 2px;display:inline-block}
     .invite-card.maxed .invite-meta .n{color:var(--ink2)}
     .invite-btn{
-      flex:0 0 auto;padding:11px 17px;border:2px solid var(--ink);border-radius:8px;background:transparent;
+      flex:0 0 auto;padding:11px 17px;border:0;border-radius:10px;background:var(--yellow);
       color:var(--ink);font-size:15px;font-weight:800;font-family:inherit;cursor:pointer;
     }
     .invite-btn:active{transform:translateY(1px)}
-    .invite-card.maxed .invite-btn{border-color:var(--line);color:var(--ink2)}
+    .invite-card.maxed .invite-btn{background:#EEE8D9;color:var(--ink2)}
 
     /* ── 結果：由下往上推的 bottom sheet ── */
     .modal{position:fixed;inset:0;z-index:60;display:none}
@@ -131,19 +124,19 @@
     .modal.open::before{opacity:1}
     .sheet{
       position:absolute;left:0;right:0;bottom:0;background:var(--surface);
-      border-radius:22px 22px 0 0;padding:22px 22px calc(24px + env(safe-area-inset-bottom));
+      border-radius:24px 24px 0 0;padding:24px 22px calc(24px + env(safe-area-inset-bottom));
       text-align:center;transform:translateY(102%);transition:transform .38s cubic-bezier(.16,.9,.24,1);
-      max-height:88vh;overflow-y:auto;box-shadow:0 -3px 0 var(--orange);
+      max-height:88vh;overflow-y:auto;box-shadow:0 -4px 0 var(--yellow);
     }
     .modal.open .sheet{transform:translateY(0)}
-    .modal.grand .sheet{background:var(--yellow);box-shadow:0 -3px 0 #D9A800}
+    .modal.grand .sheet{background:var(--yellow-soft);box-shadow:0 -5px 0 var(--yellow)}
     .ornament{display:flex;align-items:center;justify-content:center;gap:9px;color:var(--orange);margin-bottom:11px}
     .ornament i{display:block;width:38px;height:1.5px;background:currentColor;opacity:.55}
     .ornament b{font-size:15px;font-style:normal;line-height:1}
     .modal.grand .ornament{color:#7A5B00}
     .modal-eyebrow{font-size:14px;font-weight:800;color:var(--ink);margin-bottom:7px}
     .modal-img-wrap{margin:0 0 8px;min-height:0}
-    .modal-img-wrap img{max-width:130px;max-height:104px;border-radius:8px}
+    .modal-img-wrap img{max-width:190px;max-height:150px;border-radius:14px}
     .modal-prize{font-size:31px;font-weight:900;line-height:1.2;color:var(--orange);letter-spacing:-.01em}
     .modal.grand .modal-prize{color:#3E2723;font-size:33px}
     .modal.noprize .modal-prize{color:var(--ink);font-size:25px}
@@ -152,27 +145,30 @@
     .modal.grand .modal-desc{color:#6B5200}
     .modal-btn{
       display:block;width:100%;margin-top:17px;padding:15px;border:0;border-radius:9px;
-      background:var(--orange);color:#fff;font-size:17px;font-weight:900;font-family:inherit;cursor:pointer;
-      box-shadow:0 4px 0 #B8401A;
+      background:var(--yellow);color:var(--ink);font-size:17px;font-weight:900;font-family:inherit;cursor:pointer;
+      box-shadow:0 4px 10px rgba(171,124,0,.18);
     }
-    .modal-btn:active{transform:translateY(3px);box-shadow:0 1px 0 #B8401A}
-    .modal.grand .modal-btn{background:#3E2723;box-shadow:0 4px 0 #241512}
-    .modal.grand .modal-btn:active{box-shadow:0 1px 0 #241512}
+    .modal-btn:active{transform:translateY(2px);box-shadow:0 2px 5px rgba(171,124,0,.18)}
+    .modal.grand .modal-btn{background:var(--yellow);color:var(--ink);box-shadow:0 4px 10px rgba(171,124,0,.18)}
+    .modal.grand .modal-btn:active{box-shadow:0 2px 5px rgba(171,124,0,.18)}
     .sheet-dismiss{display:block;margin:13px auto 0;border:0;background:transparent;font-family:inherit;
       font-size:13.5px;font-weight:700;color:var(--ink2);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
     .modal-prize.pop{animation:statPop .46s cubic-bezier(.2,1.4,.4,1)}
-    .myprize-head{font-size:15px;font-weight:800;color:var(--ink);margin-bottom:10px}
-    .pz{display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+    .myprize{margin-top:18px;padding:16px;border:2px solid var(--yellow);border-radius:16px;background:#fff}
+    .myprize-head{font-size:18px;font-weight:900;color:var(--ink)}
+    .myprize-note{font-size:12px;color:var(--ink2);margin:3px 0 8px;line-height:1.5}
+    .pz{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+    .pz:first-child{margin:0 -7px;padding:12px 9px;border-radius:11px;background:var(--yellow-soft);border-bottom:0}
     .pz:last-child{border-bottom:0}
     .pz-main{flex:1;min-width:0}
-    .pz-name{font-size:15px;font-weight:800;color:var(--ink);line-height:1.4}
+    .pz-name{font-size:15px;font-weight:900;color:var(--ink);line-height:1.4}
+    .pz-latest{display:inline-block;margin-right:6px;padding:2px 6px;border-radius:999px;background:var(--yellow);font-size:10px;font-weight:900;vertical-align:1px}
     .pz-miss .pz-name{font-weight:700;color:var(--ink2)}
     .pz-miss{opacity:.78}
     .pz-sub{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.6}
     .pz-code{display:inline-flex;align-items:center;gap:8px;margin-top:6px;padding:6px 10px;border:1px dashed var(--line);border-radius:8px;font-size:13px;font-weight:800;color:var(--ink);letter-spacing:.04em}
     .pz-copy{border:0;background:var(--orange);color:#fff;font-size:11.5px;font-weight:800;padding:4px 9px;border-radius:6px;cursor:pointer}
     .pz-when{font-size:11.5px;color:var(--ink2);white-space:nowrap;padding-top:3px}
-    .wallet-link{display:inline-block;margin-top:13px;font-size:13.5px;font-weight:800;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
     .modal-foot{font-size:12.5px;color:var(--ink2);margin-top:11px;line-height:1.6}
     .modal-foot .n{color:var(--orange);font-weight:900;font-size:15px;margin:0 2px}
 
@@ -187,7 +183,6 @@
     .modal.grand .coupon-block{border-color:#7A5B00}
     .modal.grand .coupon-copy{border-left-color:#7A5B00;color:#3E2723}
     .modal.grand .coupon-code{color:#3E2723}
-    .modal.grand .wallet-link{color:#3E2723}
     /* 大獎彈窗永遠是黃底，所以文字一律鎖深棕，不能跟著深色模式變淺 */
     .modal.grand .modal-eyebrow{color:#3E2723}
     .modal.grand .coupon-oos{color:#6B5200}
@@ -205,6 +200,8 @@
     /* 官方 logo（去背 PNG）——文字版拼出來的 logo 字距與品牌不一致，統一改用圖檔 */
     .logo-img{height:26px;width:auto;display:block}
     .logo{font-size:0 !important;letter-spacing:0 !important}
+    @media (min-width:560px){.page{margin:20px auto;border-radius:22px;box-shadow:0 12px 35px rgba(63,44,37,.09);min-height:calc(100svh - 40px)}}
+    @media (max-width:374px){.page{padding-left:14px;padding-right:14px}.hero h1{font-size:29px}.stage{width:min(80vw,292px)}}
     </style>
 </head>
 <body>
@@ -257,10 +254,16 @@
 
     <div class="status-row done" id="status-row">
       <div class="big"><span id="stat-lead">準備中</span><span class="n" id="stat-remaining">—</span><span id="stat-unit"></span></div>
-      <div class="sub" id="status">正在確認你的身分</div>
+      <div class="sub" id="status" aria-live="polite">正在確認你的身分</div>
     </div>
 
     <button type="button" class="cta" id="cta-spin">開始轉</button>
+
+    <section class="myprize" id="myprize" hidden>
+      <div class="myprize-head">我抽到的獎</div>
+      <div class="myprize-note">結果會留在這一頁，不用再跳到別的地方找</div>
+      <div id="myprize-list" aria-live="polite"></div>
+    </section>
 
     <hr class="dash" />
 
@@ -289,16 +292,10 @@
       <button type="button" class="invite-btn" id="invite-btn">找朋友</button>
     </section>
 
-    <section class="myprize" id="myprize" hidden>
-      <hr class="dash" />
-      <div class="myprize-head">我的抽獎紀錄</div>
-      <div id="myprize-list"></div>
-    </section>
-
   </div>
 
   <div id="modal" class="modal" aria-hidden="true">
-    <div class="sheet">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="modal-prize">
       <div class="ornament"><i></i><b id="modal-glyph">◆</b><i></i></div>
       <div class="modal-eyebrow" id="modal-eyebrow">你抽到了</div>
       <div class="modal-img-wrap" id="modal-img-wrap"><img id="modal-img" alt="" hidden /></div>
@@ -311,9 +308,8 @@
           複製
         </button>
       </div>
-      <div class="coupon-oos" id="coupon-oos" hidden>這份券剛好發完了，請稍後到我的優惠券確認</div>
-      <button type="button" class="modal-btn" id="modal-close">收進我的券</button>
-      <a class="wallet-link" id="wallet-link" href="#">看我的券</a>
+      <div class="coupon-oos" id="coupon-oos" hidden>這份券剛好發完了，我們會依活動規則處理</div>
+      <button type="button" class="modal-btn" id="modal-close">完成</button>
       <button type="button" class="sheet-dismiss" id="modal-dismiss" hidden>先不用</button>
       <div class="modal-foot" id="modal-foot" hidden></div>
     </div>
@@ -324,6 +320,7 @@
       var liffId = <%- JSON.stringify(liffId || '').replace(/</g,'\\u003c') %>;
       var addFriendUrl = <%- JSON.stringify(typeof addFriendUrl !== 'undefined' ? addFriendUrl : '').replace(/</g,'\\u003c') %>;
       var prizes = <%- JSON.stringify(prizes || []).replace(/</g,'\\u003c') %>;
+      var GRAND_PRIZE_IMAGE = '/images/share-miles-grand-prize-v1.webp';
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
         referral_bonus_per: activity.referral_bonus_per,
@@ -732,8 +729,9 @@
         document.getElementById('modal-prize').textContent = prize.name || '—';
         var imgEl = document.getElementById('modal-img');
         var glyphEl = document.getElementById('modal-glyph');
-        if (prize.image_url) {
-          imgEl.src = prize.image_url;
+        var resultImage = prize.image_url || (prize.is_grand_prize ? GRAND_PRIZE_IMAGE : '');
+        if (resultImage) {
+          imgEl.src = resultImage;
           imgEl.hidden = false;
           glyphEl.style.display = 'none';
         } else {
@@ -760,11 +758,18 @@
         if (noPrize) modal.classList.add('noprize');
         else modal.classList.remove('noprize');
 
-        // 彈窗底部：中獎 → 收券；沒中 → 直接導向邀請（活動擴散的關鍵轉折）
+        // 抽完就把結果留在本頁；不依賴 wallet API 才能看到。
+        renderMyPrizes([{
+          prize_name: prize.name || '獎品', prize_desc: prize.description || '',
+          is_win: !noPrize, miles: prize.miles || null,
+          code: prize.coupon_code || (resp && resp.coupon_code) || null,
+          won_at: new Date().toISOString(), redeemed: false
+        }]);
+
+        // 彈窗底部：沒中且還能邀請時，提供「找朋友」；其餘都回本頁看結果。
         var closeBtn = document.getElementById('modal-close');
         var dismissBtn = document.getElementById('modal-dismiss');
         var footEl = document.getElementById('modal-foot');
-        var walletEl = document.getElementById('wallet-link');
         var bonusLeft = lastQuota
           ? (lastQuota.referral_bonus_max - lastQuota.referral_bonus)
           : (activityMeta.referral_bonus_max || 0);
@@ -774,14 +779,12 @@
           modalMode = 'invite';
           closeBtn.textContent = '找朋友再抽一次';
           dismissBtn.hidden = false;
-          walletEl.hidden = true;
           footEl.hidden = false;
           footEl.innerHTML = '朋友加入官方帳號才算，最多還能加 <span class="n">' + bonusLeft + '</span> 次';
         } else {
           modalMode = 'close';
-          closeBtn.textContent = noPrize ? '知道了' : '收進我的券';
+          closeBtn.textContent = '完成，回本頁看結果';
           dismissBtn.hidden = true;
-          walletEl.hidden = noPrize;
           footEl.hidden = true;
           footEl.textContent = '';
         }
@@ -805,12 +808,6 @@
         } else {
           buzz(14);
         }
-      }
-
-      // 「我的優惠券」連結，導向錢包頁（LIFF 永久連結 /wallet）
-      var walletLink = document.getElementById('wallet-link');
-      if (walletLink) {
-        walletLink.href = liffId ? ('https://liff.line.me/' + liffId + '/wallet') : '/games/wallet';
       }
 
       // 優惠碼複製
@@ -963,6 +960,44 @@
         catch(e){ return ''; }
       }
       function escHtml(x){return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+      function renderMyPrizes(mine) {
+        var box = document.getElementById('myprize');
+        var list = document.getElementById('myprize-list');
+        if (!box || !list || !mine || !mine.length) return;
+        var wins = mine.filter(function (p) { return p.is_win !== false; }).length;
+        var head = document.querySelector('.myprize-head');
+        if (head) {
+          head.textContent = '我抽到的獎（共 ' + mine.length + ' 次' +
+            (wins ? ('，中了 ' + wins + ' 次') : '') + '）';
+        }
+        list.innerHTML = mine.map(function (p, i) {
+          var isWin = p.is_win !== false;
+          var sub = !isWin ? '這次沒中，找個朋友一起就能多抽一次'
+            : (p.miles
+                ? (p.redeemed ? '哩數已經發放' : '活動結束後統一發放到你的帳戶')
+                : (p.prize_desc || ''));
+          var code = (isWin && p.code)
+            ? '<div class="pz-code"><span id="pzc' + i + '">' + escHtml(p.code) + '</span>' +
+              '<button type="button" class="pz-copy" data-i="' + i + '">複製</button></div>'
+            : '';
+          return '<div class="pz' + (isWin ? '' : ' pz-miss') + '"><div class="pz-main">' +
+            '<div class="pz-name">' + (i === 0 ? '<span class="pz-latest">最新</span>' : '') + escHtml(p.prize_name) + '</div>' +
+            (sub ? '<div class="pz-sub">' + escHtml(sub) + '</div>' : '') + code +
+            '</div><div class="pz-when">' + fmtWhen(p.won_at) + '</div></div>';
+        }).join('');
+        box.hidden = false;
+        [].slice.call(list.querySelectorAll('.pz-copy')).forEach(function (b) {
+          b.addEventListener('click', function () {
+            var el = document.getElementById('pzc' + b.getAttribute('data-i'));
+            if (!el) return;
+            try {
+              navigator.clipboard.writeText(el.textContent.trim());
+              b.textContent = '已複製';
+              setTimeout(function () { b.textContent = '複製'; }, 1500);
+            } catch (e) { /* 複製失敗時儲值碼仍會顯示 */ }
+          });
+        });
+      }
       async function refreshMyPrizes() {
         try {
           if (!profile || !profile.userId) return;
@@ -973,11 +1008,12 @@
           var box = document.getElementById('myprize');
           var list = document.getElementById('myprize-list');
           if (!box || !list) return;
-          if (!mine.length) { box.hidden = true; return; }
+          // /spin 的結果已經先留在畫面上。若 wallet 同步慢半拍，不可把剛抽到的結果藏掉。
+          if (!mine.length) { if (!list.children.length) box.hidden = true; return; }
           var wins = mine.filter(function (p) { return p.is_win !== false; }).length;
           var head = document.querySelector('.myprize-head');
           if (head) {
-            head.textContent = '我的抽獎紀錄（共 ' + mine.length + ' 次' +
+            head.textContent = '我抽到的獎（共 ' + mine.length + ' 次' +
               (wins ? ('，中了 ' + wins + ' 次') : '') + '）';
           }
           list.innerHTML = mine.map(function (p, i) {
@@ -991,7 +1027,7 @@
                 '<button type="button" class="pz-copy" data-i="' + i + '">複製</button></div>'
               : '';
             return '<div class="pz' + (isWin ? '' : ' pz-miss') + '"><div class="pz-main">' +
-              '<div class="pz-name">' + escHtml(p.prize_name) + '</div>' +
+              '<div class="pz-name">' + (i === 0 ? '<span class="pz-latest">最新</span>' : '') + escHtml(p.prize_name) + '</div>' +
               (sub ? '<div class="pz-sub">' + escHtml(sub) + '</div>' : '') + code +
               '</div><div class="pz-when">' + fmtWhen(p.won_at) + '</div></div>';
           }).join('');
@@ -1033,16 +1069,16 @@
         el.classList.add('pop');
       }
 
-      // 主 CTA 有三種身分：轉、找朋友、看券。次數用完時把主鈕換成邀請，
+      // 主 CTA 有三種身分：轉、找朋友、已完成。獎項直接留在本頁。
       // 是整個 MGM 能不能擴散的關鍵，不能只把鈕變灰。
       // （ctaBtn 本身在最上面宣告——bootstrap 比這裡早跑，需要用到它）
       var ctaMode = 'spin';
       function setCtaMode(mode) {
         if (!ctaBtn) return;
         ctaMode = mode;
-        ctaBtn.classList.toggle('ghost', mode === 'wallet');
-        ctaBtn.disabled = false;
-        ctaBtn.textContent = mode === 'invite' ? '找朋友' : (mode === 'wallet' ? '看我的券' : '開始轉');
+        ctaBtn.classList.toggle('ghost', mode === 'done');
+        ctaBtn.disabled = mode === 'done';
+        ctaBtn.textContent = mode === 'invite' ? '找朋友' : (mode === 'done' ? '本次活動已完成' : '開始轉');
       }
 
       function renderQuota(q) {
@@ -1082,8 +1118,8 @@
           } else {
             if (leadEl) leadEl.textContent = '這次玩完了';
             if (unitEl) unitEl.textContent = '';
-            statusEl.textContent = '中的獎都在我的優惠券裡，下次活動見';
-            setCtaMode('wallet');
+            statusEl.textContent = '你抽到的結果就在下方，下次活動見';
+            setCtaMode('done');
           }
         } else {
           spinBtn.disabled = false;
@@ -1117,11 +1153,7 @@
       if (ctaBtn) {
         ctaBtn.addEventListener('click', function () {
           if (ctaMode === 'invite') return shareWithFriend();
-          if (ctaMode === 'wallet') {
-            var w = document.getElementById('wallet-link');
-            if (w && w.href) location.href = w.href;
-            return;
-          }
+          if (ctaMode === 'done') return;
           spinBtn.click();
         });
       }

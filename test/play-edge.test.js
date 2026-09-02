@@ -59,6 +59,12 @@ const t=(doc,id)=>{const e=doc.getElementById(id);return e?e.textContent.replace
   console.log('           主鈕:', t(doc,'modal-close')||t(doc,'modal-dismiss'));
   if(t(doc,'modal-desc').indexOf('沒中獎時顯示這個')>=0){ console.log('           ★ 後台備註文字外洩給用戶'); bad++; }
   console.log('【我的抽獎紀錄】', t(doc,'myprize').slice(0,90));
+  if(doc.getElementById('myprize').hidden || t(doc,'myprize').indexOf('最新')<0){
+    console.log('           ★ 抽完後結果沒有留在本頁'); bad++;
+  }
+  if(doc.getElementById('wallet-link')){
+    console.log('           ★ 仍要使用者跳到另一頁找獎項'); bad++;
+  }
 
   // B) 連點兩下只能送一次
   ({doc,calls}=await boot({total:3,remaining:3}));
