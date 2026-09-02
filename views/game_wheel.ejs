@@ -29,6 +29,11 @@
       -webkit-font-smoothing:antialiased;
       padding-bottom:env(safe-area-inset-bottom);
     }
+    .preview-banner{
+      position:sticky;top:0;z-index:20;max-width:520px;margin:0 auto;padding:8px 12px;
+      background:#3F2C25;color:#FFF7D6;text-align:center;font-size:11px;font-weight:800;
+      letter-spacing:.02em;
+    }
     .page{position:relative;z-index:1;max-width:520px;min-height:100svh;margin:0 auto;padding:16px 18px 32px;background:var(--surface)}
 
     /* ── 品牌列 ── */
@@ -224,6 +229,7 @@
     </style>
 </head>
 <body>
+  <div class="preview-banner" id="preview-banner" hidden>後台安全測試｜不扣次數、不扣庫存、不產生中獎紀錄</div>
   <div class="page">
 
     <header class="brand-bar">
@@ -381,6 +387,7 @@
       var GRAND_PRIZE_IMAGE = '/images/share-miles-grand-prize-v1.webp';
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
+        base_plays_per_user: activity.base_plays_per_user,
         referral_bonus_per: activity.referral_bonus_per,
         referral_bonus_max: activity.referral_bonus_max,
         referral_invites_per_bonus: activity.referral_invites_per_bonus || 1
@@ -395,6 +402,14 @@
       // 一定要在 bootstrap 之前取到：晚宣告的話（var hoisting）bootstrap 讀到 undefined，
       // 「尚未開放」「稍等一下」的初始鎖定完全不會套用
       var ctaBtn = document.getElementById('cta-spin');
+      var previewParams = new URLSearchParams(location.search);
+      var IS_PREVIEW = previewParams.get('preview') === '1';
+      var previewScenario = previewParams.get('preview_scenario') || 'ready';
+      if (IS_PREVIEW) {
+        document.body.classList.add('is-preview');
+        var previewBanner = document.getElementById('preview-banner');
+        if (previewBanner) previewBanner.hidden = false;
+      }
 
       var spinning = false;
       // 防重複扣次數的鑰匙。存進瀏覽器暫存：收訊斷掉後如果使用者是「重新整理」
@@ -596,15 +611,13 @@
       // ----- LIFF init -----
       async function initLiff() {
         var qs = new URLSearchParams(location.search);
+        if (IS_PREVIEW) {
+          profile = { userId: 'PREVIEW', displayName: 'Ice 測試' };
+          return;
+        }
         var devUid = qs.get('uid');
         if (devUid) {
           profile = { userId: devUid, displayName: qs.get('name') || 'DEV' };
-          return;
-        }
-        if (qs.get('preview') === '1') {
-          profile = { userId: 'PREVIEW', displayName: '預覽' };
-          spinBtn.disabled = true;
-          spinBtn.textContent = '預覽';
           return;
         }
         if (!liffId) throw new Error('LIFF ID 未設定');
@@ -691,6 +704,10 @@
 
       // ----- spin -----
       async function spin() {
+        if (IS_PREVIEW) {
+          statusEl.textContent = '這是安全測試畫面，切換後台選單即可查看其他狀態';
+          return;
+        }
         if (spinning) return;
         if (!liffReady || !profile) {
           statusEl.textContent = '請稍候';
@@ -904,6 +921,81 @@
         if (e.target === modal) closeModal();
       });
 
+      function previewQuota(remaining, exhausted) {
+        var max = Number(activityMeta.referral_bonus_max || 0);
+        var per = Number(activityMeta.referral_bonus_per || 0);
+        var bonus = exhausted ? max : 0;
+        return {
+          total: Math.max(remaining, Number(activityMeta.base_plays_per_user || 1)),
+          played: 0,
+          remaining: remaining,
+          referrals: exhausted ? Math.max(max, 3) : (remaining === 0 ? 2 : 0),
+          referrals_existing: 0,
+          base: Number(activityMeta.base_plays_per_user || 1),
+          referral_bonus: bonus,
+          referral_bonus_max: max,
+          referral_bonus_per: per,
+          referral_invites_per_bonus: Number(activityMeta.referral_invites_per_bonus || 1),
+          next_bonus_in: 1,
+          bonus_plays: bonus,
+          override: null
+        };
+      }
+
+      // 後台專用：所有情境都只在瀏覽器裡演出，完全不呼叫抽獎、quota 或 wallet API。
+      function applyPreviewScenario() {
+        var details = document.getElementById('redeem-details');
+        if (details) details.open = false;
+        if (previewScenario === 'last') {
+          renderQuota(previewQuota(1, false));
+          statusEl.innerHTML = '哈囉，<span class="name">Ice 測試</span>';
+          return;
+        }
+        if (previewScenario === 'invite') {
+          renderQuota(previewQuota(0, false));
+          return;
+        }
+        if (previewScenario === 'done') {
+          renderQuota(previewQuota(0, true));
+          return;
+        }
+        if (previewScenario === 'history') {
+          renderQuota(previewQuota(0, true));
+          var samples = prizes.slice(0, Math.min(2, prizes.length)).map(function (p, i) {
+            var noPrize = isNoPrize(p);
+            return {
+              prize_name: p.name || '獎品', prize_desc: p.description || '', is_win: !noPrize,
+              miles: /哩/.test(String(p.name || '')) ? 1 : null,
+              code: null, won_at: new Date(Date.now() - i * 3600000).toISOString(), redeemed: false
+            };
+          });
+          renderMyPrizes(samples);
+          return;
+        }
+        if (previewScenario === 'redemption') {
+          renderQuota(previewQuota(3, false));
+          statusEl.innerHTML = '哈囉，<span class="name">Ice 測試</span>';
+          if (details) details.open = true;
+          return;
+        }
+        if (previewScenario.indexOf('prize:') === 0) {
+          var wanted = previewScenario.slice(6);
+          var prize = prizes.find(function (p) { return String(p.id) === String(wanted); }) || prizes[0];
+          renderQuota(previewQuota(1, false));
+          if (prize) {
+            var idx = prizes.findIndex(function (p) { return String(p.id) === String(prize.id); });
+            var anglePer = 360 / prizes.length;
+            var targetCenter = (idx + 0.5) * anglePer;
+            wheelOffsetRad = ((360 - targetCenter) % 360) * Math.PI / 180;
+            drawWheel(idx, 1);
+            showResult(prize, {});
+          }
+          return;
+        }
+        renderQuota(previewQuota(3, false));
+        statusEl.innerHTML = '哈囉，<span class="name">Ice 測試</span>';
+      }
+
       spinBtn.addEventListener('click', spin);
 
       // ----- bootstrap -----
@@ -926,6 +1018,11 @@
         try {
           await initLiff();
           liffReady = true;
+
+          if (IS_PREVIEW) {
+            applyPreviewScenario();
+            return;
+          }
 
           // 1) 先處理「我是被邀請來的」— 把 referral 寫進 DB
           await maybeRegisterReferral();
@@ -957,6 +1054,7 @@
       // 邀請送出。失敗不代表沒救——被邀請的人多半只是還沒加好友，
       // ORMGM 會把邀請存起來，等他加完好友切回來自動重送。
       async function maybeRegisterReferral() {
+        if (IS_PREVIEW) return;
         if (!window.ORMGM || !profile || !profile.userId) return;
         var r = await ORMGM.referral({
           gameType: 'wheel', slug: slug, userId: profile.userId,
@@ -1057,6 +1155,7 @@
         });
       }
       async function refreshMyPrizes() {
+        if (IS_PREVIEW) return;
         try {
           if (!profile || !profile.userId) return;
           var resp = await fetch('/api/games/wallet?line_user_id=' + encodeURIComponent(profile.userId),
@@ -1105,6 +1204,7 @@
       }
 
       async function refreshQuota() {
+        if (IS_PREVIEW) return;
         try {
           if (!profile || !profile.userId) return;
           var resp = await fetch('/api/games/wheel/' + encodeURIComponent(slug) +
@@ -1222,6 +1322,10 @@
         inviteBtn.addEventListener('click', shareWithFriend);
       }
       async function shareWithFriend() {
+        if (IS_PREVIEW) {
+          statusEl.textContent = '安全測試不會真的分享；回後台切換情境即可繼續檢查';
+          return;
+        }
         if (!profile || !profile.userId) {
           alert('身分驗證中，稍等一下再試');
           return;

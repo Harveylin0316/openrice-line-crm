@@ -12,7 +12,7 @@
         <div id="ae-status" class="muted" style="font-size:12px;"></div>
       </div>
 
-      <h2>1. 基本資訊</h2>
+      <h2>1. 用戶畫面與活動規則</h2>
       <div class="ae-grid">
         <label class="ae-field">
           <span>活動名稱 *</span>
@@ -95,12 +95,77 @@
     </section>
 
     ${activityId ? `
+    <section class="card" id="ae-preview-studio">
+      <div class="ae-head" style="margin-bottom:8px;">
+        <div>
+          <h2 style="margin:0;">2. 畫面設定與測試</h2>
+          <p class="muted" style="font-size:12px;margin:5px 0 0;">選一個畫面就能直接查看，不必找好友，也不用真的抽獎。</p>
+        </div>
+        <span class="ae-safe-badge">安全測試模式</span>
+      </div>
+
+      <div class="ae-preview-grid">
+        <div class="ae-preview-controls">
+          <div class="ae-safe-note">
+            <strong>可以放心測</strong>
+            <span>不扣抽獎次數、不扣獎品庫存、不新增中獎紀錄，也不需要 LINE 好友。</span>
+          </div>
+
+          <label class="ae-field ae-scenario-field">
+            <span>想看哪一個用戶畫面？</span>
+            <select id="ae-preview-scenario">
+              <option value="ready">一般可抽（還有 3 次）</option>
+              <option value="last">最後 1 次</option>
+              <option value="invite">次數用完，可邀朋友</option>
+              <option value="done">全部玩完</option>
+              <option value="history">抽完後，獎項留在頁面</option>
+              <option value="redemption">展開兌獎說明</option>
+            </select>
+          </label>
+          <div class="ae-preview-actions">
+            <button type="button" class="ae-primary-btn" id="ae-refresh-preview">更新右側預覽</button>
+            <button type="button" class="ae-secondary-btn" id="ae-open-preview">另開測試畫面</button>
+          </div>
+          <p class="muted" style="font-size:11px;line-height:1.55;margin:0;">剛改完文字或獎品時，請先按上方「更新」存檔，再更新預覽。</p>
+
+          <h3 class="ae-map-title">畫面位置叫什麼？在哪裡改？</h3>
+          <div class="ae-ui-map">
+            <button type="button" class="ae-map-row" data-ae-focus="ae-name">
+              <span><b>頁首主標題</b><small>活動最上方的大字</small></span><em>到欄位修改</em>
+            </button>
+            <button type="button" class="ae-map-row" data-ae-focus="ae-desc">
+              <span><b>標題下方介紹</b><small>主標題下面的小字說明</small></span><em>到欄位修改</em>
+            </button>
+            <button type="button" class="ae-map-row" data-ae-focus="ae-base-plays">
+              <span><b>剩餘次數／邀請規則</b><small>「還可以轉幾次」與找朋友文案</small></span><em>到欄位修改</em>
+            </button>
+            <button type="button" class="ae-map-row" data-ae-scroll="ae-prizes-section">
+              <span><b>轉盤格與中獎畫面</b><small>獎名、圖片、說明、排序與大獎效果</small></span><em>到獎品修改</em>
+            </button>
+            <button type="button" class="ae-map-row" data-ae-scenario="redemption">
+              <span><b>兌獎說明</b><small>這檔活動目前使用固定版文字</small></span><em class="ae-fixed">預覽固定版</em>
+            </button>
+            <div class="ae-map-row ae-map-static">
+              <span><b>Logo／黃白配色／轉盤樣式</b><small>全站共用設計，避免單一活動跑版</small></span><em class="ae-fixed">固定版型</em>
+            </div>
+          </div>
+        </div>
+
+        <div class="ae-phone-area">
+          <div class="ae-phone-label"><span class="ae-live-dot"></span><span id="ae-preview-label">一般可抽</span></div>
+          <div class="ae-phone-frame">
+            <iframe id="ae-preview-frame" title="活動用戶畫面安全預覽"></iframe>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="card" id="ae-prizes-section">
       <div class="ae-head" style="margin-bottom:8px;">
-        <h2 style="margin:0;">2. 獎品池</h2>
+        <h2 style="margin:0;">3. 獎品池</h2>
         <button type="button" class="ae-secondary-btn" id="ae-add-prize">＋ 新增獎品</button>
       </div>
-      <p class="muted" style="font-size:12px;"><span id="ae-prize-order-noun">遊戲</span>照「位置」由小到大排。中獎機率直接填百分比，全部加起來要等於 100。「庫存」留空 = 不限量。</p>
+      <p class="muted" style="font-size:12px;"><span id="ae-prize-order-noun">遊戲</span>照「位置」由小到大排。中獎機率直接填百分比，全部加起來要等於 100。「庫存」留空 = 不限量。每一列都能直接查看抽中後的畫面。</p>
       <div id="ae-pct-bar"></div>
       <div class="table-wrap">
         <table class="ae-prize-table">
@@ -124,7 +189,7 @@
     </section>
 
     <section class="card">
-      <h2>3. 活動連結</h2>
+      <h2>4. 活動連結</h2>
 
       <div id="ae-link-status-banner"></div>
 
@@ -162,7 +227,7 @@
         </div>
         <div class="ae-grid">
           <label class="ae-field ae-field-full">
-            <span>獎品名稱 *</span>
+            <span>獎品名稱 *（顯示在轉盤格與中獎結果大字）</span>
             <input type="text" id="pm-name" placeholder="例：Rice Dollar $100" />
           </label>
           <label class="ae-field">
@@ -189,11 +254,11 @@
             <input type="number" id="pm-stock" min="0" placeholder="" />
           </label>
           <label class="ae-field">
-            <span>圖片 URL（可選）</span>
+            <span>中獎結果圖片 URL（可選）</span>
             <input type="text" id="pm-image" placeholder="https://..." />
           </label>
           <label class="ae-field ae-field-full">
-            <span>獎品說明（兌換方式等）</span>
+            <span>中獎結果說明（顯示在獎名下方）</span>
             <textarea id="pm-desc" rows="2"></textarea>
           </label>
           <label class="ae-field ae-field-full" id="pm-value-field">
@@ -316,7 +381,81 @@
         if (liffEl) liffEl.textContent = liffShareUrl;
         if (directEl) directEl.textContent = directUrl;
         if (prev) prev.href = directUrl + '?preview=1';
+        rebuildPreviewScenarios();
+        updatePreview();
       }
+
+      // ---- 畫面設定與安全測試工作台 ----
+      function rebuildPreviewScenarios() {
+        var select = $('ae-preview-scenario');
+        if (!select) return;
+        var keep = select.value || 'ready';
+        Array.from(select.options).forEach(function (opt) {
+          if (String(opt.value).indexOf('prize:') === 0) opt.remove();
+        });
+        currentPrizes.forEach(function (p) {
+          var opt = document.createElement('option');
+          opt.value = 'prize:' + p.id;
+          opt.textContent = '抽中：「' + (p.name || '未命名獎品') + '」';
+          select.appendChild(opt);
+        });
+        if (Array.from(select.options).some(function (o) { return o.value === keep; })) select.value = keep;
+      }
+
+      function previewUrl() {
+        if (!currentActivity) return '';
+        var scenario = ($('ae-preview-scenario') && $('ae-preview-scenario').value) || 'ready';
+        return location.origin + '/games/' + (currentActivity.game_type || 'wheel') + '/' +
+          encodeURIComponent(currentActivity.slug) + '?preview=1&preview_scenario=' + encodeURIComponent(scenario);
+      }
+
+      function updatePreview() {
+        var frame = $('ae-preview-frame');
+        var select = $('ae-preview-scenario');
+        if (!frame || !select || !currentActivity) return;
+        var url = previewUrl();
+        // 加時間戳，確保剛存檔的文字與圖片不會被 iframe 快取住。
+        frame.src = url + '&preview_refresh=' + Date.now();
+        var selected = select.options[select.selectedIndex];
+        var label = $('ae-preview-label');
+        if (label) label.textContent = selected ? selected.textContent : '活動畫面';
+      }
+
+      var previewSelect = $('ae-preview-scenario');
+      if (previewSelect) previewSelect.addEventListener('change', updatePreview);
+      var refreshPreviewBtn = $('ae-refresh-preview');
+      if (refreshPreviewBtn) refreshPreviewBtn.addEventListener('click', updatePreview);
+      var openPreviewBtn = $('ae-open-preview');
+      if (openPreviewBtn) openPreviewBtn.addEventListener('click', function () {
+        var url = previewUrl();
+        if (url) window.open(url, '_blank', 'noopener');
+      });
+
+      $$('.ae-map-row[data-ae-focus]').forEach(function (row) {
+        row.addEventListener('click', function () {
+          var el = $(row.getAttribute('data-ae-focus'));
+          if (!el) return;
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.focus();
+          el.classList.remove('ae-field-flash');
+          void el.offsetWidth;
+          el.classList.add('ae-field-flash');
+        });
+      });
+      $$('.ae-map-row[data-ae-scroll]').forEach(function (row) {
+        row.addEventListener('click', function () {
+          var el = $(row.getAttribute('data-ae-scroll'));
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+      $$('.ae-map-row[data-ae-scenario]').forEach(function (row) {
+        row.addEventListener('click', function () {
+          if (!previewSelect) return;
+          previewSelect.value = row.getAttribute('data-ae-scenario');
+          updatePreview();
+          $('ae-preview-studio').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
 
       function updateLinkStatusBanner() {
         var banner = $('ae-link-status-banner');
@@ -457,10 +596,10 @@
         })).then(function (results) {
           var bad = results.filter(function (r) { return !r || !r.ok; });
           if (bad.length) alert('有 ' + bad.length + ' 個獎品沒改成功，請重新整理後再試一次。');
-          loadPrizes();
+          loadActivity();
         }).catch(function () {
           alert('連線錯誤，請重新整理後再試一次。');
-          loadPrizes();
+          loadActivity();
         });
       }
 
@@ -519,12 +658,24 @@
             '<td style="text-align:right;">' + stock + '</td>' +
             '<td>' + (p.is_grand_prize ? '<span class="ae-grand-badge">大獎</span>' : '—') + '</td>' +
             '<td>' +
+              '<button type="button" class="ae-link-btn ae-preview-prize" data-id="' + p.id + '">看中獎畫面</button>' +
               '<button type="button" class="ae-link-btn ae-edit-prize" data-id="' + p.id + '">編輯</button>' +
               '<button type="button" class="ae-link-btn ae-del-prize" data-id="' + p.id + '" data-name="' + escapeHtml(p.name) + '">刪</button>' +
             '</td>' +
           '</tr>';
         }).join('');
         renderPctBar(totalWeight);
+
+        rebuildPreviewScenarios();
+        $$('.ae-preview-prize', tbody).forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var select = $('ae-preview-scenario');
+            if (!select) return;
+            select.value = 'prize:' + btn.getAttribute('data-id');
+            updatePreview();
+            $('ae-preview-studio').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          });
+        });
 
         $$('.ae-edit-prize', tbody).forEach(function (btn) {
           btn.addEventListener('click', function () { openPrizeModal(btn.getAttribute('data-id')); });
@@ -794,6 +945,126 @@
       }
       .ae-secondary-btn:hover { background: #f9fafb; border-color: #d1d5db; }
 
+      .ae-safe-badge {
+        margin-left: auto;
+        padding: 5px 10px;
+        border-radius: 999px;
+        background: #ecfdf5;
+        border: 1px solid #a7f3d0;
+        color: #047857;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .ae-preview-grid {
+        display: grid;
+        grid-template-columns: minmax(300px, 1fr) 390px;
+        gap: 22px;
+        align-items: start;
+      }
+      .ae-preview-controls { min-width: 0; }
+      .ae-safe-note {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        padding: 11px 13px;
+        margin: 10px 0 14px;
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        border-radius: 9px;
+        color: #78450a;
+        font-size: 12px;
+        line-height: 1.55;
+      }
+      .ae-safe-note strong { color: #4e342e; font-size: 13px; }
+      .ae-scenario-field select {
+        min-height: 42px;
+        background: #fff;
+        border-color: #d8cab0;
+        font-weight: 600;
+        color: #3f2c25;
+      }
+      .ae-preview-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 10px 0 7px;
+      }
+      .ae-map-title {
+        margin: 20px 0 8px;
+        font-size: 14px;
+        color: #3f2c25;
+      }
+      .ae-ui-map {
+        overflow: hidden;
+        border: 1px solid #eee6d7;
+        border-radius: 10px;
+        background: #fff;
+      }
+      .ae-map-row {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border: 0;
+        border-bottom: 1px solid #f2ecdf;
+        background: #fff;
+        color: #3f2c25;
+        text-align: left;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      .ae-map-row:last-child { border-bottom: 0; }
+      button.ae-map-row:hover { background: #fffaf0; }
+      .ae-map-row span { display: flex; flex-direction: column; min-width: 0; }
+      .ae-map-row b { font-size: 12px; }
+      .ae-map-row small { margin-top: 2px; color: #7c716b; font-size: 11px; line-height: 1.35; }
+      .ae-map-row em {
+        flex: 0 0 auto;
+        color: #a34a17;
+        font-size: 11px;
+        font-style: normal;
+        font-weight: 700;
+      }
+      .ae-map-row em.ae-fixed { color: #8a817c; }
+      .ae-map-static { cursor: default; background: #faf9f6; }
+      .ae-phone-area { position: sticky; top: 12px; }
+      .ae-phone-label {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 7px;
+        margin: 0 0 7px;
+        color: #5f514b;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .ae-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 0 3px #d1fae5; }
+      .ae-phone-frame {
+        width: 390px;
+        height: 690px;
+        padding: 10px 6px;
+        overflow: hidden;
+        border: 3px solid #3f2c25;
+        border-radius: 30px;
+        background: #3f2c25;
+        box-shadow: 0 12px 28px rgba(63,44,37,.16);
+      }
+      .ae-phone-frame iframe {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        border-radius: 21px;
+        background: #fff;
+      }
+      @keyframes aeFieldFlash {
+        0%,100% { box-shadow: none; border-color: #e5e7eb; }
+        35% { box-shadow: 0 0 0 4px rgba(252,199,38,.28); border-color: #e2a800; }
+      }
+      .ae-field-flash { animation: aeFieldFlash 1.4s ease; }
+
       .ae-prize-table {
         width: 100%;
         border-collapse: collapse;
@@ -883,6 +1154,15 @@
       }
 
       .table-wrap { overflow-x: auto; }
+      @media (max-width: 980px) {
+        .ae-preview-grid { grid-template-columns: 1fr; }
+        .ae-phone-area { position: static; }
+        .ae-phone-frame { width: min(390px, 100%); margin: 0 auto; }
+      }
+      @media (max-width: 480px) {
+        .ae-phone-frame { height: 650px; border-radius: 24px; }
+        .ae-safe-badge { margin-left: 0; }
+      }
     </style>
     `
   })
