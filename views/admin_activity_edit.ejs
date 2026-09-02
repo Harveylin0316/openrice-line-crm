@@ -347,8 +347,8 @@
         $('ae-base-plays').value = a.base_plays_per_user != null ? a.base_plays_per_user : 1;
         $('ae-ref-per').value = a.referral_bonus_per != null ? a.referral_bonus_per : 0;
         $('ae-ref-need').value = a.referral_invites_per_bonus != null ? a.referral_invites_per_bonus : 1;
-        updateRefHint();
         $('ae-ref-max').value = a.referral_bonus_max != null ? a.referral_bonus_max : 0;
+        updateRefHint();
       }
 
       function loadActivity() {
