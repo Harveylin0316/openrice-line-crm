@@ -53,6 +53,14 @@ const t=(doc,id)=>{const e=doc.getElementById(id);return e?e.textContent.replace
   let bad=0;
   // A) 沒中獎的彈窗
   let {doc,calls}=await boot({total:3,remaining:3});
+  const redeem=doc.getElementById('redeem-details');
+  const terms=doc.querySelector('.terms-link');
+  if(!redeem || redeem.open || t(doc,'redeem-details').indexOf('2026/12/9 前')<0){
+    console.log('【兌獎說明】★ 收合狀態或重要期限不正確'); bad++;
+  }
+  if(!terms || terms.href!=='https://tw.openrice.com/info/event/202609-mgm/index.html'){
+    console.log('【活動條款】★ 連結不正確'); bad++;
+  }
   doc.getElementById('cta-spin').click();
   await new Promise(r=>setTimeout(r,2000));
   console.log('【沒中獎】彈窗標題:', t(doc,'modal-eyebrow'), '｜獎項:', t(doc,'modal-prize'), '｜說明:', t(doc,'modal-desc'));

@@ -172,6 +172,25 @@
     .modal-foot{font-size:12.5px;color:var(--ink2);margin-top:11px;line-height:1.6}
     .modal-foot .n{color:var(--orange);font-weight:900;font-size:15px;margin:0 2px}
 
+    /* ── 兌獎說明：預設收合，需要時才展開 ── */
+    .redeem-details{margin-top:13px}
+    .redeem-details summary{
+      display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 4px;
+      color:var(--ink2);font-size:13.5px;font-weight:800;cursor:pointer;list-style:none;
+      text-decoration:underline;text-underline-offset:4px;
+    }
+    .redeem-details summary::-webkit-details-marker{display:none}
+    .redeem-details summary::after{content:'›';font-size:20px;line-height:1;text-decoration:none;transform:rotate(90deg);transition:transform .18s}
+    .redeem-details[open] summary::after{transform:rotate(-90deg)}
+    .redeem-body{margin-top:5px;padding:17px 16px;border:1px solid var(--line);border-radius:15px;background:#FFFDF7}
+    .redeem-body h2{margin:0 0 14px;font-size:20px;line-height:1.3;color:var(--ink)}
+    .redeem-group+.redeem-group{margin-top:18px;padding-top:17px;border-top:1px solid var(--line)}
+    .redeem-group h3{margin:0 0 8px;font-size:15px;line-height:1.4;color:var(--ink)}
+    .redeem-group ul{margin:0;padding-left:20px;color:var(--ink2);font-size:13px;line-height:1.65}
+    .redeem-group li+li{margin-top:7px}
+    .redeem-group strong{color:var(--ink);font-weight:900}
+    .terms-link{display:inline-flex;align-items:center;margin-top:11px;color:#B8421B;font-size:13px;font-weight:900;text-underline-offset:3px}
+
     /* ── 優惠碼：橘框盒 + 複製 ── */
     .coupon-block{margin-top:15px;border:2px solid var(--orange);border-radius:10px;display:flex;align-items:stretch;overflow:hidden}
     .coupon-code{flex:1;padding:13px 12px;font-size:21px;font-weight:800;letter-spacing:.05em;color:var(--ink);
@@ -264,6 +283,45 @@
       <div class="myprize-note">結果會留在這一頁，不用再跳到別的地方找</div>
       <div id="myprize-list" aria-live="polite"></div>
     </section>
+
+    <details class="redeem-details" id="redeem-details">
+      <summary>兌獎說明</summary>
+      <div class="redeem-body">
+        <h2>兌獎說明</h2>
+
+        <section class="redeem-group" aria-labelledby="redeem-miles-title">
+          <h3 id="redeem-miles-title">「亞洲萬里通」里數</h3>
+          <ul>
+            <li>中獎通知將於 <strong>2026/11/27</strong> 透過 OpenRice LINE 官方帳號及／或會員註冊 Email 發送。</li>
+            <li>請於 <strong>2026/12/9 前</strong>完成領獎確認，並將<strong>國泰會員帳戶連結至 OpenRice 帳戶</strong>。</li>
+            <li>尚未加入國泰會員者，請先免費申請會員後再完成連結。</li>
+            <li>逾期未完成領獎程序或帳戶連結，視同放棄獎項。</li>
+            <li>里數預計自 <strong>2026/12/30 起</strong>陸續存入已連結的國泰會員帳戶。</li>
+            <li>每個 OpenRice 帳戶限連結一個國泰會員帳戶，請確認會員資料正確。</li>
+            <li>里數不得折換現金、其他點數或轉讓他人。</li>
+          </ul>
+        </section>
+
+        <section class="redeem-group" aria-labelledby="redeem-rd-title">
+          <h3 id="redeem-rd-title">Rice Dollars</h3>
+          <ul>
+            <li>中獎者將透過 <strong>OpenRice LINE 官方帳號</strong>收到兌換碼。</li>
+            <li>請於指定期限內至 OpenRice 完成兌換及使用，逾期恕不補發。</li>
+            <li>Rice Dollars 不得折換現金、其他點數或轉讓他人。</li>
+          </ul>
+        </section>
+
+        <section class="redeem-group" aria-labelledby="redeem-note-title">
+          <h3 id="redeem-note-title">領獎注意事項</h3>
+          <ul>
+            <li>獎項如達法定課稅門檻，須依中華民國稅法規定辦理申報及繳納相關稅款。</li>
+            <li>領獎資料須經審核；資料不完整、有誤或資格不符，可能取消領獎資格。</li>
+            <li>詳細兌獎方式、稅務規定及使用限制，請以完整活動條款為準。</li>
+          </ul>
+          <a class="terms-link" href="https://tw.openrice.com/info/event/202609-mgm/index.html" target="_blank" rel="noopener noreferrer">查看完整活動條款</a>
+        </section>
+      </div>
+    </details>
 
     <hr class="dash" />
 
