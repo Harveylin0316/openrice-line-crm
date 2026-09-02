@@ -111,6 +111,19 @@
     .cta.ghost{background:transparent;color:var(--orange);border:2px solid var(--orange);box-shadow:none}
     .cta.ghost:active{transform:translateY(1px)}
 
+    /* 已抽到的券直接留在本活動頁，不再把使用者導到另一個錢包頁。 */
+    .my-coupons{margin:18px 0 0;padding:16px;border:1.5px solid var(--line);border-radius:12px;background:var(--surface)}
+    .my-coupons-title{font-size:16px;font-weight:900;color:var(--ink)}
+    .my-coupons-sub{margin-top:3px;font-size:12px;color:var(--ink2);line-height:1.5}
+    .my-coupons-list{display:grid;gap:9px;margin-top:12px}
+    .my-coupon{display:flex;align-items:center;gap:10px;padding:11px 10px;border-radius:8px;background:var(--paper);text-align:left}
+    .my-coupon-main{min-width:0;flex:1}
+    .my-coupon-name{font-size:13px;font-weight:800;line-height:1.35;color:var(--ink)}
+    .my-coupon-code{margin-top:4px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;font-weight:900;letter-spacing:.04em;color:var(--orange);word-break:break-all}
+    .my-coupon-meta{margin-top:3px;font-size:11px;color:var(--ink2)}
+    .my-coupon-copy{flex:0 0 auto;border:1.5px solid var(--orange);border-radius:7px;background:transparent;color:var(--orange);padding:8px 9px;font-family:inherit;font-size:12px;font-weight:900;cursor:pointer}
+    .my-coupon-copy:active{transform:translateY(1px)}
+
     /* ── 分隔：虛線，不是實線卡片邊 ── */
     .dash{border:0;border-top:1.5px dashed var(--line);margin:20px 0}
 
@@ -152,6 +165,8 @@
     .modal-eyebrow{font-size:14px;font-weight:800;color:var(--ink);margin-bottom:7px}
     .modal-img-wrap{margin:0 0 8px;min-height:0}
     .modal-img-wrap img{max-width:130px;max-height:104px;border-radius:8px}
+    .modal.grand .modal-img-wrap{margin:-4px 0 12px}
+    .modal.grand .modal-img-wrap img{width:min(68vw,230px);max-width:none;max-height:none;border-radius:14px;box-shadow:0 8px 20px rgba(87,58,0,.22)}
     .modal-prize{font-size:31px;font-weight:900;line-height:1.2;color:var(--orange);letter-spacing:-.01em}
     .modal.grand .modal-prize{color:#3E2723;font-size:33px}
     .modal.noprize .modal-prize{color:var(--ink);font-size:25px}
@@ -169,7 +184,6 @@
     .sheet-dismiss{display:block;margin:13px auto 0;border:0;background:transparent;font-family:inherit;
       font-size:13.5px;font-weight:700;color:var(--ink2);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
     .modal-prize.pop{animation:statPop .46s cubic-bezier(.2,1.4,.4,1)}
-    .wallet-link{display:inline-block;margin-top:13px;font-size:13.5px;font-weight:800;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
     .modal-foot{font-size:12.5px;color:var(--ink2);margin-top:11px;line-height:1.6}
     .modal-foot .n{color:var(--orange);font-weight:900;font-size:15px;margin:0 2px}
 
@@ -184,7 +198,6 @@
     .modal.grand .coupon-block{border-color:#7A5B00}
     .modal.grand .coupon-copy{border-left-color:#7A5B00;color:#3E2723}
     .modal.grand .coupon-code{color:#3E2723}
-    .modal.grand .wallet-link{color:#3E2723}
     /* 大獎彈窗永遠是黃底，所以文字一律鎖深棕，不能跟著深色模式變淺 */
     .modal.grand .modal-eyebrow{color:#3E2723}
     .modal.grand .coupon-oos{color:#6B5200}
@@ -270,6 +283,12 @@
 
     <button type="button" class="cta" id="cta-spin">開始轉</button>
 
+    <section class="my-coupons" id="my-coupons" hidden aria-live="polite">
+      <div class="my-coupons-title">我抽到的券</div>
+      <div class="my-coupons-sub">優惠碼會保留在這個活動頁，可直接複製使用。</div>
+      <div class="my-coupons-list" id="my-coupons-list"></div>
+    </section>
+
     <hr class="dash" />
 
     <section class="invite-card" id="invite-card">
@@ -313,9 +332,8 @@
           複製
         </button>
       </div>
-      <div class="coupon-oos" id="coupon-oos" hidden>這份券剛好發完了，請稍後到我的優惠券確認</div>
-      <button type="button" class="modal-btn" id="modal-close">收進我的券</button>
-      <a class="wallet-link" id="wallet-link" href="#">看我的券</a>
+      <div class="coupon-oos" id="coupon-oos" hidden>這份券剛好發完了，請聯絡 OpenRice 客服協助確認。</div>
+      <button type="button" class="modal-btn" id="modal-close">我知道了</button>
       <button type="button" class="sheet-dismiss" id="modal-dismiss" hidden>先不用</button>
       <div class="modal-foot" id="modal-foot" hidden></div>
     </div>
@@ -332,6 +350,7 @@
         referral_bonus_max: activity.referral_bonus_max,
         referral_invites_per_bonus: activity.referral_invites_per_bonus || 1
       }) %>;
+      var GRAND_PRIZE_IMAGE = '/images/share-miles-grand-prize-v1.webp';
 
       var canvas = document.getElementById('wheel');
       var ctx = canvas.getContext('2d');
@@ -638,6 +657,7 @@
           await animateToPrize(resp.prize);
           await highlightWinner(resp.prize); // 停頓：高亮 pulse ~0.55s
           showResult(resp.prize, resp);
+          refreshMyCoupons();
         } catch (e) {
           statusEl.textContent = '錯誤';
         } finally {
@@ -684,8 +704,10 @@
         document.getElementById('modal-prize').textContent = prize.name || '—';
         var imgEl = document.getElementById('modal-img');
         var glyphEl = document.getElementById('modal-glyph');
-        if (prize.image_url) {
-          imgEl.src = prize.image_url;
+        var resultImage = prize.image_url || (prize.is_grand_prize ? GRAND_PRIZE_IMAGE : '');
+        if (resultImage) {
+          imgEl.src = resultImage;
+          imgEl.alt = prize.is_grand_prize ? '日本旅遊大獎視覺' : '';
           imgEl.hidden = false;
           glyphEl.style.display = 'none';
         } else {
@@ -710,11 +732,10 @@
         if (noPrize) modal.classList.add('noprize');
         else modal.classList.remove('noprize');
 
-        // 彈窗底部：中獎 → 收券；沒中 → 直接導向邀請（活動擴散的關鍵轉折）
+        // 彈窗底部：沒中 → 直接導向邀請；中獎的券則直接保留在本頁。
         var closeBtn = document.getElementById('modal-close');
         var dismissBtn = document.getElementById('modal-dismiss');
         var footEl = document.getElementById('modal-foot');
-        var walletEl = document.getElementById('wallet-link');
         var bonusLeft = lastQuota
           ? (lastQuota.referral_bonus_max - lastQuota.referral_bonus)
           : (activityMeta.referral_bonus_max || 0);
@@ -724,14 +745,12 @@
           modalMode = 'invite';
           closeBtn.textContent = '找朋友再抽一次';
           dismissBtn.hidden = false;
-          walletEl.hidden = true;
           footEl.hidden = false;
           footEl.innerHTML = '朋友加入官方帳號才算，最多還能加 <span class="n">' + bonusLeft + '</span> 次';
         } else {
           modalMode = 'close';
-          closeBtn.textContent = noPrize ? '知道了' : '收進我的券';
+          closeBtn.textContent = noPrize ? '知道了' : '我知道了';
           dismissBtn.hidden = true;
-          walletEl.hidden = noPrize;
           footEl.hidden = true;
           footEl.textContent = '';
         }
@@ -757,12 +776,6 @@
         }
       }
 
-      // 「我的優惠券」連結，導向錢包頁（LIFF 永久連結 /wallet）
-      var walletLink = document.getElementById('wallet-link');
-      if (walletLink) {
-        walletLink.href = liffId ? ('https://liff.line.me/' + liffId + '/wallet') : '/games/wallet';
-      }
-
       // 優惠碼複製
       (function () {
         var cp = document.getElementById('coupon-copy');
@@ -780,6 +793,67 @@
           }
         });
       })();
+
+      // 本活動已抽到的優惠券：沿用 token 保護的 API，不再提供另一個錢包頁入口。
+      function renderMyCoupons(coupons) {
+        var section = document.getElementById('my-coupons');
+        var list = document.getElementById('my-coupons-list');
+        if (!section || !list) return;
+        list.replaceChildren();
+        if (!coupons || !coupons.length) {
+          section.hidden = true;
+          return;
+        }
+        coupons.forEach(function (coupon) {
+          var row = document.createElement('article');
+          row.className = 'my-coupon';
+          var main = document.createElement('div');
+          main.className = 'my-coupon-main';
+          var name = document.createElement('div');
+          name.className = 'my-coupon-name';
+          name.textContent = coupon.prize_name || '優惠券';
+          var code = document.createElement('div');
+          code.className = 'my-coupon-code';
+          code.textContent = coupon.code || '';
+          var meta = document.createElement('div');
+          meta.className = 'my-coupon-meta';
+          meta.textContent = coupon.redeemed ? '已使用' : '尚未使用';
+          main.append(name, code, meta);
+          var copy = document.createElement('button');
+          copy.type = 'button';
+          copy.className = 'my-coupon-copy';
+          copy.textContent = '複製';
+          copy.addEventListener('click', function () { copyCouponCode(coupon.code, copy); });
+          row.append(main, copy);
+          list.appendChild(row);
+        });
+        section.hidden = false;
+      }
+
+      async function copyCouponCode(code, button) {
+        if (!code) return;
+        try {
+          await navigator.clipboard.writeText(code);
+          if (button) {
+            var original = button.textContent;
+            button.textContent = '已複製';
+            setTimeout(function () { button.textContent = original; }, 1800);
+          }
+        } catch (e) {
+          prompt('複製這組優惠碼：', code);
+        }
+      }
+
+      async function refreshMyCoupons() {
+        if (!profile || !profile.userId) return;
+        try {
+          var url = '/api/games/wallet?line_user_id=' + encodeURIComponent(profile.userId) +
+            '&id_token=' + encodeURIComponent(idToken || '') +
+            '&activity_slug=' + encodeURIComponent(slug);
+          var resp = await fetch(url).then(function (r) { return r.json(); });
+          if (resp.ok) renderMyCoupons(resp.coupons || []);
+        } catch (e) { console.warn('coupon list fetch failed:', e); }
+      }
 
       var modalMode = 'close';
       var hideTimer = null;
@@ -837,6 +911,7 @@
 
           // 2) 拉 quota
           await refreshQuota();
+          await refreshMyCoupons();
 
           // 3) ready — 只有還有次數才打招呼，否則會蓋掉 renderQuota 寫的引導文案
           statusRow.classList.add('ready');
@@ -921,16 +996,16 @@
         el.classList.add('pop');
       }
 
-      // 主 CTA 有三種身分：轉、找朋友、看券。次數用完時把主鈕換成邀請，
+      // 主 CTA 有三種身分：轉、找朋友、活動完成。次數用完時把主鈕換成邀請，
       // 是整個 MGM 能不能擴散的關鍵，不能只把鈕變灰。
       var ctaBtn = document.getElementById('cta-spin');
       var ctaMode = 'spin';
       function setCtaMode(mode) {
         if (!ctaBtn) return;
         ctaMode = mode;
-        ctaBtn.classList.toggle('ghost', mode === 'wallet');
-        ctaBtn.disabled = false;
-        ctaBtn.textContent = mode === 'invite' ? '找朋友' : (mode === 'wallet' ? '看我的券' : '開始轉');
+        ctaBtn.classList.remove('ghost');
+        ctaBtn.disabled = mode === 'done';
+        ctaBtn.textContent = mode === 'invite' ? '找朋友' : (mode === 'done' ? '本活動已完成' : '開始轉');
       }
 
       function renderQuota(q) {
@@ -964,8 +1039,8 @@
           } else {
             if (leadEl) leadEl.textContent = '這次玩完了';
             if (unitEl) unitEl.textContent = '';
-            statusEl.textContent = '中的獎都在我的優惠券裡，下次活動見';
-            setCtaMode('wallet');
+            statusEl.textContent = '抽到的券會列在下方，下次活動見';
+            setCtaMode('done');
           }
         } else {
           spinBtn.disabled = false;
@@ -996,14 +1071,10 @@
       }
 
       // 主 CTA 依目前身分分派
-      if (ctaBtn) {
-        ctaBtn.addEventListener('click', function () {
-          if (ctaMode === 'invite') return shareWithFriend();
-          if (ctaMode === 'wallet') {
-            var w = document.getElementById('wallet-link');
-            if (w && w.href) location.href = w.href;
-            return;
-          }
+        if (ctaBtn) {
+          ctaBtn.addEventListener('click', function () {
+            if (ctaMode === 'invite') return shareWithFriend();
+          if (ctaMode === 'done') return;
           spinBtn.click();
         });
       }

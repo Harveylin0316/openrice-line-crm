@@ -212,7 +212,7 @@ function registerGameType(app, deps, opts) {
 }
 
 // ----- 錢包 API（全 game type 共用，僅註冊一次） -----
-// GET /games/wallet/api?line_user_id=&id_token=
+// GET /games/wallet/api?line_user_id=&id_token=&activity_slug=（activity_slug 選填）
 //   回該用戶所有 coupon_code 非空的 activity_plays，JOIN activities 取活動名、
 //   prize_snapshot->>'name' 取獎品名。形狀照共用 API：
 //   { ok:true, coupons:[{ activity_name, prize_name, code, won_at, redeemed:bool, redeemed_at }] }
@@ -227,6 +227,8 @@ function registerWalletApi(app, deps) {
       const enforce = process.env.LIFF_TOKEN_ENFORCE !== '0';
       const claimedUid = String(req.query.line_user_id || '').trim();
       const idToken = String(req.query.id_token || '').trim();
+      // 活動頁內嵌券列表會傳目前 slug；錢包頁不傳時仍列出所有活動的券。
+      const activitySlug = String(req.query.activity_slug || '').trim().slice(0, 120);
       // 錢包頁一律以 defaultLiffId 渲染（見 /games/wallet 路由），
       // 所以 token 必然來自這個 channel。
       const channelId = channelIdFromLiffId(deps.defaultLiffId || process.env.GAMES_LIFF_ID || process.env.LIFF_ID || '');
@@ -276,9 +278,10 @@ function registerWalletApi(app, deps) {
            JOIN activities a ON a.id = p.activity_id
           WHERE p.line_user_id = $1
             AND p.coupon_code IS NOT NULL
+            AND ($2 = '' OR a.slug = $2)
           ORDER BY p.played_at DESC
           LIMIT 100`,
-        [lineUserId]
+        [lineUserId, activitySlug]
       );
       const coupons = rows.map(r => ({
         activity_name: r.activity_name,
