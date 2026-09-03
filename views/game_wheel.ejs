@@ -36,6 +36,45 @@
     size: _wheelNumber(_wheelRaw.size, 260, 360, _wheelBase.size),
     line_width: _wheelNumber(_wheelRaw.line_width, 1, 8, _wheelBase.line_width)
   };
+  var _copyDefaults = {
+    remaining_lead: '還可以轉',
+    remaining_unit: '次',
+    greeting: '哈囉，{{name}}',
+    spin_button: '開始轉',
+    redemption_label: '兌獎說明',
+    invite_title: '找朋友一起，多一次機會',
+    invite_progress: '已邀 {{invited}} 位，再邀 {{next}} 位就多 {{bonus}} 次（還能加 {{left}} 次）',
+    invite_count: '已邀 {{invited}} 人',
+    invite_button: '找朋友',
+    invite_maxed: '邀請次數已用滿',
+    existing_friend_note: '（另外 {{existing}} 位本來就是好友，不加次數）',
+    turns_used_up: '次數用完了',
+    invite_unlock: '再找 {{next}} 位朋友來，就多 {{bonus}} 次',
+    campaign_done: '這次玩完了',
+    campaign_done_note: '你抽到的結果就在下方，下次活動見',
+    campaign_done_button: '本次活動已完成',
+    winner_eyebrow: '恭喜抽中',
+    no_prize_eyebrow: '開獎結果',
+    no_prize_desc: '這次沒中，找個朋友一起，再試一次',
+    result_close: '完成，回本頁看結果',
+    invite_after_miss: '找朋友再抽一次',
+    result_invite_note: '朋友加入官方帳號才算，最多還能加 {{left}} 次',
+    history_title: '我抽到的獎',
+    history_note: '結果會留在這一頁，不用再跳到別的地方找'
+  };
+  var _rawCopy = _ui.copy && typeof _ui.copy === 'object' ? _ui.copy : {};
+  var _activityCopy = {};
+  Object.keys(_copyDefaults).forEach(function (key) {
+    var value = typeof _rawCopy[key] === 'string' ? _rawCopy[key].trim().slice(0, 220) : '';
+    _activityCopy[key] = value || _copyDefaults[key];
+  });
+  function _copyText(key, vars) {
+    var text = _activityCopy[key] || _copyDefaults[key] || '';
+    vars = vars || {};
+    return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, function (token, name) {
+      return Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : token;
+    });
+  }
 %><!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -325,18 +364,18 @@
       <div class="sub" id="status" aria-live="polite">正在確認你的身分</div>
     </div>
 
-    <button type="button" class="cta" id="cta-spin">開始轉</button>
+    <button type="button" class="cta" id="cta-spin"><%= _activityCopy.spin_button %></button>
 
     <section class="myprize" id="myprize" hidden>
-      <div class="myprize-head">我抽到的獎</div>
-      <div class="myprize-note">結果會留在這一頁，不用再跳到別的地方找</div>
+      <div class="myprize-head"><%= _activityCopy.history_title %></div>
+      <div class="myprize-note"><%= _activityCopy.history_note %></div>
       <div id="myprize-list" aria-live="polite"></div>
     </section>
 
     <details class="redeem-details" id="redeem-details">
-      <summary>兌獎說明</summary>
+      <summary><%= _activityCopy.redemption_label %></summary>
       <div class="redeem-body">
-        <h2>兌獎說明</h2>
+        <h2><%= _activityCopy.redemption_label %></h2>
 
         <section class="redeem-group" aria-labelledby="redeem-miles-title">
           <h3 id="redeem-miles-title">「亞洲萬里通」里數</h3>
@@ -387,16 +426,19 @@
   var _need = Number(activity.referral_invites_per_bonus || 1);
   var _ruleText = (_need > 1 ? ('每邀 ' + _need + ' 位朋友多 ') : '邀 1 位朋友多 ') + activity.referral_bonus_per + ' 次';
 %>
-          <div class="invite-title">找朋友一起，多一次機會</div>
-          <div class="invite-sub" id="invite-sub"><%= _ruleText %>，最多加 <%= activity.referral_bonus_max %> 次</div>
-          <div class="invite-meta">已邀 <span class="n" id="stat-referrals">0</span> 人<span id="invite-existing"></span></div>
+          <div class="invite-title" id="invite-title"><%= _activityCopy.invite_title %></div>
+          <div class="invite-sub" id="invite-sub"><%= _copyText('invite_progress', { invited: 0, next: _need, bonus: activity.referral_bonus_per, left: activity.referral_bonus_max }) %></div>
+          <span id="stat-referrals" hidden>0</span>
+          <div class="invite-meta" id="invite-meta"><%= _copyText('invite_count', { invited: 0 }) %></div>
+          <span id="invite-existing"></span>
         <% } else { %>
-          <div class="invite-title">分享給朋友一起玩</div>
+          <div class="invite-title" id="invite-title">分享給朋友一起玩</div>
           <div class="invite-sub" id="invite-sub">把這個活動傳出去</div>
-          <div class="invite-meta" hidden>已邀 <span class="n" id="stat-referrals">0</span> 人</div>
+          <span id="stat-referrals" hidden>0</span>
+          <div class="invite-meta" id="invite-meta" hidden><%= _copyText('invite_count', { invited: 0 }) %></div>
         <% } %>
       </div>
-      <button type="button" class="invite-btn" id="invite-btn">找朋友</button>
+      <button type="button" class="invite-btn" id="invite-btn"><%= _activityCopy.invite_button %></button>
     </section>
 
   </div>
@@ -437,6 +479,8 @@
         referral_bonus_max: activity.referral_bonus_max,
         referral_invites_per_bonus: activity.referral_invites_per_bonus || 1
       }).replace(/</g,'\\u003c') %>;
+      var COPY_DEFAULTS = <%- JSON.stringify(_copyDefaults).replace(/</g,'\\u003c') %>;
+      var activityCopy = <%- JSON.stringify(_activityCopy).replace(/</g,'\\u003c') %>;
 
       var canvas = document.getElementById('wheel');
       var ctx = canvas.getContext('2d');
@@ -447,6 +491,71 @@
       // 一定要在 bootstrap 之前取到：晚宣告的話（var hoisting）bootstrap 讀到 undefined，
       // 「尚未開放」「稍等一下」的初始鎖定完全不會套用
       var ctaBtn = document.getElementById('cta-spin');
+      function copyText(key) {
+        var value = typeof activityCopy[key] === 'string' ? activityCopy[key].trim().slice(0, 220) : '';
+        return value || COPY_DEFAULTS[key] || '';
+      }
+      function formatCopy(key, vars) {
+        vars = vars || {};
+        return copyText(key).replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, function (token, name) {
+          return Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : token;
+        });
+      }
+      function renderFormattedCopy(el, key, vars, highlighted) {
+        if (!el) return;
+        vars = vars || {};
+        highlighted = highlighted || [];
+        var template = copyText(key);
+        var token = /\{\{\s*([a-z_]+)\s*\}\}/gi;
+        var cursor = 0;
+        var matched;
+        el.textContent = '';
+        while ((matched = token.exec(template))) {
+          el.appendChild(document.createTextNode(template.slice(cursor, matched.index)));
+          var value = Object.prototype.hasOwnProperty.call(vars, matched[1]) ? String(vars[matched[1]]) : matched[0];
+          if (highlighted.indexOf(matched[1]) >= 0) {
+            var emphasis = document.createElement('span');
+            emphasis.className = 'n';
+            emphasis.textContent = value;
+            el.appendChild(emphasis);
+          } else {
+            el.appendChild(document.createTextNode(value));
+          }
+          cursor = matched.index + matched[0].length;
+        }
+        el.appendChild(document.createTextNode(template.slice(cursor)));
+      }
+      function setGreeting(name) {
+        var template = copyText('greeting');
+        var token = /\{\{\s*name\s*\}\}/i;
+        var matched = template.match(token);
+        statusEl.textContent = '';
+        if (!matched) {
+          statusEl.textContent = template;
+          return;
+        }
+        var index = matched.index;
+        statusEl.appendChild(document.createTextNode(template.slice(0, index)));
+        var person = document.createElement('span');
+        person.className = 'name';
+        person.textContent = name;
+        statusEl.appendChild(person);
+        statusEl.appendChild(document.createTextNode(template.slice(index + matched[0].length)));
+      }
+      function applyStaticCopy() {
+        var historyHead = document.querySelector('.myprize-head');
+        var historyNote = document.querySelector('.myprize-note');
+        var redeemSummary = document.querySelector('#redeem-details summary');
+        var redeemHeading = document.querySelector('#redeem-details .redeem-body h2');
+        var inviteTitle = document.getElementById('invite-title');
+        var inviteBtn = document.getElementById('invite-btn');
+        if (historyHead) historyHead.textContent = copyText('history_title');
+        if (historyNote) historyNote.textContent = copyText('history_note');
+        if (redeemSummary) redeemSummary.textContent = copyText('redemption_label');
+        if (redeemHeading) redeemHeading.textContent = copyText('redemption_label');
+        if (inviteTitle) inviteTitle.textContent = copyText('invite_title');
+        if (inviteBtn) inviteBtn.textContent = copyText('invite_button');
+      }
       var previewParams = new URLSearchParams(location.search);
       var IS_PREVIEW = previewParams.get('preview') === '1';
       var previewScenario = previewParams.get('preview_scenario') || 'ready';
@@ -489,6 +598,12 @@
           if (showArt) art.removeAttribute('hidden');
           else art.setAttribute('hidden', '');
         }
+        var copy = override.copy && typeof override.copy === 'object' ? override.copy : {};
+        Object.keys(COPY_DEFAULTS).forEach(function (key) {
+          var value = typeof copy[key] === 'string' ? copy[key].trim().slice(0, 220) : '';
+          if (value) activityCopy[key] = value;
+        });
+        applyStaticCopy();
       }
       if (IS_PREVIEW) {
         document.body.classList.add('is-preview');
@@ -886,7 +1001,7 @@
         renderCoupon(prize, resp);
         var noPrize = isNoPrize(prize);
         var eyebrowEl = document.getElementById('modal-eyebrow');
-        if (eyebrowEl) eyebrowEl.textContent = noPrize ? '開獎結果' : '恭喜抽中';
+        if (eyebrowEl) eyebrowEl.textContent = noPrize ? copyText('no_prize_eyebrow') : copyText('winner_eyebrow');
         document.getElementById('modal-prize').textContent = prize.name || '—';
         var imgEl = document.getElementById('modal-img');
         var glyphEl = document.getElementById('modal-glyph');
@@ -912,7 +1027,7 @@
         // （實際看過：「沒中獎時顯示這個」），照秀出去等於把內部字條貼到用戶臉上。
         if (prize.description && !noPrize) descParts.push(String(prize.description));
         var descText = descParts.join(' · ');
-        if (noPrize) descText = '這次沒中，找個朋友一起，再試一次';
+        if (noPrize) descText = copyText('no_prize_desc');
         document.getElementById('modal-desc').textContent = descText;
         if (prize.is_grand_prize) modal.classList.add('grand');
         else modal.classList.remove('grand');
@@ -938,13 +1053,13 @@
 
         if (noPrize && canInvite) {
           modalMode = 'invite';
-          closeBtn.textContent = '找朋友再抽一次';
+          closeBtn.textContent = copyText('invite_after_miss');
           dismissBtn.hidden = false;
           footEl.hidden = false;
-          footEl.innerHTML = '朋友加入官方帳號才算，最多還能加 <span class="n">' + bonusLeft + '</span> 次';
+          renderFormattedCopy(footEl, 'result_invite_note', { left: bonusLeft }, ['left']);
         } else {
           modalMode = 'close';
-          closeBtn.textContent = '完成，回本頁看結果';
+          closeBtn.textContent = copyText('result_close');
           dismissBtn.hidden = true;
           footEl.hidden = true;
           footEl.textContent = '';
@@ -1034,12 +1149,12 @@
         if (details) details.open = false;
         if (previewScenario === 'first_open') {
           renderQuota(previewQuota(Number(activityMeta.base_plays_per_user || 1), false));
-          statusEl.innerHTML = '哈囉，<span class="name">第一次來的用戶</span>';
+          setGreeting('第一次來的用戶');
           return;
         }
         if (previewScenario === 'last') {
           renderQuota(previewQuota(1, false));
-          statusEl.innerHTML = '哈囉，<span class="name">Ice 測試</span>';
+          setGreeting('Ice 測試');
           return;
         }
         if (previewScenario === 'invite') {
@@ -1065,7 +1180,7 @@
         }
         if (previewScenario === 'redemption') {
           renderQuota(previewQuota(3, false));
-          statusEl.innerHTML = '哈囉，<span class="name">Ice 測試</span>';
+          setGreeting('Ice 測試');
           if (details) details.open = true;
           return;
         }
@@ -1084,7 +1199,7 @@
           return;
         }
         renderQuota(previewQuota(3, false));
-        statusEl.innerHTML = '哈囉，<span class="name">Ice 測試</span>';
+        setGreeting('Ice 測試');
       }
 
       spinBtn.addEventListener('click', spin);
@@ -1134,7 +1249,7 @@
           // 3) ready — 只有還有次數才打招呼，否則會蓋掉 renderQuota 寫的引導文案
           statusRow.classList.add('ready');
           if (lastRemaining === null || lastRemaining > 0) {
-            statusEl.innerHTML = '哈囉，<span class="name">' + (profile.displayName || '') + '</span>';
+            setGreeting(profile.displayName || '');
           }
         } catch (e) {
           statusEl.textContent = e.message || '初始化失敗';
@@ -1214,12 +1329,12 @@
         var wins = mine.filter(function (p) { return p.is_win !== false; }).length;
         var head = document.querySelector('.myprize-head');
         if (head) {
-          head.textContent = '我抽到的獎（共 ' + mine.length + ' 次' +
+          head.textContent = copyText('history_title') + '（共 ' + mine.length + ' 次' +
             (wins ? ('，中了 ' + wins + ' 次') : '') + '）';
         }
         list.innerHTML = mine.map(function (p, i) {
           var isWin = p.is_win !== false;
-          var sub = !isWin ? '這次沒中，找個朋友一起就能多抽一次'
+          var sub = !isWin ? copyText('no_prize_desc')
             : (p.miles
                 ? (p.redeemed ? '哩數已經發放' : '活動結束後統一發放到你的帳戶')
                 : (p.prize_desc || ''));
@@ -1261,12 +1376,12 @@
           var wins = mine.filter(function (p) { return p.is_win !== false; }).length;
           var head = document.querySelector('.myprize-head');
           if (head) {
-            head.textContent = '我抽到的獎（共 ' + mine.length + ' 次' +
+            head.textContent = copyText('history_title') + '（共 ' + mine.length + ' 次' +
               (wins ? ('，中了 ' + wins + ' 次') : '') + '）';
           }
           list.innerHTML = mine.map(function (p, i) {
             var isWin = p.is_win !== false;
-            var sub = !isWin ? '這次沒中，再找朋友來就能多抽一次'
+            var sub = !isWin ? copyText('no_prize_desc')
               : (p.miles
                   ? (p.redeemed ? '哩數已經發放' : '活動結束後統一發放到你的帳戶')
                   : (p.prize_desc || ''));
@@ -1327,19 +1442,22 @@
         ctaMode = mode;
         ctaBtn.classList.toggle('ghost', mode === 'done');
         ctaBtn.disabled = mode === 'done';
-        ctaBtn.textContent = mode === 'invite' ? '找朋友' : (mode === 'done' ? '本次活動已完成' : '開始轉');
+        ctaBtn.textContent = mode === 'invite' ? copyText('invite_button') :
+          (mode === 'done' ? copyText('campaign_done_button') : copyText('spin_button'));
       }
 
       function renderQuota(q) {
         var remEl = document.getElementById('stat-remaining');
         var refEl = document.getElementById('stat-referrals');
+        var inviteMeta = document.getElementById('invite-meta');
         if (remEl) remEl.textContent = q.remaining;
         if (refEl) refEl.textContent = q.referrals;
+        if (inviteMeta) renderFormattedCopy(inviteMeta, 'invite_count', { invited: q.referrals }, ['invited']);
         // 有人點了連結但本來就是好友 → 明講不算，否則邀請人會以為系統沒算到他
         var exEl = document.getElementById('invite-existing');
         if (exEl) {
           var ex = Number(q.referrals_existing || 0);
-          exEl.textContent = ex > 0 ? ('（另外 ' + ex + ' 位本來就是好友，不加次數）') : '';
+          exEl.textContent = ex > 0 ? formatCopy('existing_friend_note', { existing: ex }) : '';
         }
         if (remEl && lastRemaining !== null && lastRemaining !== q.remaining) popStat(remEl);
         if (refEl && lastReferrals !== null && lastReferrals !== q.referrals) popStat(refEl);
@@ -1357,24 +1475,25 @@
           var canMore = q.referral_bonus_per > 0 && q.referral_bonus < q.referral_bonus_max;
           if (canMore) {
             statusRow.classList.remove('ready');
-            if (leadEl) leadEl.textContent = '次數用完了';
+            if (leadEl) leadEl.textContent = copyText('turns_used_up');
             if (unitEl) unitEl.textContent = '';
             var nbw = Number(q.next_bonus_in || 0);
-            statusEl.textContent = nbw > 0
-              ? ('再找 ' + nbw + ' 位朋友來，就多 ' + q.referral_bonus_per + ' 次')
-              : ('找朋友來，就多 ' + q.referral_bonus_per + ' 次');
+            statusEl.textContent = formatCopy('invite_unlock', {
+              next: nbw > 0 ? nbw : 1,
+              bonus: q.referral_bonus_per
+            });
             setCtaMode('invite');
           } else {
-            if (leadEl) leadEl.textContent = '這次玩完了';
+            if (leadEl) leadEl.textContent = copyText('campaign_done');
             if (unitEl) unitEl.textContent = '';
-            statusEl.textContent = '你抽到的結果就在下方，下次活動見';
+            statusEl.textContent = copyText('campaign_done_note');
             setCtaMode('done');
           }
         } else {
           spinBtn.disabled = false;
           statusRow.classList.remove('done');
-          if (leadEl) leadEl.textContent = '還可以轉';
-          if (unitEl) unitEl.textContent = '次';
+          if (leadEl) leadEl.textContent = copyText('remaining_lead');
+          if (unitEl) unitEl.textContent = copyText('remaining_unit');
           setCtaMode('spin');
         }
 
@@ -1386,14 +1505,17 @@
           var bonusLeft = q.referral_bonus_max - q.referral_bonus;
           if (bonusLeft <= 0) {
             inviteCard.classList.add('maxed');
-            if (inviteSub) inviteSub.textContent = '邀請次數已用滿';
+            if (inviteSub) inviteSub.textContent = copyText('invite_maxed');
           } else {
             inviteCard.classList.remove('maxed');
             // 邀 N 換 1 的進度感：講「再邀幾位就多 1 次」，不是叫人自己除
             var nb = Number(q.next_bonus_in || 0);
-            if (inviteSub) inviteSub.textContent = nb > 0
-              ? ('已邀 ' + q.referrals + ' 位，再邀 ' + nb + ' 位就多 ' + q.referral_bonus_per + ' 次（還能加 ' + bonusLeft + ' 次）')
-              : ('還能加 ' + bonusLeft + ' 次');
+            if (inviteSub) inviteSub.textContent = formatCopy('invite_progress', {
+              invited: q.referrals,
+              next: nb > 0 ? nb : 1,
+              bonus: q.referral_bonus_per,
+              left: bonusLeft
+            });
           }
         }
       }
@@ -1461,7 +1583,7 @@
           // 重新拉 quota 確保 UI sync
           refreshQuota();
           if (statusEl.textContent === msg && profile && lastRemaining > 0) {
-            statusEl.innerHTML = '哈囉，<span class="name">' + (profile.displayName || '') + '</span>';
+            setGreeting(profile.displayName || '');
           }
         }, 2400);
       }

@@ -67,6 +67,7 @@ test('後台輪盤編輯器提供完整控制項', async () => {
   const document = dom.window.document;
   assert.equal(document.querySelectorAll('.ae-color-control input[type="color"]').length, 9);
   assert.equal(document.querySelectorAll('.ae-range-control input[type="range"]').length, 2);
+  assert.equal(document.querySelectorAll('.ae-copy-grid input, .ae-copy-grid textarea').length, 24);
   assert.ok(document.querySelector('#ae-wheel-style option[value="custom"]'));
   assert.ok(document.getElementById('ae-save-visual'));
   assert.match(html, /preview_ui/);
@@ -153,6 +154,48 @@ test('後台未儲存的視覺調整也能即時出現在安全預覽', async ()
   assert.equal(stage.style.getPropertyValue('--wheel-size'), '352px');
   assert.equal(stage.style.getPropertyValue('--wheel-line-width'), '6.5px');
   assert.equal(stage.style.getPropertyValue('--wheel-line'), '#345678');
+  assert.equal(calls.length, 0);
+  dom.window.close();
+});
+
+test('活動儲存的提示文案會套用並自動帶入動態資料', async () => {
+  const { dom, document, calls } = await renderWheel('first_open', {
+    copy: {
+      remaining_lead: '幸運機會還有',
+      remaining_unit: '次喔',
+      greeting: '歡迎來玩，{{name}}！',
+      spin_button: '開始抽好運',
+      invite_title: '邀朋友一起收藏好運',
+      invite_progress: '現在 {{invited}} 位，再 {{next}} 位就多 {{bonus}} 次，還有 {{left}} 次',
+      invite_count: '目前已有 {{invited}} 位朋友',
+      invite_button: '分享好運'
+    }
+  });
+  assert.equal(document.getElementById('stat-lead').textContent, '幸運機會還有');
+  assert.equal(document.getElementById('stat-unit').textContent, '次喔');
+  assert.equal(document.getElementById('status').textContent, '歡迎來玩，第一次來的用戶！');
+  assert.equal(document.getElementById('cta-spin').textContent, '開始抽好運');
+  assert.equal(document.getElementById('invite-title').textContent, '邀朋友一起收藏好運');
+  assert.equal(document.getElementById('invite-meta').textContent, '目前已有 0 位朋友');
+  assert.match(document.getElementById('invite-sub').textContent, /再 1 位就多 1 次/);
+  assert.equal(document.getElementById('invite-btn').textContent, '分享好運');
+  assert.equal(calls.length, 0);
+  dom.window.close();
+});
+
+test('後台未儲存的文案也會即時出現在中獎預覽', async () => {
+  const { dom, document, calls } = await renderWheel('prize:11', null, {
+    copy: {
+      winner_eyebrow: '好運被你接住了',
+      result_close: '收下好運',
+      history_title: '我的好運紀錄',
+      history_note: '你的結果已安心收在這裡'
+    }
+  });
+  assert.equal(document.getElementById('modal-eyebrow').textContent, '好運被你接住了');
+  assert.equal(document.getElementById('modal-close').textContent, '收下好運');
+  assert.match(document.querySelector('.myprize-head').textContent, /^我的好運紀錄/);
+  assert.equal(document.querySelector('.myprize-note').textContent, '你的結果已安心收在這裡');
   assert.equal(calls.length, 0);
   dom.window.close();
 });

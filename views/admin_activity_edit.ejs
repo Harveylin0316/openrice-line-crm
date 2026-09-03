@@ -147,7 +147,7 @@
               <span><b>兌獎說明</b><small>這檔活動目前使用固定版文字</small></span><em class="ae-fixed">預覽固定版</em>
             </button>
             <button type="button" class="ae-map-row" data-ae-scroll="ae-visual-settings">
-              <span><b>Logo／右上插圖／轉盤樣式</b><small>可在下方依這檔活動調整</small></span><em>到視覺設定</em>
+              <span><b>Logo／輪盤／提示文案</b><small>可在下方依這檔活動調整</small></span><em>到畫面設定</em>
             </button>
           </div>
 
@@ -210,8 +210,63 @@
                 </label>
               </div>
             </div>
+            <div class="ae-copy-editor">
+              <div class="ae-editor-title">
+                <b>畫面提示文案</b>
+                <small>設計師可以直接改用戶看得到的語氣；雙大括號是自動帶入的數字或名字，請保留需要的變數。</small>
+              </div>
+              <details class="ae-copy-group" open>
+                <summary>主畫面</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field"><span>剩餘次數前綴</span><input type="text" id="ae-copy-remaining-lead" /></label>
+                  <label class="ae-field"><span>剩餘次數單位</span><input type="text" id="ae-copy-remaining-unit" /></label>
+                  <label class="ae-field ae-copy-wide"><span>問候語 <code>{{name}}</code></span><input type="text" id="ae-copy-greeting" /></label>
+                  <label class="ae-field"><span>開始按鈕</span><input type="text" id="ae-copy-spin-button" /></label>
+                  <label class="ae-field"><span>兌獎說明標籤</span><input type="text" id="ae-copy-redemption-label" /></label>
+                </div>
+              </details>
+              <details class="ae-copy-group" open>
+                <summary>邀請朋友</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field ae-copy-wide"><span>邀請標題</span><input type="text" id="ae-copy-invite-title" /></label>
+                  <label class="ae-field ae-copy-wide"><span>邀請進度 <code>{{invited}} {{next}} {{bonus}} {{left}}</code></span><textarea id="ae-copy-invite-progress" rows="2"></textarea></label>
+                  <label class="ae-field"><span>已邀人數 <code>{{invited}}</code></span><input type="text" id="ae-copy-invite-count" /></label>
+                  <label class="ae-field"><span>邀請按鈕</span><input type="text" id="ae-copy-invite-button" /></label>
+                  <label class="ae-field ae-copy-wide"><span>邀請額度用滿</span><input type="text" id="ae-copy-invite-maxed" /></label>
+                  <label class="ae-field ae-copy-wide"><span>原好友不計次提示 <code>{{existing}}</code></span><input type="text" id="ae-copy-existing-friend-note" /></label>
+                </div>
+              </details>
+              <details class="ae-copy-group">
+                <summary>次數狀態</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field"><span>次數用完標題</span><input type="text" id="ae-copy-turns-used-up" /></label>
+                  <label class="ae-field ae-copy-wide"><span>再邀請提示 <code>{{next}} {{bonus}}</code></span><input type="text" id="ae-copy-invite-unlock" /></label>
+                  <label class="ae-field"><span>全部完成標題</span><input type="text" id="ae-copy-campaign-done" /></label>
+                  <label class="ae-field ae-copy-wide"><span>全部完成提示</span><input type="text" id="ae-copy-campaign-done-note" /></label>
+                  <label class="ae-field"><span>全部完成按鈕</span><input type="text" id="ae-copy-campaign-done-button" /></label>
+                </div>
+              </details>
+              <details class="ae-copy-group">
+                <summary>中獎與未中獎</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field"><span>中獎提示</span><input type="text" id="ae-copy-winner-eyebrow" /></label>
+                  <label class="ae-field"><span>未中獎提示</span><input type="text" id="ae-copy-no-prize-eyebrow" /></label>
+                  <label class="ae-field ae-copy-wide"><span>未中獎說明</span><input type="text" id="ae-copy-no-prize-desc" /></label>
+                  <label class="ae-field"><span>完成按鈕</span><input type="text" id="ae-copy-result-close" /></label>
+                  <label class="ae-field"><span>未中後邀請按鈕</span><input type="text" id="ae-copy-invite-after-miss" /></label>
+                  <label class="ae-field ae-copy-wide"><span>未中後邀請提示 <code>{{left}}</code></span><input type="text" id="ae-copy-result-invite-note" /></label>
+                </div>
+              </details>
+              <details class="ae-copy-group">
+                <summary>我的獎項</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field"><span>獎項區標題</span><input type="text" id="ae-copy-history-title" /></label>
+                  <label class="ae-field ae-copy-wide"><span>獎項區提示</span><input type="text" id="ae-copy-history-note" /></label>
+                </div>
+              </details>
+            </div>
             <div class="ae-visual-actions">
-              <button type="button" class="ae-primary-btn" id="ae-save-visual">儲存視覺並更新預覽</button>
+              <button type="button" class="ae-primary-btn" id="ae-save-visual">儲存畫面設定並更新預覽</button>
               <span class="muted" id="ae-visual-save-status"></span>
             </div>
           </section>
@@ -389,6 +444,58 @@
         pointer_dot: 'ae-wheel-pointer-dot',
         hub: 'ae-wheel-hub'
       };
+      var COPY_DEFAULTS = {
+        remaining_lead: '還可以轉',
+        remaining_unit: '次',
+        greeting: '哈囉，{{name}}',
+        spin_button: '開始轉',
+        redemption_label: '兌獎說明',
+        invite_title: '找朋友一起，多一次機會',
+        invite_progress: '已邀 {{invited}} 位，再邀 {{next}} 位就多 {{bonus}} 次（還能加 {{left}} 次）',
+        invite_count: '已邀 {{invited}} 人',
+        invite_button: '找朋友',
+        invite_maxed: '邀請次數已用滿',
+        existing_friend_note: '（另外 {{existing}} 位本來就是好友，不加次數）',
+        turns_used_up: '次數用完了',
+        invite_unlock: '再找 {{next}} 位朋友來，就多 {{bonus}} 次',
+        campaign_done: '這次玩完了',
+        campaign_done_note: '你抽到的結果就在下方，下次活動見',
+        campaign_done_button: '本次活動已完成',
+        winner_eyebrow: '恭喜抽中',
+        no_prize_eyebrow: '開獎結果',
+        no_prize_desc: '這次沒中，找個朋友一起，再試一次',
+        result_close: '完成，回本頁看結果',
+        invite_after_miss: '找朋友再抽一次',
+        result_invite_note: '朋友加入官方帳號才算，最多還能加 {{left}} 次',
+        history_title: '我抽到的獎',
+        history_note: '結果會留在這一頁，不用再跳到別的地方找'
+      };
+      var COPY_FIELDS = {
+        remaining_lead: 'ae-copy-remaining-lead',
+        remaining_unit: 'ae-copy-remaining-unit',
+        greeting: 'ae-copy-greeting',
+        spin_button: 'ae-copy-spin-button',
+        redemption_label: 'ae-copy-redemption-label',
+        invite_title: 'ae-copy-invite-title',
+        invite_progress: 'ae-copy-invite-progress',
+        invite_count: 'ae-copy-invite-count',
+        invite_button: 'ae-copy-invite-button',
+        invite_maxed: 'ae-copy-invite-maxed',
+        existing_friend_note: 'ae-copy-existing-friend-note',
+        turns_used_up: 'ae-copy-turns-used-up',
+        invite_unlock: 'ae-copy-invite-unlock',
+        campaign_done: 'ae-copy-campaign-done',
+        campaign_done_note: 'ae-copy-campaign-done-note',
+        campaign_done_button: 'ae-copy-campaign-done-button',
+        winner_eyebrow: 'ae-copy-winner-eyebrow',
+        no_prize_eyebrow: 'ae-copy-no-prize-eyebrow',
+        no_prize_desc: 'ae-copy-no-prize-desc',
+        result_close: 'ae-copy-result-close',
+        invite_after_miss: 'ae-copy-invite-after-miss',
+        result_invite_note: 'ae-copy-result-invite-note',
+        history_title: 'ae-copy-history-title',
+        history_note: 'ae-copy-history-note'
+      };
 
       function escapeHtml(s) {
         return String(s == null ? '' : s)
@@ -453,6 +560,22 @@
         clearTimeout(visualPreviewTimer);
         visualPreviewTimer = setTimeout(updatePreview, 180);
       }
+      function collectCopyControls() {
+        var result = {};
+        Object.keys(COPY_FIELDS).forEach(function (key) {
+          var el = $(COPY_FIELDS[key]);
+          var value = el ? String(el.value || '').slice(0, 220) : COPY_DEFAULTS[key];
+          result[key] = value || COPY_DEFAULTS[key];
+        });
+        return result;
+      }
+      function setCopyControls(copy) {
+        var saved = copy && typeof copy === 'object' ? copy : {};
+        Object.keys(COPY_FIELDS).forEach(function (key) {
+          var el = $(COPY_FIELDS[key]);
+          if (el) el.value = typeof saved[key] === 'string' ? saved[key] : COPY_DEFAULTS[key];
+        });
+      }
 
       function collectActivityForm() {
         var existingRules = currentActivity && currentActivity.rules && typeof currentActivity.rules === 'object'
@@ -463,7 +586,8 @@
             show_hero_art: $('ae-show-hero-art').checked,
             logo_url: $('ae-logo-url').value.trim() || null,
             wheel_style: $('ae-wheel-style').value || 'brand',
-            wheel_custom: collectWheelControls()
+            wheel_custom: collectWheelControls(),
+            copy: collectCopyControls()
           });
         }
         return {
@@ -523,6 +647,7 @@
           $('ae-wheel-style').value = selectedStyle;
           setWheelControls(Object.assign({}, WHEEL_PRESETS[selectedStyle] || WHEEL_PRESETS.brand, ui.wheel_custom || {}));
         }
+        setCopyControls(ui.copy);
         updateLogoPreview();
         updateRefHint();
       }
@@ -589,7 +714,8 @@
             show_hero_art: $('ae-show-hero-art').checked,
             logo_url: $('ae-logo-url').value.trim() || null,
             wheel_style: $('ae-wheel-style').value || 'brand',
-            wheel_custom: collectWheelControls()
+            wheel_custom: collectWheelControls(),
+            copy: collectCopyControls()
           }));
         }
         return location.origin + '/games/' + (currentActivity.game_type || 'wheel') + '/' +
@@ -796,6 +922,10 @@
           updateWheelOutputs();
           scheduleVisualPreview();
         });
+      });
+      Object.keys(COPY_FIELDS).forEach(function (key) {
+        var input = $(COPY_FIELDS[key]);
+        if (input) input.addEventListener('input', scheduleVisualPreview);
       });
 
       // ---- copy link helpers ----
@@ -1350,6 +1480,28 @@
       .ae-range-control > span { display: flex; justify-content: space-between; gap: 8px; color: #51443e; font-size: 11px; }
       .ae-range-control output { color: #a34a17; font-weight: 800; }
       .ae-range-control input[type="range"] { width: 100%; margin: 8px 0 0; accent-color: #f5b800; }
+      .ae-copy-editor { margin-top: 16px; padding-top: 14px; border-top: 1px solid #eadfca; }
+      .ae-copy-group { margin-top: 8px; border: 1px solid #eadfca; border-radius: 9px; background: #fff; overflow: hidden; }
+      .ae-copy-group summary {
+        padding: 10px 12px;
+        color: #51443e;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        background: #fffaf0;
+      }
+      .ae-copy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; padding: 12px; }
+      .ae-copy-grid .ae-field { margin: 0; }
+      .ae-copy-wide { grid-column: 1 / -1; }
+      .ae-copy-grid code {
+        margin-left: 4px;
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: #f4efe5;
+        color: #a34a17;
+        font-size: 9px;
+        white-space: normal;
+      }
       .ae-visual-actions { display: flex; align-items: center; gap: 9px; margin-top: 13px; }
       .ae-visual-actions .muted, #ae-logo-status { font-size: 11px; line-height: 1.4; }
       .ae-phone-area { position: sticky; top: 12px; }
@@ -1487,6 +1639,8 @@
         .ae-safe-badge { margin-left: 0; }
         .ae-color-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .ae-range-grid { grid-template-columns: 1fr; }
+        .ae-copy-grid { grid-template-columns: 1fr; }
+        .ae-copy-wide { grid-column: auto; }
       }
     </style>
     `
