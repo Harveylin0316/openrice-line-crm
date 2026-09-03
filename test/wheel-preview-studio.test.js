@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const ejs = require('ejs');
 const { JSDOM } = require('jsdom');
@@ -62,6 +63,24 @@ async function renderWheel(scenario, ui, previewUi) {
 async function openScenario(scenario) {
   return renderWheel(scenario);
 }
+
+test('輪盤中心使用指定的 Rice Dollars 圖示', async () => {
+  const imagePath = path.join(REPO, 'public/images/rice-dollar-wheel-hub.png');
+  const image = fs.readFileSync(imagePath);
+  const html = await ejs.renderFile(path.join(REPO, 'views/game_wheel.ejs'), {
+    title: '分享超有哩',
+    activity: { id: 6, slug: 'share-miles', name: '分享超有哩', rules: {} },
+    prizes: PRIZES,
+    liffId: 'test-liff',
+    addFriendUrl: ''
+  });
+
+  assert.equal(image.toString('ascii', 1, 4), 'PNG');
+  assert.equal(image.readUInt32BE(16), 378);
+  assert.equal(image.readUInt32BE(20), 356);
+  assert.match(html, /background-image:url\("\/images\/rice-dollar-wheel-hub\.png"\)/);
+  assert.doesNotMatch(html, /background-image:url\("data:image\/svg\+xml/);
+});
 
 test('後台輪盤編輯器提供完整控制項', async () => {
   const html = await ejs.renderFile(path.join(REPO, 'views/admin_activity_edit.ejs'), {

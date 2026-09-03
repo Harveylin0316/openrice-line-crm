@@ -152,11 +152,11 @@
     .hub{
       position:absolute;left:50%;top:50%;width:19%;aspect-ratio:1;transform:translate(-50%,-50%);
       border-radius:50%;z-index:4;border:0;padding:0;cursor:pointer;
-      background-color:var(--wheel-hub,#FFFFFF);
-      border:3.4px solid var(--wheel-line,#4E342E);
+      background-color:transparent;
       font-size:0;color:transparent;
-      background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M9 21 h30 a15 15 0 0 1 -30 0 z' fill='%23FFFFFF' stroke='%234E342E' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M13 21 a11 6 0 0 1 22 0 z' fill='%23FBC02D' stroke='%234E342E' stroke-width='2.6' stroke-linejoin='round'/%3E%3Cpath d='M18 29 q6 5 12 0' fill='none' stroke='%23E8491D' stroke-width='2.8' stroke-linecap='round'/%3E%3C/svg%3E");
-      background-size:74% 74%;background-position:center;background-repeat:no-repeat;
+      background-image:url("/images/rice-dollar-wheel-hub.png");
+      /* 原圖四周保留透明空間；放大後，實際圖案會剛好填滿中心點。 */
+      background-size:124% auto;background-position:center;background-repeat:no-repeat;
     }
     .hub:disabled{cursor:default}
     #wheel.windup{transition:transform .32s cubic-bezier(.34,.02,.72,.24)}
