@@ -1,4 +1,10 @@
-<!DOCTYPE html>
+<%
+  var _activityRules = activity.rules && typeof activity.rules === 'object' ? activity.rules : {};
+  var _ui = _activityRules.ui && typeof _activityRules.ui === 'object' ? _activityRules.ui : {};
+  var _showHeroArt = _ui.show_hero_art !== false;
+  var _logoUrl = String(_ui.logo_url || '').trim() || '/images/openrice-wordmark.png';
+  var _wheelStyle = ['brand', 'clean', 'bold'].indexOf(_ui.wheel_style) >= 0 ? _ui.wheel_style : 'brand';
+%><!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
@@ -52,6 +58,7 @@
     .hero .rule{display:none}
     .hero p{margin:7px 0 0;font-size:13px;color:var(--ink2);line-height:1.55;max-width:76%}
     .hero .art{position:absolute;top:3px;right:2px;width:98px;opacity:.66;pointer-events:none}
+    .hero.no-art h1,.hero.no-art p{max-width:100%}
 
     /* ── 轉盤 ── */
     .stage-wrap{margin:0;display:flex;justify-content:center}
@@ -75,6 +82,10 @@
     #wheel.windup{transition:transform .32s cubic-bezier(.34,.02,.72,.24)}
     .stage.spinning #wheel{transition:transform 4.05s cubic-bezier(.12,.74,.14,1)}
     .stage.landed .hub{animation:hubKnock .42s ease-out}
+    .stage.wheel-style-clean .ring circle{stroke:#6F625C}
+    .stage.wheel-style-clean .hub{border-color:#6F625C}
+    .stage.wheel-style-bold .ring circle{stroke:#3F2C25;stroke-width:4}
+    .stage.wheel-style-bold .hub{border-color:#3F2C25;background-color:#FFF7D6}
     @keyframes hubKnock{0%{transform:translate(-50%,-50%) scale(1)}30%{transform:translate(-50%,-50%) scale(.93)}100%{transform:translate(-50%,-50%) scale(1)}}
 
     /* ── 狀態行：數字是主角 ── */
@@ -235,17 +246,18 @@
 
     <header class="brand-bar">
       <!-- 正式上線請換成專案內的官方 OpenRice Logo 資產 -->
-      <div class="logo"><img src="/images/openrice-wordmark.png" alt="OpenRice 開飯喇" class="logo-img" /></div>
+      <div class="logo"><img src="<%= _logoUrl %>" alt="OpenRice 開飯喇" class="logo-img" /></div>
       <div class="chip">台灣</div>
     </header>
 
-    <section class="hero">
+    <section class="hero<%= _showHeroArt ? '' : ' no-art' %>">
       <h1><%= activity.name %></h1>
       <svg class="rule" height="9" viewBox="0 0 240 9" preserveAspectRatio="none" aria-hidden="true">
         <path d="M2 6 C 40 2, 96 8, 150 4 C 186 1.6, 214 5, 236 3" stroke="#F15A22" stroke-width="4" fill="none" stroke-linecap="round"/>
       </svg>
       <% if (activity.description) { %><p><%= activity.description %></p><% } %>
-      <!-- 台式火鍋線稿：單色、低透明，題材具體到台灣 -->
+      <% if (_showHeroArt) { %>
+      <!-- 台式火鍋線稿：可由後台依活動開關 -->
       <svg class="art" viewBox="0 0 100 88" fill="none" stroke="#F15A22" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M17 42 h66 a4 4 0 0 1 4 4 l-5 26 a8 8 0 0 1-8 7 H26 a8 8 0 0 1-8-7 l-5-26 a4 4 0 0 1 4-4z"/>
         <path d="M13 50 H5 M87 50 h8"/>
@@ -253,10 +265,11 @@
         <path d="M31 20 c4-4 0-8 3-11 M47 17 c4-4 0-8 3-11 M63 21 c4-4 0-8 3-11" opacity=".72"/>
         <circle cx="38" cy="57" r="4"/><circle cx="56" cy="61" r="4"/><circle cx="68" cy="55" r="3"/>
       </svg>
+      <% } %>
     </section>
 
     <div class="stage-wrap">
-      <div class="stage" id="stage">
+      <div class="stage wheel-style-<%= _wheelStyle %>" id="stage">
         <!-- 黃銅指針：有厚度、有鉚釘 -->
         <div class="pointer">
           <svg width="40" height="46" viewBox="0 0 40 46" aria-hidden="true">
@@ -385,6 +398,13 @@
       var liffId = <%- JSON.stringify(liffId || '').replace(/</g,'\\u003c') %>;
       var addFriendUrl = <%- JSON.stringify(typeof addFriendUrl !== 'undefined' ? addFriendUrl : '').replace(/</g,'\\u003c') %>;
       var prizes = <%- JSON.stringify(prizes || []).replace(/</g,'\\u003c') %>;
+      var wheelStyle = <%- JSON.stringify(_wheelStyle).replace(/</g,'\\u003c') %>;
+      var WHEEL_THEMES = {
+        brand: { slices: ['#FFFFFF', '#FFF3C4'], grand: '#F9C73B', line: '#4E342E', text: '#4E342E', highlight: '#F9C73B' },
+        clean: { slices: ['#FFFFFF', '#F7F4EC'], grand: '#FFF3C4', line: '#6F625C', text: '#3F2C25', highlight: '#E0A900' },
+        bold: { slices: ['#F9C73B', '#FFFFFF'], grand: '#EFAF14', line: '#3F2C25', text: '#3F2C25', highlight: '#F15A22' }
+      };
+      var wheelTheme = WHEEL_THEMES[wheelStyle] || WHEEL_THEMES.brand;
       var GRAND_PRIZE_IMAGE = '/images/share-miles-grand-prize-v1.webp';
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
@@ -464,8 +484,8 @@
           // 白／淡黃兩色交替；格數為奇數時最後一格會跟第一格同色且相鄰，往後推一格避開
           var ci = i % 2;
           if (i === n - 1 && n > 2 && ci === 0) ci = 1;
-          if (p.is_grand_prize) ctx.fillStyle = '#F9C73B';
-          else ctx.fillStyle = ['#FFFFFF', '#FFF3C4'][ci];
+          if (p.is_grand_prize) ctx.fillStyle = wheelTheme.grand;
+          else ctx.fillStyle = wheelTheme.slices[ci];
           ctx.fill();
         });
 
@@ -476,7 +496,7 @@
           ctx.moveTo(cx, cy);
           ctx.lineTo(cx + Math.cos(angle) * R, cy + Math.sin(angle) * R);
           ctx.lineWidth = 4;
-          ctx.strokeStyle = '#4E342E';
+          ctx.strokeStyle = wheelTheme.line;
           ctx.lineCap = 'round';
           ctx.stroke();
         });
@@ -485,7 +505,7 @@
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
         ctx.lineWidth = 5;
-        ctx.strokeStyle = '#4E342E';
+        ctx.strokeStyle = wheelTheme.line;
         ctx.stroke();
 
         // 文字 — 一律橫排、不跟著扇形旋轉。
@@ -526,7 +546,7 @@
           ctx.save();
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillStyle = '#4E342E';
+          ctx.fillStyle = wheelTheme.text;
 
           var bigPx = fitText(lab.big, Math.round(baseFs * 1.15), maxW);
           var smallPx = Math.max(9, Math.round(bigPx * 0.55));
@@ -564,7 +584,7 @@
           ctx.lineWidth = 10;
           ctx.lineJoin = 'round';
           ctx.globalAlpha = (typeof pulse === 'number') ? (0.35 + 0.65 * pulse) : 1;
-          ctx.strokeStyle = '#F9C73B';
+          ctx.strokeStyle = wheelTheme.highlight;
           ctx.stroke();
           ctx.globalAlpha = 1;
         }
@@ -947,6 +967,11 @@
       function applyPreviewScenario() {
         var details = document.getElementById('redeem-details');
         if (details) details.open = false;
+        if (previewScenario === 'first_open') {
+          renderQuota(previewQuota(Number(activityMeta.base_plays_per_user || 1), false));
+          statusEl.innerHTML = '哈囉，<span class="name">第一次來的用戶</span>';
+          return;
+        }
         if (previewScenario === 'last') {
           renderQuota(previewQuota(1, false));
           statusEl.innerHTML = '哈囉，<span class="name">Ice 測試</span>';

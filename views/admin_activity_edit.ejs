@@ -114,6 +114,7 @@
           <label class="ae-field ae-scenario-field">
             <span>想看哪一個用戶畫面？</span>
             <select id="ae-preview-scenario">
+              <option value="first_open">第一次開啟（首次 1 次）</option>
               <option value="ready">一般可抽（還有 3 次）</option>
               <option value="last">最後 1 次</option>
               <option value="invite">次數用完，可邀朋友</option>
@@ -145,14 +146,48 @@
             <button type="button" class="ae-map-row" data-ae-scenario="redemption">
               <span><b>兌獎說明</b><small>這檔活動目前使用固定版文字</small></span><em class="ae-fixed">預覽固定版</em>
             </button>
-            <div class="ae-map-row ae-map-static">
-              <span><b>Logo／黃白配色／轉盤樣式</b><small>全站共用設計，避免單一活動跑版</small></span><em class="ae-fixed">固定版型</em>
-            </div>
+            <button type="button" class="ae-map-row" data-ae-scroll="ae-visual-settings">
+              <span><b>Logo／右上插圖／轉盤樣式</b><small>可在下方依這檔活動調整</small></span><em>到視覺設定</em>
+            </button>
           </div>
+
+          <section class="ae-visual-box" id="ae-visual-settings">
+            <div>
+              <h3>活動視覺</h3>
+              <p>只影響這檔活動；右側預覽可立即確認結果。</p>
+            </div>
+            <label class="ae-visual-toggle">
+              <input type="checkbox" id="ae-show-hero-art" checked />
+              <span><b>顯示標題右上角插圖</b><small>取消勾選即可移除目前的火鍋線稿</small></span>
+            </label>
+            <label class="ae-field">
+              <span>頁首 Logo</span>
+              <div class="ae-upload-row">
+                <input type="text" id="ae-logo-url" placeholder="留空使用 OpenRice Logo，也可貼圖片網址" />
+                <input type="file" id="ae-logo-file" accept="image/png,image/jpeg" hidden />
+                <button type="button" class="ae-secondary-btn" id="ae-logo-upload">上傳</button>
+                <button type="button" class="ae-secondary-btn" id="ae-logo-clear">恢復預設</button>
+              </div>
+              <span class="muted" id="ae-logo-status"></span>
+              <span class="ae-logo-preview" id="ae-logo-preview"></span>
+            </label>
+            <label class="ae-field">
+              <span>輪盤樣式</span>
+              <select id="ae-wheel-style">
+                <option value="brand">OpenRice 黃白</option>
+                <option value="clean">白色簡約</option>
+                <option value="bold">品牌黃醒目</option>
+              </select>
+            </label>
+            <div class="ae-visual-actions">
+              <button type="button" class="ae-primary-btn" id="ae-save-visual">儲存視覺並更新預覽</button>
+              <span class="muted" id="ae-visual-save-status"></span>
+            </div>
+          </section>
         </div>
 
         <div class="ae-phone-area">
-          <div class="ae-phone-label"><span class="ae-live-dot"></span><span id="ae-preview-label">一般可抽</span></div>
+          <div class="ae-phone-label"><span class="ae-live-dot"></span><span id="ae-preview-label">第一次開啟（首次 1 次）</span></div>
           <div class="ae-phone-frame">
             <iframe id="ae-preview-frame" title="活動用戶畫面安全預覽"></iframe>
           </div>
@@ -312,6 +347,16 @@
       }
 
       function collectActivityForm() {
+        var existingRules = currentActivity && currentActivity.rules && typeof currentActivity.rules === 'object'
+          ? JSON.parse(JSON.stringify(currentActivity.rules)) : {};
+        if ($('ae-show-hero-art')) {
+          var existingUi = existingRules.ui && typeof existingRules.ui === 'object' ? existingRules.ui : {};
+          existingRules.ui = Object.assign({}, existingUi, {
+            show_hero_art: $('ae-show-hero-art').checked,
+            logo_url: $('ae-logo-url').value.trim() || null,
+            wheel_style: $('ae-wheel-style').value || 'brand'
+          });
+        }
         return {
           slug: $('ae-slug').value.trim(),
           name: $('ae-name').value.trim(),
@@ -328,8 +373,16 @@
           referral_bonus_per: Number($('ae-ref-per').value || 0),
           referral_bonus_max: Number($('ae-ref-max').value || 0),
           referral_invites_per_bonus: Math.max(1, Number($('ae-ref-need').value || 1)),
-          rules: {}
+          rules: existingRules
         };
+      }
+
+      function updateLogoPreview() {
+        var wrap = $('ae-logo-preview');
+        if (!wrap) return;
+        var src = ($('ae-logo-url').value || '').trim() || '/images/openrice-wordmark.png';
+        wrap.innerHTML = '<img src="' + escapeHtml(src) + '" alt="Logo 預覽" />' +
+          '<small>' + (($('ae-logo-url').value || '').trim() ? '自訂 Logo' : '目前使用預設 OpenRice Logo') + '</small>';
       }
 
       function fillActivityForm(a) {
@@ -348,6 +401,14 @@
         $('ae-ref-per').value = a.referral_bonus_per != null ? a.referral_bonus_per : 0;
         $('ae-ref-need').value = a.referral_invites_per_bonus != null ? a.referral_invites_per_bonus : 1;
         $('ae-ref-max').value = a.referral_bonus_max != null ? a.referral_bonus_max : 0;
+        var ui = a.rules && typeof a.rules === 'object' && a.rules.ui && typeof a.rules.ui === 'object'
+          ? a.rules.ui : {};
+        if ($('ae-show-hero-art')) $('ae-show-hero-art').checked = ui.show_hero_art !== false;
+        if ($('ae-logo-url')) $('ae-logo-url').value = ui.logo_url || '';
+        if ($('ae-wheel-style')) {
+          $('ae-wheel-style').value = ['brand', 'clean', 'bold'].indexOf(ui.wheel_style) >= 0 ? ui.wheel_style : 'brand';
+        }
+        updateLogoPreview();
         updateRefHint();
       }
 
@@ -389,7 +450,7 @@
       function rebuildPreviewScenarios() {
         var select = $('ae-preview-scenario');
         if (!select) return;
-        var keep = select.value || 'ready';
+        var keep = select.value || 'first_open';
         Array.from(select.options).forEach(function (opt) {
           if (String(opt.value).indexOf('prize:') === 0) opt.remove();
         });
@@ -404,7 +465,7 @@
 
       function previewUrl() {
         if (!currentActivity) return '';
-        var scenario = ($('ae-preview-scenario') && $('ae-preview-scenario').value) || 'ready';
+        var scenario = ($('ae-preview-scenario') && $('ae-preview-scenario').value) || 'first_open';
         return location.origin + '/games/' + (currentActivity.game_type || 'wheel') + '/' +
           encodeURIComponent(currentActivity.slug) + '?preview=1&preview_scenario=' + encodeURIComponent(scenario);
       }
@@ -493,7 +554,7 @@
       });
 
       // ---- save activity ----
-      $('ae-save').addEventListener('click', function () {
+      function saveActivity(statusEl, button) {
         var data = collectActivityForm();
         updateRefHint();
         if (data.referral_bonus_per > 0 && data.referral_bonus_max === 0) {
@@ -503,8 +564,8 @@
           $('ae-ref-max').value = 10;
           data.referral_bonus_max = 10;
         }
-        var statusEl = $('ae-save-status');
         statusEl.textContent = '儲存中…';
+        if (button) button.disabled = true;
         var url = activityId ? '/admin/activities/api/' + activityId : '/admin/activities/api';
         var method = activityId ? 'PUT' : 'POST';
         fetch(url, {
@@ -527,7 +588,51 @@
               updateLiffLink();
             }
           })
-          .catch(function (e) { statusEl.textContent = '錯誤：' + e.message; });
+          .catch(function (e) { statusEl.textContent = '錯誤：' + e.message; })
+          .finally(function () { if (button) button.disabled = false; });
+      }
+      $('ae-save').addEventListener('click', function () {
+        saveActivity($('ae-save-status'), $('ae-save'));
+      });
+
+      var logoUrlInput = $('ae-logo-url');
+      if (logoUrlInput) logoUrlInput.addEventListener('input', updateLogoPreview);
+      var logoClearBtn = $('ae-logo-clear');
+      if (logoClearBtn) logoClearBtn.addEventListener('click', function () {
+        $('ae-logo-url').value = '';
+        $('ae-logo-status').textContent = '已恢復預設，按下儲存後生效。';
+        updateLogoPreview();
+      });
+      var logoUploadBtn = $('ae-logo-upload');
+      if (logoUploadBtn) logoUploadBtn.addEventListener('click', function () { $('ae-logo-file').click(); });
+      var logoFileInput = $('ae-logo-file');
+      if (logoFileInput) logoFileInput.addEventListener('change', function () {
+        var file = logoFileInput.files && logoFileInput.files[0];
+        if (!file) return;
+        var statusEl = $('ae-logo-status');
+        if (file.size > 2 * 1024 * 1024) {
+          statusEl.textContent = '圖片超過 2MB，請壓縮後再上傳。';
+          logoFileInput.value = '';
+          return;
+        }
+        statusEl.textContent = '上傳中…';
+        logoUploadBtn.disabled = true;
+        var form = new FormData();
+        form.append('hero', file);
+        fetch('/admin/broadcast/hero/upload', { method: 'POST', body: form })
+          .then(function (r) { return r.json(); })
+          .then(function (resp) {
+            if (!resp.ok || !resp.url) throw new Error(resp.error || '上傳失敗');
+            $('ae-logo-url').value = resp.url;
+            statusEl.textContent = '已上傳，按下儲存後生效。';
+            updateLogoPreview();
+          })
+          .catch(function (e) { statusEl.textContent = '上傳失敗：' + e.message; })
+          .finally(function () { logoUploadBtn.disabled = false; logoFileInput.value = ''; });
+      });
+      var saveVisualBtn = $('ae-save-visual');
+      if (saveVisualBtn) saveVisualBtn.addEventListener('click', function () {
+        saveActivity($('ae-visual-save-status'), saveVisualBtn);
       });
 
       // ---- copy link helpers ----
@@ -1028,7 +1133,27 @@
         font-weight: 700;
       }
       .ae-map-row em.ae-fixed { color: #8a817c; }
-      .ae-map-static { cursor: default; background: #faf9f6; }
+      .ae-visual-box {
+        margin-top: 14px;
+        padding: 15px;
+        border: 1px solid #ead9ad;
+        border-radius: 12px;
+        background: #fffdf6;
+      }
+      .ae-visual-box h3 { margin: 0; font-size: 15px; color: #3f2c25; }
+      .ae-visual-box > div > p { margin: 3px 0 13px; color: #7c716b; font-size: 11px; }
+      .ae-visual-toggle { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 13px; color: #3f2c25; }
+      .ae-visual-toggle input { margin-top: 3px; }
+      .ae-visual-toggle span { display: flex; flex-direction: column; }
+      .ae-visual-toggle b { font-size: 12px; }
+      .ae-visual-toggle small { margin-top: 2px; color: #7c716b; font-size: 11px; }
+      .ae-upload-row { display: flex; gap: 6px; align-items: stretch; }
+      .ae-upload-row input[type="text"] { min-width: 0; flex: 1; }
+      .ae-logo-preview { display: flex; align-items: center; gap: 10px; min-height: 38px; margin-top: 7px; }
+      .ae-logo-preview img { max-width: 142px; max-height: 34px; object-fit: contain; object-position: left center; }
+      .ae-logo-preview small { color: #7c716b; font-size: 10px; }
+      .ae-visual-actions { display: flex; align-items: center; gap: 9px; margin-top: 13px; }
+      .ae-visual-actions .muted, #ae-logo-status { font-size: 11px; line-height: 1.4; }
       .ae-phone-area { position: sticky; top: 12px; }
       .ae-phone-label {
         display: flex;

@@ -78,7 +78,7 @@ function registerGameType(app, deps, opts) {
     try {
       const slug = String(req.params.slug || '').trim();
       const { rows } = await query(
-        `SELECT id, slug, name, description, game_type, status, start_at, end_at,
+        `SELECT id, slug, name, description, game_type, status, start_at, end_at, rules,
                 cover_image_url, daily_plays_per_user, require_follow_oa, liff_id_override,
                 base_plays_per_user, referral_bonus_per, referral_bonus_max, referral_invites_per_bonus
          FROM activities WHERE slug = $1 LIMIT 1`,
