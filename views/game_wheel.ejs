@@ -1,7 +1,9 @@
 <%
   var _activityRules = activity.rules && typeof activity.rules === 'object' ? activity.rules : {};
   var _ui = _activityRules.ui && typeof _activityRules.ui === 'object' ? _activityRules.ui : {};
-  var _showHeroArt = _ui.show_hero_art !== false;
+  var _showHeroArt = typeof _ui.show_hero_art === 'boolean'
+    ? _ui.show_hero_art
+    : activity.slug !== 'share-miles';
   var _logoUrl = String(_ui.logo_url || '').trim() || '/images/openrice-wordmark.png';
   var _wheelStyle = ['brand', 'clean', 'bold'].indexOf(_ui.wheel_style) >= 0 ? _ui.wheel_style : 'brand';
 %><!DOCTYPE html>

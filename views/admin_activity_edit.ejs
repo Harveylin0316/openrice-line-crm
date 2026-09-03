@@ -403,7 +403,11 @@
         $('ae-ref-max').value = a.referral_bonus_max != null ? a.referral_bonus_max : 0;
         var ui = a.rules && typeof a.rules === 'object' && a.rules.ui && typeof a.rules.ui === 'object'
           ? a.rules.ui : {};
-        if ($('ae-show-hero-art')) $('ae-show-hero-art').checked = ui.show_hero_art !== false;
+        if ($('ae-show-hero-art')) {
+          $('ae-show-hero-art').checked = typeof ui.show_hero_art === 'boolean'
+            ? ui.show_hero_art
+            : a.slug !== 'share-miles';
+        }
         if ($('ae-logo-url')) $('ae-logo-url').value = ui.logo_url || '';
         if ($('ae-wheel-style')) {
           $('ae-wheel-style').value = ['brand', 'clean', 'bold'].indexOf(ui.wheel_style) >= 0 ? ui.wheel_style : 'brand';

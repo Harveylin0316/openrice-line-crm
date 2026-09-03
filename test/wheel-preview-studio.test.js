@@ -86,6 +86,13 @@ test('活動可關閉右上插圖、換 Logo 並套用輪盤樣式', async () =>
   dom.window.close();
 });
 
+test('分享超有哩預設移除右上插圖', async () => {
+  const { dom, document } = await renderWheel('first_open');
+  assert.equal(document.querySelector('.hero .art'), null);
+  assert.ok(document.querySelector('.hero').classList.contains('no-art'));
+  dom.window.close();
+});
+
 test('每一個獎項都能直接預覽中獎畫面，結果也會留在同頁', async () => {
   const { dom, document, calls } = await openScenario('prize:11');
   assert.equal(document.getElementById('modal-prize').textContent, '【26,000 哩】頭獎');
