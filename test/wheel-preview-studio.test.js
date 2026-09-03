@@ -22,7 +22,7 @@ function fakeCtx() {
   };
 }
 
-async function renderWheel(scenario, ui) {
+async function renderWheel(scenario, ui, previewUi) {
   const activity = {
     id: 6, slug: 'share-miles', name: '分享超有哩', description: '分享越多，機會越多',
     game_type: 'wheel', status: 'active', base_plays_per_user: 1,
@@ -33,9 +33,11 @@ async function renderWheel(scenario, ui) {
     title: '分享超有哩', activity, prizes: PRIZES, liffId: 'test-liff', addFriendUrl: ''
   });
   const calls = [];
+  const params = new URLSearchParams({ preview: '1', preview_scenario: scenario });
+  if (previewUi) params.set('preview_ui', JSON.stringify(previewUi));
   const dom = new JSDOM(html, {
     runScripts: 'dangerously',
-    url: 'https://example.test/games/wheel/share-miles?preview=1&preview_scenario=' + encodeURIComponent(scenario),
+    url: 'https://example.test/games/wheel/share-miles?' + params.toString(),
     beforeParse(window) {
       window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
       window.HTMLCanvasElement.prototype.getContext = () => fakeCtx();
@@ -52,6 +54,24 @@ async function renderWheel(scenario, ui) {
 async function openScenario(scenario) {
   return renderWheel(scenario);
 }
+
+test('後台輪盤編輯器提供完整控制項', async () => {
+  const html = await ejs.renderFile(path.join(REPO, 'views/admin_activity_edit.ejs'), {
+    title: '編輯活動', user: 'admin', isAdmin: true, bodyClass: 'admin-shell',
+    activityId: 6,
+    gameTypes: ['wheel', 'claim'],
+    statuses: ['draft', 'active', 'paused', 'ended'],
+    prizeTypes: ['coupon_code', 'badge', 'none']
+  }, { views: [path.join(REPO, 'views')] });
+  const dom = new JSDOM(html);
+  const document = dom.window.document;
+  assert.equal(document.querySelectorAll('.ae-color-control input[type="color"]').length, 9);
+  assert.equal(document.querySelectorAll('.ae-range-control input[type="range"]').length, 2);
+  assert.ok(document.querySelector('#ae-wheel-style option[value="custom"]'));
+  assert.ok(document.getElementById('ae-save-visual'));
+  assert.match(html, /preview_ui/);
+  dom.window.close();
+});
 
 test('安全預覽可切換主要 UX 狀態，而且不呼叫任何 API', async () => {
   const cases = [
@@ -79,7 +99,7 @@ test('活動可關閉右上插圖、換 Logo 並套用輪盤樣式', async () =>
     logo_url: 'https://cdn.example.test/campaign-logo.png',
     wheel_style: 'clean'
   });
-  assert.equal(document.querySelector('.hero .art'), null);
+  assert.equal(document.querySelector('.hero .art').hasAttribute('hidden'), true);
   assert.equal(document.querySelector('.logo-img').getAttribute('src'), 'https://cdn.example.test/campaign-logo.png');
   assert.ok(document.getElementById('stage').classList.contains('wheel-style-clean'));
   assert.equal(calls.length, 0);
@@ -88,8 +108,52 @@ test('活動可關閉右上插圖、換 Logo 並套用輪盤樣式', async () =>
 
 test('分享超有哩預設移除右上插圖', async () => {
   const { dom, document } = await renderWheel('first_open');
-  assert.equal(document.querySelector('.hero .art'), null);
+  assert.equal(document.querySelector('.hero .art').hasAttribute('hidden'), true);
   assert.ok(document.querySelector('.hero').classList.contains('no-art'));
+  dom.window.close();
+});
+
+test('自訂輪盤可調整顏色、尺寸與線條粗細', async () => {
+  const custom = {
+    slice_1: '#112233', slice_2: '#DDEEFF', grand: '#F9C73B',
+    text: '#223344', line: '#334455', highlight: '#F15A22',
+    pointer: '#AA2200', pointer_dot: '#FFD500', hub: '#FAFAFA',
+    size: 348, line_width: 7
+  };
+  const { dom, document, calls } = await renderWheel('first_open', {
+    show_hero_art: false,
+    wheel_style: 'custom',
+    wheel_custom: custom
+  });
+  const stage = document.getElementById('stage');
+  assert.ok(stage.classList.contains('wheel-style-custom'));
+  assert.equal(stage.style.getPropertyValue('--wheel-size'), '348px');
+  assert.equal(stage.style.getPropertyValue('--wheel-line-width'), '7px');
+  assert.equal(stage.style.getPropertyValue('--wheel-pointer'), '#AA2200');
+  assert.equal(calls.length, 0);
+  dom.window.close();
+});
+
+test('後台未儲存的視覺調整也能即時出現在安全預覽', async () => {
+  const previewUi = {
+    show_hero_art: true,
+    logo_url: 'https://cdn.example.test/live-logo.png',
+    wheel_style: 'custom',
+    wheel_custom: {
+      slice_1: '#123456', slice_2: '#FEDCBA', grand: '#F9C73B',
+      text: '#222222', line: '#345678', highlight: '#F15A22',
+      pointer: '#AABBCC', pointer_dot: '#DDEEFF', hub: '#FFFFFF',
+      size: 352, line_width: 6.5
+    }
+  };
+  const { dom, document, calls } = await renderWheel('first_open', null, previewUi);
+  const stage = document.getElementById('stage');
+  assert.equal(document.querySelector('.hero .art').hasAttribute('hidden'), false);
+  assert.equal(document.querySelector('.logo-img').getAttribute('src'), 'https://cdn.example.test/live-logo.png');
+  assert.equal(stage.style.getPropertyValue('--wheel-size'), '352px');
+  assert.equal(stage.style.getPropertyValue('--wheel-line-width'), '6.5px');
+  assert.equal(stage.style.getPropertyValue('--wheel-line'), '#345678');
+  assert.equal(calls.length, 0);
   dom.window.close();
 });
 

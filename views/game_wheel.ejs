@@ -4,8 +4,38 @@
   var _showHeroArt = typeof _ui.show_hero_art === 'boolean'
     ? _ui.show_hero_art
     : activity.slug !== 'share-miles';
-  var _logoUrl = String(_ui.logo_url || '').trim() || '/images/openrice-wordmark.png';
-  var _wheelStyle = ['brand', 'clean', 'bold'].indexOf(_ui.wheel_style) >= 0 ? _ui.wheel_style : 'brand';
+  var _rawLogoUrl = String(_ui.logo_url || '').trim();
+  var _logoUrl = (/^https:\/\//i.test(_rawLogoUrl) || /^\//.test(_rawLogoUrl))
+    ? _rawLogoUrl : '/images/openrice-wordmark.png';
+  var _wheelStyle = ['brand', 'clean', 'bold', 'custom'].indexOf(_ui.wheel_style) >= 0 ? _ui.wheel_style : 'brand';
+  var _wheelPresets = {
+    brand: { slice_1:'#FFFFFF', slice_2:'#FFF3C4', grand:'#F9C73B', text:'#4E342E', line:'#4E342E', highlight:'#F9C73B', pointer:'#E8491D', pointer_dot:'#FBC02D', hub:'#FFFFFF', size:318, line_width:4 },
+    clean: { slice_1:'#FFFFFF', slice_2:'#F7F4EC', grand:'#FFF3C4', text:'#3F2C25', line:'#6F625C', highlight:'#E0A900', pointer:'#E8491D', pointer_dot:'#F9C73B', hub:'#FFFFFF', size:308, line_width:2.5 },
+    bold: { slice_1:'#F9C73B', slice_2:'#FFFFFF', grand:'#EFAF14', text:'#3F2C25', line:'#3F2C25', highlight:'#F15A22', pointer:'#F15A22', pointer_dot:'#F9C73B', hub:'#FFF7D6', size:326, line_width:5 }
+  };
+  var _wheelRaw = _ui.wheel_custom && typeof _ui.wheel_custom === 'object' ? _ui.wheel_custom : {};
+  var _wheelBase = _wheelPresets[_wheelStyle] || _wheelPresets.brand;
+  function _wheelHex(value, fallback) {
+    var v = String(value || '').toUpperCase();
+    return /^#[0-9A-F]{6}$/.test(v) ? v : fallback;
+  }
+  function _wheelNumber(value, min, max, fallback) {
+    var n = Number(value);
+    return isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+  }
+  var _wheelConfig = {
+    slice_1: _wheelHex(_wheelRaw.slice_1, _wheelBase.slice_1),
+    slice_2: _wheelHex(_wheelRaw.slice_2, _wheelBase.slice_2),
+    grand: _wheelHex(_wheelRaw.grand, _wheelBase.grand),
+    text: _wheelHex(_wheelRaw.text, _wheelBase.text),
+    line: _wheelHex(_wheelRaw.line, _wheelBase.line),
+    highlight: _wheelHex(_wheelRaw.highlight, _wheelBase.highlight),
+    pointer: _wheelHex(_wheelRaw.pointer, _wheelBase.pointer),
+    pointer_dot: _wheelHex(_wheelRaw.pointer_dot, _wheelBase.pointer_dot),
+    hub: _wheelHex(_wheelRaw.hub, _wheelBase.hub),
+    size: _wheelNumber(_wheelRaw.size, 260, 360, _wheelBase.size),
+    line_width: _wheelNumber(_wheelRaw.line_width, 1, 8, _wheelBase.line_width)
+  };
 %><!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -64,8 +94,9 @@
 
     /* ── 轉盤 ── */
     .stage-wrap{margin:0;display:flex;justify-content:center}
-    .stage{position:relative;width:min(82vw,318px);aspect-ratio:1;}
+    .stage{position:relative;width:min(100%,var(--wheel-size,318px));aspect-ratio:1;}
     .ring{position:absolute;inset:0;pointer-events:none;z-index:3}
+    .ring circle{stroke:var(--wheel-line,#4E342E);stroke-width:var(--wheel-line-width,4)}
     .canvas-wrap{position:absolute;inset:7.5%;border-radius:50%;overflow:hidden}
     #wheel{width:100%;height:100%;display:block}
     /* 指針：有重量的實體物件，不是三角形 */
@@ -74,8 +105,8 @@
     .hub{
       position:absolute;left:50%;top:50%;width:19%;aspect-ratio:1;transform:translate(-50%,-50%);
       border-radius:50%;z-index:4;border:0;padding:0;cursor:pointer;
-      background:#FFFFFF;
-      border:3.4px solid #4E342E;
+      background-color:var(--wheel-hub,#FFFFFF);
+      border:3.4px solid var(--wheel-line,#4E342E);
       font-size:0;color:transparent;
       background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M9 21 h30 a15 15 0 0 1 -30 0 z' fill='%23FFFFFF' stroke='%234E342E' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M13 21 a11 6 0 0 1 22 0 z' fill='%23FBC02D' stroke='%234E342E' stroke-width='2.6' stroke-linejoin='round'/%3E%3Cpath d='M18 29 q6 5 12 0' fill='none' stroke='%23E8491D' stroke-width='2.8' stroke-linecap='round'/%3E%3C/svg%3E");
       background-size:74% 74%;background-position:center;background-repeat:no-repeat;
@@ -84,10 +115,8 @@
     #wheel.windup{transition:transform .32s cubic-bezier(.34,.02,.72,.24)}
     .stage.spinning #wheel{transition:transform 4.05s cubic-bezier(.12,.74,.14,1)}
     .stage.landed .hub{animation:hubKnock .42s ease-out}
-    .stage.wheel-style-clean .ring circle{stroke:#6F625C}
-    .stage.wheel-style-clean .hub{border-color:#6F625C}
-    .stage.wheel-style-bold .ring circle{stroke:#3F2C25;stroke-width:4}
-    .stage.wheel-style-bold .hub{border-color:#3F2C25;background-color:#FFF7D6}
+    .pointer-main{fill:var(--wheel-pointer,#E8491D);stroke:var(--wheel-line,#4E342E)}
+    .pointer-dot{fill:var(--wheel-pointer-dot,#FBC02D);stroke:var(--wheel-line,#4E342E)}
     @keyframes hubKnock{0%{transform:translate(-50%,-50%) scale(1)}30%{transform:translate(-50%,-50%) scale(.93)}100%{transform:translate(-50%,-50%) scale(1)}}
 
     /* ── 狀態行：數字是主角 ── */
@@ -239,7 +268,7 @@
     .logo-img{height:26px;width:auto;display:block}
     .logo{font-size:0 !important;letter-spacing:0 !important}
     @media (min-width:560px){.page{margin:20px auto;border-radius:22px;box-shadow:0 12px 35px rgba(63,44,37,.09);min-height:calc(100svh - 40px)}}
-    @media (max-width:374px){.page{padding-left:14px;padding-right:14px}.hero h1{font-size:29px}.stage{width:min(80vw,292px)}}
+    @media (max-width:374px){.page{padding-left:14px;padding-right:14px}.hero h1{font-size:29px}}
     </style>
 </head>
 <body>
@@ -258,26 +287,24 @@
         <path d="M2 6 C 40 2, 96 8, 150 4 C 186 1.6, 214 5, 236 3" stroke="#F15A22" stroke-width="4" fill="none" stroke-linecap="round"/>
       </svg>
       <% if (activity.description) { %><p><%= activity.description %></p><% } %>
-      <% if (_showHeroArt) { %>
       <!-- 台式火鍋線稿：可由後台依活動開關 -->
-      <svg class="art" viewBox="0 0 100 88" fill="none" stroke="#F15A22" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <svg class="art" viewBox="0 0 100 88" fill="none" stroke="#F15A22" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"<%= _showHeroArt ? '' : ' hidden' %>>
         <path d="M17 42 h66 a4 4 0 0 1 4 4 l-5 26 a8 8 0 0 1-8 7 H26 a8 8 0 0 1-8-7 l-5-26 a4 4 0 0 1 4-4z"/>
         <path d="M13 50 H5 M87 50 h8"/>
         <path d="M24 42 v-9 M34 42 V26 M44 42 V31 M54 42 V24 M64 42 v-13 M74 42 v-7"/>
         <path d="M31 20 c4-4 0-8 3-11 M47 17 c4-4 0-8 3-11 M63 21 c4-4 0-8 3-11" opacity=".72"/>
         <circle cx="38" cy="57" r="4"/><circle cx="56" cy="61" r="4"/><circle cx="68" cy="55" r="3"/>
       </svg>
-      <% } %>
     </section>
 
     <div class="stage-wrap">
-      <div class="stage wheel-style-<%= _wheelStyle %>" id="stage">
+      <div class="stage wheel-style-<%= _wheelStyle %>" id="stage" style="--wheel-size:<%= _wheelConfig.size %>px;--wheel-line-width:<%= _wheelConfig.line_width %>px;--wheel-line:<%= _wheelConfig.line %>;--wheel-pointer:<%= _wheelConfig.pointer %>;--wheel-pointer-dot:<%= _wheelConfig.pointer_dot %>;--wheel-hub:<%= _wheelConfig.hub %>;">
         <!-- 黃銅指針：有厚度、有鉚釘 -->
         <div class="pointer">
           <svg width="40" height="46" viewBox="0 0 40 46" aria-hidden="true">
-            <path d="M20 3 C11 3 4 9.6 4 17.6 C4 25.6 12.4 33.4 20 43 C27.6 33.4 36 25.6 36 17.6 C36 9.6 29 3 20 3 Z"
+            <path class="pointer-main" d="M20 3 C11 3 4 9.6 4 17.6 C4 25.6 12.4 33.4 20 43 C27.6 33.4 36 25.6 36 17.6 C36 9.6 29 3 20 3 Z"
                   fill="#E8491D" stroke="#4E342E" stroke-width="3" stroke-linejoin="round"/>
-            <circle cx="20" cy="17" r="4.4" fill="#FBC02D" stroke="#4E342E" stroke-width="2.4"/>
+            <circle class="pointer-dot" cx="20" cy="17" r="4.4" fill="#FBC02D" stroke="#4E342E" stroke-width="2.4"/>
           </svg>
         </div>
         <div class="canvas-wrap"><canvas id="wheel" width="720" height="720"></canvas></div>
@@ -401,12 +428,7 @@
       var addFriendUrl = <%- JSON.stringify(typeof addFriendUrl !== 'undefined' ? addFriendUrl : '').replace(/</g,'\\u003c') %>;
       var prizes = <%- JSON.stringify(prizes || []).replace(/</g,'\\u003c') %>;
       var wheelStyle = <%- JSON.stringify(_wheelStyle).replace(/</g,'\\u003c') %>;
-      var WHEEL_THEMES = {
-        brand: { slices: ['#FFFFFF', '#FFF3C4'], grand: '#F9C73B', line: '#4E342E', text: '#4E342E', highlight: '#F9C73B' },
-        clean: { slices: ['#FFFFFF', '#F7F4EC'], grand: '#FFF3C4', line: '#6F625C', text: '#3F2C25', highlight: '#E0A900' },
-        bold: { slices: ['#F9C73B', '#FFFFFF'], grand: '#EFAF14', line: '#3F2C25', text: '#3F2C25', highlight: '#F15A22' }
-      };
-      var wheelTheme = WHEEL_THEMES[wheelStyle] || WHEEL_THEMES.brand;
+      var wheelTheme = <%- JSON.stringify(_wheelConfig).replace(/</g,'\\u003c') %>;
       var GRAND_PRIZE_IMAGE = '/images/share-miles-grand-prize-v1.webp';
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
@@ -428,10 +450,51 @@
       var previewParams = new URLSearchParams(location.search);
       var IS_PREVIEW = previewParams.get('preview') === '1';
       var previewScenario = previewParams.get('preview_scenario') || 'ready';
+      function previewHex(value, fallback) {
+        var v = String(value || '').toUpperCase();
+        return /^#[0-9A-F]{6}$/.test(v) ? v : fallback;
+      }
+      function previewNumber(value, min, max, fallback) {
+        var n = Number(value);
+        return isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+      }
+      function applyPreviewVisualOverrides() {
+        if (!IS_PREVIEW || !previewParams.get('preview_ui')) return;
+        var override;
+        try { override = JSON.parse(previewParams.get('preview_ui')); } catch (e) { return; }
+        if (!override || typeof override !== 'object') return;
+        var custom = override.wheel_custom && typeof override.wheel_custom === 'object' ? override.wheel_custom : {};
+        ['slice_1','slice_2','grand','text','line','highlight','pointer','pointer_dot','hub'].forEach(function (key) {
+          wheelTheme[key] = previewHex(custom[key], wheelTheme[key]);
+        });
+        wheelTheme.size = previewNumber(custom.size, 260, 360, wheelTheme.size);
+        wheelTheme.line_width = previewNumber(custom.line_width, 1, 8, wheelTheme.line_width);
+        wheelStyle = ['brand','clean','bold','custom'].indexOf(override.wheel_style) >= 0 ? override.wheel_style : wheelStyle;
+        var stage = document.getElementById('stage');
+        stage.className = 'stage wheel-style-' + wheelStyle;
+        stage.style.setProperty('--wheel-size', wheelTheme.size + 'px');
+        stage.style.setProperty('--wheel-line-width', wheelTheme.line_width + 'px');
+        stage.style.setProperty('--wheel-line', wheelTheme.line);
+        stage.style.setProperty('--wheel-pointer', wheelTheme.pointer);
+        stage.style.setProperty('--wheel-pointer-dot', wheelTheme.pointer_dot);
+        stage.style.setProperty('--wheel-hub', wheelTheme.hub);
+        var logo = document.querySelector('.logo-img');
+        var logoUrl = String(override.logo_url || '').trim();
+        if (logo) logo.src = (/^https:\/\//i.test(logoUrl) || /^\//.test(logoUrl)) ? logoUrl : '/images/openrice-wordmark.png';
+        var hero = document.querySelector('.hero');
+        var art = document.querySelector('.hero .art');
+        var showArt = override.show_hero_art === true;
+        if (hero) hero.classList.toggle('no-art', !showArt);
+        if (art) {
+          if (showArt) art.removeAttribute('hidden');
+          else art.setAttribute('hidden', '');
+        }
+      }
       if (IS_PREVIEW) {
         document.body.classList.add('is-preview');
         var previewBanner = document.getElementById('preview-banner');
         if (previewBanner) previewBanner.hidden = false;
+        applyPreviewVisualOverrides();
       }
 
       var spinning = false;
@@ -487,7 +550,7 @@
           var ci = i % 2;
           if (i === n - 1 && n > 2 && ci === 0) ci = 1;
           if (p.is_grand_prize) ctx.fillStyle = wheelTheme.grand;
-          else ctx.fillStyle = wheelTheme.slices[ci];
+          else ctx.fillStyle = ci === 0 ? wheelTheme.slice_1 : wheelTheme.slice_2;
           ctx.fill();
         });
 
@@ -497,7 +560,7 @@
           ctx.beginPath();
           ctx.moveTo(cx, cy);
           ctx.lineTo(cx + Math.cos(angle) * R, cy + Math.sin(angle) * R);
-          ctx.lineWidth = 4;
+          ctx.lineWidth = wheelTheme.line_width;
           ctx.strokeStyle = wheelTheme.line;
           ctx.lineCap = 'round';
           ctx.stroke();
@@ -506,7 +569,7 @@
         // 外圈細線
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.lineWidth = 5;
+        ctx.lineWidth = Math.min(9, wheelTheme.line_width + 1);
         ctx.strokeStyle = wheelTheme.line;
         ctx.stroke();
 

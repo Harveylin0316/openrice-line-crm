@@ -172,13 +172,44 @@
               <span class="ae-logo-preview" id="ae-logo-preview"></span>
             </label>
             <label class="ae-field">
-              <span>輪盤樣式</span>
-              <select id="ae-wheel-style">
-                <option value="brand">OpenRice 黃白</option>
-                <option value="clean">白色簡約</option>
-                <option value="bold">品牌黃醒目</option>
-              </select>
+              <span>快速套用風格</span>
+              <div class="ae-preset-row">
+                <select id="ae-wheel-style">
+                  <option value="brand">OpenRice 黃白</option>
+                  <option value="clean">白色簡約</option>
+                  <option value="bold">品牌黃醒目</option>
+                  <option value="custom">自訂設定</option>
+                </select>
+                <button type="button" class="ae-secondary-btn" id="ae-reset-wheel">重新套用</button>
+              </div>
             </label>
+            <div class="ae-wheel-editor">
+              <div class="ae-editor-title">
+                <b>自訂輪盤</b>
+                <small>每一項都能自己調，改動會直接出現在右側測試畫面。</small>
+              </div>
+              <div class="ae-color-grid">
+                <label class="ae-color-control"><span>扇形色 1</span><input type="color" id="ae-wheel-slice-1" value="#FFFFFF" /><output data-for="ae-wheel-slice-1">#FFFFFF</output></label>
+                <label class="ae-color-control"><span>扇形色 2</span><input type="color" id="ae-wheel-slice-2" value="#FFF3C4" /><output data-for="ae-wheel-slice-2">#FFF3C4</output></label>
+                <label class="ae-color-control"><span>大獎扇形</span><input type="color" id="ae-wheel-grand" value="#F9C73B" /><output data-for="ae-wheel-grand">#F9C73B</output></label>
+                <label class="ae-color-control"><span>文字顏色</span><input type="color" id="ae-wheel-text" value="#4E342E" /><output data-for="ae-wheel-text">#4E342E</output></label>
+                <label class="ae-color-control"><span>格線／外框</span><input type="color" id="ae-wheel-line" value="#4E342E" /><output data-for="ae-wheel-line">#4E342E</output></label>
+                <label class="ae-color-control"><span>中獎高亮</span><input type="color" id="ae-wheel-highlight" value="#F9C73B" /><output data-for="ae-wheel-highlight">#F9C73B</output></label>
+                <label class="ae-color-control"><span>指針顏色</span><input type="color" id="ae-wheel-pointer" value="#E8491D" /><output data-for="ae-wheel-pointer">#E8491D</output></label>
+                <label class="ae-color-control"><span>指針圓點</span><input type="color" id="ae-wheel-pointer-dot" value="#FBC02D" /><output data-for="ae-wheel-pointer-dot">#FBC02D</output></label>
+                <label class="ae-color-control"><span>中心底色</span><input type="color" id="ae-wheel-hub" value="#FFFFFF" /><output data-for="ae-wheel-hub">#FFFFFF</output></label>
+              </div>
+              <div class="ae-range-grid">
+                <label class="ae-range-control">
+                  <span><b>輪盤尺寸</b><output id="ae-wheel-size-output">318 px</output></span>
+                  <input type="range" id="ae-wheel-size" min="260" max="360" step="2" value="318" />
+                </label>
+                <label class="ae-range-control">
+                  <span><b>外框／格線粗細</b><output id="ae-wheel-line-width-output">4 px</output></span>
+                  <input type="range" id="ae-wheel-line-width" min="1" max="8" step="0.5" value="4" />
+                </label>
+              </div>
+            </div>
             <div class="ae-visual-actions">
               <button type="button" class="ae-primary-btn" id="ae-save-visual">儲存視覺並更新預覽</button>
               <span class="muted" id="ae-visual-save-status"></span>
@@ -326,6 +357,38 @@
       var currentPrizes = [];
       var editingPrizeId = null;
       var effectiveLiffId = '';
+      var visualPreviewTimer = null;
+      var WHEEL_PRESETS = {
+        brand: {
+          slice_1: '#FFFFFF', slice_2: '#FFF3C4', grand: '#F9C73B',
+          text: '#4E342E', line: '#4E342E', highlight: '#F9C73B',
+          pointer: '#E8491D', pointer_dot: '#FBC02D', hub: '#FFFFFF',
+          size: 318, line_width: 4
+        },
+        clean: {
+          slice_1: '#FFFFFF', slice_2: '#F7F4EC', grand: '#FFF3C4',
+          text: '#3F2C25', line: '#6F625C', highlight: '#E0A900',
+          pointer: '#E8491D', pointer_dot: '#F9C73B', hub: '#FFFFFF',
+          size: 308, line_width: 2.5
+        },
+        bold: {
+          slice_1: '#F9C73B', slice_2: '#FFFFFF', grand: '#EFAF14',
+          text: '#3F2C25', line: '#3F2C25', highlight: '#F15A22',
+          pointer: '#F15A22', pointer_dot: '#F9C73B', hub: '#FFF7D6',
+          size: 326, line_width: 5
+        }
+      };
+      var WHEEL_COLOR_FIELDS = {
+        slice_1: 'ae-wheel-slice-1',
+        slice_2: 'ae-wheel-slice-2',
+        grand: 'ae-wheel-grand',
+        text: 'ae-wheel-text',
+        line: 'ae-wheel-line',
+        highlight: 'ae-wheel-highlight',
+        pointer: 'ae-wheel-pointer',
+        pointer_dot: 'ae-wheel-pointer-dot',
+        hub: 'ae-wheel-hub'
+      };
 
       function escapeHtml(s) {
         return String(s == null ? '' : s)
@@ -346,6 +409,51 @@
         return isNaN(d.getTime()) ? null : d.toISOString();
       }
 
+      function safeHex(value, fallback) {
+        var v = String(value || '').toUpperCase();
+        return /^#[0-9A-F]{6}$/.test(v) ? v : fallback;
+      }
+      function clamp(value, min, max, fallback) {
+        var n = Number(value);
+        return isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+      }
+      function collectWheelControls() {
+        var result = {};
+        Object.keys(WHEEL_COLOR_FIELDS).forEach(function (key) {
+          var id = WHEEL_COLOR_FIELDS[key];
+          result[key] = safeHex($(id).value, WHEEL_PRESETS.brand[key]);
+        });
+        result.size = clamp($('ae-wheel-size').value, 260, 360, 318);
+        result.line_width = clamp($('ae-wheel-line-width').value, 1, 8, 4);
+        return result;
+      }
+      function updateWheelOutputs() {
+        Object.keys(WHEEL_COLOR_FIELDS).forEach(function (key) {
+          var id = WHEEL_COLOR_FIELDS[key];
+          var output = document.querySelector('output[data-for="' + id + '"]');
+          if (output) output.textContent = String($(id).value || '').toUpperCase();
+        });
+        $('ae-wheel-size-output').textContent = $('ae-wheel-size').value + ' px';
+        $('ae-wheel-line-width-output').textContent = $('ae-wheel-line-width').value + ' px';
+      }
+      function setWheelControls(config) {
+        var c = Object.assign({}, WHEEL_PRESETS.brand, config || {});
+        Object.keys(WHEEL_COLOR_FIELDS).forEach(function (key) {
+          $(WHEEL_COLOR_FIELDS[key]).value = safeHex(c[key], WHEEL_PRESETS.brand[key]);
+        });
+        $('ae-wheel-size').value = clamp(c.size, 260, 360, 318);
+        $('ae-wheel-line-width').value = clamp(c.line_width, 1, 8, 4);
+        updateWheelOutputs();
+      }
+      function applyWheelPreset(name) {
+        var preset = WHEEL_PRESETS[name] || WHEEL_PRESETS.brand;
+        setWheelControls(preset);
+      }
+      function scheduleVisualPreview() {
+        clearTimeout(visualPreviewTimer);
+        visualPreviewTimer = setTimeout(updatePreview, 180);
+      }
+
       function collectActivityForm() {
         var existingRules = currentActivity && currentActivity.rules && typeof currentActivity.rules === 'object'
           ? JSON.parse(JSON.stringify(currentActivity.rules)) : {};
@@ -354,7 +462,8 @@
           existingRules.ui = Object.assign({}, existingUi, {
             show_hero_art: $('ae-show-hero-art').checked,
             logo_url: $('ae-logo-url').value.trim() || null,
-            wheel_style: $('ae-wheel-style').value || 'brand'
+            wheel_style: $('ae-wheel-style').value || 'brand',
+            wheel_custom: collectWheelControls()
           });
         }
         return {
@@ -410,7 +519,9 @@
         }
         if ($('ae-logo-url')) $('ae-logo-url').value = ui.logo_url || '';
         if ($('ae-wheel-style')) {
-          $('ae-wheel-style').value = ['brand', 'clean', 'bold'].indexOf(ui.wheel_style) >= 0 ? ui.wheel_style : 'brand';
+          var selectedStyle = ['brand', 'clean', 'bold', 'custom'].indexOf(ui.wheel_style) >= 0 ? ui.wheel_style : 'brand';
+          $('ae-wheel-style').value = selectedStyle;
+          setWheelControls(Object.assign({}, WHEEL_PRESETS[selectedStyle] || WHEEL_PRESETS.brand, ui.wheel_custom || {}));
         }
         updateLogoPreview();
         updateRefHint();
@@ -470,8 +581,19 @@
       function previewUrl() {
         if (!currentActivity) return '';
         var scenario = ($('ae-preview-scenario') && $('ae-preview-scenario').value) || 'first_open';
+        var params = new URLSearchParams();
+        params.set('preview', '1');
+        params.set('preview_scenario', scenario);
+        if ($('ae-show-hero-art')) {
+          params.set('preview_ui', JSON.stringify({
+            show_hero_art: $('ae-show-hero-art').checked,
+            logo_url: $('ae-logo-url').value.trim() || null,
+            wheel_style: $('ae-wheel-style').value || 'brand',
+            wheel_custom: collectWheelControls()
+          }));
+        }
         return location.origin + '/games/' + (currentActivity.game_type || 'wheel') + '/' +
-          encodeURIComponent(currentActivity.slug) + '?preview=1&preview_scenario=' + encodeURIComponent(scenario);
+          encodeURIComponent(currentActivity.slug) + '?' + params.toString();
       }
 
       function updatePreview() {
@@ -600,12 +722,18 @@
       });
 
       var logoUrlInput = $('ae-logo-url');
-      if (logoUrlInput) logoUrlInput.addEventListener('input', updateLogoPreview);
+      if (logoUrlInput) logoUrlInput.addEventListener('input', function () {
+        updateLogoPreview();
+        scheduleVisualPreview();
+      });
+      var heroArtToggle = $('ae-show-hero-art');
+      if (heroArtToggle) heroArtToggle.addEventListener('change', scheduleVisualPreview);
       var logoClearBtn = $('ae-logo-clear');
       if (logoClearBtn) logoClearBtn.addEventListener('click', function () {
         $('ae-logo-url').value = '';
         $('ae-logo-status').textContent = '已恢復預設，按下儲存後生效。';
         updateLogoPreview();
+        scheduleVisualPreview();
       });
       var logoUploadBtn = $('ae-logo-upload');
       if (logoUploadBtn) logoUploadBtn.addEventListener('click', function () { $('ae-logo-file').click(); });
@@ -630,6 +758,7 @@
             $('ae-logo-url').value = resp.url;
             statusEl.textContent = '已上傳，按下儲存後生效。';
             updateLogoPreview();
+            scheduleVisualPreview();
           })
           .catch(function (e) { statusEl.textContent = '上傳失敗：' + e.message; })
           .finally(function () { logoUploadBtn.disabled = false; logoFileInput.value = ''; });
@@ -637,6 +766,36 @@
       var saveVisualBtn = $('ae-save-visual');
       if (saveVisualBtn) saveVisualBtn.addEventListener('click', function () {
         saveActivity($('ae-visual-save-status'), saveVisualBtn);
+      });
+      var wheelStyleSelect = $('ae-wheel-style');
+      if (wheelStyleSelect) wheelStyleSelect.addEventListener('change', function () {
+        if (wheelStyleSelect.value !== 'custom') applyWheelPreset(wheelStyleSelect.value);
+        scheduleVisualPreview();
+      });
+      var resetWheelBtn = $('ae-reset-wheel');
+      if (resetWheelBtn) resetWheelBtn.addEventListener('click', function () {
+        var preset = wheelStyleSelect.value === 'custom' ? 'brand' : wheelStyleSelect.value;
+        wheelStyleSelect.value = preset;
+        applyWheelPreset(preset);
+        scheduleVisualPreview();
+      });
+      Object.keys(WHEEL_COLOR_FIELDS).forEach(function (key) {
+        var input = $(WHEEL_COLOR_FIELDS[key]);
+        if (!input) return;
+        input.addEventListener('input', function () {
+          wheelStyleSelect.value = 'custom';
+          updateWheelOutputs();
+          scheduleVisualPreview();
+        });
+      });
+      ['ae-wheel-size', 'ae-wheel-line-width'].forEach(function (id) {
+        var input = $(id);
+        if (!input) return;
+        input.addEventListener('input', function () {
+          wheelStyleSelect.value = 'custom';
+          updateWheelOutputs();
+          scheduleVisualPreview();
+        });
       });
 
       // ---- copy link helpers ----
@@ -1156,6 +1315,41 @@
       .ae-logo-preview { display: flex; align-items: center; gap: 10px; min-height: 38px; margin-top: 7px; }
       .ae-logo-preview img { max-width: 142px; max-height: 34px; object-fit: contain; object-position: left center; }
       .ae-logo-preview small { color: #7c716b; font-size: 10px; }
+      .ae-preset-row { display: flex; align-items: stretch; gap: 6px; }
+      .ae-preset-row select { flex: 1; min-width: 0; }
+      .ae-wheel-editor { margin-top: 13px; padding-top: 13px; border-top: 1px solid #eadfca; }
+      .ae-editor-title { display: flex; flex-direction: column; margin-bottom: 10px; color: #3f2c25; }
+      .ae-editor-title b { font-size: 13px; }
+      .ae-editor-title small { margin-top: 2px; color: #7c716b; font-size: 11px; line-height: 1.45; }
+      .ae-color-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+      .ae-color-control {
+        display: grid;
+        grid-template-columns: 31px 1fr;
+        grid-template-areas: "swatch label" "swatch value";
+        align-items: center;
+        column-gap: 8px;
+        padding: 8px;
+        border: 1px solid #eadfca;
+        border-radius: 9px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .ae-color-control > span { grid-area: label; min-width: 0; color: #51443e; font-size: 11px; font-weight: 700; }
+      .ae-color-control input[type="color"] {
+        grid-area: swatch;
+        width: 31px;
+        height: 34px;
+        padding: 1px;
+        border: 1px solid #d8cab0;
+        border-radius: 7px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .ae-color-control output { grid-area: value; color: #8a817c; font: 9px ui-monospace, Menlo, monospace; }
+      .ae-range-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 13px; }
+      .ae-range-control > span { display: flex; justify-content: space-between; gap: 8px; color: #51443e; font-size: 11px; }
+      .ae-range-control output { color: #a34a17; font-weight: 800; }
+      .ae-range-control input[type="range"] { width: 100%; margin: 8px 0 0; accent-color: #f5b800; }
       .ae-visual-actions { display: flex; align-items: center; gap: 9px; margin-top: 13px; }
       .ae-visual-actions .muted, #ae-logo-status { font-size: 11px; line-height: 1.4; }
       .ae-phone-area { position: sticky; top: 12px; }
@@ -1291,6 +1485,8 @@
       @media (max-width: 480px) {
         .ae-phone-frame { height: 650px; border-radius: 24px; }
         .ae-safe-badge { margin-left: 0; }
+        .ae-color-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .ae-range-grid { grid-template-columns: 1fr; }
       }
     </style>
     `
