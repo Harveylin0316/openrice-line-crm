@@ -189,14 +189,58 @@
     const tagline = pv.tagline || '';
     const heroImage = pv.hero_image || '';
     const listOf = v => Array.isArray(v) ? v : [];
+    // 頁面上所有會被用戶看到的字，統一在這裡取。
+    // 後台（/admin/campaigns/ludian 的「頁面文案」）有填就用填的，沒填就用這裡的預設。
+    // 新增文案時：這裡加一筆預設 → adminHub 的欄位清單加一筆 → 就會出現在後台表單。
+    const TXT_DEFAULTS = {
+      ribbon_before:  'LINE 好友限定',
+      ribbon_after:   'OPENRICE 好友禮',
+      loading:        '準備中⋯',
+      err_title:      '無法載入',
+      err_detail:     '請稍後再試',
+      btn_claim:      '領取借電券',
+      btn_claiming:   '領取中⋯',
+      claim_note:     '每位好友限領一次，領取後序號會存在「我的優惠券」',
+      code_label:     '優惠序號',
+      btn_copy:       '複製序號',
+      copied:         '已複製',
+      copy_failed:    '複製失敗，請長按序號',
+      btn_redeem:     '前往兌換',
+      redeem_note:    '複製序號後，依畫面指示完成兌換',
+      redeem_pending: '兌換連結即將開放，序號已為你保留。',
+      oos_text:       '這一波的優惠序號已全數發完。<br>之後有加碼會在官方帳號公告，請留意訊息通知。',
+      info_link_label:'查看使用說明與注意事項',
+      info_link_close:'收合使用說明',
+      sec_how_to_claim: '領取步驟',
+      sec_campaign_desc:'活動說明',
+      sec_how_to_use:   '使用方式',
+      sec_tnc:          '注意事項',
+      st_notstarted_title:  '尚未開放領取',
+      st_notstarted_detail: '活動即將開始，開放後即可領取。',
+      st_ended_title:       '活動已結束',
+      st_ended_detail:      '本活動已結束，感謝參與。',
+      st_claimed_title:     '已領取過',
+      st_claimed_detail:    '每位好友限領一次。',
+      st_needfollow_title:  '尚未加入好友',
+      st_needfollow_detail: '請先加入 OpenRice 官方帳號好友，再回來領取。',
+      st_failed_title:      '領取失敗',
+      st_failed_detail:     '請關閉頁面後從 LINE 重新開啟。',
+      st_neterr_title:      '連線錯誤',
+      st_neterr_detail:     '網路不穩定，請稍後再試。'
+    };
+    const TXT = {};
+    Object.keys(TXT_DEFAULTS).forEach(k => {
+      const v = pv[k];
+      TXT[k] = (typeof v === 'string' && v.trim()) ? v.trim() : TXT_DEFAULTS[k];
+    });
   %>
   <div class="page">
 
     <header class="logo">
-      <img src="/images/openrice-logo.png" alt="OpenRice 開飯喇" />
+      <img src="/images/openrice-wordmark.png" alt="OpenRice 開飯喇" />
     </header>
 
-    <div class="ribbon-wrap"><span class="ribbon" id="ribbon">LINE 好友限定</span></div>
+    <div class="ribbon-wrap"><span class="ribbon" id="ribbon"><%= TXT.ribbon_before %></span></div>
 
     <section class="headline">
       <h1 id="main-title"><%= pageTitle %></h1>
@@ -206,13 +250,13 @@
     <!-- 載入中 -->
     <div id="st-loading" class="state">
       <div class="spinner"></div>
-      <div class="s">準備中⋯</div>
+      <div class="s"><%= TXT.loading %></div>
     </div>
 
     <!-- 全頁錯誤 -->
     <div id="st-error" class="state" hidden>
-      <div class="t" id="err-title">無法載入</div>
-      <div class="s" id="err-detail">請稍後再試</div>
+      <div class="t" id="err-title"><%= TXT.err_title %></div>
+      <div class="s" id="err-detail"><%= TXT.err_detail %></div>
     </div>
 
     <!-- 主卡片 -->
@@ -225,59 +269,57 @@
           <svg width="17" height="17" viewBox="0 0 17 17"><circle cx="8.5" cy="8.5" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 4.8v4l2.6 1.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span>效期至 <span id="expiry-date-claim">—</span>，剩 <span class="hl" id="expiry-days-claim">—</span> 天</span>
         </div>
-        <button type="button" class="cta" id="btn-claim">領取借電券</button>
-        <div class="helper" id="claim-note">每位好友限領一次，領取後序號會存在「我的優惠券」</div>
+        <button type="button" class="cta" id="btn-claim"><%= TXT.btn_claim %></button>
+        <div class="helper" id="claim-note"><%= TXT.claim_note %></div>
       </div>
 
       <!-- 已領取 -->
       <div id="pane-code" hidden>
-        <div class="code-label">優惠序號</div>
+        <div class="code-label"><%= TXT.code_label %></div>
         <div class="code-big" id="code-text">—</div>
         <div class="copy-wrap">
-          <button type="button" class="copy-chip" id="btn-copy">複製序號</button>
+          <button type="button" class="copy-chip" id="btn-copy"><%= TXT.btn_copy %></button>
         </div>
         <hr class="dashed" />
-        <button type="button" class="cta" id="btn-redeem" hidden>前往兌換</button>
-        <div class="helper" id="redeem-note">複製序號後，依畫面指示完成兌換</div>
+        <button type="button" class="cta" id="btn-redeem" hidden><%= TXT.btn_redeem %></button>
+        <div class="helper" id="redeem-note"><%= TXT.redeem_note %></div>
         <div class="helper" id="expiry-code" hidden>效期至 <span id="expiry-date-code">—</span>（剩 <span id="expiry-days-code">—</span> 天）</div>
       </div>
 
       <!-- 發完 -->
       <div id="pane-oos" hidden>
-        <div class="notice">
-          這一波的優惠序號已全數發完。<br>之後有加碼會在官方帳號公告，請留意訊息通知。
-        </div>
+        <div class="notice"><%- TXT.oos_text %></div>
       </div>
 
     </div>
 
     <!-- 查看說明 -->
     <div class="info-link-wrap" id="info-link-wrap" hidden>
-      <button type="button" class="info-link" id="info-link">查看使用說明與注意事項</button>
+      <button type="button" class="info-link" id="info-link"><%= TXT.info_link_label %></button>
     </div>
 
     <div id="info-sections" hidden>
       <% if (listOf(pv.how_to_claim).length) { %>
       <section class="info-card">
-        <h2>領取步驟</h2>
+        <h2><%= TXT.sec_how_to_claim %></h2>
         <ol><% listOf(pv.how_to_claim).forEach(x => { %><li><%= x %></li><% }) %></ol>
       </section>
       <% } %>
       <% if (listOf(pv.campaign_desc).length) { %>
       <section class="info-card">
-        <h2>活動說明</h2>
+        <h2><%= TXT.sec_campaign_desc %></h2>
         <ul><% listOf(pv.campaign_desc).forEach(x => { %><li><%= x %></li><% }) %></ul>
       </section>
       <% } %>
       <% if (listOf(pv.how_to_use).length) { %>
       <section class="info-card">
-        <h2>使用方式</h2>
+        <h2><%= TXT.sec_how_to_use %></h2>
         <ol><% listOf(pv.how_to_use).forEach(x => { %><li><%= x %></li><% }) %></ol>
       </section>
       <% } %>
       <% if (listOf(pv.tnc).length) { %>
       <section class="info-card">
-        <h2>注意事項</h2>
+        <h2><%= TXT.sec_tnc %></h2>
         <ul><% listOf(pv.tnc).forEach(x => { %><li><%= x %></li><% }) %></ul>
       </section>
       <% } %>
@@ -293,16 +335,18 @@
 
   <script>
     (function () {
-      var liffId   = <%- JSON.stringify(liffId || '') %>;
-      var slug     = <%- JSON.stringify(activity.slug) %>;
-      var gameType = <%- JSON.stringify(gameType) %>;
-      var pageTitle    = <%- JSON.stringify(pageTitle) %>;
-      var claimedTitle = <%- JSON.stringify(claimedTitle) %>;
+      var liffId   = <%- JSON.stringify(liffId || '').replace(/</g,'\\u003c') %>;
+      // 頁面上的字統一從這裡取（後台可改，見 /admin/campaigns/ludian 的「頁面文案」）
+      var TXT      = <%- JSON.stringify(TXT).replace(/</g,'\\u003c') %>;
+      var slug     = <%- JSON.stringify(activity.slug).replace(/</g,'\\u003c') %>;
+      var gameType = <%- JSON.stringify(gameType).replace(/</g,'\\u003c') %>;
+      var pageTitle    = <%- JSON.stringify(pageTitle).replace(/</g,'\\u003c') %>;
+      var claimedTitle = <%- JSON.stringify(claimedTitle).replace(/</g,'\\u003c') %>;
       // 兌換連結：redeem_url 是單一落地頁（優先）；沒有就依裝置挑 iOS / Android 下載連結
       var redeemUrls = {
-        base:    <%- JSON.stringify(pv.redeem_url || '') %>,
-        ios:     <%- JSON.stringify(pv.redeem_url_ios || '') %>,
-        android: <%- JSON.stringify(pv.redeem_url_android || '') %>
+        base:    <%- JSON.stringify(pv.redeem_url || '').replace(/</g,'\\u003c') %>,
+        ios:     <%- JSON.stringify(pv.redeem_url_ios || '').replace(/</g,'\\u003c') %>,
+        android: <%- JSON.stringify(pv.redeem_url_android || '').replace(/</g,'\\u003c') %>
       };
       function pickRedeemUrl(){
         if (redeemUrls.base) return redeemUrls.base;
@@ -312,9 +356,9 @@
         return redeemUrls.ios || redeemUrls.android;
       }
       var redeemUrl    = pickRedeemUrl();
-      var useExpiresOn = <%- JSON.stringify(pv.use_expires_on || '') %>;
-      var startAt  = <%- JSON.stringify(activity.start_at || null) %>;
-      var endAt    = <%- JSON.stringify(activity.end_at || null) %>;
+      var useExpiresOn = <%- JSON.stringify(pv.use_expires_on || '').replace(/</g,'\\u003c') %>;
+      var startAt  = <%- JSON.stringify(activity.start_at || null).replace(/</g,'\\u003c') %>;
+      var endAt    = <%- JSON.stringify(activity.end_at || null).replace(/</g,'\\u003c') %>;
 
       var profile = null, idToken = null;
 
@@ -339,15 +383,15 @@
         });
         // 標題與緞帶隨狀態切換（照設計板：領完變「OPENRICE 好友禮／你的借電券已準備好」）
         if (pane === 'pane-code') {
-          $('ribbon').textContent = 'OPENRICE 好友禮';
+          $('ribbon').textContent = TXT.ribbon_after;
           $('main-title').textContent = claimedTitle;
           hide('tagline');
         } else if (pane === 'pane-oos') {
-          $('ribbon').textContent = 'LINE 好友限定';
+          $('ribbon').textContent = TXT.ribbon_before;
           $('main-title').textContent = pageTitle;
           hide('tagline');
         } else {
-          $('ribbon').textContent = 'LINE 好友限定';
+          $('ribbon').textContent = TXT.ribbon_before;
           $('main-title').textContent = pageTitle;
         }
       }
@@ -371,14 +415,14 @@
         if (redeemUrl) {
           show('btn-redeem');
         } else {
-          $('redeem-note').textContent = '兌換連結即將開放，序號已為你保留。';
+          $('redeem-note').textContent = TXT.redeem_pending;
         }
         showTicketPane('pane-code');
       }
 
       function toast(msg){
         var t = $('toast');
-        t.textContent = msg || '已複製';
+        t.textContent = msg || TXT.copied;
         t.classList.add('on');
         setTimeout(function(){ t.classList.remove('on'); }, 1600);
       }
@@ -392,17 +436,28 @@
           ta.style.position = 'fixed'; ta.style.opacity = '0';
           document.body.appendChild(ta);
           ta.select();
-          try { document.execCommand('copy'); toast('已複製'); }
-          catch (e) { toast('複製失敗，請長按序號'); }
+          try { document.execCommand('copy'); toast(TXT.copied); }
+          catch (e) { toast(TXT.copy_failed); }
           document.body.removeChild(ta);
         }
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(code).then(function(){ toast('已複製'); }, fallback);
+          navigator.clipboard.writeText(code).then(function(){ toast(TXT.copied); }, fallback);
         } else fallback();
       }
 
       function openRedeem(){
         if (!redeemUrl) return;
+        // 點擊追蹤（fire-and-forget，失敗不影響跳轉）
+        try {
+          if (profile && idToken) {
+            fetch('/api/games/' + gameType + '/' + encodeURIComponent(slug) + '/redeem-click', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id_token: idToken }),
+              keepalive: true
+            }).catch(function(){});
+          }
+        } catch (e) { /* ignore */ }
         try {
           if (window.liff && liff.openWindow) { liff.openWindow({ url: redeemUrl, external: true }); return; }
         } catch (e) { /* fall through */ }
@@ -429,7 +484,7 @@
         if (claiming) return;
         claiming = true;
         var btn = $('btn-claim');
-        btn.disabled = true; btn.textContent = '領取中⋯';
+        btn.disabled = true; btn.textContent = TXT.btn_claiming;
         try {
           var resp = await fetch('/api/games/' + gameType + '/' + encodeURIComponent(slug) + '/play', {
             method: 'POST',
@@ -452,18 +507,18 @@
           var code = resp && resp.error;
           if (code === 'quota_exhausted') {
             var found = await loadClaimedCode();
-            if (!found) showError('已領取過', '每位好友限領一次。');
+            if (!found) showError(TXT.st_claimed_title, TXT.st_claimed_detail);
             return;
           }
-          if (code === 'must_follow_oa') { showError('尚未加入好友', '請先加入 OpenRice 官方帳號好友，再回來領取。'); return; }
+          if (code === 'must_follow_oa') { showError(TXT.st_needfollow_title, TXT.st_needfollow_detail); return; }
           if (code === 'activity_not_started') { setWindowClosed('not_started'); return; }
           if (code === 'activity_ended' || code === 'activity_not_active') { setWindowClosed('ended'); return; }
-          showError('領取失敗', (resp && resp.detail) || '請關閉頁面後從 LINE 重新開啟。');
+          showError(TXT.st_failed_title, (resp && resp.detail) || TXT.st_failed_detail);
         } catch (e) {
-          showError('連線錯誤', '網路不穩定，請稍後再試。');
+          showError(TXT.st_neterr_title, TXT.st_neterr_detail);
         } finally {
           claiming = false;
-          btn.disabled = false; btn.textContent = '領取借電券';
+          btn.disabled = false; btn.textContent = TXT.btn_claim;
         }
       }
 
@@ -476,11 +531,11 @@
           var d = startAt ? new Date(startAt) : null;
           btn.textContent = (d && !isNaN(d.getTime()))
             ? (d.getMonth() + 1) + '/' + d.getDate() + ' 開放領取'
-            : '尚未開放領取';
-          $('claim-note').textContent = '活動即將開始，開放後即可領取。';
+            : TXT.st_notstarted_title;
+          $('claim-note').textContent = TXT.st_notstarted_detail;
         } else {
-          btn.textContent = '活動已結束';
-          $('claim-note').textContent = '本活動已結束，感謝參與。';
+          btn.textContent = TXT.st_ended_title;
+          $('claim-note').textContent = TXT.st_ended_detail;
         }
       }
 
@@ -520,7 +575,7 @@
         renderExpiry();
         var mode;
         try { mode = await initLiff(); }
-        catch (e) { showError('無法開啟', e && e.message); return; }
+        catch (e) { showError(TXT.err_title, e && e.message); return; }
 
         if (mode === 'demo') {
           // 純視覺展示：?demo=1 看已領取、?demo=1&pane=claim 看未領取、&pane=oos 看發完
@@ -560,7 +615,7 @@
       $('info-link').addEventListener('click', function(){
         var s = $('info-sections');
         s.hidden = !s.hidden;
-        $('info-link').textContent = s.hidden ? '查看使用說明與注意事項' : '收合使用說明';
+        $('info-link').textContent = s.hidden ? TXT.info_link_label : TXT.info_link_close;
         if (!s.hidden) { try { s.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {} }
       });
 

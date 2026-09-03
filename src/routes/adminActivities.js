@@ -30,7 +30,53 @@ const PRIZE_TYPES = ['rice_dollar', 'coupon_code', 'badge', 'physical', 'none'];
 
 function registerAdminActivitiesRoutes(app, deps) {
   const { query, pool, authCore } = deps;
-  const { requireAdmin } = authCore;
+  const { requireAdmin, requireOwner } = authCore;
+
+  // ------------------------------------------------------------------
+  // 活動上下架排程：時間到自動換狀態（每 5 分鐘檢查一次）
+  //
+  //   草稿／排定中 + 到了開始時間 → 自動變「進行中」
+  //   進行中 + 過了結束時間       → 自動變「已結束」
+  //
+  // 「暫停」是人為決定，排程一律不碰——不然有人手動喊停，五分鐘後又被打開。
+  // 沒設時間的活動也完全不碰。
+  // ------------------------------------------------------------------
+  async function runActivitySchedule() {
+    const done = [];
+    // 先下架，再上架：同一時間換檔時，舊活動先收才不會蓋掉剛上的新活動
+    const ended = await query(
+      `UPDATE activities SET status='ended', updated_at=now()
+        WHERE status='active' AND end_at IS NOT NULL AND end_at <= now()
+        RETURNING id, name`);
+    ended.rows.forEach(r => done.push({ id: r.id, name: r.name, action: 'end' }));
+    const started = await query(
+      `UPDATE activities SET status='active', updated_at=now()
+        WHERE status='draft' AND start_at IS NOT NULL AND start_at <= now()
+          AND (end_at IS NULL OR end_at > now())
+        RETURNING id, name`);
+    started.rows.forEach(r => done.push({ id: r.id, name: r.name, action: 'start' }));
+    return done;
+  }
+
+  // 排程執行（Netlify 每 5 分鐘打一次，跟圖文選單／自動標籤共用同一把通關密語）
+  app.post('/admin/activities/run-schedule', async (req, res) => {
+    try {
+      const secret = process.env.SCHEDULED_RUNNER_SECRET || '';
+      if (!secret || req.get('X-Scheduler-Secret') !== secret) {
+        return res.status(403).json({ ok: false, error: 'forbidden' });
+      }
+      res.json({ ok: true, done: await runActivitySchedule() });
+    } catch (err) {
+      console.error('activity schedule error:', err && err.message);
+      res.status(500).json({ ok: false, error: 'run_failed', detail: String(err && err.message || '').slice(0, 200) });
+    }
+  });
+
+  // 後台按「立刻套用時間」時用（不想等五分鐘）
+  app.post('/admin/activities/api/apply-schedule', requireAdmin, async (_req, res) => {
+    try { res.json({ ok: true, done: await runActivitySchedule() }); }
+    catch (err) { res.status(500).json({ ok: false, error: 'run_failed', detail: err && err.message }); }
+  });
 
   // ------------------------------------------------------------------
   // 頁面：列表
@@ -59,7 +105,13 @@ function registerAdminActivitiesRoutes(app, deps) {
   });
 
   // 頁面：編輯
-  app.get('/admin/activities/:id(\\d+)', requireAdmin, (req, res) => {
+  app.get('/admin/activities/:id(\\d+)', requireAdmin, async (req, res) => {
+    // 揪友賺哩不是一般遊戲：沒有獎品池／機率／庫存這些概念，
+    // 全部設定都在專屬後台，這裡直接送過去，避免兩個頁面各說各話。
+    try {
+      const { rows } = await query('SELECT game_type FROM activities WHERE id = $1', [Number(req.params.id)]);
+      if (rows[0] && rows[0].game_type === 'mgm') return res.redirect('/admin/mgm');
+    } catch (e) { /* 查不到就照原本流程走 */ }
     res.render('admin_activity_edit', {
       title: '編輯活動',
       bodyClass: 'admin-shell activities-shell',
@@ -186,7 +238,8 @@ function registerAdminActivitiesRoutes(app, deps) {
   });
 
   // API: 刪除
-  app.delete('/admin/activities/api/:id(\\d+)', requireAdmin, async (req, res) => {
+  // 刪活動會連動刪掉玩家紀錄，不可逆 → 限管理員（staff 不可），比照帳號管理與正式抽獎
+  app.delete('/admin/activities/api/:id(\\d+)', requireOwner, async (req, res) => {
     try {
       const id = Number(req.params.id);
       await query('DELETE FROM activities WHERE id = $1', [id]);
@@ -233,11 +286,16 @@ function registerAdminActivitiesRoutes(app, deps) {
       const sql = `
         UPDATE activity_prizes SET
           name = $1, description = $2, image_url = $3, probability_weight = $4,
-          stock_total = $5,
+          stock_total = $5::int,
           stock_remaining = CASE
-            WHEN $5 IS NULL THEN NULL
-            WHEN stock_total IS NULL OR $5 = stock_total THEN stock_remaining
-            ELSE GREATEST(0, stock_remaining + ($5 - COALESCE(stock_total, 0)))
+            -- $5 一律顯式轉 int：不限量時前端傳 null，pg 對「裸露的 NULL 參數」推不出型別會整個 500，
+            -- 導致所有『庫存不限量』的獎品一編輯就掛掉
+            WHEN $5::int IS NULL THEN NULL
+            -- 原本不限量（total=NULL、remaining=NULL）改成有限量：remaining 直接吃新總量。
+            -- 留 NULL 的話選池條件 (stock_total IS NULL OR stock_remaining > 0) 永遠不成立，獎品變抽不到
+            WHEN stock_total IS NULL THEN $5::int
+            WHEN $5::int = stock_total THEN stock_remaining
+            ELSE GREATEST(0, stock_remaining + ($5::int - COALESCE(stock_total, 0)))
           END,
           prize_type = $6, prize_value = $7::jsonb, position = $8, is_grand_prize = $9
         WHERE id = $10
@@ -300,8 +358,9 @@ function registerAdminActivitiesRoutes(app, deps) {
       const sql = `
         SELECT
           pl.line_user_id,
-          pl.line_display_name,
-          COUNT(*) AS plays,
+          -- GROUP BY 只留 line_user_id（改過名的用戶不拆列），顯示名取最新一筆
+          (ARRAY_AGG(pl.line_display_name ORDER BY pl.played_at DESC))[1] AS line_display_name,
+          COUNT(*) FILTER (WHERE COALESCE(pl.prize_snapshot->>'kind','') <> 'draw_win') AS plays,
           COUNT(*) FILTER (WHERE pl.prize_id IS NOT NULL) AS wins,
           COUNT(*) FILTER (WHERE pr.is_grand_prize = TRUE) AS grand_wins,
           MAX(pl.played_at) AS last_played_at,
@@ -310,7 +369,23 @@ function registerAdminActivitiesRoutes(app, deps) {
           q.note AS quota_note,
           q.granted_by AS quota_granted_by,
           (SELECT COUNT(*) FROM activity_referrals r
-           WHERE r.activity_id = $1 AND r.inviter_line_user_id = pl.line_user_id) AS referrals,
+           WHERE r.activity_id = $1 AND r.inviter_line_user_id = pl.line_user_id
+             AND r.invitee_was_existing IS FALSE) AS referrals,
+          (SELECT COUNT(*) FROM activity_referrals r
+           WHERE r.activity_id = $1 AND r.inviter_line_user_id = pl.line_user_id
+             AND r.invitee_was_existing IS NOT FALSE) AS referrals_existing,
+          (SELECT COALESCE(SUM(b.plays),0) FROM activity_bonus_plays b
+            WHERE b.activity_id = $1 AND b.line_user_id = pl.line_user_id) AS manual_bonus,
+          (SELECT r.inviter_line_user_id FROM activity_referrals r
+            WHERE r.activity_id = $1 AND r.invitee_line_user_id = pl.line_user_id
+            ORDER BY r.created_at LIMIT 1) AS invited_by_uid,
+          (SELECT COALESCE(iu.line_display_name, '(沒有名字)') FROM activity_referrals r
+             LEFT JOIN users iu ON iu.line_user_id = r.inviter_line_user_id
+            WHERE r.activity_id = $1 AND r.invitee_line_user_id = pl.line_user_id
+            ORDER BY r.created_at LIMIT 1) AS invited_by_name,
+          (SELECT r.invitee_was_existing FROM activity_referrals r
+            WHERE r.activity_id = $1 AND r.invitee_line_user_id = pl.line_user_id
+            ORDER BY r.created_at LIMIT 1) AS invited_was_existing,
           u.line_display_name AS crm_display_name
         FROM activity_plays pl
         LEFT JOIN activity_prizes pr ON pr.id = pl.prize_id
@@ -318,11 +393,33 @@ function registerAdminActivitiesRoutes(app, deps) {
           ON q.activity_id = pl.activity_id AND q.line_user_id = pl.line_user_id
         LEFT JOIN users u ON u.line_user_id = pl.line_user_id
         WHERE pl.activity_id = $1
-        GROUP BY pl.line_user_id, pl.line_display_name, q.max_plays_override, q.note, q.granted_by, u.line_display_name
+        GROUP BY pl.line_user_id, q.max_plays_override, q.note, q.granted_by, u.line_display_name
         ORDER BY MAX(pl.played_at) DESC
         LIMIT $2
       `;
       const { rows } = await query(sql, [id, limit]);
+      // 次數一律用 gamePlayEngine 的共用公式算，不在這裡另寫一份
+      const { computeQuotaNumbers } = require('../core/gamePlayEngine');
+      const { rows: actRows } = await query(
+        `SELECT base_plays_per_user, referral_bonus_per, referral_bonus_max, referral_invites_per_bonus
+           FROM activities WHERE id = $1`, [id]);
+      const actCfg = actRows[0] || {};
+      const attachQuota = (r) => {
+        const q = computeQuotaNumbers({
+          basePlays: actCfg.base_plays_per_user,
+          refPer: actCfg.referral_bonus_per,
+          refMax: actCfg.referral_bonus_max,
+          invitesPer: actCfg.referral_invites_per_bonus,
+          newFriends: Number(r.referrals || 0),
+          manualBonus: Number(r.manual_bonus || 0),
+          played: Number(r.plays || 0),
+          override: r.max_plays_override == null ? null : Number(r.max_plays_override)
+        });
+        r.quota_total = q.total;
+        r.quota_remaining = q.remaining;
+        return r;
+      };
+      rows.forEach(attachQuota);
       // 也加上「有 override 但沒玩過」的用戶（後台設了配額但用戶還沒抽）
       const { rows: orphanQuotas } = await query(
         `SELECT q.line_user_id, q.line_display_name, q.max_plays_override, q.note, q.granted_by,
@@ -336,6 +433,7 @@ function registerAdminActivitiesRoutes(app, deps) {
            )`,
         [id]
       );
+      const beforeOrphans = rows.length;
       orphanQuotas.forEach(o => {
         rows.push({
           line_user_id: o.line_user_id,
@@ -346,8 +444,12 @@ function registerAdminActivitiesRoutes(app, deps) {
           quota_note: o.note,
           quota_granted_by: o.granted_by,
           referrals: 0,
+          referrals_existing: 0,
+          manual_bonus: 0,
+          invited_by_uid: null, invited_by_name: null, invited_was_existing: null,
           crm_display_name: o.crm_display_name
         });
+      for (let k = beforeOrphans; k < rows.length; k++) attachQuota(rows[k]);
       });
       // overview 統計
       const { rows: ov } = await query(
@@ -513,7 +615,7 @@ function registerAdminActivitiesRoutes(app, deps) {
       const id = Number(req.params.id);
       const overviewSQL = `
         SELECT
-          COUNT(*) AS plays,
+          COUNT(*) FILTER (WHERE COALESCE(pl.prize_snapshot->>'kind','') <> 'draw_win') AS plays,
           COUNT(DISTINCT line_user_id) AS players,
           COUNT(*) FILTER (WHERE prize_id IS NOT NULL) AS wins,
           COUNT(*) FILTER (WHERE played_at >= date_trunc('day', NOW())) AS plays_today
@@ -581,11 +683,18 @@ function sanitizeActivityInput(body) {
       ? String(body.liff_id_override).trim() || null
       : null,
     // MGM 邀請拉新
-    base_plays_per_user: Math.max(1, Number(body.base_plays_per_user || 1)),
-    referral_bonus_per: Math.max(0, Number(body.referral_bonus_per || 0)),
-    referral_bonus_max: Math.max(0, Number(body.referral_bonus_max || 0)),
-    referral_invites_per_bonus: Math.max(1, Math.floor(Number(body.referral_invites_per_bonus || 1)))
+    base_plays_per_user: clampInt(body.base_plays_per_user, 1, 100000, 1),
+    referral_bonus_per: clampInt(body.referral_bonus_per, 0, 100000, 0),
+    referral_bonus_max: clampInt(body.referral_bonus_max, 0, 100000, 0),
+    referral_invites_per_bonus: clampInt(body.referral_invites_per_bonus, 1, 1000, 1)
   };
+}
+
+// 數值欄位統一收斂：非數字用預設值、超界夾回範圍（亂送 body 不該換到 DB 500）
+function clampInt(v, min, max, dflt) {
+  const n = Math.floor(Number(v));
+  if (!Number.isFinite(n)) return dflt;
+  return Math.min(max, Math.max(min, n));
 }
 
 function sanitizePrizeInput(body) {

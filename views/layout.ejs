@@ -10,7 +10,8 @@
       .navgrp { position: relative; display: inline-block; }
       .navgrp-btn { cursor: pointer; border: 0; background: none; color: #d1d5db; font-family: inherit; font-size: 14px; font-weight: 500; padding: 6px 2px; display: inline-flex; align-items: center; gap: 5px; }
       .navgrp-btn:hover, .navgrp:hover .navgrp-btn, .navgrp:focus-within .navgrp-btn { color: #ffffff; }
-      .navgrp-caret { font-size: 10px; opacity: .65; }
+      .navgrp-caret { display:inline-block; width:0; height:0; margin-left:2px; vertical-align:middle;
+        border-left:4px solid transparent; border-right:4px solid transparent; border-top:5px solid currentColor; opacity:.65; }
       .navgrp-menu { position: absolute; top: 100%; right: 0; margin-top: 8px; background: #fff; border: 1px solid #ECECEE; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.14); min-width: 170px; padding: 6px; display: none; z-index: 100; }
       /* 透明橋接：填滿按鈕與選單間的空隙，滑鼠移過去 hover 不會中斷 */
       .navgrp-menu::before { content: ''; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
@@ -66,47 +67,54 @@
           <span class="welcome">嗨，<%= user %></span>
           <% if (isAdmin) { %>
           <div class="navgrp">
-            <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">訊息 <span class="navgrp-caret">▾</span></button>
+            <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">訊息 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
               <a href="/admin/broadcast">群發訊息</a>
               <a href="/admin/broadcast/history">發送紀錄</a>
+              <a href="/admin/messages">訊息庫</a>
+              <a href="/admin/keyword-replies">關鍵字回覆</a>
+              <a href="/admin/flows">自動化流程</a>
+              <a href="/admin/richmenu">圖文選單</a>
+            </div>
+          </div>
+          <div class="navgrp">
+            <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">數據 <span class="navgrp-caret" aria-hidden="true"></span></button>
+            <div class="navgrp-menu">
+              <a href="/admin/insight">數據總覽</a>
               <a href="/admin/reports">成效報表</a>
               <a href="/admin/attribution">轉換歸因</a>
-              <a href="/admin/messages">訊息庫</a>
-              <a href="/admin/flows">自動化流程</a>
-              <a href="/admin/keyword-replies">關鍵字回覆</a>
-              <a href="/admin/email-domain">Email 網域驗證</a>
-            </div>
-          </div>
-          <div class="navgrp">
-            <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">名單與用戶 <span class="navgrp-caret">▾</span></button>
-            <div class="navgrp-menu">
-              <a href="/admin/recipient-lists">名單庫</a>
-              <a href="/admin/users">用戶檔案</a>
-              <a href="/admin/restaurants">餐廳目錄</a>
+              <a href="/admin/referrals">邀請成效</a>
+              <a href="/admin/liff/random-rice">活動頁面數據</a>
               <a href="/admin/rfm">會員分級分析</a>
-              <a href="/admin/oa-contacts">新 OA 名單</a>
             </div>
           </div>
           <div class="navgrp">
-            <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">活動 <span class="navgrp-caret">▾</span></button>
+            <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">名單與用戶 <span class="navgrp-caret" aria-hidden="true"></span></button>
+            <div class="navgrp-menu">
+              <a href="/admin/users">用戶檔案</a>
+              <a href="/admin/tag-rules">自動貼標籤</a>
+              <a href="/admin/recipient-lists">名單庫</a>
+              <a href="/admin/oa-contacts">新 OA 名單</a>
+              <a href="/admin/restaurants">餐廳目錄</a>
+            </div>
+          </div>
+          <div class="navgrp">
+            <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">活動 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
               <a href="/admin/activities">活動管理</a>
+              <a href="/admin/mgm">活動成效</a>
               <a href="/admin/coupons">優惠券</a>
-              <a href="/admin/referrals">邀請成效</a>
               <a href="/admin/booking-reg">訂位抽獎登記</a>
               <a href="/admin/campaigns/spring">春日饗里活動</a>
               <a href="/admin/campaigns/ludian">旅電借電券</a>
-              <a href="/admin/liff/random-rice">活動頁面數據</a>
             </div>
           </div>
           <div class="navgrp">
-            <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">設定 <span class="navgrp-caret">▾</span></button>
+            <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">設定 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
-              <% if (typeof currentRole !== 'undefined' && currentRole === 'admin') { %>
               <a href="/admin/accounts">帳號管理</a>
-              <% } %>
               <a href="/admin/account/password">改密碼</a>
+              <a href="/admin/email-domain">Email 網域驗證</a>
             </div>
           </div>
           <% } %>
@@ -119,6 +127,13 @@
         </nav>
       </div>
     </header>
+    <% if (typeof authDegraded !== 'undefined' && authDegraded) { %>
+      <div style="max-width:1200px;margin:12px auto 0;padding:11px 14px;border:1px solid #FDE68A;
+                  background:#FFFBEB;border-radius:10px;font-size:13.5px;color:#92400E;line-height:1.7;">
+        <b>現在連不上資料庫，先讓你看畫面</b>：這段時間畫面上的資料可能不是最新的，而且<b>不能存檔或送出任何動作</b>。
+        過一下重新整理，正常了就會恢復。
+      </div>
+    <% } %>
     <main class="container">
       <%- body %>
     </main>

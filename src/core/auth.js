@@ -60,6 +60,10 @@ function createAuthCore({ jwtSecret, isProduction, adminLoginPath = '/admin/logi
   }
 
   function requireAdmin(req, res, next) {
+    // 後台頁面一律不准快取：改版後瀏覽器還拿舊的 HTML，症狀是「按鈕點了沒反應」，
+    // 而且極難查（程式是對的，使用者手上的不是）。後台流量很小，不值得為了快取冒這個險。
+    res.setHeader('Cache-Control', 'no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
     if (!req.authUser || !req.authUser.adm) {
       if (req.authUser && !req.authUser.adm) {
         clearAuthCookie(res);
@@ -78,6 +82,12 @@ function createAuthCore({ jwtSecret, isProduction, adminLoginPath = '/admin/logi
       if (req.authUser && !req.authUser.adm) {
         clearAuthCookie(res);
       }
+      // 前端用 fetch 打的端點要回資料，不能回一個登入網頁——
+      // 那會讓前端解析失敗，按鈕變成「點了沒反應」
+      if (req.path && req.path.includes('/api/')) {
+        return res.status(401).json({ ok: false, error: 'no_session',
+          detail: '登入好像過期了，重新整理頁面再登入一次。' });
+      }
       const returnTo = safeAdminNextPath(req.originalUrl || req.url) || '/admin/broadcast';
       const qs = new URLSearchParams({ next: returnTo });
       return res.redirect(`${adminLoginPath}?${qs.toString()}`);
@@ -88,7 +98,7 @@ function createAuthCore({ jwtSecret, isProduction, adminLoginPath = '/admin/logi
       }
       return res
         .status(403)
-        .send('<!doctype html><meta charset="utf-8"><div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:80px auto;padding:0 20px;color:#1f2937;"><h2 style="margin:0 0 8px;">沒有權限</h2><p style="color:#6b7280;line-height:1.7;">「帳號管理」僅限管理員使用。如需開通權限，請聯絡你的管理員。</p><p style="margin-top:20px;"><a href="/admin" style="color:#2563eb;text-decoration:none;">← 回後台首頁</a></p></div>');
+        .send('<!doctype html><meta charset="utf-8"><div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:80px auto;padding:0 20px;color:#1f2937;"><h2 style="margin:0 0 8px;">沒有權限</h2><p style="color:#6b7280;line-height:1.7;">「帳號管理」僅限管理員使用。如需開通權限，請聯絡你的管理員。</p><p style="margin-top:20px;"><a href="/admin" style="color:#2563eb;text-decoration:none;">回後台首頁</a></p></div>');
     }
     next();
   }

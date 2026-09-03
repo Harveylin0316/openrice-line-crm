@@ -127,7 +127,7 @@
     (function () {
       var $ = function (id) { return document.getElementById(id); };
       var listId = ${list.id};
-      var currentList = ${JSON.stringify({ id: list.id, name: list.name, description: list.description })};
+      var currentList = ${JSON.stringify({ id: list.id, name: list.name, description: list.description }).replace(/</g,'\\u003c')};
       var pageSize = 100;
       var currentOffset = 0;
       var totalMembers = ${list.total || 0};
@@ -185,9 +185,11 @@
         }
         tbody.innerHTML = rows.map(function (m, idx) {
           var isEmailOnly = !m.line_user_id && m.email;
-          var displayName = m.line_display_name || m.username || m.member_display_name ||
-            (isEmailOnly ? '<span class="muted" style="font-style:italic;">Email 成員</span>'
-                         : '<span class="muted" style="font-style:italic;">未在 CRM 用戶表</span>');
+          var realName = m.line_display_name || m.username || m.member_display_name;
+          // LINE 暱稱是用戶自訂的，一定要跳脫；只有無資料的提示保留 HTML
+          var displayName = realName ? esc(realName)
+            : (isEmailOnly ? '<span class="muted" style="font-style:italic;">Email 成員</span>'
+                           : '<span class="muted" style="font-style:italic;">未在 CRM 用戶表</span>');
           var avatar;
           if (m.line_picture_url) {
             avatar = '<img src="' + esc(m.line_picture_url) + '" alt="" class="rld-avatar">';

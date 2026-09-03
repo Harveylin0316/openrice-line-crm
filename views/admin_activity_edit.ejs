@@ -12,7 +12,7 @@
         <div id="ae-status" class="muted" style="font-size:12px;"></div>
       </div>
 
-      <h2>1. 基本資訊</h2>
+      <h2>1. 用戶畫面與活動規則</h2>
       <div class="ae-grid">
         <label class="ae-field">
           <span>活動名稱 *</span>
@@ -35,11 +35,11 @@
           </select>
         </label>
         <label class="ae-field">
-          <span>開始時間</span>
+          <span>開始時間（到點自動變「進行中」）</span>
           <input type="datetime-local" id="ae-start" />
         </label>
         <label class="ae-field">
-          <span>結束時間</span>
+          <span>結束時間（到點自動變「已結束」）</span>
           <input type="datetime-local" id="ae-end" />
         </label>
         <label class="ae-field">
@@ -67,7 +67,7 @@
           <span>封面圖（可選 — 貼 URL 或直接上傳，建議 1600×900 / 16:9，最大 2MB）</span>
           <div style="display:flex;gap:6px;align-items:stretch;">
             <input type="text" id="ae-cover" placeholder="https://..." style="flex:1;" />
-            <input type="file" id="ae-cover-file" accept="image/png,image/jpeg,image/webp" style="display:none;" />
+            <input type="file" id="ae-cover-file" accept="image/png,image/jpeg" style="display:none;" />
             <button type="button" id="ae-cover-upload" style="padding:8px 14px;background:#fff;border:1px solid #ECECEE;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit;">上傳</button>
             <button type="button" id="ae-cover-clear" hidden style="padding:8px 14px;background:#fff;border:1px solid #FCA5A5;color:#DC2626;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit;">刪除</button>
           </div>
@@ -82,7 +82,7 @@
           <input type="checkbox" id="ae-require-follow" /> 需先加入 LINE OA 好友才能玩
         </label>
         <label class="ae-field ae-field-full">
-          <span>自訂 LIFF ID（進階，留空 = 用預設的 GAMES_LIFF_ID）</span>
+          <span>自訂活動入口（進階設定，留空就用系統預設，不確定就不要動）</span>
           <input type="text" id="ae-liff-override" placeholder="例：1234567890-abcDEF12（特殊拉新活動才需要）" />
           <span class="muted" style="font-size:11px;font-weight:400;">99% 活動留空就好。需要 Aggressive 加好友等特殊設定時才填獨立 LIFF ID。</span>
         </label>
@@ -95,12 +95,198 @@
     </section>
 
     ${activityId ? `
+    <section class="card" id="ae-preview-studio">
+      <div class="ae-head" style="margin-bottom:8px;">
+        <div>
+          <h2 style="margin:0;">2. 畫面設定與測試</h2>
+          <p class="muted" style="font-size:12px;margin:5px 0 0;">選一個畫面就能直接查看，不必找好友，也不用真的抽獎。</p>
+        </div>
+        <span class="ae-safe-badge">安全測試模式</span>
+      </div>
+
+      <div class="ae-preview-grid">
+        <div class="ae-preview-controls">
+          <div class="ae-safe-note">
+            <strong>可以放心測</strong>
+            <span>不扣抽獎次數、不扣獎品庫存、不新增中獎紀錄，也不需要 LINE 好友。</span>
+          </div>
+
+          <label class="ae-field ae-scenario-field">
+            <span>想看哪一個用戶畫面？</span>
+            <select id="ae-preview-scenario">
+              <option value="first_open">第一次開啟（首次 1 次）</option>
+              <option value="ready">一般可抽（還有 3 次）</option>
+              <option value="last">最後 1 次</option>
+              <option value="invite">次數用完，可邀朋友</option>
+              <option value="done">全部玩完</option>
+              <option value="history">抽完後，獎項留在頁面</option>
+              <option value="redemption">展開兌獎說明</option>
+            </select>
+          </label>
+          <div class="ae-preview-actions">
+            <button type="button" class="ae-primary-btn" id="ae-refresh-preview">更新右側預覽</button>
+            <button type="button" class="ae-secondary-btn" id="ae-open-preview">另開測試畫面</button>
+          </div>
+          <p class="muted" style="font-size:11px;line-height:1.55;margin:0;">剛改完文字或獎品時，請先按上方「更新」存檔，再更新預覽。</p>
+
+          <h3 class="ae-map-title">畫面位置叫什麼？在哪裡改？</h3>
+          <div class="ae-ui-map">
+            <button type="button" class="ae-map-row" data-ae-focus="ae-name">
+              <span><b>頁首主標題</b><small>活動最上方的大字</small></span><em>到欄位修改</em>
+            </button>
+            <button type="button" class="ae-map-row" data-ae-focus="ae-desc">
+              <span><b>標題下方介紹</b><small>主標題下面的小字說明</small></span><em>到欄位修改</em>
+            </button>
+            <button type="button" class="ae-map-row" data-ae-focus="ae-base-plays">
+              <span><b>剩餘次數／邀請規則</b><small>「還可以轉幾次」與找朋友文案</small></span><em>到欄位修改</em>
+            </button>
+            <button type="button" class="ae-map-row" data-ae-scroll="ae-prizes-section">
+              <span><b>轉盤格與中獎畫面</b><small>獎名、圖片、說明、排序與大獎效果</small></span><em>到獎品修改</em>
+            </button>
+            <button type="button" class="ae-map-row" data-ae-scenario="redemption">
+              <span><b>兌獎說明</b><small>這檔活動目前使用固定版文字</small></span><em class="ae-fixed">預覽固定版</em>
+            </button>
+            <button type="button" class="ae-map-row" data-ae-scroll="ae-visual-settings">
+              <span><b>Logo／輪盤／提示文案</b><small>可在下方依這檔活動調整</small></span><em>到畫面設定</em>
+            </button>
+          </div>
+
+          <section class="ae-visual-box" id="ae-visual-settings">
+            <div>
+              <h3>活動視覺</h3>
+              <p>只影響這檔活動；右側預覽可立即確認結果。</p>
+            </div>
+            <label class="ae-visual-toggle">
+              <input type="checkbox" id="ae-show-hero-art" checked />
+              <span><b>顯示標題右上角插圖</b><small>取消勾選即可移除目前的火鍋線稿</small></span>
+            </label>
+            <label class="ae-field">
+              <span>頁首 Logo</span>
+              <div class="ae-upload-row">
+                <input type="text" id="ae-logo-url" placeholder="留空使用 OpenRice Logo，也可貼圖片網址" />
+                <input type="file" id="ae-logo-file" accept="image/png,image/jpeg" hidden />
+                <button type="button" class="ae-secondary-btn" id="ae-logo-upload">上傳</button>
+                <button type="button" class="ae-secondary-btn" id="ae-logo-clear">恢復預設</button>
+              </div>
+              <span class="muted" id="ae-logo-status"></span>
+              <span class="ae-logo-preview" id="ae-logo-preview"></span>
+            </label>
+            <label class="ae-field">
+              <span>快速套用風格</span>
+              <div class="ae-preset-row">
+                <select id="ae-wheel-style">
+                  <option value="brand">OpenRice 黃白</option>
+                  <option value="clean">白色簡約</option>
+                  <option value="bold">品牌黃醒目</option>
+                  <option value="custom">自訂設定</option>
+                </select>
+                <button type="button" class="ae-secondary-btn" id="ae-reset-wheel">重新套用</button>
+              </div>
+            </label>
+            <div class="ae-wheel-editor">
+              <div class="ae-editor-title">
+                <b>自訂輪盤</b>
+                <small>每一項都能自己調，改動會直接出現在右側測試畫面。</small>
+              </div>
+              <div class="ae-color-grid">
+                <label class="ae-color-control"><span>扇形色 1</span><input type="color" id="ae-wheel-slice-1" value="#FFFFFF" /><output data-for="ae-wheel-slice-1">#FFFFFF</output></label>
+                <label class="ae-color-control"><span>扇形色 2</span><input type="color" id="ae-wheel-slice-2" value="#FFF3C4" /><output data-for="ae-wheel-slice-2">#FFF3C4</output></label>
+                <label class="ae-color-control"><span>大獎扇形</span><input type="color" id="ae-wheel-grand" value="#F9C73B" /><output data-for="ae-wheel-grand">#F9C73B</output></label>
+                <label class="ae-color-control"><span>文字顏色</span><input type="color" id="ae-wheel-text" value="#4E342E" /><output data-for="ae-wheel-text">#4E342E</output></label>
+                <label class="ae-color-control"><span>格線／外框</span><input type="color" id="ae-wheel-line" value="#4E342E" /><output data-for="ae-wheel-line">#4E342E</output></label>
+                <label class="ae-color-control"><span>中獎高亮</span><input type="color" id="ae-wheel-highlight" value="#F9C73B" /><output data-for="ae-wheel-highlight">#F9C73B</output></label>
+                <label class="ae-color-control"><span>指針顏色</span><input type="color" id="ae-wheel-pointer" value="#E8491D" /><output data-for="ae-wheel-pointer">#E8491D</output></label>
+                <label class="ae-color-control"><span>指針圓點</span><input type="color" id="ae-wheel-pointer-dot" value="#FBC02D" /><output data-for="ae-wheel-pointer-dot">#FBC02D</output></label>
+                <label class="ae-color-control"><span>中心底色</span><input type="color" id="ae-wheel-hub" value="#FFFFFF" /><output data-for="ae-wheel-hub">#FFFFFF</output></label>
+              </div>
+              <div class="ae-range-grid">
+                <label class="ae-range-control">
+                  <span><b>輪盤尺寸</b><output id="ae-wheel-size-output">318 px</output></span>
+                  <input type="range" id="ae-wheel-size" min="260" max="360" step="2" value="318" />
+                </label>
+                <label class="ae-range-control">
+                  <span><b>外框／格線粗細</b><output id="ae-wheel-line-width-output">4 px</output></span>
+                  <input type="range" id="ae-wheel-line-width" min="1" max="8" step="0.5" value="4" />
+                </label>
+              </div>
+            </div>
+            <div class="ae-copy-editor">
+              <div class="ae-editor-title">
+                <b>畫面提示文案</b>
+                <small>設計師可以直接改用戶看得到的語氣；雙大括號是自動帶入的數字或名字，請保留需要的變數。</small>
+              </div>
+              <details class="ae-copy-group" open>
+                <summary>主畫面</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field"><span>剩餘次數前綴</span><input type="text" id="ae-copy-remaining-lead" /></label>
+                  <label class="ae-field"><span>剩餘次數單位</span><input type="text" id="ae-copy-remaining-unit" /></label>
+                  <label class="ae-field ae-copy-wide"><span>問候語 <code>{{name}}</code></span><input type="text" id="ae-copy-greeting" /></label>
+                  <label class="ae-field"><span>開始按鈕</span><input type="text" id="ae-copy-spin-button" /></label>
+                  <label class="ae-field"><span>兌獎說明標籤</span><input type="text" id="ae-copy-redemption-label" /></label>
+                </div>
+              </details>
+              <details class="ae-copy-group" open>
+                <summary>邀請朋友</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field ae-copy-wide"><span>邀請標題</span><input type="text" id="ae-copy-invite-title" /></label>
+                  <label class="ae-field ae-copy-wide"><span>邀請進度 <code>{{invited}} {{next}} {{bonus}} {{left}}</code></span><textarea id="ae-copy-invite-progress" rows="2"></textarea></label>
+                  <label class="ae-field"><span>已邀人數 <code>{{invited}}</code></span><input type="text" id="ae-copy-invite-count" /></label>
+                  <label class="ae-field"><span>邀請按鈕</span><input type="text" id="ae-copy-invite-button" /></label>
+                  <label class="ae-field ae-copy-wide"><span>邀請額度用滿</span><input type="text" id="ae-copy-invite-maxed" /></label>
+                  <label class="ae-field ae-copy-wide"><span>原好友不計次提示 <code>{{existing}}</code></span><input type="text" id="ae-copy-existing-friend-note" /></label>
+                </div>
+              </details>
+              <details class="ae-copy-group">
+                <summary>次數狀態</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field"><span>次數用完標題</span><input type="text" id="ae-copy-turns-used-up" /></label>
+                  <label class="ae-field ae-copy-wide"><span>再邀請提示 <code>{{next}} {{bonus}}</code></span><input type="text" id="ae-copy-invite-unlock" /></label>
+                  <label class="ae-field"><span>全部完成標題</span><input type="text" id="ae-copy-campaign-done" /></label>
+                  <label class="ae-field ae-copy-wide"><span>全部完成提示</span><input type="text" id="ae-copy-campaign-done-note" /></label>
+                  <label class="ae-field"><span>全部完成按鈕</span><input type="text" id="ae-copy-campaign-done-button" /></label>
+                </div>
+              </details>
+              <details class="ae-copy-group">
+                <summary>中獎與未中獎</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field"><span>中獎提示</span><input type="text" id="ae-copy-winner-eyebrow" /></label>
+                  <label class="ae-field"><span>未中獎提示</span><input type="text" id="ae-copy-no-prize-eyebrow" /></label>
+                  <label class="ae-field ae-copy-wide"><span>未中獎說明</span><input type="text" id="ae-copy-no-prize-desc" /></label>
+                  <label class="ae-field"><span>完成按鈕</span><input type="text" id="ae-copy-result-close" /></label>
+                  <label class="ae-field"><span>未中後邀請按鈕</span><input type="text" id="ae-copy-invite-after-miss" /></label>
+                  <label class="ae-field ae-copy-wide"><span>未中後邀請提示 <code>{{left}}</code></span><input type="text" id="ae-copy-result-invite-note" /></label>
+                </div>
+              </details>
+              <details class="ae-copy-group">
+                <summary>我的獎項</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field"><span>獎項區標題</span><input type="text" id="ae-copy-history-title" /></label>
+                  <label class="ae-field ae-copy-wide"><span>獎項區提示</span><input type="text" id="ae-copy-history-note" /></label>
+                </div>
+              </details>
+            </div>
+            <div class="ae-visual-actions">
+              <button type="button" class="ae-primary-btn" id="ae-save-visual">儲存畫面設定並更新預覽</button>
+              <span class="muted" id="ae-visual-save-status"></span>
+            </div>
+          </section>
+        </div>
+
+        <div class="ae-phone-area">
+          <div class="ae-phone-label"><span class="ae-live-dot"></span><span id="ae-preview-label">第一次開啟（首次 1 次）</span></div>
+          <div class="ae-phone-frame">
+            <iframe id="ae-preview-frame" title="活動用戶畫面安全預覽"></iframe>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="card" id="ae-prizes-section">
       <div class="ae-head" style="margin-bottom:8px;">
-        <h2 style="margin:0;">2. 獎品池</h2>
+        <h2 style="margin:0;">3. 獎品池</h2>
         <button type="button" class="ae-secondary-btn" id="ae-add-prize">＋ 新增獎品</button>
       </div>
-      <p class="muted" style="font-size:12px;"><span id="ae-prize-order-noun">遊戲</span>照「位置」由小到大排。中獎機率直接填百分比，全部加起來要等於 100。「庫存」留空 = 不限量。</p>
+      <p class="muted" style="font-size:12px;"><span id="ae-prize-order-noun">遊戲</span>照「位置」由小到大排。中獎機率直接填百分比，全部加起來要等於 100。「庫存」留空 = 不限量。每一列都能直接查看抽中後的畫面。</p>
       <div id="ae-pct-bar"></div>
       <div class="table-wrap">
         <table class="ae-prize-table">
@@ -124,7 +310,7 @@
     </section>
 
     <section class="card">
-      <h2>3. 活動連結</h2>
+      <h2>4. 活動連結</h2>
 
       <div id="ae-link-status-banner"></div>
 
@@ -162,7 +348,7 @@
         </div>
         <div class="ae-grid">
           <label class="ae-field ae-field-full">
-            <span>獎品名稱 *</span>
+            <span>獎品名稱 *（顯示在轉盤格與中獎結果大字）</span>
             <input type="text" id="pm-name" placeholder="例：Rice Dollar $100" />
           </label>
           <label class="ae-field">
@@ -189,16 +375,22 @@
             <input type="number" id="pm-stock" min="0" placeholder="" />
           </label>
           <label class="ae-field">
-            <span>圖片 URL（可選）</span>
+            <span>中獎結果圖片 URL（可選）</span>
             <input type="text" id="pm-image" placeholder="https://..." />
           </label>
           <label class="ae-field ae-field-full">
-            <span>獎品說明（兌換方式等）</span>
+            <span>中獎結果說明（顯示在獎名下方）</span>
             <textarea id="pm-desc" rows="2"></textarea>
           </label>
           <label class="ae-field ae-field-full" id="pm-value-field">
             <span id="pm-value-label">獎勵金額 / 內容</span>
             <input type="text" id="pm-value" placeholder="100" />
+            <small class="muted" id="pm-extra-note" style="font-size:11px;line-height:1.5;" hidden></small>
+          </label>
+          <label class="ae-field ae-field-full">
+            <span>這個獎品等於幾哩（可留空）</span>
+            <input type="number" id="pm-miles" min="0" placeholder="例：500" />
+            <small class="muted" style="font-size:11px;line-height:1.5;">填了之後，中到這個獎的人會出現在「活動成效 → 誰中了什麼獎」的要發哩數名單裡，你照名單人工入帳。沒有要發哩數就留空。</small>
           </label>
           <label class="ae-field ae-field-full">
             <input type="checkbox" id="pm-grand" /> 標記為大獎（UI 動畫加強）
@@ -220,6 +412,90 @@
       var currentPrizes = [];
       var editingPrizeId = null;
       var effectiveLiffId = '';
+      var visualPreviewTimer = null;
+      var WHEEL_PRESETS = {
+        brand: {
+          slice_1: '#FFFFFF', slice_2: '#FFF3C4', grand: '#F9C73B',
+          text: '#4E342E', line: '#4E342E', highlight: '#F9C73B',
+          pointer: '#E8491D', pointer_dot: '#FBC02D', hub: '#FFFFFF',
+          size: 318, line_width: 4
+        },
+        clean: {
+          slice_1: '#FFFFFF', slice_2: '#F7F4EC', grand: '#FFF3C4',
+          text: '#3F2C25', line: '#6F625C', highlight: '#E0A900',
+          pointer: '#E8491D', pointer_dot: '#F9C73B', hub: '#FFFFFF',
+          size: 308, line_width: 2.5
+        },
+        bold: {
+          slice_1: '#F9C73B', slice_2: '#FFFFFF', grand: '#EFAF14',
+          text: '#3F2C25', line: '#3F2C25', highlight: '#F15A22',
+          pointer: '#F15A22', pointer_dot: '#F9C73B', hub: '#FFF7D6',
+          size: 326, line_width: 5
+        }
+      };
+      var WHEEL_COLOR_FIELDS = {
+        slice_1: 'ae-wheel-slice-1',
+        slice_2: 'ae-wheel-slice-2',
+        grand: 'ae-wheel-grand',
+        text: 'ae-wheel-text',
+        line: 'ae-wheel-line',
+        highlight: 'ae-wheel-highlight',
+        pointer: 'ae-wheel-pointer',
+        pointer_dot: 'ae-wheel-pointer-dot',
+        hub: 'ae-wheel-hub'
+      };
+      var COPY_DEFAULTS = {
+        remaining_lead: '還可以轉',
+        remaining_unit: '次',
+        greeting: '哈囉，{{name}}',
+        spin_button: '開始轉',
+        redemption_label: '兌獎說明',
+        invite_title: '找朋友一起，多一次機會',
+        invite_progress: '已邀 {{invited}} 位，再邀 {{next}} 位就多 {{bonus}} 次（還能加 {{left}} 次）',
+        invite_count: '已邀 {{invited}} 人',
+        invite_button: '找朋友',
+        invite_maxed: '邀請次數已用滿',
+        existing_friend_note: '（另外 {{existing}} 位本來就是好友，不加次數）',
+        turns_used_up: '次數用完了',
+        invite_unlock: '再找 {{next}} 位朋友來，就多 {{bonus}} 次',
+        campaign_done: '這次玩完了',
+        campaign_done_note: '你抽到的結果就在下方，下次活動見',
+        campaign_done_button: '本次活動已完成',
+        winner_eyebrow: '恭喜抽中',
+        no_prize_eyebrow: '開獎結果',
+        no_prize_desc: '這次沒中，找個朋友一起，再試一次',
+        result_close: '完成，回本頁看結果',
+        invite_after_miss: '找朋友再抽一次',
+        result_invite_note: '朋友加入官方帳號才算，最多還能加 {{left}} 次',
+        history_title: '我抽到的獎',
+        history_note: '結果會留在這一頁，不用再跳到別的地方找'
+      };
+      var COPY_FIELDS = {
+        remaining_lead: 'ae-copy-remaining-lead',
+        remaining_unit: 'ae-copy-remaining-unit',
+        greeting: 'ae-copy-greeting',
+        spin_button: 'ae-copy-spin-button',
+        redemption_label: 'ae-copy-redemption-label',
+        invite_title: 'ae-copy-invite-title',
+        invite_progress: 'ae-copy-invite-progress',
+        invite_count: 'ae-copy-invite-count',
+        invite_button: 'ae-copy-invite-button',
+        invite_maxed: 'ae-copy-invite-maxed',
+        existing_friend_note: 'ae-copy-existing-friend-note',
+        turns_used_up: 'ae-copy-turns-used-up',
+        invite_unlock: 'ae-copy-invite-unlock',
+        campaign_done: 'ae-copy-campaign-done',
+        campaign_done_note: 'ae-copy-campaign-done-note',
+        campaign_done_button: 'ae-copy-campaign-done-button',
+        winner_eyebrow: 'ae-copy-winner-eyebrow',
+        no_prize_eyebrow: 'ae-copy-no-prize-eyebrow',
+        no_prize_desc: 'ae-copy-no-prize-desc',
+        result_close: 'ae-copy-result-close',
+        invite_after_miss: 'ae-copy-invite-after-miss',
+        result_invite_note: 'ae-copy-result-invite-note',
+        history_title: 'ae-copy-history-title',
+        history_note: 'ae-copy-history-note'
+      };
 
       function escapeHtml(s) {
         return String(s == null ? '' : s)
@@ -240,7 +516,80 @@
         return isNaN(d.getTime()) ? null : d.toISOString();
       }
 
+      function safeHex(value, fallback) {
+        var v = String(value || '').toUpperCase();
+        return /^#[0-9A-F]{6}$/.test(v) ? v : fallback;
+      }
+      function clamp(value, min, max, fallback) {
+        var n = Number(value);
+        return isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+      }
+      function collectWheelControls() {
+        var result = {};
+        Object.keys(WHEEL_COLOR_FIELDS).forEach(function (key) {
+          var id = WHEEL_COLOR_FIELDS[key];
+          result[key] = safeHex($(id).value, WHEEL_PRESETS.brand[key]);
+        });
+        result.size = clamp($('ae-wheel-size').value, 260, 360, 318);
+        result.line_width = clamp($('ae-wheel-line-width').value, 1, 8, 4);
+        return result;
+      }
+      function updateWheelOutputs() {
+        Object.keys(WHEEL_COLOR_FIELDS).forEach(function (key) {
+          var id = WHEEL_COLOR_FIELDS[key];
+          var output = document.querySelector('output[data-for="' + id + '"]');
+          if (output) output.textContent = String($(id).value || '').toUpperCase();
+        });
+        $('ae-wheel-size-output').textContent = $('ae-wheel-size').value + ' px';
+        $('ae-wheel-line-width-output').textContent = $('ae-wheel-line-width').value + ' px';
+      }
+      function setWheelControls(config) {
+        var c = Object.assign({}, WHEEL_PRESETS.brand, config || {});
+        Object.keys(WHEEL_COLOR_FIELDS).forEach(function (key) {
+          $(WHEEL_COLOR_FIELDS[key]).value = safeHex(c[key], WHEEL_PRESETS.brand[key]);
+        });
+        $('ae-wheel-size').value = clamp(c.size, 260, 360, 318);
+        $('ae-wheel-line-width').value = clamp(c.line_width, 1, 8, 4);
+        updateWheelOutputs();
+      }
+      function applyWheelPreset(name) {
+        var preset = WHEEL_PRESETS[name] || WHEEL_PRESETS.brand;
+        setWheelControls(preset);
+      }
+      function scheduleVisualPreview() {
+        clearTimeout(visualPreviewTimer);
+        visualPreviewTimer = setTimeout(updatePreview, 180);
+      }
+      function collectCopyControls() {
+        var result = {};
+        Object.keys(COPY_FIELDS).forEach(function (key) {
+          var el = $(COPY_FIELDS[key]);
+          var value = el ? String(el.value || '').slice(0, 220) : COPY_DEFAULTS[key];
+          result[key] = value || COPY_DEFAULTS[key];
+        });
+        return result;
+      }
+      function setCopyControls(copy) {
+        var saved = copy && typeof copy === 'object' ? copy : {};
+        Object.keys(COPY_FIELDS).forEach(function (key) {
+          var el = $(COPY_FIELDS[key]);
+          if (el) el.value = typeof saved[key] === 'string' ? saved[key] : COPY_DEFAULTS[key];
+        });
+      }
+
       function collectActivityForm() {
+        var existingRules = currentActivity && currentActivity.rules && typeof currentActivity.rules === 'object'
+          ? JSON.parse(JSON.stringify(currentActivity.rules)) : {};
+        if ($('ae-show-hero-art')) {
+          var existingUi = existingRules.ui && typeof existingRules.ui === 'object' ? existingRules.ui : {};
+          existingRules.ui = Object.assign({}, existingUi, {
+            show_hero_art: $('ae-show-hero-art').checked,
+            logo_url: $('ae-logo-url').value.trim() || null,
+            wheel_style: $('ae-wheel-style').value || 'brand',
+            wheel_custom: collectWheelControls(),
+            copy: collectCopyControls()
+          });
+        }
         return {
           slug: $('ae-slug').value.trim(),
           name: $('ae-name').value.trim(),
@@ -257,8 +606,16 @@
           referral_bonus_per: Number($('ae-ref-per').value || 0),
           referral_bonus_max: Number($('ae-ref-max').value || 0),
           referral_invites_per_bonus: Math.max(1, Number($('ae-ref-need').value || 1)),
-          rules: {}
+          rules: existingRules
         };
+      }
+
+      function updateLogoPreview() {
+        var wrap = $('ae-logo-preview');
+        if (!wrap) return;
+        var src = ($('ae-logo-url').value || '').trim() || '/images/openrice-wordmark.png';
+        wrap.innerHTML = '<img src="' + escapeHtml(src) + '" alt="Logo 預覽" />' +
+          '<small>' + (($('ae-logo-url').value || '').trim() ? '自訂 Logo' : '目前使用預設 OpenRice Logo') + '</small>';
       }
 
       function fillActivityForm(a) {
@@ -270,14 +627,29 @@
         $('ae-start').value = toLocalDt(a.start_at);
         $('ae-end').value = toLocalDt(a.end_at);
         $('ae-cover').value = a.cover_image_url || '';
-        $('ae-daily-limit').value = a.daily_plays_per_user || '';
+        $('ae-daily-limit').value = a.daily_plays_per_user != null ? a.daily_plays_per_user : '';
         $('ae-require-follow').checked = Boolean(a.require_follow_oa);
         $('ae-liff-override').value = a.liff_id_override || '';
         $('ae-base-plays').value = a.base_plays_per_user != null ? a.base_plays_per_user : 1;
         $('ae-ref-per').value = a.referral_bonus_per != null ? a.referral_bonus_per : 0;
         $('ae-ref-need').value = a.referral_invites_per_bonus != null ? a.referral_invites_per_bonus : 1;
-        updateRefHint();
         $('ae-ref-max').value = a.referral_bonus_max != null ? a.referral_bonus_max : 0;
+        var ui = a.rules && typeof a.rules === 'object' && a.rules.ui && typeof a.rules.ui === 'object'
+          ? a.rules.ui : {};
+        if ($('ae-show-hero-art')) {
+          $('ae-show-hero-art').checked = typeof ui.show_hero_art === 'boolean'
+            ? ui.show_hero_art
+            : a.slug !== 'share-miles';
+        }
+        if ($('ae-logo-url')) $('ae-logo-url').value = ui.logo_url || '';
+        if ($('ae-wheel-style')) {
+          var selectedStyle = ['brand', 'clean', 'bold', 'custom'].indexOf(ui.wheel_style) >= 0 ? ui.wheel_style : 'brand';
+          $('ae-wheel-style').value = selectedStyle;
+          setWheelControls(Object.assign({}, WHEEL_PRESETS[selectedStyle] || WHEEL_PRESETS.brand, ui.wheel_custom || {}));
+        }
+        setCopyControls(ui.copy);
+        updateLogoPreview();
+        updateRefHint();
       }
 
       function loadActivity() {
@@ -303,32 +675,138 @@
         // LIFF 短網址：用 effective LIFF ID + 子路徑（LIFF SDK 會 append 到 Endpoint URL）
         var liffShareUrl = effectiveLiffId
           ? 'https://liff.line.me/' + effectiveLiffId + '/' + gt + '/' + encodeURIComponent(currentActivity.slug)
-          : '（尚未設定 GAMES_LIFF_ID 環境變數，或活動未設 liff_id_override）';
+          : '（活動連結還沒開通，請找系統管理員設定）';
         var liffEl = $('ae-liff-share-url');
         var directEl = $('ae-direct-url');
         var prev = $('ae-preview-link');
         if (liffEl) liffEl.textContent = liffShareUrl;
         if (directEl) directEl.textContent = directUrl;
         if (prev) prev.href = directUrl + '?preview=1';
+        rebuildPreviewScenarios();
+        updatePreview();
       }
+
+      // ---- 畫面設定與安全測試工作台 ----
+      function rebuildPreviewScenarios() {
+        var select = $('ae-preview-scenario');
+        if (!select) return;
+        var keep = select.value || 'first_open';
+        Array.from(select.options).forEach(function (opt) {
+          if (String(opt.value).indexOf('prize:') === 0) opt.remove();
+        });
+        currentPrizes.forEach(function (p) {
+          var opt = document.createElement('option');
+          opt.value = 'prize:' + p.id;
+          opt.textContent = '抽中：「' + (p.name || '未命名獎品') + '」';
+          select.appendChild(opt);
+        });
+        if (Array.from(select.options).some(function (o) { return o.value === keep; })) select.value = keep;
+      }
+
+      function previewUrl() {
+        if (!currentActivity) return '';
+        var scenario = ($('ae-preview-scenario') && $('ae-preview-scenario').value) || 'first_open';
+        var params = new URLSearchParams();
+        params.set('preview', '1');
+        params.set('preview_scenario', scenario);
+        if ($('ae-show-hero-art')) {
+          params.set('preview_ui', JSON.stringify({
+            show_hero_art: $('ae-show-hero-art').checked,
+            logo_url: $('ae-logo-url').value.trim() || null,
+            wheel_style: $('ae-wheel-style').value || 'brand',
+            wheel_custom: collectWheelControls(),
+            copy: collectCopyControls()
+          }));
+        }
+        return location.origin + '/games/' + (currentActivity.game_type || 'wheel') + '/' +
+          encodeURIComponent(currentActivity.slug) + '?' + params.toString();
+      }
+
+      function updatePreview() {
+        var frame = $('ae-preview-frame');
+        var select = $('ae-preview-scenario');
+        if (!frame || !select || !currentActivity) return;
+        var url = previewUrl();
+        // 加時間戳，確保剛存檔的文字與圖片不會被 iframe 快取住。
+        frame.src = url + '&preview_refresh=' + Date.now();
+        var selected = select.options[select.selectedIndex];
+        var label = $('ae-preview-label');
+        if (label) label.textContent = selected ? selected.textContent : '活動畫面';
+      }
+
+      var previewSelect = $('ae-preview-scenario');
+      if (previewSelect) previewSelect.addEventListener('change', updatePreview);
+      var refreshPreviewBtn = $('ae-refresh-preview');
+      if (refreshPreviewBtn) refreshPreviewBtn.addEventListener('click', updatePreview);
+      var openPreviewBtn = $('ae-open-preview');
+      if (openPreviewBtn) openPreviewBtn.addEventListener('click', function () {
+        var url = previewUrl();
+        if (url) window.open(url, '_blank', 'noopener');
+      });
+
+      $$('.ae-map-row[data-ae-focus]').forEach(function (row) {
+        row.addEventListener('click', function () {
+          var el = $(row.getAttribute('data-ae-focus'));
+          if (!el) return;
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.focus();
+          el.classList.remove('ae-field-flash');
+          void el.offsetWidth;
+          el.classList.add('ae-field-flash');
+        });
+      });
+      $$('.ae-map-row[data-ae-scroll]').forEach(function (row) {
+        row.addEventListener('click', function () {
+          var el = $(row.getAttribute('data-ae-scroll'));
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+      $$('.ae-map-row[data-ae-scenario]').forEach(function (row) {
+        row.addEventListener('click', function () {
+          if (!previewSelect) return;
+          previewSelect.value = row.getAttribute('data-ae-scenario');
+          updatePreview();
+          $('ae-preview-studio').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
 
       function updateLinkStatusBanner() {
         var banner = $('ae-link-status-banner');
         if (!banner) return;
         var s = $('ae-status-select').value;
+        var startVal = $('ae-start') ? $('ae-start').value : '';
+        var endVal = $('ae-end') ? $('ae-end').value : '';
+        var startFuture = startVal && new Date(startVal).getTime() > Date.now();
+        var when = function (v) {
+          var d = new Date(v);
+          return (d.getMonth() + 1) + '/' + d.getDate() + ' ' +
+                 String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        };
         if (s === 'active') {
           banner.setAttribute('style', 'margin:4px 0 12px;font-size:13px;color:#15803d;');
-          banner.textContent = '活動進行中，連結可正常使用。';
+          banner.textContent = '活動進行中，連結可正常使用。' +
+            (endVal ? ('到 ' + when(endVal) + ' 會自動結束。') : '');
+        } else if (s === 'draft' && startFuture) {
+          // 排定上線：不是忘了開，是刻意排的——講清楚免得有人手動提前打開
+          banner.setAttribute('style', 'margin:4px 0 12px;padding:10px 12px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:6px;font-size:13px;color:#166534;');
+          banner.textContent = '已排定 ' + when(startVal) + ' 自動上線' +
+            (endVal ? ('、' + when(endVal) + ' 自動結束') : '') +
+            '，不用自己回來開。在那之前用戶點連結看不到活動。';
         } else {
           var label = ({draft:'草稿',paused:'暫停',ended:'已結束'})[s] || s;
           banner.setAttribute('style', 'margin:4px 0 12px;padding:10px 12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;font-size:13px;color:#92400E;');
-          banner.textContent = '目前狀態是『' + label + '』，用戶點這個連結會看不到活動。請把上方狀態改成『進行中』再按更新。';
+          banner.textContent = '目前狀態是『' + label + '』，用戶點這個連結會看不到活動。' +
+            (s === 'draft' ? '想排定時間自動上線，就把上面的開始時間填成未來的時間；要現在就開，把狀態改成『進行中』。'
+                           : '請把上方狀態改成『進行中』再按更新。');
         }
       }
       $('ae-status-select').addEventListener('change', updateLinkStatusBanner);
+      ['ae-start', 'ae-end'].forEach(function (id) {
+        var el = $(id); if (el) el.addEventListener('change', updateLinkStatusBanner);
+      });
 
       // ---- save activity ----
-      $('ae-save').addEventListener('click', function () {
+      function saveActivity(statusEl, button) {
         var data = collectActivityForm();
         updateRefHint();
         if (data.referral_bonus_per > 0 && data.referral_bonus_max === 0) {
@@ -338,8 +816,8 @@
           $('ae-ref-max').value = 10;
           data.referral_bonus_max = 10;
         }
-        var statusEl = $('ae-save-status');
         statusEl.textContent = '儲存中…';
+        if (button) button.disabled = true;
         var url = activityId ? '/admin/activities/api/' + activityId : '/admin/activities/api';
         var method = activityId ? 'PUT' : 'POST';
         fetch(url, {
@@ -362,7 +840,92 @@
               updateLiffLink();
             }
           })
-          .catch(function (e) { statusEl.textContent = '錯誤：' + e.message; });
+          .catch(function (e) { statusEl.textContent = '錯誤：' + e.message; })
+          .finally(function () { if (button) button.disabled = false; });
+      }
+      $('ae-save').addEventListener('click', function () {
+        saveActivity($('ae-save-status'), $('ae-save'));
+      });
+
+      var logoUrlInput = $('ae-logo-url');
+      if (logoUrlInput) logoUrlInput.addEventListener('input', function () {
+        updateLogoPreview();
+        scheduleVisualPreview();
+      });
+      var heroArtToggle = $('ae-show-hero-art');
+      if (heroArtToggle) heroArtToggle.addEventListener('change', scheduleVisualPreview);
+      var logoClearBtn = $('ae-logo-clear');
+      if (logoClearBtn) logoClearBtn.addEventListener('click', function () {
+        $('ae-logo-url').value = '';
+        $('ae-logo-status').textContent = '已恢復預設，按下儲存後生效。';
+        updateLogoPreview();
+        scheduleVisualPreview();
+      });
+      var logoUploadBtn = $('ae-logo-upload');
+      if (logoUploadBtn) logoUploadBtn.addEventListener('click', function () { $('ae-logo-file').click(); });
+      var logoFileInput = $('ae-logo-file');
+      if (logoFileInput) logoFileInput.addEventListener('change', function () {
+        var file = logoFileInput.files && logoFileInput.files[0];
+        if (!file) return;
+        var statusEl = $('ae-logo-status');
+        if (file.size > 2 * 1024 * 1024) {
+          statusEl.textContent = '圖片超過 2MB，請壓縮後再上傳。';
+          logoFileInput.value = '';
+          return;
+        }
+        statusEl.textContent = '上傳中…';
+        logoUploadBtn.disabled = true;
+        var form = new FormData();
+        form.append('hero', file);
+        fetch('/admin/broadcast/hero/upload', { method: 'POST', body: form })
+          .then(function (r) { return r.json(); })
+          .then(function (resp) {
+            if (!resp.ok || !resp.url) throw new Error(resp.error || '上傳失敗');
+            $('ae-logo-url').value = resp.url;
+            statusEl.textContent = '已上傳，按下儲存後生效。';
+            updateLogoPreview();
+            scheduleVisualPreview();
+          })
+          .catch(function (e) { statusEl.textContent = '上傳失敗：' + e.message; })
+          .finally(function () { logoUploadBtn.disabled = false; logoFileInput.value = ''; });
+      });
+      var saveVisualBtn = $('ae-save-visual');
+      if (saveVisualBtn) saveVisualBtn.addEventListener('click', function () {
+        saveActivity($('ae-visual-save-status'), saveVisualBtn);
+      });
+      var wheelStyleSelect = $('ae-wheel-style');
+      if (wheelStyleSelect) wheelStyleSelect.addEventListener('change', function () {
+        if (wheelStyleSelect.value !== 'custom') applyWheelPreset(wheelStyleSelect.value);
+        scheduleVisualPreview();
+      });
+      var resetWheelBtn = $('ae-reset-wheel');
+      if (resetWheelBtn) resetWheelBtn.addEventListener('click', function () {
+        var preset = wheelStyleSelect.value === 'custom' ? 'brand' : wheelStyleSelect.value;
+        wheelStyleSelect.value = preset;
+        applyWheelPreset(preset);
+        scheduleVisualPreview();
+      });
+      Object.keys(WHEEL_COLOR_FIELDS).forEach(function (key) {
+        var input = $(WHEEL_COLOR_FIELDS[key]);
+        if (!input) return;
+        input.addEventListener('input', function () {
+          wheelStyleSelect.value = 'custom';
+          updateWheelOutputs();
+          scheduleVisualPreview();
+        });
+      });
+      ['ae-wheel-size', 'ae-wheel-line-width'].forEach(function (id) {
+        var input = $(id);
+        if (!input) return;
+        input.addEventListener('input', function () {
+          wheelStyleSelect.value = 'custom';
+          updateWheelOutputs();
+          scheduleVisualPreview();
+        });
+      });
+      Object.keys(COPY_FIELDS).forEach(function (key) {
+        var input = $(COPY_FIELDS[key]);
+        if (input) input.addEventListener('input', scheduleVisualPreview);
       });
 
       // ---- copy link helpers ----
@@ -431,10 +994,10 @@
         })).then(function (results) {
           var bad = results.filter(function (r) { return !r || !r.ok; });
           if (bad.length) alert('有 ' + bad.length + ' 個獎品沒改成功，請重新整理後再試一次。');
-          loadPrizes();
+          loadActivity();
         }).catch(function () {
           alert('連線錯誤，請重新整理後再試一次。');
-          loadPrizes();
+          loadActivity();
         });
       }
 
@@ -458,7 +1021,7 @@
         if (!hint) return;
         var mine = Number($('pm-weight').value || 0);
         var others = currentPrizes.reduce(function (sum, p) {
-          return sum + (p.id === editingPrizeId ? 0 : Number(p.probability_weight || 0));
+          return sum + (String(p.id) === String(editingPrizeId) ? 0 : Number(p.probability_weight || 0));
         }, 0);
         var total = others + mine;
         if (!(total > 0)) { hint.textContent = ''; return; }
@@ -493,6 +1056,7 @@
             '<td style="text-align:right;">' + stock + '</td>' +
             '<td>' + (p.is_grand_prize ? '<span class="ae-grand-badge">大獎</span>' : '—') + '</td>' +
             '<td>' +
+              '<button type="button" class="ae-link-btn ae-preview-prize" data-id="' + p.id + '">看中獎畫面</button>' +
               '<button type="button" class="ae-link-btn ae-edit-prize" data-id="' + p.id + '">編輯</button>' +
               '<button type="button" class="ae-link-btn ae-del-prize" data-id="' + p.id + '" data-name="' + escapeHtml(p.name) + '">刪</button>' +
             '</td>' +
@@ -500,8 +1064,19 @@
         }).join('');
         renderPctBar(totalWeight);
 
+        rebuildPreviewScenarios();
+        $$('.ae-preview-prize', tbody).forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var select = $('ae-preview-scenario');
+            if (!select) return;
+            select.value = 'prize:' + btn.getAttribute('data-id');
+            updatePreview();
+            $('ae-preview-studio').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          });
+        });
+
         $$('.ae-edit-prize', tbody).forEach(function (btn) {
-          btn.addEventListener('click', function () { openPrizeModal(Number(btn.getAttribute('data-id'))); });
+          btn.addEventListener('click', function () { openPrizeModal(btn.getAttribute('data-id')); });
         });
         $$('.ae-del-prize', tbody).forEach(function (btn) {
           btn.addEventListener('click', function () {
@@ -524,7 +1099,7 @@
         if (wIn && !wIn.__hintBound) { wIn.__hintBound = true; wIn.addEventListener('input', updateWeightHint); }
         $('prize-modal-title').textContent = editingPrizeId ? '編輯獎品' : '新增獎品';
         if (editingPrizeId) {
-          var p = currentPrizes.find(function (x) { return x.id === editingPrizeId; });
+          var p = currentPrizes.find(function (x) { return String(x.id) === String(editingPrizeId); });
           if (!p) return;
           $('pm-name').value = p.name || '';
           $('pm-type').value = p.prize_type || 'badge';
@@ -535,7 +1110,9 @@
           $('pm-desc').value = p.description || '';
           $('pm-grand').checked = Boolean(p.is_grand_prize);
           var v = p.prize_value || {};
-          $('pm-value').value = v.amount || v.code || v.note || '';
+          $('pm-value').value = v.amount || v.code || v.label || v.note || '';
+          $('pm-miles').value = (v.miles != null ? v.miles : '');
+          showExtraValueNote(v);
         } else {
           $('pm-name').value = '';
           $('pm-type').value = 'badge';
@@ -546,11 +1123,26 @@
           $('pm-desc').value = '';
           $('pm-grand').checked = false;
           $('pm-value').value = '';
+          $('pm-miles').value = '';
+          showExtraValueNote(null);
         }
         updatePrizeValueLabel();
         updateWeightHint();
         $('prize-modal').hidden = false;
       }
+      // 這筆獎品有沒有「畫面上看不到但程式在用」的設定？有就講出來，讓人知道存檔不會弄丟
+      function showExtraValueNote(v) {
+        var note = $('pm-extra-note');
+        if (!note) return;
+        var shown = { amount: 1, code: 1, label: 1, note: 1, miles: 1 };
+        var extras = v && typeof v === 'object'
+          ? Object.keys(v).filter(function (k) { return !shown[k]; })
+          : [];
+        if (!extras.length) { note.hidden = true; note.textContent = ''; return; }
+        note.hidden = false;
+        note.textContent = '這個獎品另外存了進階設定（' + extras.join('、') + '），存檔時會原封不動保留。';
+      }
+
       function closePrizeModal() {
         $('prize-modal').hidden = true;
         editingPrizeId = null;
@@ -578,11 +1170,23 @@
       $('pm-save').addEventListener('click', function () {
         var pt = $('pm-type').value;
         var valStr = $('pm-value').value.trim();
+        // 先把這筆獎品原本存的內容整包接住（里數、券的注意事項、兌換連結…畫面上沒有欄位，
+        // 但後台程式會用；不接住的話一按儲存就被清空，獎品會發不出去）
         var prizeValue = {};
-        if (pt === 'rice_dollar' && valStr) prizeValue.amount = Number(valStr);
-        else if (pt === 'coupon_code' && valStr) prizeValue.code = valStr;
-        else if (pt === 'badge' && valStr) prizeValue.label = valStr;
-        else if (pt === 'physical' && valStr) prizeValue.note = valStr;
+        if (editingPrizeId) {
+          var origPrize = currentPrizes.find(function (x) { return String(x.id) === String(editingPrizeId); });
+          if (origPrize && origPrize.prize_value && typeof origPrize.prize_value === 'object') {
+            try { prizeValue = JSON.parse(JSON.stringify(origPrize.prize_value)); } catch (e) { prizeValue = {}; }
+          }
+        }
+        var milesStr = ($('pm-miles').value || '').trim();
+        if (milesStr && Number(milesStr) > 0) prizeValue.miles = Number(milesStr);
+        else delete prizeValue.miles;
+        var valueKey = ({ rice_dollar: 'amount', coupon_code: 'code', badge: 'label', physical: 'note' })[pt];
+        if (valueKey) {
+          if (valStr) prizeValue[valueKey] = (pt === 'rice_dollar') ? Number(valStr) : valStr;
+          else delete prizeValue[valueKey];
+        }
 
         var data = {
           name: $('pm-name').value.trim(),
@@ -739,6 +1343,203 @@
       }
       .ae-secondary-btn:hover { background: #f9fafb; border-color: #d1d5db; }
 
+      .ae-safe-badge {
+        margin-left: auto;
+        padding: 5px 10px;
+        border-radius: 999px;
+        background: #ecfdf5;
+        border: 1px solid #a7f3d0;
+        color: #047857;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .ae-preview-grid {
+        display: grid;
+        grid-template-columns: minmax(300px, 1fr) 390px;
+        gap: 22px;
+        align-items: start;
+      }
+      .ae-preview-controls { min-width: 0; }
+      .ae-safe-note {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        padding: 11px 13px;
+        margin: 10px 0 14px;
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        border-radius: 9px;
+        color: #78450a;
+        font-size: 12px;
+        line-height: 1.55;
+      }
+      .ae-safe-note strong { color: #4e342e; font-size: 13px; }
+      .ae-scenario-field select {
+        min-height: 42px;
+        background: #fff;
+        border-color: #d8cab0;
+        font-weight: 600;
+        color: #3f2c25;
+      }
+      .ae-preview-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 10px 0 7px;
+      }
+      .ae-map-title {
+        margin: 20px 0 8px;
+        font-size: 14px;
+        color: #3f2c25;
+      }
+      .ae-ui-map {
+        overflow: hidden;
+        border: 1px solid #eee6d7;
+        border-radius: 10px;
+        background: #fff;
+      }
+      .ae-map-row {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border: 0;
+        border-bottom: 1px solid #f2ecdf;
+        background: #fff;
+        color: #3f2c25;
+        text-align: left;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      .ae-map-row:last-child { border-bottom: 0; }
+      button.ae-map-row:hover { background: #fffaf0; }
+      .ae-map-row span { display: flex; flex-direction: column; min-width: 0; }
+      .ae-map-row b { font-size: 12px; }
+      .ae-map-row small { margin-top: 2px; color: #7c716b; font-size: 11px; line-height: 1.35; }
+      .ae-map-row em {
+        flex: 0 0 auto;
+        color: #a34a17;
+        font-size: 11px;
+        font-style: normal;
+        font-weight: 700;
+      }
+      .ae-map-row em.ae-fixed { color: #8a817c; }
+      .ae-visual-box {
+        margin-top: 14px;
+        padding: 15px;
+        border: 1px solid #ead9ad;
+        border-radius: 12px;
+        background: #fffdf6;
+      }
+      .ae-visual-box h3 { margin: 0; font-size: 15px; color: #3f2c25; }
+      .ae-visual-box > div > p { margin: 3px 0 13px; color: #7c716b; font-size: 11px; }
+      .ae-visual-toggle { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 13px; color: #3f2c25; }
+      .ae-visual-toggle input { margin-top: 3px; }
+      .ae-visual-toggle span { display: flex; flex-direction: column; }
+      .ae-visual-toggle b { font-size: 12px; }
+      .ae-visual-toggle small { margin-top: 2px; color: #7c716b; font-size: 11px; }
+      .ae-upload-row { display: flex; gap: 6px; align-items: stretch; }
+      .ae-upload-row input[type="text"] { min-width: 0; flex: 1; }
+      .ae-logo-preview { display: flex; align-items: center; gap: 10px; min-height: 38px; margin-top: 7px; }
+      .ae-logo-preview img { max-width: 142px; max-height: 34px; object-fit: contain; object-position: left center; }
+      .ae-logo-preview small { color: #7c716b; font-size: 10px; }
+      .ae-preset-row { display: flex; align-items: stretch; gap: 6px; }
+      .ae-preset-row select { flex: 1; min-width: 0; }
+      .ae-wheel-editor { margin-top: 13px; padding-top: 13px; border-top: 1px solid #eadfca; }
+      .ae-editor-title { display: flex; flex-direction: column; margin-bottom: 10px; color: #3f2c25; }
+      .ae-editor-title b { font-size: 13px; }
+      .ae-editor-title small { margin-top: 2px; color: #7c716b; font-size: 11px; line-height: 1.45; }
+      .ae-color-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+      .ae-color-control {
+        display: grid;
+        grid-template-columns: 31px 1fr;
+        grid-template-areas: "swatch label" "swatch value";
+        align-items: center;
+        column-gap: 8px;
+        padding: 8px;
+        border: 1px solid #eadfca;
+        border-radius: 9px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .ae-color-control > span { grid-area: label; min-width: 0; color: #51443e; font-size: 11px; font-weight: 700; }
+      .ae-color-control input[type="color"] {
+        grid-area: swatch;
+        width: 31px;
+        height: 34px;
+        padding: 1px;
+        border: 1px solid #d8cab0;
+        border-radius: 7px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .ae-color-control output { grid-area: value; color: #8a817c; font: 9px ui-monospace, Menlo, monospace; }
+      .ae-range-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 13px; }
+      .ae-range-control > span { display: flex; justify-content: space-between; gap: 8px; color: #51443e; font-size: 11px; }
+      .ae-range-control output { color: #a34a17; font-weight: 800; }
+      .ae-range-control input[type="range"] { width: 100%; margin: 8px 0 0; accent-color: #f5b800; }
+      .ae-copy-editor { margin-top: 16px; padding-top: 14px; border-top: 1px solid #eadfca; }
+      .ae-copy-group { margin-top: 8px; border: 1px solid #eadfca; border-radius: 9px; background: #fff; overflow: hidden; }
+      .ae-copy-group summary {
+        padding: 10px 12px;
+        color: #51443e;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        background: #fffaf0;
+      }
+      .ae-copy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; padding: 12px; }
+      .ae-copy-grid .ae-field { margin: 0; }
+      .ae-copy-wide { grid-column: 1 / -1; }
+      .ae-copy-grid code {
+        margin-left: 4px;
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: #f4efe5;
+        color: #a34a17;
+        font-size: 9px;
+        white-space: normal;
+      }
+      .ae-visual-actions { display: flex; align-items: center; gap: 9px; margin-top: 13px; }
+      .ae-visual-actions .muted, #ae-logo-status { font-size: 11px; line-height: 1.4; }
+      .ae-phone-area { position: sticky; top: 12px; }
+      .ae-phone-label {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 7px;
+        margin: 0 0 7px;
+        color: #5f514b;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .ae-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 0 3px #d1fae5; }
+      .ae-phone-frame {
+        width: 390px;
+        height: 690px;
+        padding: 10px 6px;
+        overflow: hidden;
+        border: 3px solid #3f2c25;
+        border-radius: 30px;
+        background: #3f2c25;
+        box-shadow: 0 12px 28px rgba(63,44,37,.16);
+      }
+      .ae-phone-frame iframe {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        border-radius: 21px;
+        background: #fff;
+      }
+      @keyframes aeFieldFlash {
+        0%,100% { box-shadow: none; border-color: #e5e7eb; }
+        35% { box-shadow: 0 0 0 4px rgba(252,199,38,.28); border-color: #e2a800; }
+      }
+      .ae-field-flash { animation: aeFieldFlash 1.4s ease; }
+
       .ae-prize-table {
         width: 100%;
         border-collapse: collapse;
@@ -828,6 +1629,19 @@
       }
 
       .table-wrap { overflow-x: auto; }
+      @media (max-width: 980px) {
+        .ae-preview-grid { grid-template-columns: 1fr; }
+        .ae-phone-area { position: static; }
+        .ae-phone-frame { width: min(390px, 100%); margin: 0 auto; }
+      }
+      @media (max-width: 480px) {
+        .ae-phone-frame { height: 650px; border-radius: 24px; }
+        .ae-safe-badge { margin-left: 0; }
+        .ae-color-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .ae-range-grid { grid-template-columns: 1fr; }
+        .ae-copy-grid { grid-template-columns: 1fr; }
+        .ae-copy-wide { grid-column: auto; }
+      }
     </style>
     `
   })

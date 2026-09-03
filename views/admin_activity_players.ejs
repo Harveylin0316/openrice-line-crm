@@ -1,3 +1,8 @@
+<%
+  // 活動名稱是後台輸入的自由文字，進 HTML 前先跳脫（防 staff 對其他管理員 XSS）
+  var actName = String(activity.name == null ? '' : activity.name)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+%>
 <%-
   include('layout', {
     user: user,
@@ -6,10 +11,10 @@
     body: `
     <section class="card">
       <div class="players-head">
-        <a href="/admin/activities/${activity.id}" class="ae-back">← 回活動編輯</a>
-        <h1>玩家數據 — ${activity.name}</h1>
+        <a href="/admin/activities/${activity.id}" class="ae-back">回活動編輯</a>
+        <h1>玩家數據 — ${actName}</h1>
         <div class="muted" style="font-size:12px;">
-          活動 #${activity.id} · ${({wheel:'輪盤',fortune:'抽籤',scratch:'刮刮樂',slot:'老虎機'})[activity.game_type] || activity.game_type}
+          活動 #${activity.id} · ${({wheel:'輪盤',fortune:'抽籤',scratch:'刮刮樂',slot:'老虎機',claim:'領取優惠券'})[activity.game_type] || activity.game_type}
           · 基礎 ${activity.base_plays_per_user} 次 / 邀請 +${activity.referral_bonus_per} × ${activity.referral_bonus_max} 上限
         </div>
       </div>
@@ -42,16 +47,19 @@
           <thead>
             <tr>
               <th>用戶</th>
-              <th style="text-align:right;">抽次</th>
+              <th>被誰邀請</th>
+              <th style="text-align:right;">總共有幾次<div class="muted" style="font-size:10px;font-weight:400;">基本＋邀請＋人工補</div></th>
+              <th style="text-align:right;">用了幾次</th>
+              <th style="text-align:right;">還剩</th>
               <th style="text-align:right;">中獎</th>
-              <th style="text-align:right;">邀請</th>
+              <th style="text-align:right;">邀請成功<div class="muted" style="font-size:10px;font-weight:400;">只算本來不是好友的</div></th>
               <th>最後活動</th>
               <th>個別配額</th>
               <th></th>
             </tr>
           </thead>
           <tbody id="players-tbody">
-            <tr><td colspan="7" class="muted" style="text-align:center;padding:18px 0;">載入中…</td></tr>
+            <tr><td colspan="10" class="muted" style="text-align:center;padding:18px 0;">載入中…</td></tr>
           </tbody>
         </table>
       </div>
@@ -70,7 +78,7 @@
         <div class="ae-grid">
           <label class="ae-field ae-field-full">
             <span>名單名稱 *</span>
-            <input type="text" id="ex-name" placeholder="例：${activity.name} 中獎名單" maxlength="200" />
+            <input type="text" id="ex-name" placeholder="例：${actName} 中獎名單" maxlength="200" />
           </label>
           <label class="ae-field ae-field-full">
             <span>描述（可選）</span>
@@ -161,7 +169,7 @@
           .then(function (r) { return r.json(); })
           .then(function (resp) {
             if (!resp.ok) {
-              tbody.innerHTML = '<tr><td colspan="7" class="muted">載入失敗</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="10" class="muted">載入失敗</td></tr>';
               return;
             }
             allPlayers = resp.players || [];
@@ -175,17 +183,19 @@
             render(allPlayers);
           })
           .catch(function () {
-            tbody.innerHTML = '<tr><td colspan="7" class="muted">載入失敗</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="muted">載入失敗</td></tr>';
           });
       }
 
       function render(list) {
         if (!list.length) {
-          tbody.innerHTML = '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px 0;">尚無玩家。等用戶開始抽就會出現在這裡。</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="10" class="muted" style="text-align:center;padding:24px 0;">尚無玩家。等用戶開始抽就會出現在這裡。</td></tr>';
           return;
         }
         tbody.innerHTML = list.map(function (p) {
-          var name = p.crm_display_name || p.line_display_name || '<span class="muted" style="font-style:italic;">未登入 CRM</span>';
+          // 顯示名稱是用戶自訂的，一定要跳脫；只有無資料的提示保留 HTML
+          var realNm = p.crm_display_name || p.line_display_name;
+          var name = realNm ? esc(realNm) : '<span class="muted" style="font-style:italic;">未登入 CRM</span>';
           var uid = p.line_user_id || '';
           var override = p.max_plays_override != null
             ? '<span class="quota-pill">' + p.max_plays_override + ' 次</span>' +
@@ -197,9 +207,22 @@
               '<div class="player-name">' + name + '</div>' +
               '<button type="button" class="player-uid" data-uid="' + esc(uid) + '">' + esc(shortUid(uid)) + '</button>' +
             '</td>' +
+            '<td>' + (p.invited_by_uid
+                ? ('<div style="font-size:12.5px;">' + esc(p.invited_by_name || '(沒有名字)') + '</div>' +
+                   '<div class="muted" style="font-size:10.5px;">' + esc(shortUid(p.invited_by_uid)) +
+                   (p.invited_was_existing ? '｜本來就是好友，不加次數' : '｜計獎') + '</div>')
+                : '<span class="muted" style="font-size:11.5px;">自己來的</span>') + '</td>' +
+            '<td style="text-align:right;font-weight:700;font-size:15px;">' + fmt(p.quota_total) +
+              (Number(p.manual_bonus) > 0 ? '<div class="muted" style="font-size:10.5px;">含人工補 ' + fmt(p.manual_bonus) + ' 次</div>' : '') + '</td>' +
             '<td style="text-align:right;font-weight:600;">' + fmt(p.plays) + '</td>' +
+            '<td style="text-align:right;">' + (Number(p.quota_remaining) > 0
+                ? ('<b>' + fmt(p.quota_remaining) + '</b>')
+                : '<span class="muted">用完了</span>') + '</td>' +
             '<td style="text-align:right;">' + fmt(p.wins) + grandPill + '</td>' +
-            '<td style="text-align:right;">' + fmt(p.referrals) + '</td>' +
+            '<td style="text-align:right;">' + fmt(p.referrals) +
+              (Number(p.referrals_existing) > 0
+                ? '<div class="muted" style="font-size:11px;line-height:1.4;">另 ' + fmt(p.referrals_existing) + ' 位本來就是好友<br>（不加次數）</div>'
+                : '') + '</td>' +
             '<td style="font-size:12px;color:#6b7280;">' + fmtTime(p.last_played_at) + '</td>' +
             '<td>' + override + '</td>' +
             '<td>' +

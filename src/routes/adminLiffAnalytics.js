@@ -306,7 +306,8 @@ function registerAdminLiffAnalyticsRoutes(app, deps) {
           MIN(ue.created_at) AS first_seen,
           MAX(ue.created_at) AS last_seen
         FROM user_events ue
-        LEFT JOIN users u ON u.line_user_id = ue.line_id
+        -- 活動頁的事件從 2026-07-17 起改存「雜湊過的編號」，只比原始編號會全部對不到人
+        LEFT JOIN users u ON (u.line_user_id = ue.line_id OR u.line_id_hash = ue.line_id)
         WHERE ue.line_id IS NOT NULL
           AND ue.created_at > NOW() - ($1 || ' days')::INTERVAL
         GROUP BY ue.line_id, u.line_display_name, u.line_picture_url

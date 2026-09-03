@@ -267,13 +267,17 @@
       .stat .v.pop { animation: none; }
       .scratch-dust .dust, .scratch-dust .frag { animation: none; display: none; }
     }
-  </style>
+  
+    /* 官方 logo（去背 PNG）——文字版拼出來的 logo 字距與品牌不一致，統一改用圖檔 */
+    .logo-img{height:26px;width:auto;display:block}
+    .logo{font-size:0 !important;letter-spacing:0 !important}
+    </style>
 </head>
 <body>
   <div class="page">
 
     <header class="brand-bar">
-      <div class="logo"><span class="dot"></span>OpenRice</div>
+      <div class="logo"><img src="/images/openrice-wordmark.png" alt="OpenRice 開飯喇" class="logo-img" /></div>
       <div class="chip">活動進行中</div>
     </header>
 
@@ -381,16 +385,16 @@
 
   <script>
     (function () {
-      var slug = <%- JSON.stringify(activity.slug) %>;
-      var liffId = <%- JSON.stringify(liffId || '') %>;
-      var addFriendUrl = <%- JSON.stringify(typeof addFriendUrl !== 'undefined' ? addFriendUrl : '') %>;
-      var prizes = <%- JSON.stringify(prizes || []) %>;
+      var slug = <%- JSON.stringify(activity.slug).replace(/</g,'\\u003c') %>;
+      var liffId = <%- JSON.stringify(liffId || '').replace(/</g,'\\u003c') %>;
+      var addFriendUrl = <%- JSON.stringify(typeof addFriendUrl !== 'undefined' ? addFriendUrl : '').replace(/</g,'\\u003c') %>;
+      var prizes = <%- JSON.stringify(prizes || []).replace(/</g,'\\u003c') %>;
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
         referral_bonus_per: activity.referral_bonus_per,
         referral_bonus_max: activity.referral_bonus_max,
         referral_invites_per_bonus: activity.referral_invites_per_bonus || 1
-      }) %>;
+      }).replace(/</g,'\\u003c') %>;
 
       var card = document.getElementById('card');
       var canvas = document.getElementById('scratch-canvas');
@@ -403,6 +407,17 @@
 
       var profile = null;
       var idToken = null;
+      // 防重複扣次數的鑰匙。存進瀏覽器暫存：收訊斷掉後如果使用者是「重新整理」
+      // 而不是按按鈕（刮刮樂開頁就自動抽，最容易這樣），重載後還撿得回同一把，
+      // 伺服器認得就回原結果，不會被扣第二次。
+      var PLAYKEY_STORE = 'orplaykey:' + 'scratch' + ':' + slug;
+      function loadPlayKey() {
+        try { return sessionStorage.getItem(PLAYKEY_STORE) || null; } catch (e) { return null; }
+      }
+      function savePlayKey(k) {
+        try { if (k) sessionStorage.setItem(PLAYKEY_STORE, k); else sessionStorage.removeItem(PLAYKEY_STORE); } catch (e) {}
+      }
+      var pendingPlayKey = loadPlayKey();
       var liffReady = false;
       var canPlay = false;
       var inProgress = false;
@@ -758,7 +773,8 @@
         try {
           if (!profile || !profile.userId) return;
           var resp = await fetch('/api/games/scratch/' + encodeURIComponent(slug) +
-            '/meta?line_user_id=' + encodeURIComponent(profile.userId) + '&id_token=' + encodeURIComponent(idToken || '')).then(function (r) { return r.json(); });
+            '/meta?line_user_id=' + encodeURIComponent(profile.userId),
+            { headers: { 'Authorization': 'Bearer ' + (idToken || '') } }).then(function (r) { return r.json(); });
           if (!resp.ok || !resp.quota) return;
           renderQuota(resp.quota);
         } catch (e) { console.warn('quota fetch failed:', e); }
@@ -818,10 +834,11 @@
         if (!liffReady || !profile) { statusEl.textContent = '請稍候'; return; }
         inProgress = true;
         revealed = false;
-        canPlay = true;
+        canPlay = false;           // 拿到獎品才准刮
         newCardBtn.hidden = true;
-        revealBtn.hidden = false;
-        statusEl.textContent = '刮一下試試';
+        newCardBtn.textContent = '再 來 一 張';   // 上一輪若失敗過會被改成「再試一次」，這裡復原
+        revealBtn.hidden = true;   // 等獎品真的拿到手才開，免得搶按刮開一張還沒發出來的卡
+        statusEl.textContent = '準備中';
         // 重置上一張的優惠序號顯示（避免新卡尚未刮開就露出舊序號／提示）
         var cb = document.getElementById('coupon-block'); if (cb) cb.hidden = true;
         var cr = document.getElementById('coupon-redeem'); if (cr) cr.hidden = true;
@@ -830,9 +847,16 @@
 
         try {
           // 後端決定獎品（同時驗 quota）
+          // 防重複扣次數：每次「想抽」產一把鑰匙；只有網路斷掉（沒收到任何回應）
+          // 才保留同一把，下次按就帶同一把重送——伺服器認得就回原結果，不再扣一次
+          if (!pendingPlayKey) {
+            pendingPlayKey = 'pk' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+            savePlayKey(pendingPlayKey);
+          }
           var resp = await fetch('/api/games/scratch/' + encodeURIComponent(slug) + '/play', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ line_user_id: profile.userId, line_display_name: profile.displayName || null, id_token: idToken })
+            body: JSON.stringify({ line_user_id: profile.userId, line_display_name: profile.displayName || null,
+                                   id_token: idToken, play_key: pendingPlayKey })
           }).then(function (r) { return r.json(); });
 
           if (!resp.ok) {
@@ -841,6 +865,7 @@
               if (window.ORMGM) ORMGM.gate.serverDenied();
               openFollowGate('要先加「OpenRice 開飯喇」好友才能參加，加完回來就可以玩。');
             }
+            pendingPlayKey = null; savePlayKey(null);   // 伺服器明確拒絕（沒扣次數）→ 換新鑰匙
             statusEl.textContent = resp.detail || resp.error || '抽獎失敗';
             stageHint.textContent = resp.error === 'quota_exhausted' ? '次數已用完' : '無法抽獎';
             revealBtn.hidden = true;
@@ -853,6 +878,11 @@
           }
           currentPrize = resp.prize;
           renderPrize(currentPrize, resp);
+          pendingPlayKey = null; savePlayKey(null);   // 結果已經呈現出來，這一把用完了
+          revealed = false;
+          canPlay = true;            // 獎品到手，現在才准刮
+          revealBtn.hidden = false;
+          statusEl.textContent = '刮一下試試';
           // 重設 canvas（蓋上灰膜）+ 清掉上一輪的演出狀態
           card.classList.remove('scratched', 'exhausted', 'revealed');
           prizeEl.classList.remove('pop', 'soft');
@@ -862,10 +892,14 @@
           // 灰膜已畫好 → 移除載入遮罩
           card.classList.add('ready');
         } catch (e) {
-          statusEl.textContent = '錯誤';
+          // 收不到回應：鑰匙留著，按「再試一次」會帶同一把重送 → 伺服器回原結果，不會被扣兩次。
+          // 這時候還沒有獎品，所以不能讓他刮（canPlay 維持 false），但一定要留一個按得下去的入口。
+          statusEl.textContent = '收訊不穩，按下面再試一次';
+          stageHint.textContent = '沒有扣到次數';
           revealBtn.hidden = true;
-          newCardBtn.hidden = true;
           canPlay = false;
+          newCardBtn.hidden = false;
+          newCardBtn.textContent = '再試一次';
         } finally {
           inProgress = false;
         }
@@ -981,7 +1015,8 @@
           // meta（更新配額顯示）與 第一張卡「並行」，不再 meta 等完才發卡（縮短「準備中」）。
           // 配額是否用完由 /play 自行把關，startNewCard 會妥善處理 quota_exhausted。
           fetch('/api/games/scratch/' + encodeURIComponent(slug) +
-            '/meta?line_user_id=' + encodeURIComponent(profile.userId) + '&id_token=' + encodeURIComponent(idToken || ''))
+            '/meta?line_user_id=' + encodeURIComponent(profile.userId),
+            { headers: { 'Authorization': 'Bearer ' + (idToken || '') } })
             .then(function (r) { return r.json(); })
             .then(function (m) { if (m && m.ok && m.quota) renderQuota(m.quota); })
             .catch(function () {});

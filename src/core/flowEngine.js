@@ -31,6 +31,9 @@ class FlowTransientError extends Error {
   constructor(message) { super(message); this.name = 'FlowTransientError'; this.permanent = false; }
 }
 
+// 走訪訊息裡的按鈕連結（跟關鍵字回覆、圖文選單共用同一套）
+const { walkUriActions } = require('./messageTapTracking');
+
 function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
   const MAX_STEPS_PER_TICK = 12;
   const CLAIM_LEASE_MS = 10 * 60 * 1000; // 處理租約 10 分鐘
@@ -418,52 +421,91 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     }
     return null;
   }
-  async function fetchScheduleAudience(audience) {
+  async function fetchScheduleAudience(audience, flowId, periodKey, limit) {
     // audience: { type:'all' } 或 { type:'list', list_id }
     if (audience && audience.type === 'list' && audience.list_id) {
       const rs = await query(
         `SELECT u.id AS user_id, m.line_user_id FROM admin_recipient_list_members m
          LEFT JOIN users u ON u.line_user_id = m.line_user_id
          WHERE m.list_id = $1 AND m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id) <> ''
-           AND (u.blocked_at IS NULL OR u.id IS NULL)`,
-        [Number(audience.list_id)]
+           AND (u.blocked_at IS NULL OR u.id IS NULL)
+           AND (u.archived_at IS NULL OR u.id IS NULL)
+           -- 這個期間已經加過的人跳過（分批續跑時靠這個接續）
+           AND NOT EXISTS (
+             SELECT 1 FROM admin_flow_enrollments e
+             WHERE e.flow_id = $2 AND e.line_user_id = m.line_user_id
+               AND e.context->>'period' = $3
+           )
+         LIMIT $4`,
+        [Number(audience.list_id), flowId, periodKey, limit]
       );
       return rs.rows;
     }
-    // 預設全好友（排除已封鎖）
+    // 預設全好友（排除已封鎖、換帳號時封存的舊會員）
     const rs = await query(
-      `SELECT id AS user_id, line_user_id FROM users
-       WHERE line_user_id IS NOT NULL AND BTRIM(line_user_id) <> '' AND is_admin = false AND blocked_at IS NULL`
+      `SELECT u.id AS user_id, u.line_user_id FROM users u
+       WHERE u.line_user_id IS NOT NULL AND BTRIM(u.line_user_id) <> ''
+         AND u.is_admin = false AND u.blocked_at IS NULL AND u.archived_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM admin_flow_enrollments e
+           WHERE e.flow_id = $1 AND e.line_user_id = u.line_user_id
+             AND e.context->>'period' = $2
+         )
+       LIMIT $3`,
+      [flowId, periodKey, limit]
     );
     return rs.rows;
   }
+  // 定時流程：一次可能要加幾千人，而 serverless 有十秒上限。
+  // 所以改成分批＋續跑——這一輪加不完的，下一輪（五分鐘後）自動接著加，
+  // 直到整個期間的人都加完才標記完成。
+  //
+  // 原本的寫法是「先標記已跑過、再一次加完所有人」：被時間上限砍在半路時，
+  // 標記已經留下了，剩下的人永遠不會被補上。
+  const SCHEDULE_BATCH = 300;
   async function runScheduleTriggers(now = new Date()) {
     const flows = await getActiveFlowsByTrigger('schedule');
     let enrolled = 0;
     for (const f of flows) {
       const periodKey = schedulePeriodKeyIfDue(f.trigger_config, now);
       if (!periodKey) continue;
-      // 防重複（同一週期只觸發一次）
-      const ins = await query(
+      // 這個期間的紀錄：沒有就建一筆（completed_at 為 NULL＝還沒加完）
+      await query(
         `INSERT INTO admin_flow_schedule_runs (flow_id, period_key) VALUES ($1, $2)
-         ON CONFLICT (flow_id, period_key) DO NOTHING RETURNING id`,
+         ON CONFLICT (flow_id, period_key) DO NOTHING`,
         [f.id, periodKey]
       );
-      if (ins.rowCount === 0) continue; // 已跑過
+      const { rows: st } = await query(
+        `SELECT completed_at, COALESCE(enrolled_count, 0) AS enrolled_count
+           FROM admin_flow_schedule_runs WHERE flow_id = $1 AND period_key = $2`,
+        [f.id, periodKey]
+      );
+      if (st[0] && st[0].completed_at) continue;   // 這個期間已經全部加完
+
       const audience = (f.trigger_config && f.trigger_config.audience) || { type: 'all' };
-      const rows = await fetchScheduleAudience(audience);
+      const rows = await fetchScheduleAudience(audience, f.id, periodKey, SCHEDULE_BATCH);
       let cnt = 0;
       for (const r of rows) {
         const out = await enrollUser(f, r.line_user_id, { userId: r.user_id, context: { trigger: 'schedule', period: periodKey } });
         if (out.enrolled) cnt++;
       }
-      await query(`UPDATE admin_flow_schedule_runs SET enrolled_count = $2 WHERE flow_id = $1 AND period_key = $3`, [f.id, cnt, periodKey]);
+      const total = Number((st[0] && st[0].enrolled_count) || 0) + cnt;
+      // 這一批沒裝滿，表示名單已經到底了 → 標記完成；裝滿就等下一輪繼續
+      const done = rows.length < SCHEDULE_BATCH;
+      await query(
+        `UPDATE admin_flow_schedule_runs
+            SET enrolled_count = $2, completed_at = CASE WHEN $4 THEN now() ELSE NULL END
+          WHERE flow_id = $1 AND period_key = $3`,
+        [f.id, total, periodKey, done]
+      );
       enrolled += cnt;
     }
     return enrolled;
   }
 
-  // ---------- 靜音時段（21:00-08:00 台北不發行銷；第一則歡迎不受限） ----------
+  // ---------- 安靜時段（台北 21:00–08:00 不發行銷訊息）----------
+  // 例外只有「用戶剛做了某件事」的即時回應（加好友、玩完遊戲那類），
+  // 見 processEnrollment 的 userInitiated 判斷。
   function nextRunIfQuiet(now) {
     const s = now.toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
     const tpe = new Date(s);
@@ -547,11 +589,23 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     const recipientName = await resolveRecipientName(userId, lineUserId);
     const built = buildLineMessages(cfg, { recipientName });
     if (!built.ok) throw new FlowConfigError('message_build_failed:' + (built.error || ''));
-    // 點擊追蹤：template 模式有 CTA 連結時，把連結換成 /rf/:enrollmentId/:messageId 中轉
+    // 點擊追蹤：把訊息裡的連結換成 /rf/:enrollmentId/:messageId 中轉，
+    // 「點了上一則的連結」這個分支條件才判斷得出來。
+    //
+    // 原本只處理「模板」模式，但訊息庫 31 則裡有 30 則是自訂 Flex——
+    // 等於那個分支永遠是「沒點」，流程一律只走「否」那一邊。
+    // 自訂 Flex 用走訪器把每一顆按鈕的連結都換掉（跟關鍵字回覆同一套）。
     const origin = getOrigin();
-    if (opts.enrollmentId && origin && cfg && cfg.mode === 'template' && cfg.template && cfg.template.ctaUrl) {
+    if (opts.enrollmentId && origin && cfg) {
       const trackUrl = origin + '/rf/' + opts.enrollmentId + '/' + messageId;
-      wrapCtaUri(built.messages, cfg.template.ctaUrl, trackUrl);
+      if (cfg.mode === 'template' && cfg.template && cfg.template.ctaUrl) {
+        wrapCtaUri(built.messages, cfg.template.ctaUrl, trackUrl);
+      } else {
+        // 自訂 Flex：走訪整棵訊息樹，把對外連結換成中轉網址
+        try {
+          walkUriActions({ flex: { contents: built.messages } }, () => trackUrl);
+        } catch (e) { console.error('flow click tracking wrap failed:', e && e.message); }
+      }
     }
     // 冪等鍵：同一 enrollment 的同一節點重跑時，LINE 端去重，避免崩潰/逾時後重發
     const retryKey = opts.enrollmentId ? `flow-${opts.enrollmentId}-${opts.nodeKey || messageId}` : undefined;
@@ -615,7 +669,16 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
         }
         if (node.type === 'send') {
           const isFirstSend = !lastSentAt;
-          if (!isFirstSend) {
+          // 安靜時段（晚上到早上）誰可以例外？只有「用戶剛做了某件事、正在螢幕前等回應」的：
+          // 剛加好友的歡迎訊息、剛玩完遊戲的回覆。這些延到隔天早上才發反而奇怪。
+          //
+          // 我們主動發起的（久沒來、定時、連勝快斷）一律遵守時段——
+          // 原本只要是「流程的第一則」就一律不受限，等於沉睡喚醒這類流程
+          // 一啟用就可能在凌晨三點推播。
+          const trig = (en.context && typeof en.context === 'object' && en.context.trigger) || '';
+          const userInitiated = trig === 'follow' || trig === 'event' || trig === 'game_play' ||
+                                trig === 'keyword' || trig === 'booking';
+          if (!(isFirstSend && userInitiated)) {
             const quietUntil = nextRunIfQuiet(new Date());
             if (quietUntil) {
               await query(

@@ -226,7 +226,9 @@ function registerAdminCouponsRoutes(app, deps) {
         } catch (_e) { return String(ts); }
       };
       const csvCell = (s) => {
-        const v = String(s == null ? '' : s);
+        let v = String(s == null ? '' : s);
+        // 開頭是 = + - @ 的值在 Excel 會被當公式執行；這份檔會交給外部夥伴，必須擋
+        if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
         return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
       };
       const header = ['序號', '狀態', '領取時間', '核銷時間', 'LINE 顯示名稱', 'LINE 用戶編號', '活動', '獎品'];
@@ -276,8 +278,10 @@ function registerAdminCouponsRoutes(app, deps) {
   const failMap = new Map();          // ip -> { count, resetAt }
 
   function clientKey(req) {
-    const xf = req.headers['x-forwarded-for'];
-    if (typeof xf === 'string' && xf.trim()) return xf.split(',')[0].trim();
+    // x-forwarded-for 第一節是請求方自己塞的（proxy 只往後附加），拿它當 key
+    // 等於讓人每個請求換一個假 IP 無限試密碼。Netlify 平台蓋的這個 header 才可信。
+    const nf = req.headers['x-nf-client-connection-ip'];
+    if (typeof nf === 'string' && nf.trim()) return nf.trim();
     return (req.ip || (req.connection && req.connection.remoteAddress) || 'unknown');
   }
   function isLocked(req) {
@@ -402,13 +406,23 @@ function registerAdminCouponsRoutes(app, deps) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      // 原子核銷：只有 claimed 能轉 redeemed（防重複核銷）
-      const { rows } = await client.query(
+      // 碼池唯一鍵是 (activity_id, code)，不同活動可以有同一組序號。
+      // 先鎖再數：同碼多筆 claimed 時擋下來，不能一口氣把兩個活動的券都核銷掉。
+      const { rows: cands } = await client.query(
+        `SELECT id FROM coupon_codes WHERE code=$1 AND status='claimed' FOR UPDATE`,
+        [code]
+      );
+      if (cands.length > 1) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ ok: false, error: 'ambiguous_code',
+          detail: '這組序號同時出現在不只一個活動，先跟活動負責人確認是哪一檔再核銷。' });
+      }
+      const { rows } = cands.length === 0 ? { rows: [] } : await client.query(
         `UPDATE coupon_codes
-            SET status='redeemed', redeemed_at=now(), redeemed_by=$2
-          WHERE code=$1 AND status='claimed'
+            SET status='redeemed', redeemed_at=now(), redeemed_by=$1
+          WHERE id=$2 AND status='claimed'
           RETURNING claimed_play_id, prize_id, activity_id`,
-        [code, by]
+        [by, cands[0].id]
       );
       if (rows.length > 0) {
         const playId = rows[0].claimed_play_id;

@@ -57,7 +57,7 @@
           <div class="db-step-num">1</div>
           <div class="db-step-body">
             <div class="db-step-title">準備訊息</div>
-            <div class="db-step-desc">到「訊息庫」挑一張現成的設計模板（已有 29 則），或自己建一則。挑好按卡片上的「用這則去群發」。</div>
+            <div class="db-step-desc">到「訊息庫」挑一張現成的設計模板（<span id="db-tpl-count">已有多則</span>），或自己建一則。挑好按卡片上的「用這則去群發」。</div>
           </div>
           <div class="db-step-go">前往訊息庫</div>
         </a>
@@ -172,6 +172,7 @@
         fetch('/admin/api/dashboard').then(function(r){return r.json();}).then(function(d){
           if(!d.ok){return;}
           var s=d.stats||{};
+          var tc=document.getElementById('db-tpl-count');if(tc&&s.templates!=null)tc.textContent='已有 '+s.templates+' 則';
           $('st-friends').textContent=num(s.friends);
           $('st-friends7').textContent='+'+num(s.friends_7d);
           $('st-activities').textContent=num(s.active_activities);

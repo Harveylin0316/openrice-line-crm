@@ -12,8 +12,30 @@
  */
 const { verifyOaFollower } = require('./oaFollower');
 
+/** 從已存的遊玩紀錄還原回應——同一個 play_key 重送時回同一個結果，不重複扣次數 */
+function replayFromRow(row) {
+  const snap = row.prize_snapshot || {};
+  return {
+    ok: true,
+    replayed: true,
+    play_id: row.id,
+    coupon_code: row.coupon_code || null,
+    // 第一次抽中優惠券但碼池剛好發完的人，重播也要看到「這份券剛好發完了」的說明，
+    // 不能只給獎名沒序號讓他以為頁面壞掉
+    coupon_out_of_stock: !row.coupon_code && snap.prize_type === 'coupon_code',
+    prize: {
+      id: row.prize_id,
+      name: snap.name, description: snap.description,
+      image_url: snap.image_url || null, position: snap.position || 0,
+      is_grand_prize: !!snap.is_grand_prize,
+      prize_type: snap.prize_type, prize_value: snap.prize_value || {},
+      coupon_code: row.coupon_code || null
+    }
+  };
+}
+
 async function selectPrizeAndRecord(opts) {
-  const { pool, activitySlug, gameType, lineUserId, lineDisplayName, req } = opts;
+  const { pool, activitySlug, gameType, lineUserId, lineDisplayName, req, playKey } = opts;
   if (!lineUserId) return { error: { status: 400, code: 'missing_line_user_id' } };
   // 註：require_follow_oa 的好友驗證已移到 /play 路由，與 token 驗證「並行」執行（加速「準備中」）。
 
@@ -25,7 +47,7 @@ async function selectPrizeAndRecord(opts) {
     const { rows: actRows } = await client.query(
       `SELECT id, status, start_at, end_at,
               daily_plays_per_user, base_plays_per_user,
-              referral_bonus_per, referral_bonus_max
+              referral_bonus_per, referral_bonus_max, referral_invites_per_bonus
        FROM activities WHERE slug = $1 AND game_type = $2 LIMIT 1`,
       [activitySlug, gameType]
     );
@@ -34,6 +56,32 @@ async function selectPrizeAndRecord(opts) {
       return { error: { status: 404, code: 'activity_not_found' } };
     }
     const a = actRows[0];
+    // 防重複扣次數：收訊差的用戶按了但回應沒送達，再按一次會帶同一把鑰匙——
+    // 查到同鑰匙的紀錄就回原本的結果，次數只扣一次。必須在扣次數檢查之前查，
+    // 否則重送的那次會因為「次數已用完」被擋，用戶永遠拿不到他抽到的結果。
+    if (playKey) {
+      const { rows: dup } = await client.query(
+        `SELECT id, prize_id, prize_snapshot, coupon_code FROM activity_plays
+          WHERE activity_id = $1 AND line_user_id = $2 AND properties->>'play_key' = $3 LIMIT 1`,
+        [a.id, lineUserId, playKey]);
+      if (dup.length) {
+        await client.query('ROLLBACK');
+        return replayFromRow(dup[0]);
+      }
+    }
+    // 收訊差重送的最後防線：判定「次數用完」前一律再查一次同鑰匙紀錄。
+    // 開頭那次查重看不到「還在執行中、尚未 commit 的第一個請求」；
+    // 這個請求等鎖等到第一個 commit 之後，次數看起來已滿——不補查的話，
+    // 重送會拿到「次數已用完」而不是他原本抽到的結果，防重播機制在它
+    // 唯一要保護的情境下反而失效。
+    const replayIfDuplicate = async () => {
+      if (!playKey) return null;
+      const { rows: dup } = await client.query(
+        `SELECT id, prize_id, prize_snapshot, coupon_code FROM activity_plays
+          WHERE activity_id = $1 AND line_user_id = $2 AND properties->>'play_key' = $3 LIMIT 1`,
+        [a.id, lineUserId, playKey]);
+      return dup.length ? replayFromRow(dup[0]) : null;
+    };
     if (a.status !== 'active') {
       await client.query('ROLLBACK');
       return { error: { status: 403, code: 'activity_not_active', detail: '活動目前不可玩' } };
@@ -49,47 +97,28 @@ async function selectPrizeAndRecord(opts) {
     }
 
     // 2) Quota 檢查（含 per-user override + base + referral bonus）
-    const { rows: overrideRow } = await client.query(
-      `SELECT max_plays_override FROM activity_user_quotas
-       WHERE activity_id = $1 AND line_user_id = $2 LIMIT 1`,
-      [a.id, lineUserId]
-    );
-    const override = overrideRow[0] || null;
-    const { rows: playedRow } = await client.query(
-      'SELECT COUNT(*) AS c FROM activity_plays WHERE activity_id = $1 AND line_user_id = $2',
-      [a.id, lineUserId]
-    );
-    const played = Number(playedRow[0].c);
-    const { rows: refRow } = await client.query(
-      `SELECT COUNT(*) AS c FROM activity_referrals
-       WHERE activity_id = $1 AND inviter_line_user_id = $2`,
-      [a.id, lineUserId]
-    );
-    const referralCount = Number(refRow[0].c);
-    const basePlays = Number(a.base_plays_per_user || 1);
-    const refPer = Number(a.referral_bonus_per || 0);
-    const refMax = Number(a.referral_bonus_max || 0);
-    const referralBonus = Math.min(refMax, referralCount * refPer);
-    // override 直接決定 total；否則用標準算法
-    const totalQuota = override
-      ? Number(override.max_plays_override)
-      : basePlays + referralBonus;
+    // 次數一律走 computeUserQuota——**唯一一份公式**。
+    // 這裡以前自己另寫了一套，三個地方跟顯示用的不一致：
+    //   既有好友照樣加次數（防洗根本沒生效）、忽略「每幾位換一次」、不算人工補發的次數。
+    // 用同一個 client 執行，才會在同一個交易與鎖裡面。
+    const txQuery = (sql, params) => client.query(sql, params);
+    const quota = await computeUserQuota(txQuery, a, lineUserId);
+    const totalQuota = quota.total;
+    const played = quota.played;
     if (played >= totalQuota) {
+      const rp = await replayIfDuplicate();
       await client.query('ROLLBACK');
-      const canEarnMore = !override && refPer > 0 && referralBonus < refMax;
+      if (rp) return rp;
+      const canEarnMore = !quota.override && quota.referral_bonus_per > 0 &&
+        quota.referral_bonus < quota.referral_bonus_max;
       return {
         error: {
           status: 429,
           code: 'quota_exhausted',
           detail: canEarnMore
-            ? '次數已用完！邀請朋友來玩可以再加 ' + refPer + ' 次。'
-            : (override ? '此用戶配額已用完（後台設定上限 ' + totalQuota + ' 次）。' : '次數已用完。'),
-          quota: {
-            total: totalQuota, played, remaining: 0, referrals: referralCount,
-            base: basePlays, referral_bonus: referralBonus,
-            referral_bonus_max: refMax, referral_bonus_per: refPer,
-            override: override ? { max_plays: Number(override.max_plays_override) } : null
-          }
+            ? '次數已用完！邀請還沒加入官方帳號的朋友來玩可以再加 ' + quota.referral_bonus_per + ' 次。'
+            : (quota.override ? '此用戶配額已用完（後台設定上限 ' + totalQuota + ' 次）。' : '次數已用完。'),
+          quota: quota
         }
       };
     }
@@ -99,11 +128,14 @@ async function selectPrizeAndRecord(opts) {
       const { rows: dCount } = await client.query(
         `SELECT COUNT(*) AS c FROM activity_plays
          WHERE activity_id = $1 AND line_user_id = $2
-           AND played_at >= date_trunc('day', NOW())`,
+           AND played_at >= date_trunc('day', NOW())
+           AND COALESCE(prize_snapshot->>'kind', '') <> 'draw_win'`,
         [a.id, lineUserId]
       );
       if (Number(dCount[0].c) >= a.daily_plays_per_user) {
+        const rp = await replayIfDuplicate();
         await client.query('ROLLBACK');
+        if (rp) return rp;
         return {
           error: {
             status: 429,
@@ -133,11 +165,15 @@ async function selectPrizeAndRecord(opts) {
     // 併發防護：取得獎品列鎖（FOR UPDATE）後複查遊玩數，避免併發 /play 超領
     // （所有 play 都鎖同一批 activity_prizes 列 → 同活動同用戶會被序列化）
     const { rows: reCount } = await client.query(
-      'SELECT COUNT(*) AS c FROM activity_plays WHERE activity_id = $1 AND line_user_id = $2',
+      `SELECT COUNT(*) AS c FROM activity_plays
+        WHERE activity_id = $1 AND line_user_id = $2
+          AND COALESCE(prize_snapshot->>'kind', '') <> 'draw_win'`,
       [a.id, lineUserId]
     );
     if (Number(reCount[0].c) >= totalQuota) {
+      const rp = await replayIfDuplicate();
       await client.query('ROLLBACK');
+      if (rp) return rp;
       return { error: { status: 429, code: 'quota_exhausted', detail: '次數已用完。' } };
     }
 
@@ -168,6 +204,7 @@ async function selectPrizeAndRecord(opts) {
     const prizeSnapshot = {
       name: pick.name,
       description: pick.description,
+      position: pick.position,
       prize_type: pick.prize_type,
       prize_value: pick.prize_value || {},
       image_url: pick.image_url || null,
@@ -183,6 +220,7 @@ async function selectPrizeAndRecord(opts) {
         JSON.stringify(prizeSnapshot),
         JSON.stringify({
           game_type: gameType,
+          play_key: playKey || undefined,
           ua: req && req.headers && req.headers['user-agent'] || null,
           ip: req && ((req.headers && req.headers['x-forwarded-for']) || req.ip || '')
             ? (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim() || null
@@ -245,11 +283,44 @@ async function selectPrizeAndRecord(opts) {
     };
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (_e) {}
+    if (playKey && String(err && err.message || '').includes('uq_plays_play_key')) {
+      // 同鑰匙的另一個請求剛好先寫進去了——把那筆撈出來照樣回給用戶
+      try {
+        const { rows: dup } = await pool.query(
+          `SELECT p.id, p.prize_id, p.prize_snapshot, p.coupon_code FROM activity_plays p
+            JOIN activities a2 ON a2.id = p.activity_id
+           WHERE a2.slug = $1 AND p.line_user_id = $2 AND p.properties->>'play_key' = $3 LIMIT 1`,
+          [activitySlug, lineUserId, playKey]);
+        if (dup.length) return replayFromRow(dup[0]);
+      } catch (_e2) { /* 撈不到就走一般錯誤 */ }
+    }
     console.error('selectPrizeAndRecord error:', err && err.message);
     return { error: { status: 500, code: 'play_failed', detail: String(err.message || '').slice(0, 300) } };
   } finally {
     client.release();
   }
+}
+
+/**
+ * 次數算式的**唯一一份**。要顯示或判定次數一律呼叫這裡，不要自己算。
+ * 之前「玩的關卡」與「畫面顯示」各寫一份，導致防洗失效、忽略「每幾位換一次」、
+ * 人工補發沒算到——修過一次就是為了這個，不要再複製一份出去。
+ */
+function computeQuotaNumbers(cfg) {
+  const basePlays = Number(cfg.basePlays || 0);
+  const refPer = Number(cfg.refPer || 0);
+  const refMax = Number(cfg.refMax || 0);
+  const invitesPer = Math.max(1, Number(cfg.invitesPer || 1));
+  const newFriends = Number(cfg.newFriends || 0);
+  const manualBonus = Number(cfg.manualBonus || 0);
+  const played = Number(cfg.played || 0);
+  const override = (cfg.override === null || cfg.override === undefined) ? null : Number(cfg.override);
+  const referralBonus = Math.min(refMax, Math.floor(newFriends / invitesPer) * refPer);
+  const nextBonusIn = (referralBonus >= refMax || refPer <= 0)
+    ? 0 : invitesPer - (newFriends % invitesPer);
+  const total = (override === null ? basePlays + referralBonus : override) + manualBonus;
+  return { total, played, remaining: Math.max(0, total - played),
+    referral_bonus: referralBonus, next_bonus_in: nextBonusIn };
 }
 
 async function computeUserQuota(query, activity, lineUserId) {
@@ -267,37 +338,51 @@ async function computeUserQuota(query, activity, lineUserId) {
   const override = overrideRows[0] || null;
   // 2) 已玩次數
   const { rows: playedRows } = await query(
-    'SELECT COUNT(*) AS c FROM activity_plays WHERE activity_id = $1 AND line_user_id = $2',
+    `SELECT COUNT(*) AS c FROM activity_plays
+      WHERE activity_id = $1 AND line_user_id = $2
+        AND COALESCE(prize_snapshot->>'kind', '') <> 'draw_win'`,
     [activity.id, lineUserId]
   );
   const played = Number(playedRows[0].c);
-  // 3) 邀請成功數
+  // 3) 邀請成功數 —— 只算「本來不是官方帳號好友」的人。
+  //    既有好友互點連結不加次數：否則幾百位老友互洗就能刷出無限次遊戲。
   const { rows: refRows } = await query(
-    `SELECT COUNT(*) AS c FROM activity_referrals
-     WHERE activity_id = $1 AND inviter_line_user_id = $2`,
+    `SELECT COUNT(*) FILTER (WHERE invitee_was_existing IS FALSE) AS c,
+            COUNT(*) FILTER (WHERE invitee_was_existing IS NOT FALSE) AS existing
+       FROM activity_referrals
+      WHERE activity_id = $1 AND inviter_line_user_id = $2`,
     [activity.id, lineUserId]
   );
   const referrals = Number(refRows[0].c);
-  const referralBonus = Math.min(refMax, Math.floor(referrals / invitesPer) * refPer);
-  // 「再邀幾人就多 1 份」：已達上限就是 0（前端據此顯示進度或收起邀請卡）
-  const nextBonusIn = referralBonus >= refMax || refPer <= 0
-    ? 0
-    : invitesPer - (referrals % invitesPer);
-  // override 直接覆寫 total（取代 base + referral）；否則用標準計算
-  const total = override
-    ? Number(override.max_plays_override)
-    : basePlays + referralBonus;
+  const referralsExisting = Number(refRows[0].existing);
+  // 4) 加碼次數（揪友賺哩等活動發的，冪等發放，與邀請加成分開計）
+  const { rows: bonusRows } = await query(
+    `SELECT COALESCE(SUM(plays), 0)::int AS b FROM activity_bonus_plays
+      WHERE activity_id = $1 AND line_user_id = $2`,
+    [activity.id, lineUserId]
+  );
+  const bonusPlays = Number(bonusRows[0].b || 0);
+  const nums = computeQuotaNumbers({
+    basePlays, refPer, refMax, invitesPer,
+    newFriends: referrals, manualBonus: bonusPlays, played,
+    override: override ? Number(override.max_plays_override) : null
+  });
+  const total = nums.total;
+  const referralBonus = nums.referral_bonus;
+  const nextBonusIn = nums.next_bonus_in;
   return {
     total,
     played,
     remaining: Math.max(0, total - played),
     referrals,
+    referrals_existing: referralsExisting,
     base: basePlays,
     referral_bonus: referralBonus,
     referral_bonus_max: refMax,
     referral_bonus_per: refPer,
     referral_invites_per_bonus: invitesPer,
     next_bonus_in: nextBonusIn,
+    bonus_plays: bonusPlays,
     override: override ? {
       max_plays: Number(override.max_plays_override),
       note: override.note || null
@@ -343,14 +428,17 @@ async function fetchLineDisplayName(lineUserId) {
   }
 }
 
-async function notifyInviterOfReferral({ query, activity, activitySlug, gameType, inviterId, inviteeId }) {
+async function notifyInviterOfReferral({ query, activity, activitySlug, gameType, inviterId, inviteeId, inviteeWasExisting }) {
   if (shouldSkipReferralNotify(activity.id + ':' + inviterId)) return;
   const refPer = Number(activity.referral_bonus_per || 0);
   const refMax = Number(activity.referral_bonus_max || 0);
   const invitesPer = Math.max(1, Number(activity.referral_invites_per_bonus || 1));
+  // 只算「本來不是好友」的——要跟 computeUserQuota 同一套算法。
+  // 這裡以前算的是所有點過連結的人，於是推播說「+1 次」但實際沒加，兩邊對不上。
   const { rows: refRows } = await query(
     `SELECT COUNT(*) AS c FROM activity_referrals
-     WHERE activity_id = $1 AND inviter_line_user_id = $2`,
+     WHERE activity_id = $1 AND inviter_line_user_id = $2
+       AND invitee_was_existing IS FALSE`,
     [activity.id, inviterId]
   );
   const count = Number(refRows[0].c);
@@ -367,7 +455,12 @@ async function notifyInviterOfReferral({ query, activity, activitySlug, gameType
   let text;
   const capped = bonusAt(count) >= refMax;
   const toNext = invitesPer - (count % invitesPer);
-  if (gained > 0) {
+  if (inviteeWasExisting === true) {
+    // 對方本來就是官方帳號好友：不加次數。要照實說，否則邀請人會等一個永遠不會來的次數。
+    text = who + ' 打開了你的連結，不過他本來就是官方帳號好友，這次不會多一次機會。' +
+      '找還沒加入官方帳號的朋友才會加。';
+    if (gameUrl) text += '你的遊戲在這：' + gameUrl;
+  } else if (gained > 0) {
     text = '邀請成功！' + who + ' 已透過你的連結加入。你獲得 +' + gained +
       ' 次遊戲機會（已邀 ' + count + ' 位，上限 +' + refMax + ' 次）。';
     if (gameUrl) text += '打開遊戲馬上用：' + gameUrl;
@@ -474,12 +567,16 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
       sameInviter = !!(ex[0] && ex[0].inviter_line_user_id === inviterId);
     } catch (e) { /* 查不到就回 null，前端當作靜默處理 */ }
   }
-  if (counted) {
-    // 邀請成功 → 即時通知邀請人。fire-and-forget：通知失敗絕不影響 API 回應
-    notifyInviterOfReferral({ query, activity: a, activitySlug, gameType, inviterId, inviteeId })
-      .catch(err => console.error('referral inviter notify failed:', err && err.message));
+  if (counted && gameType !== 'mgm') {
+    // 邀請成功 → 即時通知邀請人。必須 await：serverless（Lambda）在 response 送出後
+    // 會凍結，不 await 的話這個推播多數時候根本不會送出（lineWebhook.js 的同一條鐵則）。
+    // 失敗只記 log，絕不影響 API 回應本體。
+    // MGM（揪友賺哩）有自己的里程碑卡片，不走這個遊戲式通知
+    try {
+      await notifyInviterOfReferral({ query, activity: a, activitySlug, gameType, inviterId, inviteeId, inviteeWasExisting });
+    } catch (err) { console.error('referral inviter notify failed:', err && err.message); }
   }
-  return { ok: true, counted, same_inviter: sameInviter };
+  return { ok: true, counted, same_inviter: sameInviter, invitee_was_existing: inviteeWasExisting };
 }
 
-module.exports = { selectPrizeAndRecord, computeUserQuota, registerReferral };
+module.exports = { selectPrizeAndRecord, computeUserQuota, computeQuotaNumbers, registerReferral, notifyInviterOfReferral };

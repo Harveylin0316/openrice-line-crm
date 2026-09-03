@@ -1,10 +1,86 @@
-<!DOCTYPE html>
+<%
+  var _activityRules = activity.rules && typeof activity.rules === 'object' ? activity.rules : {};
+  var _ui = _activityRules.ui && typeof _activityRules.ui === 'object' ? _activityRules.ui : {};
+  var _showHeroArt = typeof _ui.show_hero_art === 'boolean'
+    ? _ui.show_hero_art
+    : activity.slug !== 'share-miles';
+  var _rawLogoUrl = String(_ui.logo_url || '').trim();
+  var _logoUrl = (/^https:\/\//i.test(_rawLogoUrl) || /^\//.test(_rawLogoUrl))
+    ? _rawLogoUrl : '/images/openrice-wordmark.png';
+  var _wheelStyle = ['brand', 'clean', 'bold', 'custom'].indexOf(_ui.wheel_style) >= 0 ? _ui.wheel_style : 'brand';
+  var _wheelPresets = {
+    brand: { slice_1:'#FFFFFF', slice_2:'#FFF3C4', grand:'#F9C73B', text:'#4E342E', line:'#4E342E', highlight:'#F9C73B', pointer:'#E8491D', pointer_dot:'#FBC02D', hub:'#FFFFFF', size:318, line_width:4 },
+    clean: { slice_1:'#FFFFFF', slice_2:'#F7F4EC', grand:'#FFF3C4', text:'#3F2C25', line:'#6F625C', highlight:'#E0A900', pointer:'#E8491D', pointer_dot:'#F9C73B', hub:'#FFFFFF', size:308, line_width:2.5 },
+    bold: { slice_1:'#F9C73B', slice_2:'#FFFFFF', grand:'#EFAF14', text:'#3F2C25', line:'#3F2C25', highlight:'#F15A22', pointer:'#F15A22', pointer_dot:'#F9C73B', hub:'#FFF7D6', size:326, line_width:5 }
+  };
+  var _wheelRaw = _ui.wheel_custom && typeof _ui.wheel_custom === 'object' ? _ui.wheel_custom : {};
+  var _wheelBase = _wheelPresets[_wheelStyle] || _wheelPresets.brand;
+  function _wheelHex(value, fallback) {
+    var v = String(value || '').toUpperCase();
+    return /^#[0-9A-F]{6}$/.test(v) ? v : fallback;
+  }
+  function _wheelNumber(value, min, max, fallback) {
+    var n = Number(value);
+    return isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+  }
+  var _wheelConfig = {
+    slice_1: _wheelHex(_wheelRaw.slice_1, _wheelBase.slice_1),
+    slice_2: _wheelHex(_wheelRaw.slice_2, _wheelBase.slice_2),
+    grand: _wheelHex(_wheelRaw.grand, _wheelBase.grand),
+    text: _wheelHex(_wheelRaw.text, _wheelBase.text),
+    line: _wheelHex(_wheelRaw.line, _wheelBase.line),
+    highlight: _wheelHex(_wheelRaw.highlight, _wheelBase.highlight),
+    pointer: _wheelHex(_wheelRaw.pointer, _wheelBase.pointer),
+    pointer_dot: _wheelHex(_wheelRaw.pointer_dot, _wheelBase.pointer_dot),
+    hub: _wheelHex(_wheelRaw.hub, _wheelBase.hub),
+    size: _wheelNumber(_wheelRaw.size, 260, 360, _wheelBase.size),
+    line_width: _wheelNumber(_wheelRaw.line_width, 1, 8, _wheelBase.line_width)
+  };
+  var _copyDefaults = {
+    remaining_lead: '還可以轉',
+    remaining_unit: '次',
+    greeting: '哈囉，{{name}}',
+    spin_button: '開始轉',
+    redemption_label: '兌獎說明',
+    invite_title: '找朋友一起，多一次機會',
+    invite_progress: '已邀 {{invited}} 位，再邀 {{next}} 位就多 {{bonus}} 次（還能加 {{left}} 次）',
+    invite_count: '已邀 {{invited}} 人',
+    invite_button: '找朋友',
+    invite_maxed: '邀請次數已用滿',
+    existing_friend_note: '（另外 {{existing}} 位本來就是好友，不加次數）',
+    turns_used_up: '次數用完了',
+    invite_unlock: '再找 {{next}} 位朋友來，就多 {{bonus}} 次',
+    campaign_done: '這次玩完了',
+    campaign_done_note: '你抽到的結果就在下方，下次活動見',
+    campaign_done_button: '本次活動已完成',
+    winner_eyebrow: '恭喜抽中',
+    no_prize_eyebrow: '開獎結果',
+    no_prize_desc: '這次沒中，找個朋友一起，再試一次',
+    result_close: '完成，回本頁看結果',
+    invite_after_miss: '找朋友再抽一次',
+    result_invite_note: '朋友加入官方帳號才算，最多還能加 {{left}} 次',
+    history_title: '我抽到的獎',
+    history_note: '結果會留在這一頁，不用再跳到別的地方找'
+  };
+  var _rawCopy = _ui.copy && typeof _ui.copy === 'object' ? _ui.copy : {};
+  var _activityCopy = {};
+  Object.keys(_copyDefaults).forEach(function (key) {
+    var value = typeof _rawCopy[key] === 'string' ? _rawCopy[key].trim().slice(0, 220) : '';
+    _activityCopy[key] = value || _copyDefaults[key];
+  });
+  function _copyText(key, vars) {
+    var text = _activityCopy[key] || _copyDefaults[key] || '';
+    vars = vars || {};
+    return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, function (token, name) {
+      return Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : token;
+    });
+  }
+%><!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#FBF8F5" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#211713" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#F9C73B" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <script src="/games-mgm.js?v=20260811a"></script>
@@ -13,20 +89,12 @@
        設計準據：openrice-september-wheel-ready-state-v1.png
        紙感暖底、黃銅轉盤、手繪食物線稿、活版印刷按鈕。
        禁用：紫藍漸層 / 毛玻璃 / 光暈球 / 漸層標題 / emoji / 紙花 / 滿頁陰影。 */
+    /* 這頁固定亮色。原本跟著系統深色模式走，結果手機開深色就整頁變黑，
+       跟品牌素材（奶油白底＋暖色扁平插畫）完全對不上。設計定案是亮色，不做深色版。 */
     :root{
-      --ink:#3E2723; --ink2:#8D6E63; --paper:#FBF8F5; --surface:#FFFDFB;
-      --orange:#F15A22; --yellow:#F9C73B; --line:#E4DAD2;
-      --brass1:#C9A227; --brass2:#8A6A2F; --brass3:#5E4620;
-    }
-    /* 深色模式：LINE webview 跟系統走，所以主力是 media query；
-       data-theme 保留給日後後台切換用，兩者要一致。 */
-    @media (prefers-color-scheme: dark){
-      :root:not([data-theme="light"]){
-        --ink:#F7EFE7; --ink2:#BCAAA4; --paper:#211713; --surface:#30221C; --line:#4A3630;
-      }
-    }
-    [data-theme="dark"]{
-      --ink:#F7EFE7; --ink2:#BCAAA4; --paper:#211713; --surface:#30221C; --line:#4A3630;
+      --ink:#3F2C25; --ink2:#806A61; --paper:#F7F4EC; --surface:#FFFFFF;
+      --orange:#E8491D; --yellow:#F9C73B; --yellow-soft:#FFF7D6; --line:#EDE4CE;
+      color-scheme: light;
     }
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     /* display:flex/block 會蓋掉瀏覽器預設的 [hidden]，JS 藏不掉元素 */
@@ -38,60 +106,62 @@
       -webkit-font-smoothing:antialiased;
       padding-bottom:env(safe-area-inset-bottom);
     }
-    /* 紙質顆粒：純 CSS，很淡（AI 感的解藥，但不能重） */
-    body::before{
-      content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.045;
-      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+    .preview-banner{
+      position:sticky;top:0;z-index:20;max-width:520px;margin:0 auto;padding:8px 12px;
+      background:#3F2C25;color:#FFF7D6;text-align:center;font-size:11px;font-weight:800;
+      letter-spacing:.02em;
     }
-    .page{position:relative;z-index:1;max-width:520px;margin:0 auto;padding:14px 18px 28px}
+    .page{position:relative;z-index:1;max-width:520px;min-height:100svh;margin:0 auto;padding:16px 18px 32px;background:var(--surface)}
 
     /* ── 品牌列 ── */
-    .brand-bar{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+    .brand-bar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
     .logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--ink)}
     .logo .o{color:var(--orange)}
-    .chip{font-size:11px;font-weight:700;border:1.5px solid var(--ink);border-radius:5px;padding:1px 7px;color:var(--ink)}
+    .chip{font-size:11px;font-weight:800;background:var(--yellow);border:0;border-radius:999px;padding:3px 9px;color:var(--ink)}
 
     /* ── 標題 ── */
-    .hero{position:relative;margin:6px 0 18px}
+    .hero{position:relative;margin:0 0 14px;padding:17px 18px;border-radius:18px;background:var(--yellow-soft);overflow:hidden}
     .hero h1{
-      margin:0;font-size:34px;line-height:1.15;font-weight:900;letter-spacing:-.01em;
+      margin:0;font-size:32px;line-height:1.15;font-weight:900;letter-spacing:-.01em;
       max-width:76%;
     }
     /* 手寫感底線：兩段不等長，避免電腦畫出來的死板 */
-    .hero .rule{margin-top:7px;max-width:76%}
-    .hero p{margin:9px 0 0;font-size:13px;color:var(--ink2);line-height:1.65;max-width:76%}
-    .hero .art{position:absolute;top:-6px;right:-6px;width:104px;opacity:.72;pointer-events:none}
-    [data-theme="dark"] .hero .art{opacity:.5}
+    .hero .rule{display:none}
+    .hero p{margin:7px 0 0;font-size:13px;color:var(--ink2);line-height:1.55;max-width:76%}
+    .hero .art{position:absolute;top:3px;right:2px;width:98px;opacity:.66;pointer-events:none}
+    .hero.no-art h1,.hero.no-art p{max-width:100%}
 
     /* ── 轉盤 ── */
-    .stage-wrap{margin:4px 0 0;display:flex;justify-content:center}
-    .stage{position:relative;width:min(88vw,330px);aspect-ratio:1;}
+    .stage-wrap{margin:0;display:flex;justify-content:center}
+    .stage{position:relative;width:min(100%,var(--wheel-size,318px));aspect-ratio:1;}
     .ring{position:absolute;inset:0;pointer-events:none;z-index:3}
+    .ring circle{stroke:var(--wheel-line,#4E342E);stroke-width:var(--wheel-line-width,4)}
     .canvas-wrap{position:absolute;inset:7.5%;border-radius:50%;overflow:hidden}
     #wheel{width:100%;height:100%;display:block}
     /* 指針：有重量的實體物件，不是三角形 */
-    .pointer{position:absolute;left:50%;top:-9px;transform:translateX(-50%);z-index:5;filter:drop-shadow(0 3px 4px rgba(62,39,35,.34))}
+    .pointer{position:absolute;left:50%;top:-9px;transform:translateX(-50%);z-index:5;filter:drop-shadow(0 3px 3px rgba(62,39,35,.22))}
     /* 中心轂 */
     .hub{
       position:absolute;left:50%;top:50%;width:19%;aspect-ratio:1;transform:translate(-50%,-50%);
       border-radius:50%;z-index:4;border:0;padding:0;cursor:pointer;
-      background:
-        radial-gradient(circle at 50% 50%, transparent 0 52%, rgba(74,53,23,.55) 52% 56%, transparent 56%),
-        linear-gradient(158deg, #E2C777 0%, var(--brass1) 44%, var(--brass2) 78%, var(--brass3) 100%);
-      box-shadow:inset 0 1.5px 0 rgba(255,246,220,.6), inset 0 -2px 3px rgba(48,32,10,.45), 0 2px 5px rgba(62,39,35,.3);
-      border:1.5px solid #4A3517;
+      background-color:var(--wheel-hub,#FFFFFF);
+      border:3.4px solid var(--wheel-line,#4E342E);
       font-size:0;color:transparent;
+      background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M9 21 h30 a15 15 0 0 1 -30 0 z' fill='%23FFFFFF' stroke='%234E342E' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M13 21 a11 6 0 0 1 22 0 z' fill='%23FBC02D' stroke='%234E342E' stroke-width='2.6' stroke-linejoin='round'/%3E%3Cpath d='M18 29 q6 5 12 0' fill='none' stroke='%23E8491D' stroke-width='2.8' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-size:74% 74%;background-position:center;background-repeat:no-repeat;
     }
     .hub:disabled{cursor:default}
     #wheel.windup{transition:transform .32s cubic-bezier(.34,.02,.72,.24)}
     .stage.spinning #wheel{transition:transform 4.05s cubic-bezier(.12,.74,.14,1)}
     .stage.landed .hub{animation:hubKnock .42s ease-out}
+    .pointer-main{fill:var(--wheel-pointer,#E8491D);stroke:var(--wheel-line,#4E342E)}
+    .pointer-dot{fill:var(--wheel-pointer-dot,#FBC02D);stroke:var(--wheel-line,#4E342E)}
     @keyframes hubKnock{0%{transform:translate(-50%,-50%) scale(1)}30%{transform:translate(-50%,-50%) scale(.93)}100%{transform:translate(-50%,-50%) scale(1)}}
 
     /* ── 狀態行：數字是主角 ── */
-    .status-row{margin:20px 0 0;text-align:center}
+    .status-row{margin:14px 0 0;text-align:center}
     .status-row .big{font-size:22px;font-weight:900;letter-spacing:-.01em;line-height:1.1}
-    .status-row .n{font-size:46px;color:var(--orange);margin:0 5px;vertical-align:-4px;display:inline-block}
+    .status-row .n{font-size:42px;color:var(--orange);margin:0 5px;vertical-align:-4px;display:inline-block}
     .status-row .sub{margin-top:5px;font-size:13px;color:var(--ink2);line-height:1.5;min-height:19px}
     .status-row .sub .name{font-weight:800;color:var(--ink)}
     .status-row.ready .sub{color:var(--ink)}
@@ -102,48 +172,36 @@
 
     /* ── 主行動：活版印刷，實心位移陰影不是柔光 ── */
     .cta{
-      display:block;width:100%;margin:14px 0 0;padding:16px 20px;border:0;border-radius:9px;
-      background:var(--orange);color:#fff;font-size:20px;font-weight:900;font-family:inherit;
-      letter-spacing:.04em;cursor:pointer;box-shadow:0 4px 0 #B8401A;transition:transform .1s, box-shadow .1s;
+      display:block;width:100%;margin:13px 0 0;padding:16px 20px;border:0;border-radius:14px;
+      background:var(--yellow);color:var(--ink);font-size:20px;font-weight:900;font-family:inherit;
+      letter-spacing:.02em;cursor:pointer;box-shadow:0 5px 12px rgba(171,124,0,.18);transition:transform .1s, box-shadow .1s;
     }
-    .cta:active{transform:translateY(3px);box-shadow:0 1px 0 #B8401A}
-    .cta:disabled{background:var(--line);color:var(--paper);box-shadow:0 4px 0 rgba(0,0,0,.18);cursor:default}
-    .cta.ghost{background:transparent;color:var(--orange);border:2px solid var(--orange);box-shadow:none}
+    .cta:active{transform:translateY(2px);box-shadow:0 2px 6px rgba(171,124,0,.18)}
+    .cta:disabled{background:#EDE9DF;color:#A69B95;box-shadow:none;cursor:default}
+    .cta.ghost{background:#fff;color:var(--ink);border:1.5px solid var(--line);box-shadow:none}
     .cta.ghost:active{transform:translateY(1px)}
 
-    /* 已抽到的券直接留在本活動頁，不再把使用者導到另一個錢包頁。 */
-    .my-coupons{margin:18px 0 0;padding:16px;border:1.5px solid var(--line);border-radius:12px;background:var(--surface)}
-    .my-coupons-title{font-size:16px;font-weight:900;color:var(--ink)}
-    .my-coupons-sub{margin-top:3px;font-size:12px;color:var(--ink2);line-height:1.5}
-    .my-coupons-list{display:grid;gap:9px;margin-top:12px}
-    .my-coupon{display:flex;align-items:center;gap:10px;padding:11px 10px;border-radius:8px;background:var(--paper);text-align:left}
-    .my-coupon-main{min-width:0;flex:1}
-    .my-coupon-name{font-size:13px;font-weight:800;line-height:1.35;color:var(--ink)}
-    .my-coupon-code{margin-top:4px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;font-weight:900;letter-spacing:.04em;color:var(--orange);word-break:break-all}
-    .my-coupon-meta{margin-top:3px;font-size:11px;color:var(--ink2)}
-    .my-coupon-copy{flex:0 0 auto;border:1.5px solid var(--orange);border-radius:7px;background:transparent;color:var(--orange);padding:8px 9px;font-family:inherit;font-size:12px;font-weight:900;cursor:pointer}
-    .my-coupon-copy:active{transform:translateY(1px)}
-
     /* ── 分隔：虛線，不是實線卡片邊 ── */
-    .dash{border:0;border-top:1.5px dashed var(--line);margin:20px 0}
+    .dash{border:0;border-top:1px solid var(--line);margin:18px 0}
 
     /* ── 邀請區：刻意不做成又一張圓角卡片 ── */
-    .invite-card{display:flex;align-items:center;gap:13px}
-    .invite-card.maxed{opacity:.62}
+    .invite-card{display:flex;align-items:center;gap:13px;padding:15px;border-radius:16px;background:var(--yellow-soft)}
+    .invite-card.maxed{opacity:.72}
     .invite-art{width:52px;flex:0 0 auto;opacity:.85}
     .invite-left{flex:1;min-width:0}
     .invite-title{font-size:16px;font-weight:800;line-height:1.35}
     .invite-title .n{color:var(--orange);font-size:19px;margin:0 2px}
     .invite-sub{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.5}
     .invite-meta{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.5}
+    #invite-existing{display:block;font-size:11px;opacity:.9}
     .invite-meta .n{font-size:16px;font-weight:900;color:var(--orange);margin:0 2px;display:inline-block}
     .invite-card.maxed .invite-meta .n{color:var(--ink2)}
     .invite-btn{
-      flex:0 0 auto;padding:11px 17px;border:2px solid var(--ink);border-radius:8px;background:transparent;
+      flex:0 0 auto;padding:11px 17px;border:0;border-radius:10px;background:var(--yellow);
       color:var(--ink);font-size:15px;font-weight:800;font-family:inherit;cursor:pointer;
     }
     .invite-btn:active{transform:translateY(1px)}
-    .invite-card.maxed .invite-btn{border-color:var(--line);color:var(--ink2)}
+    .invite-card.maxed .invite-btn{background:#EEE8D9;color:var(--ink2)}
 
     /* ── 結果：由下往上推的 bottom sheet ── */
     .modal{position:fixed;inset:0;z-index:60;display:none}
@@ -152,21 +210,20 @@
     .modal.open::before{opacity:1}
     .sheet{
       position:absolute;left:0;right:0;bottom:0;background:var(--surface);
-      border-radius:22px 22px 0 0;padding:22px 22px calc(24px + env(safe-area-inset-bottom));
+      width:100%;max-width:520px;margin:0 auto;
+      border-radius:24px 24px 0 0;padding:24px 22px calc(24px + env(safe-area-inset-bottom));
       text-align:center;transform:translateY(102%);transition:transform .38s cubic-bezier(.16,.9,.24,1);
-      max-height:88vh;overflow-y:auto;box-shadow:0 -3px 0 var(--orange);
+      max-height:88vh;overflow-y:auto;box-shadow:0 -4px 0 var(--yellow);
     }
     .modal.open .sheet{transform:translateY(0)}
-    .modal.grand .sheet{background:var(--yellow);box-shadow:0 -3px 0 #D9A800}
+    .modal.grand .sheet{background:var(--yellow-soft);box-shadow:0 -5px 0 var(--yellow)}
     .ornament{display:flex;align-items:center;justify-content:center;gap:9px;color:var(--orange);margin-bottom:11px}
     .ornament i{display:block;width:38px;height:1.5px;background:currentColor;opacity:.55}
     .ornament b{font-size:15px;font-style:normal;line-height:1}
     .modal.grand .ornament{color:#7A5B00}
     .modal-eyebrow{font-size:14px;font-weight:800;color:var(--ink);margin-bottom:7px}
     .modal-img-wrap{margin:0 0 8px;min-height:0}
-    .modal-img-wrap img{max-width:130px;max-height:104px;border-radius:8px}
-    .modal.grand .modal-img-wrap{margin:-4px 0 12px}
-    .modal.grand .modal-img-wrap img{width:min(68vw,230px);max-width:none;max-height:none;border-radius:14px;box-shadow:0 8px 20px rgba(87,58,0,.22)}
+    .modal-img-wrap img{max-width:190px;max-height:150px;border-radius:14px}
     .modal-prize{font-size:31px;font-weight:900;line-height:1.2;color:var(--orange);letter-spacing:-.01em}
     .modal.grand .modal-prize{color:#3E2723;font-size:33px}
     .modal.noprize .modal-prize{color:var(--ink);font-size:25px}
@@ -175,17 +232,51 @@
     .modal.grand .modal-desc{color:#6B5200}
     .modal-btn{
       display:block;width:100%;margin-top:17px;padding:15px;border:0;border-radius:9px;
-      background:var(--orange);color:#fff;font-size:17px;font-weight:900;font-family:inherit;cursor:pointer;
-      box-shadow:0 4px 0 #B8401A;
+      background:var(--yellow);color:var(--ink);font-size:17px;font-weight:900;font-family:inherit;cursor:pointer;
+      box-shadow:0 4px 10px rgba(171,124,0,.18);
     }
-    .modal-btn:active{transform:translateY(3px);box-shadow:0 1px 0 #B8401A}
-    .modal.grand .modal-btn{background:#3E2723;box-shadow:0 4px 0 #241512}
-    .modal.grand .modal-btn:active{box-shadow:0 1px 0 #241512}
+    .modal-btn:active{transform:translateY(2px);box-shadow:0 2px 5px rgba(171,124,0,.18)}
+    .modal.grand .modal-btn{background:var(--yellow);color:var(--ink);box-shadow:0 4px 10px rgba(171,124,0,.18)}
+    .modal.grand .modal-btn:active{box-shadow:0 2px 5px rgba(171,124,0,.18)}
     .sheet-dismiss{display:block;margin:13px auto 0;border:0;background:transparent;font-family:inherit;
       font-size:13.5px;font-weight:700;color:var(--ink2);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
     .modal-prize.pop{animation:statPop .46s cubic-bezier(.2,1.4,.4,1)}
+    .myprize{margin-top:18px;padding:16px;border:2px solid var(--yellow);border-radius:16px;background:#fff}
+    .myprize-head{font-size:18px;font-weight:900;color:var(--ink)}
+    .myprize-note{font-size:12px;color:var(--ink2);margin:3px 0 8px;line-height:1.5}
+    .pz{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+    .pz:first-child{margin:0 -7px;padding:12px 9px;border-radius:11px;background:var(--yellow-soft);border-bottom:0}
+    .pz:last-child{border-bottom:0}
+    .pz-main{flex:1;min-width:0}
+    .pz-name{font-size:15px;font-weight:900;color:var(--ink);line-height:1.4}
+    .pz-latest{display:inline-block;margin-right:6px;padding:2px 6px;border-radius:999px;background:var(--yellow);font-size:10px;font-weight:900;vertical-align:1px}
+    .pz-miss .pz-name{font-weight:700;color:var(--ink2)}
+    .pz-miss{opacity:.78}
+    .pz-sub{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.6}
+    .pz-code{display:inline-flex;align-items:center;gap:8px;margin-top:6px;padding:6px 10px;border:1px dashed var(--line);border-radius:8px;font-size:13px;font-weight:800;color:var(--ink);letter-spacing:.04em}
+    .pz-copy{border:0;background:var(--orange);color:#fff;font-size:11.5px;font-weight:800;padding:4px 9px;border-radius:6px;cursor:pointer}
+    .pz-when{font-size:11.5px;color:var(--ink2);white-space:nowrap;padding-top:3px}
     .modal-foot{font-size:12.5px;color:var(--ink2);margin-top:11px;line-height:1.6}
     .modal-foot .n{color:var(--orange);font-weight:900;font-size:15px;margin:0 2px}
+
+    /* ── 兌獎說明：預設收合，需要時才展開 ── */
+    .redeem-details{margin-top:13px}
+    .redeem-details summary{
+      display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 4px;
+      color:var(--ink2);font-size:13.5px;font-weight:800;cursor:pointer;list-style:none;
+      text-decoration:underline;text-underline-offset:4px;
+    }
+    .redeem-details summary::-webkit-details-marker{display:none}
+    .redeem-details summary::after{content:'›';font-size:20px;line-height:1;text-decoration:none;transform:rotate(90deg);transition:transform .18s}
+    .redeem-details[open] summary::after{transform:rotate(-90deg)}
+    .redeem-body{margin-top:5px;padding:17px 16px;border:1px solid var(--line);border-radius:15px;background:#FFFDF7}
+    .redeem-body h2{margin:0 0 14px;font-size:20px;line-height:1.3;color:var(--ink)}
+    .redeem-group+.redeem-group{margin-top:18px;padding-top:17px;border-top:1px solid var(--line)}
+    .redeem-group h3{margin:0 0 8px;font-size:15px;line-height:1.4;color:var(--ink)}
+    .redeem-group ul{margin:0;padding-left:20px;color:var(--ink2);font-size:13px;line-height:1.65}
+    .redeem-group li+li{margin-top:7px}
+    .redeem-group strong{color:var(--ink);font-weight:900}
+    .terms-link{display:inline-flex;align-items:center;margin-top:11px;color:#B8421B;font-size:13px;font-weight:900;text-underline-offset:3px}
 
     /* ── 優惠碼：橘框盒 + 複製 ── */
     .coupon-block{margin-top:15px;border:2px solid var(--orange);border-radius:10px;display:flex;align-items:stretch;overflow:hidden}
@@ -211,25 +302,32 @@
       .stage.landed .hub{animation:none}
       .cta,.modal-btn{transition:none}
     }
-  </style>
+  
+    /* 官方 logo（去背 PNG）——文字版拼出來的 logo 字距與品牌不一致，統一改用圖檔 */
+    .logo-img{height:26px;width:auto;display:block}
+    .logo{font-size:0 !important;letter-spacing:0 !important}
+    @media (min-width:560px){.page{margin:20px auto;border-radius:22px;box-shadow:0 12px 35px rgba(63,44,37,.09);min-height:calc(100svh - 40px)}}
+    @media (max-width:374px){.page{padding-left:14px;padding-right:14px}.hero h1{font-size:29px}}
+    </style>
 </head>
 <body>
+  <div class="preview-banner" id="preview-banner" hidden>後台安全測試｜不扣次數、不扣庫存、不產生中獎紀錄</div>
   <div class="page">
 
     <header class="brand-bar">
       <!-- 正式上線請換成專案內的官方 OpenRice Logo 資產 -->
-      <div class="logo"><span class="o">Open</span>Rice</div>
+      <div class="logo"><img src="<%= _logoUrl %>" alt="OpenRice 開飯喇" class="logo-img" /></div>
       <div class="chip">台灣</div>
     </header>
 
-    <section class="hero">
+    <section class="hero<%= _showHeroArt ? '' : ' no-art' %>">
       <h1><%= activity.name %></h1>
       <svg class="rule" height="9" viewBox="0 0 240 9" preserveAspectRatio="none" aria-hidden="true">
         <path d="M2 6 C 40 2, 96 8, 150 4 C 186 1.6, 214 5, 236 3" stroke="#F15A22" stroke-width="4" fill="none" stroke-linecap="round"/>
       </svg>
       <% if (activity.description) { %><p><%= activity.description %></p><% } %>
-      <!-- 台式火鍋線稿：單色、低透明，題材具體到台灣 -->
-      <svg class="art" viewBox="0 0 100 88" fill="none" stroke="#F15A22" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <!-- 台式火鍋線稿：可由後台依活動開關 -->
+      <svg class="art" viewBox="0 0 100 88" fill="none" stroke="#F15A22" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"<%= _showHeroArt ? '' : ' hidden' %>>
         <path d="M17 42 h66 a4 4 0 0 1 4 4 l-5 26 a8 8 0 0 1-8 7 H26 a8 8 0 0 1-8-7 l-5-26 a4 4 0 0 1 4-4z"/>
         <path d="M13 50 H5 M87 50 h8"/>
         <path d="M24 42 v-9 M34 42 V26 M44 42 V31 M54 42 V24 M64 42 v-13 M74 42 v-7"/>
@@ -239,37 +337,22 @@
     </section>
 
     <div class="stage-wrap">
-      <div class="stage" id="stage">
+      <div class="stage wheel-style-<%= _wheelStyle %>" id="stage" style="--wheel-size:<%= _wheelConfig.size %>px;--wheel-line-width:<%= _wheelConfig.line_width %>px;--wheel-line:<%= _wheelConfig.line %>;--wheel-pointer:<%= _wheelConfig.pointer %>;--wheel-pointer-dot:<%= _wheelConfig.pointer_dot %>;--wheel-hub:<%= _wheelConfig.hub %>;">
         <!-- 黃銅指針：有厚度、有鉚釘 -->
         <div class="pointer">
           <svg width="40" height="46" viewBox="0 0 40 46" aria-hidden="true">
-            <defs><linearGradient id="brassP" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#E8D08A"/><stop offset=".42" stop-color="#C9A227"/>
-              <stop offset=".78" stop-color="#8A6A2F"/><stop offset="1" stop-color="#5E4620"/>
-            </linearGradient></defs>
-            <rect x="4" y="2" width="32" height="13" rx="3" fill="url(#brassP)" stroke="#4A3517" stroke-width="1.4"/>
-            <path d="M8 15 L20 43 L32 15 Z" fill="url(#brassP)" stroke="#4A3517" stroke-width="1.4" stroke-linejoin="round"/>
-            <circle cx="9.5" cy="8.5" r="1.9" fill="#5E4620"/><circle cx="30.5" cy="8.5" r="1.9" fill="#5E4620"/>
-            <circle cx="20" cy="20" r="3.6" fill="#6E5322" stroke="#3E2C12" stroke-width="1"/>
+            <path class="pointer-main" d="M20 3 C11 3 4 9.6 4 17.6 C4 25.6 12.4 33.4 20 43 C27.6 33.4 36 25.6 36 17.6 C36 9.6 29 3 20 3 Z"
+                  fill="#E8491D" stroke="#4E342E" stroke-width="3" stroke-linejoin="round"/>
+            <circle class="pointer-dot" cx="20" cy="17" r="4.4" fill="#FBC02D" stroke="#4E342E" stroke-width="2.4"/>
           </svg>
         </div>
         <div class="canvas-wrap"><canvas id="wheel" width="720" height="720"></canvas></div>
-        <!-- 黃銅外框 + 鉚釘（覆蓋在 canvas 上） -->
+        <!-- 扁平深棕外框＋圓點（覆蓋在 canvas 上） -->
         <svg class="ring" viewBox="0 0 200 200" aria-hidden="true">
-          <defs>
-            <linearGradient id="brassR" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#E8D08A"/><stop offset=".3" stop-color="#C9A227"/>
-              <stop offset=".62" stop-color="#7C5F2A"/><stop offset="1" stop-color="#4E3A1B"/>
-            </linearGradient>
-          </defs>
-          <circle cx="100" cy="100" r="92.5" fill="none" stroke="url(#brassR)" stroke-width="13"/>
-          <circle cx="100" cy="100" r="99" fill="none" stroke="#4A3517" stroke-width="1.6" opacity=".85"/>
-          <circle cx="100" cy="100" r="86" fill="none" stroke="#4A3517" stroke-width="1.6" opacity=".85"/>
-          <g fill="#5E4620">
-            <circle cx="100" cy="7.5" r="2.4"/><circle cx="165.4" cy="34.6" r="2.4"/>
-            <circle cx="192.5" cy="100" r="2.4"/><circle cx="165.4" cy="165.4" r="2.4"/>
-            <circle cx="100" cy="192.5" r="2.4"/><circle cx="34.6" cy="165.4" r="2.4"/>
-            <circle cx="7.5" cy="100" r="2.4"/><circle cx="34.6" cy="34.6" r="2.4"/>
+          <circle cx="100" cy="100" r="96" fill="none" stroke="#4E342E" stroke-width="3.2"/>
+          <circle cx="100" cy="100" r="88" fill="none" stroke="#4E342E" stroke-width="3.2"/>
+          <g stroke="#4E342E" stroke-width="2.6">
+            <circle cx="100" cy="92" r="0" fill="none"/>
           </g>
         </svg>
         <button type="button" id="spin-btn" class="hub" aria-label="開始轉">SPIN</button>
@@ -278,16 +361,55 @@
 
     <div class="status-row done" id="status-row">
       <div class="big"><span id="stat-lead">準備中</span><span class="n" id="stat-remaining">—</span><span id="stat-unit"></span></div>
-      <div class="sub" id="status">正在確認你的身分</div>
+      <div class="sub" id="status" aria-live="polite">正在確認你的身分</div>
     </div>
 
-    <button type="button" class="cta" id="cta-spin">開始轉</button>
+    <button type="button" class="cta" id="cta-spin"><%= _activityCopy.spin_button %></button>
 
-    <section class="my-coupons" id="my-coupons" hidden aria-live="polite">
-      <div class="my-coupons-title">我抽到的券</div>
-      <div class="my-coupons-sub">優惠碼會保留在這個活動頁，可直接複製使用。</div>
-      <div class="my-coupons-list" id="my-coupons-list"></div>
+    <section class="myprize" id="myprize" hidden>
+      <div class="myprize-head"><%= _activityCopy.history_title %></div>
+      <div class="myprize-note"><%= _activityCopy.history_note %></div>
+      <div id="myprize-list" aria-live="polite"></div>
     </section>
+
+    <details class="redeem-details" id="redeem-details">
+      <summary><%= _activityCopy.redemption_label %></summary>
+      <div class="redeem-body">
+        <h2><%= _activityCopy.redemption_label %></h2>
+
+        <section class="redeem-group" aria-labelledby="redeem-miles-title">
+          <h3 id="redeem-miles-title">「亞洲萬里通」里數</h3>
+          <ul>
+            <li>中獎通知將於 <strong>2026/11/27</strong> 透過 OpenRice LINE 官方帳號及／或會員註冊 Email 發送。</li>
+            <li>請於 <strong>2026/12/9 前</strong>完成領獎確認，並將<strong>國泰會員帳戶連結至 OpenRice 帳戶</strong>。</li>
+            <li>尚未加入國泰會員者，請先免費申請會員後再完成連結。</li>
+            <li>逾期未完成領獎程序或帳戶連結，視同放棄獎項。</li>
+            <li>里數預計自 <strong>2026/12/30 起</strong>陸續存入已連結的國泰會員帳戶。</li>
+            <li>每個 OpenRice 帳戶限連結一個國泰會員帳戶，請確認會員資料正確。</li>
+            <li>里數不得折換現金、其他點數或轉讓他人。</li>
+          </ul>
+        </section>
+
+        <section class="redeem-group" aria-labelledby="redeem-rd-title">
+          <h3 id="redeem-rd-title">Rice Dollars</h3>
+          <ul>
+            <li>中獎者將透過 <strong>OpenRice LINE 官方帳號</strong>收到兌換碼。</li>
+            <li>請於指定期限內至 OpenRice 完成兌換及使用，逾期恕不補發。</li>
+            <li>Rice Dollars 不得折換現金、其他點數或轉讓他人。</li>
+          </ul>
+        </section>
+
+        <section class="redeem-group" aria-labelledby="redeem-note-title">
+          <h3 id="redeem-note-title">領獎注意事項</h3>
+          <ul>
+            <li>獎項如達法定課稅門檻，須依中華民國稅法規定辦理申報及繳納相關稅款。</li>
+            <li>領獎資料須經審核；資料不完整、有誤或資格不符，可能取消領獎資格。</li>
+            <li>詳細兌獎方式、稅務規定及使用限制，請以完整活動條款為準。</li>
+          </ul>
+          <a class="terms-link" href="https://tw.openrice.com/info/event/202609-mgm/index.html" target="_blank" rel="noopener noreferrer">查看完整活動條款</a>
+        </section>
+      </div>
+    </details>
 
     <hr class="dash" />
 
@@ -304,22 +426,25 @@
   var _need = Number(activity.referral_invites_per_bonus || 1);
   var _ruleText = (_need > 1 ? ('每邀 ' + _need + ' 位朋友多 ') : '邀 1 位朋友多 ') + activity.referral_bonus_per + ' 次';
 %>
-          <div class="invite-title">找朋友一起，多一次機會</div>
-          <div class="invite-sub" id="invite-sub"><%= _ruleText %>，最多加 <%= activity.referral_bonus_max %> 次</div>
-          <div class="invite-meta">已邀 <span class="n" id="stat-referrals">0</span> 人</div>
+          <div class="invite-title" id="invite-title"><%= _activityCopy.invite_title %></div>
+          <div class="invite-sub" id="invite-sub"><%= _copyText('invite_progress', { invited: 0, next: _need, bonus: activity.referral_bonus_per, left: activity.referral_bonus_max }) %></div>
+          <span id="stat-referrals" hidden>0</span>
+          <div class="invite-meta" id="invite-meta"><%= _copyText('invite_count', { invited: 0 }) %></div>
+          <span id="invite-existing"></span>
         <% } else { %>
-          <div class="invite-title">分享給朋友一起玩</div>
+          <div class="invite-title" id="invite-title">分享給朋友一起玩</div>
           <div class="invite-sub" id="invite-sub">把這個活動傳出去</div>
-          <div class="invite-meta" hidden>已邀 <span class="n" id="stat-referrals">0</span> 人</div>
+          <span id="stat-referrals" hidden>0</span>
+          <div class="invite-meta" id="invite-meta" hidden><%= _copyText('invite_count', { invited: 0 }) %></div>
         <% } %>
       </div>
-      <button type="button" class="invite-btn" id="invite-btn">找朋友</button>
+      <button type="button" class="invite-btn" id="invite-btn"><%= _activityCopy.invite_button %></button>
     </section>
 
   </div>
 
   <div id="modal" class="modal" aria-hidden="true">
-    <div class="sheet">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="modal-prize">
       <div class="ornament"><i></i><b id="modal-glyph">◆</b><i></i></div>
       <div class="modal-eyebrow" id="modal-eyebrow">你抽到了</div>
       <div class="modal-img-wrap" id="modal-img-wrap"><img id="modal-img" alt="" hidden /></div>
@@ -332,25 +457,30 @@
           複製
         </button>
       </div>
-      <div class="coupon-oos" id="coupon-oos" hidden>這份券剛好發完了，請聯絡 OpenRice 客服協助確認。</div>
-      <button type="button" class="modal-btn" id="modal-close">我知道了</button>
+      <div class="coupon-oos" id="coupon-oos" hidden>這份券剛好發完了，我們會依活動規則處理</div>
+      <button type="button" class="modal-btn" id="modal-close">完成</button>
       <button type="button" class="sheet-dismiss" id="modal-dismiss" hidden>先不用</button>
       <div class="modal-foot" id="modal-foot" hidden></div>
     </div>
   </div>
   <script>
     (function () {
-      var slug = <%- JSON.stringify(activity.slug) %>;
-      var liffId = <%- JSON.stringify(liffId || '') %>;
-      var addFriendUrl = <%- JSON.stringify(typeof addFriendUrl !== 'undefined' ? addFriendUrl : '') %>;
-      var prizes = <%- JSON.stringify(prizes || []) %>;
+      var slug = <%- JSON.stringify(activity.slug).replace(/</g,'\\u003c') %>;
+      var liffId = <%- JSON.stringify(liffId || '').replace(/</g,'\\u003c') %>;
+      var addFriendUrl = <%- JSON.stringify(typeof addFriendUrl !== 'undefined' ? addFriendUrl : '').replace(/</g,'\\u003c') %>;
+      var prizes = <%- JSON.stringify(prizes || []).replace(/</g,'\\u003c') %>;
+      var wheelStyle = <%- JSON.stringify(_wheelStyle).replace(/</g,'\\u003c') %>;
+      var wheelTheme = <%- JSON.stringify(_wheelConfig).replace(/</g,'\\u003c') %>;
+      var GRAND_PRIZE_IMAGE = '/images/share-miles-grand-prize-v1.webp';
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
+        base_plays_per_user: activity.base_plays_per_user,
         referral_bonus_per: activity.referral_bonus_per,
         referral_bonus_max: activity.referral_bonus_max,
         referral_invites_per_bonus: activity.referral_invites_per_bonus || 1
-      }) %>;
-      var GRAND_PRIZE_IMAGE = '/images/share-miles-grand-prize-v1.webp';
+      }).replace(/</g,'\\u003c') %>;
+      var COPY_DEFAULTS = <%- JSON.stringify(_copyDefaults).replace(/</g,'\\u003c') %>;
+      var activityCopy = <%- JSON.stringify(_activityCopy).replace(/</g,'\\u003c') %>;
 
       var canvas = document.getElementById('wheel');
       var ctx = canvas.getContext('2d');
@@ -358,8 +488,142 @@
       var statusEl = document.getElementById('status');
       var statusRow = document.getElementById('status-row');
       var modal = document.getElementById('modal');
+      // 一定要在 bootstrap 之前取到：晚宣告的話（var hoisting）bootstrap 讀到 undefined，
+      // 「尚未開放」「稍等一下」的初始鎖定完全不會套用
+      var ctaBtn = document.getElementById('cta-spin');
+      function copyText(key) {
+        var value = typeof activityCopy[key] === 'string' ? activityCopy[key].trim().slice(0, 220) : '';
+        return value || COPY_DEFAULTS[key] || '';
+      }
+      function formatCopy(key, vars) {
+        vars = vars || {};
+        return copyText(key).replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, function (token, name) {
+          return Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : token;
+        });
+      }
+      function renderFormattedCopy(el, key, vars, highlighted) {
+        if (!el) return;
+        vars = vars || {};
+        highlighted = highlighted || [];
+        var template = copyText(key);
+        var token = /\{\{\s*([a-z_]+)\s*\}\}/gi;
+        var cursor = 0;
+        var matched;
+        el.textContent = '';
+        while ((matched = token.exec(template))) {
+          el.appendChild(document.createTextNode(template.slice(cursor, matched.index)));
+          var value = Object.prototype.hasOwnProperty.call(vars, matched[1]) ? String(vars[matched[1]]) : matched[0];
+          if (highlighted.indexOf(matched[1]) >= 0) {
+            var emphasis = document.createElement('span');
+            emphasis.className = 'n';
+            emphasis.textContent = value;
+            el.appendChild(emphasis);
+          } else {
+            el.appendChild(document.createTextNode(value));
+          }
+          cursor = matched.index + matched[0].length;
+        }
+        el.appendChild(document.createTextNode(template.slice(cursor)));
+      }
+      function setGreeting(name) {
+        var template = copyText('greeting');
+        var token = /\{\{\s*name\s*\}\}/i;
+        var matched = template.match(token);
+        statusEl.textContent = '';
+        if (!matched) {
+          statusEl.textContent = template;
+          return;
+        }
+        var index = matched.index;
+        statusEl.appendChild(document.createTextNode(template.slice(0, index)));
+        var person = document.createElement('span');
+        person.className = 'name';
+        person.textContent = name;
+        statusEl.appendChild(person);
+        statusEl.appendChild(document.createTextNode(template.slice(index + matched[0].length)));
+      }
+      function applyStaticCopy() {
+        var historyHead = document.querySelector('.myprize-head');
+        var historyNote = document.querySelector('.myprize-note');
+        var redeemSummary = document.querySelector('#redeem-details summary');
+        var redeemHeading = document.querySelector('#redeem-details .redeem-body h2');
+        var inviteTitle = document.getElementById('invite-title');
+        var inviteBtn = document.getElementById('invite-btn');
+        if (historyHead) historyHead.textContent = copyText('history_title');
+        if (historyNote) historyNote.textContent = copyText('history_note');
+        if (redeemSummary) redeemSummary.textContent = copyText('redemption_label');
+        if (redeemHeading) redeemHeading.textContent = copyText('redemption_label');
+        if (inviteTitle) inviteTitle.textContent = copyText('invite_title');
+        if (inviteBtn) inviteBtn.textContent = copyText('invite_button');
+      }
+      var previewParams = new URLSearchParams(location.search);
+      var IS_PREVIEW = previewParams.get('preview') === '1';
+      var previewScenario = previewParams.get('preview_scenario') || 'ready';
+      function previewHex(value, fallback) {
+        var v = String(value || '').toUpperCase();
+        return /^#[0-9A-F]{6}$/.test(v) ? v : fallback;
+      }
+      function previewNumber(value, min, max, fallback) {
+        var n = Number(value);
+        return isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+      }
+      function applyPreviewVisualOverrides() {
+        if (!IS_PREVIEW || !previewParams.get('preview_ui')) return;
+        var override;
+        try { override = JSON.parse(previewParams.get('preview_ui')); } catch (e) { return; }
+        if (!override || typeof override !== 'object') return;
+        var custom = override.wheel_custom && typeof override.wheel_custom === 'object' ? override.wheel_custom : {};
+        ['slice_1','slice_2','grand','text','line','highlight','pointer','pointer_dot','hub'].forEach(function (key) {
+          wheelTheme[key] = previewHex(custom[key], wheelTheme[key]);
+        });
+        wheelTheme.size = previewNumber(custom.size, 260, 360, wheelTheme.size);
+        wheelTheme.line_width = previewNumber(custom.line_width, 1, 8, wheelTheme.line_width);
+        wheelStyle = ['brand','clean','bold','custom'].indexOf(override.wheel_style) >= 0 ? override.wheel_style : wheelStyle;
+        var stage = document.getElementById('stage');
+        stage.className = 'stage wheel-style-' + wheelStyle;
+        stage.style.setProperty('--wheel-size', wheelTheme.size + 'px');
+        stage.style.setProperty('--wheel-line-width', wheelTheme.line_width + 'px');
+        stage.style.setProperty('--wheel-line', wheelTheme.line);
+        stage.style.setProperty('--wheel-pointer', wheelTheme.pointer);
+        stage.style.setProperty('--wheel-pointer-dot', wheelTheme.pointer_dot);
+        stage.style.setProperty('--wheel-hub', wheelTheme.hub);
+        var logo = document.querySelector('.logo-img');
+        var logoUrl = String(override.logo_url || '').trim();
+        if (logo) logo.src = (/^https:\/\//i.test(logoUrl) || /^\//.test(logoUrl)) ? logoUrl : '/images/openrice-wordmark.png';
+        var hero = document.querySelector('.hero');
+        var art = document.querySelector('.hero .art');
+        var showArt = override.show_hero_art === true;
+        if (hero) hero.classList.toggle('no-art', !showArt);
+        if (art) {
+          if (showArt) art.removeAttribute('hidden');
+          else art.setAttribute('hidden', '');
+        }
+        var copy = override.copy && typeof override.copy === 'object' ? override.copy : {};
+        Object.keys(COPY_DEFAULTS).forEach(function (key) {
+          var value = typeof copy[key] === 'string' ? copy[key].trim().slice(0, 220) : '';
+          if (value) activityCopy[key] = value;
+        });
+        applyStaticCopy();
+      }
+      if (IS_PREVIEW) {
+        document.body.classList.add('is-preview');
+        var previewBanner = document.getElementById('preview-banner');
+        if (previewBanner) previewBanner.hidden = false;
+        applyPreviewVisualOverrides();
+      }
 
       var spinning = false;
+      // 防重複扣次數的鑰匙。存進瀏覽器暫存：收訊斷掉後如果使用者是「重新整理」
+      // 而不是按按鈕（刮刮樂開頁就自動抽，最容易這樣），重載後還撿得回同一把，
+      // 伺服器認得就回原結果，不會被扣第二次。
+      var PLAYKEY_STORE = 'orplaykey:' + 'wheel' + ':' + slug;
+      function loadPlayKey() {
+        try { return sessionStorage.getItem(PLAYKEY_STORE) || null; } catch (e) { return null; }
+      }
+      function savePlayKey(k) {
+        try { if (k) sessionStorage.setItem(PLAYKEY_STORE, k); else sessionStorage.removeItem(PLAYKEY_STORE); } catch (e) {}
+      }
+      var pendingPlayKey = loadPlayKey();
       var currentRotation = 0;
       var profile = null;
       var idToken = null;
@@ -374,6 +638,9 @@
         }
       }
 
+      // 轉盤停下來之後，把最終角度畫進 canvas 本身（CSS 轉回 0），
+      // 這樣扇形位置不變、但文字回到橫排。否則整盤字會跟著旋轉變成上下顛倒。
+      var wheelOffsetRad = 0;
       function drawWheel(highlightIdx, pulse) {
         var W = canvas.width;
         var H = canvas.height;
@@ -386,7 +653,7 @@
 
         // 扇形填色
         prizes.forEach(function (p, i) {
-          var start = i * anglePer - Math.PI / 2;
+          var start = i * anglePer - Math.PI / 2 + wheelOffsetRad;
           var end = start + anglePer;
           ctx.beginPath();
           ctx.moveTo(cx, cy);
@@ -394,82 +661,84 @@
           ctx.closePath();
           // 設計配色：米白 / 品牌黃 / 橘，三色輪替；大獎固定橘。
           // n % 3 === 1 時最後一格會跟第一格同色且相鄰，往後推一格避開。
-          var ci = i % 3;
+          // 白／淡黃兩色交替；格數為奇數時最後一格會跟第一格同色且相鄰，往後推一格避開
+          var ci = i % 2;
           if (i === n - 1 && n > 2 && ci === 0) ci = 1;
-          if (p.is_grand_prize) ctx.fillStyle = '#F15A22';
-          else ctx.fillStyle = ['#F6EFE4', '#F9C73B', '#E8873F'][ci];
+          if (p.is_grand_prize) ctx.fillStyle = wheelTheme.grand;
+          else ctx.fillStyle = ci === 0 ? wheelTheme.slice_1 : wheelTheme.slice_2;
           ctx.fill();
         });
 
         // 扇形分隔線（細）
         prizes.forEach(function (p, i) {
-          var angle = i * anglePer - Math.PI / 2;
+          var angle = i * anglePer - Math.PI / 2 + wheelOffsetRad;
           ctx.beginPath();
           ctx.moveTo(cx, cy);
           ctx.lineTo(cx + Math.cos(angle) * R, cy + Math.sin(angle) * R);
-          ctx.lineWidth = 3;
-          ctx.strokeStyle = 'rgba(78, 58, 27, 0.5)';
+          ctx.lineWidth = wheelTheme.line_width;
+          ctx.strokeStyle = wheelTheme.line;
+          ctx.lineCap = 'round';
           ctx.stroke();
         });
 
         // 外圈細線
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(78, 58, 27, 0.55)';
+        ctx.lineWidth = Math.min(9, wheelTheme.line_width + 1);
+        ctx.strokeStyle = wheelTheme.line;
         ctx.stroke();
 
-        // 文字 — 沿半徑排版。獎名實務上 12–16 字（例「柒息地串燒居酒屋 折價 100 元」），
-        // 用字數估寬會把英數字切壞，所以一律用 measureText 實測。
+        // 文字 — 一律橫排、不跟著扇形旋轉。
+        // 舊版沿半徑排版，正上方那格會變成直書、左半圈上下顛倒，實機根本讀不動；
+        // 獎項多大是這頁唯一要傳達的事，讀不到就沒有意義。
         var baseFs = Math.round(R * 0.105);
-        var inner = R * 0.22, outer = R * 0.92;
-        var maxW = outer - inner;                   // 一行可用的徑向長度
-
-        function setFont(px) {
-          ctx.font = '800 ' + px + 'px "PingFang TC","Heiti TC","Microsoft JhengHei",sans-serif';
+        function setFont(px, weight) {
+          ctx.font = (weight || 800) + ' ' + px + 'px "PingFang TC","Heiti TC","Microsoft JhengHei",sans-serif';
         }
-        function ellipsize(t) {
-          if (ctx.measureText(t).width <= maxW) return t;
-          while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
-          return t + '…';
+        // 獎品名慣例是「【26,000 哩】頭獎」：括號內是主角（大字），括號外是獎次（小字）。
+        // 沒有括號就整串當一行，太長才從空白處切兩行。
+        function splitLabel(name) {
+          var t = String(name || '').trim();
+          var m = t.match(/^\u3010(.+?)\u3011\s*(.*)$/);
+          if (m) return { big: m[1].trim(), small: (m[2] || '').trim() };
+          if (t.length <= 6) return { big: t, small: '' };
+          var sp = t.indexOf(' ');
+          if (sp > 0) return { big: t.slice(0, sp), small: t.slice(sp + 1) };
+          var h = Math.ceil(t.length / 2);
+          return { big: t.slice(0, h), small: t.slice(h) };
         }
-        // 回傳 { fs, lines }：先試單行，再在空白處切成兩段（餐廳名／獎品內容），
-        // 然後縮字級塞進去，最後才截斷。
-        function layoutLabel(label) {
-          setFont(baseFs);
-          if (ctx.measureText(label).width <= maxW) return { fs: baseFs, lines: [label] };
-
-          var sp = label.indexOf(' ');
-          var lines = sp > 0
-            ? [label.slice(0, sp), label.slice(sp + 1)]
-            : (function () { var h = Math.ceil(label.length / 2); return [label.slice(0, h), label.slice(h)]; })();
-
-          var widest = 0;
-          for (var k = 0; k < lines.length; k++) widest = Math.max(widest, ctx.measureText(lines[k]).width);
-          var fs = Math.max(Math.round(baseFs * 0.62), Math.floor(baseFs * maxW / widest));
-          if (fs > baseFs) fs = baseFs;
-          setFont(fs);
-          return { fs: fs, lines: [ellipsize(lines[0]), ellipsize(lines[1])] };
+        function fitText(t, px, maxW) {
+          setFont(px);
+          while (px > 9 && ctx.measureText(t).width > maxW) { px -= 1; setFont(px); }
+          return px;
         }
 
         prizes.forEach(function (p, i) {
-          var midAngle = i * anglePer - Math.PI / 2 + anglePer / 2;
-          var lay = layoutLabel(String(p.name || '').trim());
-          var lineH = Math.round(lay.fs * 1.14);
+          var midAngle = i * anglePer - Math.PI / 2 + anglePer / 2 + wheelOffsetRad;
+          var lab = splitLabel(p.name);
+          // 放在扇形重心附近；格子越多半徑越往外，字才不會擠在圓心
+          var rr = R * (n <= 5 ? 0.60 : 0.66);
+          var x = cx + Math.cos(midAngle) * rr;
+          var y = cy + Math.sin(midAngle) * rr;
+          // 一格在該半徑上的弦長，就是這行字能用的寬度
+          var maxW = Math.max(56, 2 * rr * Math.sin(anglePer / 2) * 0.92);
 
           ctx.save();
-          ctx.translate(cx, cy);
-          ctx.rotate(midAngle);
-          var flipped = Math.cos(midAngle) < 0;     // 左半邊要翻轉，否則字是顛倒的
-          if (flipped) ctx.rotate(Math.PI);
-          ctx.textAlign = flipped ? 'left' : 'right';
+          ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillStyle = p.is_grand_prize ? '#FFFFFF' : '#3E2723';
-          setFont(lay.fs);
+          ctx.fillStyle = wheelTheme.text;
 
-          var x = flipped ? -outer : outer;
-          var y0 = -((lay.lines.length - 1) * lineH) / 2;
-          lay.lines.forEach(function (t, li) { ctx.fillText(t, x, y0 + li * lineH); });
+          var bigPx = fitText(lab.big, Math.round(baseFs * 1.15), maxW);
+          var smallPx = Math.max(9, Math.round(bigPx * 0.55));
+          if (lab.small) {
+            setFont(bigPx);
+            ctx.fillText(lab.big, x, y - Math.round(bigPx * 0.42));
+            setFont(smallPx, 700);
+            ctx.fillText(lab.small, x, y + Math.round(bigPx * 0.52));
+          } else {
+            setFont(bigPx);
+            ctx.fillText(lab.big, x, y);
+          }
           ctx.restore();
         });
 
@@ -477,7 +746,7 @@
         if (typeof highlightIdx === 'number' && highlightIdx >= 0 && highlightIdx < n) {
           prizes.forEach(function (p, i) {
             if (i === highlightIdx) return;
-            var ds = i * anglePer - Math.PI / 2;
+            var ds = i * anglePer - Math.PI / 2 + wheelOffsetRad;
             var de = ds + anglePer;
             ctx.beginPath();
             ctx.moveTo(cx, cy);
@@ -486,7 +755,7 @@
             ctx.fillStyle = 'rgba(62, 39, 35, 0.42)';
             ctx.fill();
           });
-          var hs = highlightIdx * anglePer - Math.PI / 2;
+          var hs = highlightIdx * anglePer - Math.PI / 2 + wheelOffsetRad;
           var he = hs + anglePer;
           ctx.beginPath();
           ctx.moveTo(cx, cy);
@@ -495,7 +764,7 @@
           ctx.lineWidth = 10;
           ctx.lineJoin = 'round';
           ctx.globalAlpha = (typeof pulse === 'number') ? (0.35 + 0.65 * pulse) : 1;
-          ctx.strokeStyle = '#F9C73B';
+          ctx.strokeStyle = wheelTheme.highlight;
           ctx.stroke();
           ctx.globalAlpha = 1;
         }
@@ -543,15 +812,13 @@
       // ----- LIFF init -----
       async function initLiff() {
         var qs = new URLSearchParams(location.search);
+        if (IS_PREVIEW) {
+          profile = { userId: 'PREVIEW', displayName: 'Ice 測試' };
+          return;
+        }
         var devUid = qs.get('uid');
         if (devUid) {
           profile = { userId: devUid, displayName: qs.get('name') || 'DEV' };
-          return;
-        }
-        if (qs.get('preview') === '1') {
-          profile = { userId: 'PREVIEW', displayName: '預覽' };
-          spinBtn.disabled = true;
-          spinBtn.textContent = '預覽';
           return;
         }
         if (!liffId) throw new Error('LIFF ID 未設定');
@@ -585,7 +852,16 @@
         var anglePer = 360 / n;
         var targetCenter = (idx + 0.5) * anglePer;
         var jitter = (Math.random() - 0.5) * (anglePer * 0.5);
-        var finalAngle = currentRotation + 360 * 6 + (360 - targetCenter) + jitter;
+        // 指針在正上方。扇形 i 的中心在「順時針 targetCenter 度」，
+        // 要讓它轉到正上方，畫面上的總轉角必須 ≡ 360 - targetCenter（mod 360）。
+        //
+        // 這裡有兩個角度疊在一起：canvas 裡已經烘進去的 bakedDeg（上一次落地留下的），
+        // 以及這次要下的 CSS 轉角。原本的寫法把上一次的「殘留角度」直接當基準往上加，
+        // 第二次抽獎開始就整個偏掉——指針停在 A 格、實際中的卻是 B 格。
+        var bakedDeg = (wheelOffsetRad * 180 / Math.PI) % 360;
+        var need = ((360 - targetCenter + jitter) - bakedDeg) % 360;
+        if (need < 0) need += 360;
+        var finalAngle = 360 * 6 + need;
         var windFrom = currentRotation;
         currentRotation = finalAngle;
 
@@ -604,6 +880,15 @@
                 stage.classList.add('landed');
                 setTimeout(function () { stage.classList.remove('landed'); }, 650);
               }
+              // 角度烘進 canvas、CSS 歸零：畫面位置完全一樣，但文字回正
+              wheelOffsetRad = ((wheelOffsetRad * 180 / Math.PI) + finalAngle) % 360 * Math.PI / 180;
+              var prevTransition = canvas.style.transition;
+              canvas.style.transition = 'none';
+              canvas.style.transform = 'rotate(0deg)';
+              currentRotation = 0;
+              drawWheel();
+              void canvas.offsetWidth;
+              canvas.style.transition = prevTransition;
               resolve();
             }, spinMs);
           }
@@ -620,6 +905,10 @@
 
       // ----- spin -----
       async function spin() {
+        if (IS_PREVIEW) {
+          statusEl.textContent = '這是安全測試畫面，切換後台選單即可查看其他狀態';
+          return;
+        }
         if (spinning) return;
         if (!liffReady || !profile) {
           statusEl.textContent = '請稍候';
@@ -633,17 +922,25 @@
         buzz(12);
 
         try {
+          // 防重複扣次數：每一次「想抽」產一把鑰匙；只有網路斷掉（沒收到任何回應）
+          // 才保留同一把，下次按就帶同一把重送——伺服器認得就回原結果，不再扣一次
+          if (!pendingPlayKey) {
+            pendingPlayKey = 'pk' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+            savePlayKey(pendingPlayKey);
+          }
           var resp = await fetch('/api/games/wheel/' + encodeURIComponent(slug) + '/spin', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               line_user_id: profile.userId,
               line_display_name: profile.displayName || null,
-              id_token: idToken
+              id_token: idToken,
+              play_key: pendingPlayKey
             })
           }).then(function (r) { return r.json(); });
 
           if (!resp.ok) {
+            pendingPlayKey = null; savePlayKey(null);   // 伺服器明確拒絕（沒扣次數）→ 換新鑰匙
             if (resp.error === 'must_follow_oa') {
               if (window.ORMGM) ORMGM.gate.serverDenied();
               openFollowGate('要先加「OpenRice 開飯喇」好友才能參加，加完回來就可以玩。');
@@ -657,9 +954,13 @@
           await animateToPrize(resp.prize);
           await highlightWinner(resp.prize); // 停頓：高亮 pulse ~0.55s
           showResult(resp.prize, resp);
-          refreshMyCoupons();
+          // 鑰匙撐到結果真的顯示出來才換新：萬一動畫或顯示途中出錯，
+          // 用戶照提示再按一次會帶同一把鑰匙→伺服器回原結果，不會被多扣一次
+          pendingPlayKey = null; savePlayKey(null);
         } catch (e) {
-          statusEl.textContent = '錯誤';
+          // 收不到回應或顯示途中出錯：鑰匙留著，下一次按會重送同一把，
+          // 伺服器認得就回原本的結果，不會扣兩次
+          statusEl.textContent = '收訊不穩，再按一次「開始轉」';
         } finally {
           spinning = false;
           spinBtn.disabled = false;
@@ -700,14 +1001,13 @@
         renderCoupon(prize, resp);
         var noPrize = isNoPrize(prize);
         var eyebrowEl = document.getElementById('modal-eyebrow');
-        if (eyebrowEl) eyebrowEl.textContent = noPrize ? '開獎結果' : '恭喜抽中';
+        if (eyebrowEl) eyebrowEl.textContent = noPrize ? copyText('no_prize_eyebrow') : copyText('winner_eyebrow');
         document.getElementById('modal-prize').textContent = prize.name || '—';
         var imgEl = document.getElementById('modal-img');
         var glyphEl = document.getElementById('modal-glyph');
         var resultImage = prize.image_url || (prize.is_grand_prize ? GRAND_PRIZE_IMAGE : '');
         if (resultImage) {
           imgEl.src = resultImage;
-          imgEl.alt = prize.is_grand_prize ? '日本旅遊大獎視覺' : '';
           imgEl.hidden = false;
           glyphEl.style.display = 'none';
         } else {
@@ -722,17 +1022,27 @@
           if (prize.prize_value.label) descParts.push(prize.prize_value.label);
           if (prize.prize_value.note) descParts.push(prize.prize_value.note);
         }
-        // 後台填的獎品說明（例「消費滿 500 元可用」）也要露出，不然使用者不知道怎麼用
-        if (prize.description) descParts.push(String(prize.description));
+        // 後台填的獎品說明（例「消費滿 500 元可用」）也要露出，不然使用者不知道怎麼用。
+        // 但「銘謝惠顧」不是獎品，那一格的說明欄實務上都被當成後台備註在寫
+        // （實際看過：「沒中獎時顯示這個」），照秀出去等於把內部字條貼到用戶臉上。
+        if (prize.description && !noPrize) descParts.push(String(prize.description));
         var descText = descParts.join(' · ');
-        if (!descText && noPrize) descText = '這次沒中，找個朋友一起，再試一次';
+        if (noPrize) descText = copyText('no_prize_desc');
         document.getElementById('modal-desc').textContent = descText;
         if (prize.is_grand_prize) modal.classList.add('grand');
         else modal.classList.remove('grand');
         if (noPrize) modal.classList.add('noprize');
         else modal.classList.remove('noprize');
 
-        // 彈窗底部：沒中 → 直接導向邀請；中獎的券則直接保留在本頁。
+        // 抽完就把結果留在本頁；不依賴 wallet API 才能看到。
+        renderMyPrizes([{
+          prize_name: prize.name || '獎品', prize_desc: prize.description || '',
+          is_win: !noPrize, miles: prize.miles || null,
+          code: prize.coupon_code || (resp && resp.coupon_code) || null,
+          won_at: new Date().toISOString(), redeemed: false
+        }]);
+
+        // 彈窗底部：沒中且還能邀請時，提供「找朋友」；其餘都回本頁看結果。
         var closeBtn = document.getElementById('modal-close');
         var dismissBtn = document.getElementById('modal-dismiss');
         var footEl = document.getElementById('modal-foot');
@@ -743,13 +1053,13 @@
 
         if (noPrize && canInvite) {
           modalMode = 'invite';
-          closeBtn.textContent = '找朋友再抽一次';
+          closeBtn.textContent = copyText('invite_after_miss');
           dismissBtn.hidden = false;
           footEl.hidden = false;
-          footEl.innerHTML = '朋友加入官方帳號才算，最多還能加 <span class="n">' + bonusLeft + '</span> 次';
+          renderFormattedCopy(footEl, 'result_invite_note', { left: bonusLeft }, ['left']);
         } else {
           modalMode = 'close';
-          closeBtn.textContent = noPrize ? '知道了' : '我知道了';
+          closeBtn.textContent = copyText('result_close');
           dismissBtn.hidden = true;
           footEl.hidden = true;
           footEl.textContent = '';
@@ -794,67 +1104,6 @@
         });
       })();
 
-      // 本活動已抽到的優惠券：沿用 token 保護的 API，不再提供另一個錢包頁入口。
-      function renderMyCoupons(coupons) {
-        var section = document.getElementById('my-coupons');
-        var list = document.getElementById('my-coupons-list');
-        if (!section || !list) return;
-        list.replaceChildren();
-        if (!coupons || !coupons.length) {
-          section.hidden = true;
-          return;
-        }
-        coupons.forEach(function (coupon) {
-          var row = document.createElement('article');
-          row.className = 'my-coupon';
-          var main = document.createElement('div');
-          main.className = 'my-coupon-main';
-          var name = document.createElement('div');
-          name.className = 'my-coupon-name';
-          name.textContent = coupon.prize_name || '優惠券';
-          var code = document.createElement('div');
-          code.className = 'my-coupon-code';
-          code.textContent = coupon.code || '';
-          var meta = document.createElement('div');
-          meta.className = 'my-coupon-meta';
-          meta.textContent = coupon.redeemed ? '已使用' : '尚未使用';
-          main.append(name, code, meta);
-          var copy = document.createElement('button');
-          copy.type = 'button';
-          copy.className = 'my-coupon-copy';
-          copy.textContent = '複製';
-          copy.addEventListener('click', function () { copyCouponCode(coupon.code, copy); });
-          row.append(main, copy);
-          list.appendChild(row);
-        });
-        section.hidden = false;
-      }
-
-      async function copyCouponCode(code, button) {
-        if (!code) return;
-        try {
-          await navigator.clipboard.writeText(code);
-          if (button) {
-            var original = button.textContent;
-            button.textContent = '已複製';
-            setTimeout(function () { button.textContent = original; }, 1800);
-          }
-        } catch (e) {
-          prompt('複製這組優惠碼：', code);
-        }
-      }
-
-      async function refreshMyCoupons() {
-        if (!profile || !profile.userId) return;
-        try {
-          var url = '/api/games/wallet?line_user_id=' + encodeURIComponent(profile.userId) +
-            '&id_token=' + encodeURIComponent(idToken || '') +
-            '&activity_slug=' + encodeURIComponent(slug);
-          var resp = await fetch(url).then(function (r) { return r.json(); });
-          if (resp.ok) renderMyCoupons(resp.coupons || []);
-        } catch (e) { console.warn('coupon list fetch failed:', e); }
-      }
-
       var modalMode = 'close';
       var hideTimer = null;
       function closeModal() {
@@ -872,6 +1121,86 @@
       modal.addEventListener('click', function (e) {
         if (e.target === modal) closeModal();
       });
+
+      function previewQuota(remaining, exhausted) {
+        var max = Number(activityMeta.referral_bonus_max || 0);
+        var per = Number(activityMeta.referral_bonus_per || 0);
+        var bonus = exhausted ? max : 0;
+        return {
+          total: Math.max(remaining, Number(activityMeta.base_plays_per_user || 1)),
+          played: 0,
+          remaining: remaining,
+          referrals: exhausted ? Math.max(max, 3) : (remaining === 0 ? 2 : 0),
+          referrals_existing: 0,
+          base: Number(activityMeta.base_plays_per_user || 1),
+          referral_bonus: bonus,
+          referral_bonus_max: max,
+          referral_bonus_per: per,
+          referral_invites_per_bonus: Number(activityMeta.referral_invites_per_bonus || 1),
+          next_bonus_in: 1,
+          bonus_plays: bonus,
+          override: null
+        };
+      }
+
+      // 後台專用：所有情境都只在瀏覽器裡演出，完全不呼叫抽獎、quota 或 wallet API。
+      function applyPreviewScenario() {
+        var details = document.getElementById('redeem-details');
+        if (details) details.open = false;
+        if (previewScenario === 'first_open') {
+          renderQuota(previewQuota(Number(activityMeta.base_plays_per_user || 1), false));
+          setGreeting('第一次來的用戶');
+          return;
+        }
+        if (previewScenario === 'last') {
+          renderQuota(previewQuota(1, false));
+          setGreeting('Ice 測試');
+          return;
+        }
+        if (previewScenario === 'invite') {
+          renderQuota(previewQuota(0, false));
+          return;
+        }
+        if (previewScenario === 'done') {
+          renderQuota(previewQuota(0, true));
+          return;
+        }
+        if (previewScenario === 'history') {
+          renderQuota(previewQuota(0, true));
+          var samples = prizes.slice(0, Math.min(2, prizes.length)).map(function (p, i) {
+            var noPrize = isNoPrize(p);
+            return {
+              prize_name: p.name || '獎品', prize_desc: p.description || '', is_win: !noPrize,
+              miles: /哩/.test(String(p.name || '')) ? 1 : null,
+              code: null, won_at: new Date(Date.now() - i * 3600000).toISOString(), redeemed: false
+            };
+          });
+          renderMyPrizes(samples);
+          return;
+        }
+        if (previewScenario === 'redemption') {
+          renderQuota(previewQuota(3, false));
+          setGreeting('Ice 測試');
+          if (details) details.open = true;
+          return;
+        }
+        if (previewScenario.indexOf('prize:') === 0) {
+          var wanted = previewScenario.slice(6);
+          var prize = prizes.find(function (p) { return String(p.id) === String(wanted); }) || prizes[0];
+          renderQuota(previewQuota(1, false));
+          if (prize) {
+            var idx = prizes.findIndex(function (p) { return String(p.id) === String(prize.id); });
+            var anglePer = 360 / prizes.length;
+            var targetCenter = (idx + 0.5) * anglePer;
+            wheelOffsetRad = ((360 - targetCenter) % 360) * Math.PI / 180;
+            drawWheel(idx, 1);
+            showResult(prize, {});
+          }
+          return;
+        }
+        renderQuota(previewQuota(3, false));
+        setGreeting('Ice 測試');
+      }
 
       spinBtn.addEventListener('click', spin);
 
@@ -896,6 +1225,11 @@
           await initLiff();
           liffReady = true;
 
+          if (IS_PREVIEW) {
+            applyPreviewScenario();
+            return;
+          }
+
           // 1) 先處理「我是被邀請來的」— 把 referral 寫進 DB
           await maybeRegisterReferral();
           if (window.ORMGM) {
@@ -911,12 +1245,11 @@
 
           // 2) 拉 quota
           await refreshQuota();
-          await refreshMyCoupons();
 
           // 3) ready — 只有還有次數才打招呼，否則會蓋掉 renderQuota 寫的引導文案
           statusRow.classList.add('ready');
           if (lastRemaining === null || lastRemaining > 0) {
-            statusEl.innerHTML = '哈囉，<span class="name">' + (profile.displayName || '') + '</span>';
+            setGreeting(profile.displayName || '');
           }
         } catch (e) {
           statusEl.textContent = e.message || '初始化失敗';
@@ -927,6 +1260,7 @@
       // 邀請送出。失敗不代表沒救——被邀請的人多半只是還沒加好友，
       // ORMGM 會把邀請存起來，等他加完好友切回來自動重送。
       async function maybeRegisterReferral() {
+        if (IS_PREVIEW) return;
         if (!window.ORMGM || !profile || !profile.userId) return;
         var r = await ORMGM.referral({
           gameType: 'wheel', slug: slug, userId: profile.userId,
@@ -938,8 +1272,15 @@
       function handleReferralResult(r) {
         if (!r) return;
         if (r.state === 'done') {
-          if (r.counted) ORMGM.toast('好了，這次算你朋友邀請成功');
-          else if (r.sameInviter === false) ORMGM.toast('你已經在這個活動裡了，直接開始玩');
+          // 本來就是官方帳號好友 → 不會幫邀請人加次數。要當場講，
+          // 否則對方會回頭跟朋友說「我幫你點了」，朋友卻沒多一次機會，兩邊都覺得系統壞了。
+          if (r.counted && r.wasExisting) {
+            ORMGM.toast('你本來就是官方帳號好友，這次不算朋友的新邀請，但你自己照樣可以玩');
+          } else if (r.counted) {
+            ORMGM.toast('好了，這次算你朋友邀請成功');
+          } else if (r.sameInviter === false) {
+            ORMGM.toast('你已經在這個活動裡了，直接開始玩');
+          }
           return;
         }
         if (r.state !== 'pending') return;
@@ -975,13 +1316,109 @@
       }
 
       // ----- 拉 quota 並更新 UI -----
+      // 我抽到的獎：從 wallet API 撈，只留這檔活動的。哩數獎品也算（沒有優惠碼）
+      function fmtWhen(ts){
+        try{ return new Date(ts).toLocaleDateString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric'}); }
+        catch(e){ return ''; }
+      }
+      function escHtml(x){return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+      function renderMyPrizes(mine) {
+        var box = document.getElementById('myprize');
+        var list = document.getElementById('myprize-list');
+        if (!box || !list || !mine || !mine.length) return;
+        var wins = mine.filter(function (p) { return p.is_win !== false; }).length;
+        var head = document.querySelector('.myprize-head');
+        if (head) {
+          head.textContent = copyText('history_title') + '（共 ' + mine.length + ' 次' +
+            (wins ? ('，中了 ' + wins + ' 次') : '') + '）';
+        }
+        list.innerHTML = mine.map(function (p, i) {
+          var isWin = p.is_win !== false;
+          var sub = !isWin ? copyText('no_prize_desc')
+            : (p.miles
+                ? (p.redeemed ? '哩數已經發放' : '活動結束後統一發放到你的帳戶')
+                : (p.prize_desc || ''));
+          var code = (isWin && p.code)
+            ? '<div class="pz-code"><span id="pzc' + i + '">' + escHtml(p.code) + '</span>' +
+              '<button type="button" class="pz-copy" data-i="' + i + '">複製</button></div>'
+            : '';
+          return '<div class="pz' + (isWin ? '' : ' pz-miss') + '"><div class="pz-main">' +
+            '<div class="pz-name">' + (i === 0 ? '<span class="pz-latest">最新</span>' : '') + escHtml(p.prize_name) + '</div>' +
+            (sub ? '<div class="pz-sub">' + escHtml(sub) + '</div>' : '') + code +
+            '</div><div class="pz-when">' + fmtWhen(p.won_at) + '</div></div>';
+        }).join('');
+        box.hidden = false;
+        [].slice.call(list.querySelectorAll('.pz-copy')).forEach(function (b) {
+          b.addEventListener('click', function () {
+            var el = document.getElementById('pzc' + b.getAttribute('data-i'));
+            if (!el) return;
+            try {
+              navigator.clipboard.writeText(el.textContent.trim());
+              b.textContent = '已複製';
+              setTimeout(function () { b.textContent = '複製'; }, 1500);
+            } catch (e) { /* 複製失敗時儲值碼仍會顯示 */ }
+          });
+        });
+      }
+      async function refreshMyPrizes() {
+        if (IS_PREVIEW) return;
+        try {
+          if (!profile || !profile.userId) return;
+          var resp = await fetch('/api/games/wallet?line_user_id=' + encodeURIComponent(profile.userId),
+            { headers: { 'Authorization': 'Bearer ' + (idToken || '') } }).then(function (r) { return r.json(); });
+          if (!resp || !resp.ok || !Array.isArray(resp.prizes)) return;
+          var mine = resp.prizes.filter(function (p) { return p.activity_slug === slug; });
+          var box = document.getElementById('myprize');
+          var list = document.getElementById('myprize-list');
+          if (!box || !list) return;
+          // /spin 的結果已經先留在畫面上。若 wallet 同步慢半拍，不可把剛抽到的結果藏掉。
+          if (!mine.length) { if (!list.children.length) box.hidden = true; return; }
+          var wins = mine.filter(function (p) { return p.is_win !== false; }).length;
+          var head = document.querySelector('.myprize-head');
+          if (head) {
+            head.textContent = copyText('history_title') + '（共 ' + mine.length + ' 次' +
+              (wins ? ('，中了 ' + wins + ' 次') : '') + '）';
+          }
+          list.innerHTML = mine.map(function (p, i) {
+            var isWin = p.is_win !== false;
+            var sub = !isWin ? copyText('no_prize_desc')
+              : (p.miles
+                  ? (p.redeemed ? '哩數已經發放' : '活動結束後統一發放到你的帳戶')
+                  : (p.prize_desc || ''));
+            var code = (isWin && p.code)
+              ? '<div class="pz-code"><span id="pzc' + i + '">' + escHtml(p.code) + '</span>' +
+                '<button type="button" class="pz-copy" data-i="' + i + '">複製</button></div>'
+              : '';
+            return '<div class="pz' + (isWin ? '' : ' pz-miss') + '"><div class="pz-main">' +
+              '<div class="pz-name">' + (i === 0 ? '<span class="pz-latest">最新</span>' : '') + escHtml(p.prize_name) + '</div>' +
+              (sub ? '<div class="pz-sub">' + escHtml(sub) + '</div>' : '') + code +
+              '</div><div class="pz-when">' + fmtWhen(p.won_at) + '</div></div>';
+          }).join('');
+          box.hidden = false;
+          [].slice.call(list.querySelectorAll('.pz-copy')).forEach(function (b) {
+            b.addEventListener('click', function () {
+              var el = document.getElementById('pzc' + b.getAttribute('data-i'));
+              if (!el) return;
+              try {
+                navigator.clipboard.writeText(el.textContent.trim());
+                b.textContent = '已複製';
+                setTimeout(function () { b.textContent = '複製'; }, 1500);
+              } catch (e) { /* 複製失敗就算了，碼還是看得到 */ }
+            });
+          });
+        } catch (e) { console.warn('my prizes fetch failed:', e); }
+      }
+
       async function refreshQuota() {
+        if (IS_PREVIEW) return;
         try {
           if (!profile || !profile.userId) return;
           var resp = await fetch('/api/games/wheel/' + encodeURIComponent(slug) +
-            '/meta?line_user_id=' + encodeURIComponent(profile.userId) + '&id_token=' + encodeURIComponent(idToken || '')).then(function (r) { return r.json(); });
+            '/meta?line_user_id=' + encodeURIComponent(profile.userId),
+            { headers: { 'Authorization': 'Bearer ' + (idToken || '') } }).then(function (r) { return r.json(); });
           if (!resp.ok || !resp.quota) return;
           renderQuota(resp.quota);
+          refreshMyPrizes();
         } catch (e) { console.warn('quota fetch failed:', e); }
       }
 
@@ -996,23 +1433,32 @@
         el.classList.add('pop');
       }
 
-      // 主 CTA 有三種身分：轉、找朋友、活動完成。次數用完時把主鈕換成邀請，
+      // 主 CTA 有三種身分：轉、找朋友、已完成。獎項直接留在本頁。
       // 是整個 MGM 能不能擴散的關鍵，不能只把鈕變灰。
-      var ctaBtn = document.getElementById('cta-spin');
+      // （ctaBtn 本身在最上面宣告——bootstrap 比這裡早跑，需要用到它）
       var ctaMode = 'spin';
       function setCtaMode(mode) {
         if (!ctaBtn) return;
         ctaMode = mode;
-        ctaBtn.classList.remove('ghost');
+        ctaBtn.classList.toggle('ghost', mode === 'done');
         ctaBtn.disabled = mode === 'done';
-        ctaBtn.textContent = mode === 'invite' ? '找朋友' : (mode === 'done' ? '本活動已完成' : '開始轉');
+        ctaBtn.textContent = mode === 'invite' ? copyText('invite_button') :
+          (mode === 'done' ? copyText('campaign_done_button') : copyText('spin_button'));
       }
 
       function renderQuota(q) {
         var remEl = document.getElementById('stat-remaining');
         var refEl = document.getElementById('stat-referrals');
+        var inviteMeta = document.getElementById('invite-meta');
         if (remEl) remEl.textContent = q.remaining;
         if (refEl) refEl.textContent = q.referrals;
+        if (inviteMeta) renderFormattedCopy(inviteMeta, 'invite_count', { invited: q.referrals }, ['invited']);
+        // 有人點了連結但本來就是好友 → 明講不算，否則邀請人會以為系統沒算到他
+        var exEl = document.getElementById('invite-existing');
+        if (exEl) {
+          var ex = Number(q.referrals_existing || 0);
+          exEl.textContent = ex > 0 ? formatCopy('existing_friend_note', { existing: ex }) : '';
+        }
         if (remEl && lastRemaining !== null && lastRemaining !== q.remaining) popStat(remEl);
         if (refEl && lastReferrals !== null && lastReferrals !== q.referrals) popStat(refEl);
         lastRemaining = q.remaining;
@@ -1029,24 +1475,25 @@
           var canMore = q.referral_bonus_per > 0 && q.referral_bonus < q.referral_bonus_max;
           if (canMore) {
             statusRow.classList.remove('ready');
-            if (leadEl) leadEl.textContent = '次數用完了';
+            if (leadEl) leadEl.textContent = copyText('turns_used_up');
             if (unitEl) unitEl.textContent = '';
             var nbw = Number(q.next_bonus_in || 0);
-            statusEl.textContent = nbw > 0
-              ? ('再找 ' + nbw + ' 位朋友來，就多 ' + q.referral_bonus_per + ' 次')
-              : ('找朋友來，就多 ' + q.referral_bonus_per + ' 次');
+            statusEl.textContent = formatCopy('invite_unlock', {
+              next: nbw > 0 ? nbw : 1,
+              bonus: q.referral_bonus_per
+            });
             setCtaMode('invite');
           } else {
-            if (leadEl) leadEl.textContent = '這次玩完了';
+            if (leadEl) leadEl.textContent = copyText('campaign_done');
             if (unitEl) unitEl.textContent = '';
-            statusEl.textContent = '抽到的券會列在下方，下次活動見';
+            statusEl.textContent = copyText('campaign_done_note');
             setCtaMode('done');
           }
         } else {
           spinBtn.disabled = false;
           statusRow.classList.remove('done');
-          if (leadEl) leadEl.textContent = '還可以轉';
-          if (unitEl) unitEl.textContent = '次';
+          if (leadEl) leadEl.textContent = copyText('remaining_lead');
+          if (unitEl) unitEl.textContent = copyText('remaining_unit');
           setCtaMode('spin');
         }
 
@@ -1058,22 +1505,25 @@
           var bonusLeft = q.referral_bonus_max - q.referral_bonus;
           if (bonusLeft <= 0) {
             inviteCard.classList.add('maxed');
-            if (inviteSub) inviteSub.textContent = '邀請次數已用滿';
+            if (inviteSub) inviteSub.textContent = copyText('invite_maxed');
           } else {
             inviteCard.classList.remove('maxed');
             // 邀 N 換 1 的進度感：講「再邀幾位就多 1 次」，不是叫人自己除
             var nb = Number(q.next_bonus_in || 0);
-            if (inviteSub) inviteSub.textContent = nb > 0
-              ? ('已邀 ' + q.referrals + ' 位，再邀 ' + nb + ' 位就多 ' + q.referral_bonus_per + ' 次（還能加 ' + bonusLeft + ' 次）')
-              : ('還能加 ' + bonusLeft + ' 次');
+            if (inviteSub) inviteSub.textContent = formatCopy('invite_progress', {
+              invited: q.referrals,
+              next: nb > 0 ? nb : 1,
+              bonus: q.referral_bonus_per,
+              left: bonusLeft
+            });
           }
         }
       }
 
       // 主 CTA 依目前身分分派
-        if (ctaBtn) {
-          ctaBtn.addEventListener('click', function () {
-            if (ctaMode === 'invite') return shareWithFriend();
+      if (ctaBtn) {
+        ctaBtn.addEventListener('click', function () {
+          if (ctaMode === 'invite') return shareWithFriend();
           if (ctaMode === 'done') return;
           spinBtn.click();
         });
@@ -1085,6 +1535,10 @@
         inviteBtn.addEventListener('click', shareWithFriend);
       }
       async function shareWithFriend() {
+        if (IS_PREVIEW) {
+          statusEl.textContent = '安全測試不會真的分享；回後台切換情境即可繼續檢查';
+          return;
+        }
         if (!profile || !profile.userId) {
           alert('身分驗證中，稍等一下再試');
           return;
@@ -1129,7 +1583,7 @@
           // 重新拉 quota 確保 UI sync
           refreshQuota();
           if (statusEl.textContent === msg && profile && lastRemaining > 0) {
-            statusEl.innerHTML = '哈囉，<span class="name">' + (profile.displayName || '') + '</span>';
+            setGreeting(profile.displayName || '');
           }
         }, 2400);
       }

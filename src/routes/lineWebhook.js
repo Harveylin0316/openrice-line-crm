@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { applyInviteFollowReward } = require('../core/inviteReward');
 const { buildInviteRewardPushMessages } = require('../core/inviteRewardPushMessages');
 const { buildLineMessages } = require('../core/broadcastTemplates');
+const { withMessageTracking } = require('../core/messageTapTracking');
 const { fetchOaProfile } = require('../core/oaFollower');
 const { normalizeTwMobile, maskTwMobile } = require('../core/twPhone');
 
@@ -21,7 +22,8 @@ function createLineWebhookHandler({
   liffLotteryPushUrl = '',
   linePush,
   flowEngine = null,
-  goldPigBookings = null
+  goldPigBookings = null,
+  mgmEngine = null
 }) {
   const friendsPerDraw = Math.max(1, Number.isFinite(Number(inviteFriendsPerDraw)) ? Number(inviteFriendsPerDraw) : 2);
   async function appendWebhookEventLog(payload) {
@@ -277,7 +279,17 @@ function createLineWebhookHandler({
       [rule.message_template_id]
     );
     if (rs.rowCount === 0) return false;
-    const built = buildLineMessages(rs.rows[0].message_config, { heroImageBaseUrl: getKeywordReplyOrigin() });
+    // 按鈕改指到記名跳板：這樣才知道「誰點了這則關鍵字回覆的按鈕」，
+    // 拿得到人才能貼標籤、之後打這一包人。模板訊息與自訂 Flex 訊息都吃得下；
+    // 本來就指向自家頁面的按鈕不包（那種頁面自己認得出是誰）。
+    // 沒設 LIFF、或包的過程出任何狀況，就用原本的設定——訊息一定要發得出去。
+    const cfg = rs.rows[0].message_config;
+    const liffId = process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '';
+    let useCfg = cfg;
+    try {
+      useCfg = withMessageTracking(cfg, { source: 'keyword', refId: String(rule.id), liffId }) || cfg;
+    } catch (e) { console.error('keyword reply tracking wrap failed:', e && e.message); useCfg = cfg; }
+    const built = buildLineMessages(useCfg, { heroImageBaseUrl: getKeywordReplyOrigin() });
     if (!built.ok) return false;
     return await linePush.replyLineMessages(replyToken, built.messages, {
       lineUserId: lineUserId || null,
@@ -315,6 +327,20 @@ function createLineWebhookHandler({
           });
           continue;
         }
+        // 圖文選單分頁切換（richmenuswitch 的 postback）：記一筆行為，不回話
+        if (event?.type === 'postback') {
+          const data = String(event?.postback?.data || '');
+          const mTab = /^rmtab\|(\d+)\|(\d+)$/.exec(data);
+          if (mTab) {
+            await pool.query(
+              `INSERT INTO rich_menu_taps (menu_id, tab, cell, kind, label, line_user_id)
+               VALUES ($1, $2, NULL, 'tab', NULL, $3)`,
+              [Number(mTab[1]), Number(mTab[2]), event?.source?.userId || null]
+            ).catch(e => console.error('richmenu tab tap log failed:', e.message));
+          }
+          continue;
+        }
+
         // 任何 message 事件（含圖片/貼圖）都先把人收進 users 會員表。
         // 為什麼需要：LINE 只在「加好友當下」送 follow 事件，在本 webhook 建立之前就已經加過好友的
         // 舊好友永遠不會再有 follow 事件；若只靠 follow 收人，他們就算天天傳訊息也永遠不在會員表，
@@ -406,6 +432,90 @@ function createLineWebhookHandler({
           // 與手機登記同放在關鍵字比對之前短路（replyToken 一次性）。
           // 只在一對一聊天觸發：登記綁個人身分，群組裡傳手機號碼不該被當成登記。
           const isOneOnOne = event?.source?.type === 'user';
+          // 圖文選單「發送文字」按鍵的行為記錄：比對已發布選單的按鍵文字。
+          // 手動打出一樣的字也會被算進去——對成效統計來說是同一個觸發，可接受。
+          if (isOneOnOne) {
+            try {
+              const now = Date.now();
+              if (!globalThis.__rmBtnCache || now - globalThis.__rmBtnCache.at > 60000) {
+                // 同一段文字可能出現在好幾個已發布選單上；訊息事件分不出用戶按的是哪個。
+                // 排序讓「現役預設選單」最後蓋進 map ＝ 同字歸因給現役那個，
+                // 統計至少穩定偏向大家實際看得到的選單，不會隨機記到備用選單頭上。
+                const { rows: pubs } = await pool.query(
+                  `SELECT id, published_config FROM rich_menus
+                    WHERE status='published' AND published_config IS NOT NULL
+                    ORDER BY is_default ASC, published_at ASC NULLS FIRST LIMIT 30`);
+                const map = new Map();
+                for (const r of pubs) {
+                  const tabsArr = Array.isArray(r.published_config.tabs) && r.published_config.tabs.length
+                    ? r.published_config.tabs
+                    : [{ buttons: r.published_config.buttons || [] }];
+                  tabsArr.forEach((t, ti) => (t.buttons || []).forEach((b, ci) => {
+                    if (b && b.action && b.action.type === 'message' && b.action.text) {
+                      map.set(String(b.action.text).trim(), { menu: r.id, tab: ti, cell: ci, label: b.label || null });
+                    }
+                  }));
+                }
+                globalThis.__rmBtnCache = { at: now, map };
+              }
+              const hit = globalThis.__rmBtnCache.map.get(String(event.message.text || '').trim());
+              if (hit) {
+                await pool.query(
+                  `INSERT INTO rich_menu_taps (menu_id, tab, cell, kind, label, line_user_id)
+                   VALUES ($1,$2,$3,'message',$4,$5)`,
+                  [hit.menu, hit.tab, hit.cell, hit.label, event.source.userId || null]);
+              }
+            } catch (e) { console.error('richmenu msg tap log failed:', e.message); }
+          }
+          // 打活動名稱（例如「分享超有哩」）就回那個遊戲的卡片。
+          // 用活動名稱當關鍵字＝以後開新活動不用改程式，取好名字就能用。
+          const typed = String(event.message.text || '').trim();
+          if (isOneOnOne && typed.length >= 2 && typed.length <= 40) {
+            let game = null;
+            try {
+              const { rows } = await pool.query(
+                `SELECT slug, name, description, game_type, cover_image_url, liff_id_override
+                   FROM activities
+                  WHERE status = 'active' AND game_type <> 'mgm' AND name = $1
+                    AND (start_at IS NULL OR start_at <= now())
+                    AND (end_at IS NULL OR end_at >= now())
+                  ORDER BY id DESC LIMIT 1`, [typed]);
+              game = rows[0] || null;
+            } catch (e) { console.error('game keyword lookup failed:', e.message); }
+            if (game) {
+              const gameLiff = game.liff_id_override || process.env.GAMES_LIFF_ID ||
+                               process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '';
+              const url = 'https://liff.line.me/' + gameLiff + '/' + game.game_type + '/' +
+                          encodeURIComponent(game.slug);
+              const bubble = {
+                type: 'bubble',
+                body: { type: 'box', layout: 'vertical', spacing: 'md', paddingAll: '20px', contents: [
+                  { type: 'text', text: game.name, weight: 'bold', size: 'lg', wrap: true, color: '#3E2723' },
+                  { type: 'text', text: String(game.description || '點下面的按鈕開始玩'), size: 'sm', wrap: true, color: '#8D6E63' }
+                ]},
+                footer: { type: 'box', layout: 'vertical', paddingAll: '16px', contents: [
+                  { type: 'button', style: 'primary', color: '#F15A22', height: 'sm',
+                    action: { type: 'uri', label: '馬上玩', uri: url } }
+                ]}
+              };
+              if (game.cover_image_url && /^https:\/\//.test(game.cover_image_url)) {
+                bubble.hero = { type: 'image', url: game.cover_image_url, size: 'full',
+                                aspectRatio: '20:13', aspectMode: 'cover' };
+              }
+              let sent = false;
+              try {
+                sent = await linePush.replyLineMessages(event.replyToken,
+                  [{ type: 'flex', altText: game.name, contents: bubble }],
+                  { lineUserId: event.source.userId, pushType: 'game_entry' });
+              } catch (e) { console.error('game entry reply failed:', e.message); }
+              await appendWebhookEventLog({
+                eventType: 'message', lineUserId: event.source.userId,
+                result: sent ? 'game_entry_replied' : 'game_entry_reply_failed', detail: game.slug,
+                rawEvent: event
+              });
+              if (sent) continue;
+            }
+          }
           if (isOneOnOne && await handleBookingRegKeyword(event.source.userId, event.message.text, event.replyToken)) {
             await appendWebhookEventLog({
               eventType: 'message', lineUserId: event.source.userId,
@@ -485,6 +595,7 @@ function createLineWebhookHandler({
           });
           continue;
         }
+        let isFirstFollow = false; // 見面禮只發「真的第一次加入」的人（退追再加不算，防洗）
         // 加好友（含重新加好友）：抓 LINE 個人檔案（暱稱+大頭貼），把這個 follower 寫進 users 表。
         // 沒有這一步，透過活動以外管道（掃 QR、搜尋 OA）加入的好友只會有 line_user_id、
         // 沒有暱稱/大頭貼，「全部會員」群發也會漏掉他們。用 line_user_id 當唯一鍵 upsert：
@@ -495,15 +606,17 @@ function createLineWebhookHandler({
           let prof = null;
           try { prof = await fetchOaProfile(lineUserId); }
           catch (e) { console.error('fetchOaProfile failed:', e.message); }
-          await pool.query(
+          const upsertRs = await pool.query(
             `INSERT INTO users (username, password_hash, line_user_id, line_display_name, line_picture_url, blocked_at, created_at)
              VALUES ($1, '', $2, $3, $4, NULL, now())
              ON CONFLICT (line_user_id) DO UPDATE SET
                line_display_name = COALESCE(EXCLUDED.line_display_name, users.line_display_name),
                line_picture_url  = COALESCE(EXCLUDED.line_picture_url, users.line_picture_url),
-               blocked_at = NULL`,
+               blocked_at = NULL
+             RETURNING (xmax = 0) AS inserted`,
             ['line_' + lineUserId, lineUserId, prof && prof.displayName, prof && prof.pictureUrl]
           );
+          isFirstFollow = !!(upsertRs.rows[0] && upsertRs.rows[0].inserted);
         } catch (e) { console.error('follow user upsert failed:', e.message); }
         let rewardResult;
         try {
@@ -547,6 +660,13 @@ function createLineWebhookHandler({
         if (flowEngine && typeof flowEngine.triggerFollow === 'function') {
           try { await flowEngine.triggerFollow(lineUserId, null); }
           catch (e) { console.error('flow follow trigger failed:', e.message); }
+        }
+
+        // 揪友賺哩：新好友見面禮（引擎自己冪等——重加好友不會重發也不再吵他）。
+        // 同樣必須 await；失敗只記 log，不影響 follow 主流程。
+        if (mgmEngine && typeof mgmEngine.onFollow === 'function') {
+          try { await mgmEngine.onFollow(lineUserId, null, isFirstFollow); } // 顯示名後台會 JOIN users 補
+          catch (e) { console.error('mgm onFollow failed:', e.message); }
         }
 
         if (rewardResult?.result === 'rewarded' && linePush && typeof linePush.pushLineMessages === 'function') {

@@ -7,6 +7,7 @@
  * 新增遊戲類型只要加一行 registerGameType 就好。
  */
 const { registerGameType, registerWalletApi } = require('./gamesGeneric');
+const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 
 function registerGamesRoutes(app, deps) {
   const { query, pool } = deps;
@@ -39,6 +40,7 @@ function registerGamesRoutes(app, deps) {
                 start_at, end_at, liff_id_override
          FROM activities
          WHERE status = 'active'
+           AND game_type <> 'mgm'
            AND (start_at IS NULL OR start_at <= NOW())
            AND (end_at IS NULL OR end_at >= NOW())
          ORDER BY created_at DESC LIMIT 20`
@@ -51,7 +53,7 @@ function registerGamesRoutes(app, deps) {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     const gameLabel = (t) => ({
-      wheel: '輪盤抽獎', fortune: '每日抽籤', scratch: '刮刮樂', slot: '老虎機', claim: '領取優惠'
+      wheel: '輪盤抽獎', fortune: '每日抽籤', scratch: '刮刮樂', slot: '老虎機', claim: '領取優惠', mgm: '揪友賺哩'
     })[t] || t;
     const cardsHtml = activities.length === 0
       ? `<div class="empty">目前沒有進行中的活動，請稍後再回來看看。</div>`
@@ -120,6 +122,43 @@ function registerGamesRoutes(app, deps) {
       title: '我的優惠券 — OpenRice LINE',
       liffId: defaultLiffId
     });
+  });
+
+  // ----- 「前往兌換」點擊追蹤（claim 型領券頁在按下按鈕時打） -----
+  // 記在該用戶最新一筆 play 的 properties.redeem_clicked_at（只記第一次）。
+  // 活動 hub 的漏斗靠它算「領取後真的去兌換頁的人數」——跟合作夥伴談數字用。
+  app.post('/api/games/claim/:slug/redeem-click', async (req, res) => {
+    try {
+      const slug = String(req.params.slug || '').trim();
+      const idToken = String((req.body || {}).id_token || '').trim();
+      if (!idToken) return res.status(401).json({ ok: false, error: 'token_required' });
+      const { rows: acts } = await query(
+        `SELECT id, liff_id_override FROM activities WHERE slug = $1 AND game_type = 'claim' LIMIT 1`,
+        [slug]
+      );
+      if (acts.length === 0) return res.status(404).json({ ok: false, error: 'not_found' });
+      const a = acts[0];
+      const channelId = channelIdFromLiffId(
+        (a.liff_id_override && a.liff_id_override.trim()) || defaultLiffId
+      );
+      let v = null;
+      try { v = await verifyLiffIdToken(idToken, channelId); } catch (e) { v = null; }
+      if (!v || !v.ok || !v.sub) return res.status(401).json({ ok: false, error: 'token_invalid' });
+      await query(
+        `UPDATE activity_plays
+            SET properties = COALESCE(properties, '{}'::jsonb) ||
+                             jsonb_build_object('redeem_clicked_at', now())
+          WHERE id = (SELECT id FROM activity_plays
+                       WHERE activity_id = $1 AND line_user_id = $2
+                       ORDER BY played_at DESC LIMIT 1)
+            AND NOT (COALESCE(properties, '{}'::jsonb) ? 'redeem_clicked_at')`,
+        [a.id, v.sub]
+      );
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error('redeem-click error:', err && err.message);
+      return res.status(500).json({ ok: false, error: 'redeem_click_failed' });
+    }
   });
 
   // ----- 註冊所有遊戲類型 + 錢包 API -----

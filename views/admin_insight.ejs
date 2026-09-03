@@ -1,0 +1,244 @@
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="card">
+      <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;">
+        <h1 style="margin:0;">數據總覽</h1>
+        <div class="in-range">
+          <button type="button" class="in-rbtn on" data-days="30">近 30 天</button>
+          <button type="button" class="in-rbtn" data-days="90">近 90 天</button>
+        </div>
+        <span id="in-note" class="muted" style="font-size:13px;"></span>
+      </div>
+      <div id="in-cards" class="in-cards" style="margin-top:14px;"><p class="muted">載入中…</p></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">好友成長</h2>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">每天加入幾位、封鎖幾位。柱子是加入，紅點是封鎖。</p>
+      <canvas id="in-growth" width="1000" height="300" style="width:100%;"></canvas>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">每天的互動</h2>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">傳訊息進來、按圖文選單、玩遊戲的次數。</p>
+      <div class="in-legend" id="in-legend"></div>
+      <canvas id="in-engage" width="1000" height="300" style="width:100%;"></canvas>
+    </section>
+
+    <div class="in-two">
+      <section class="card">
+        <h2 style="margin:0 0 4px;">好友是什麼樣的人</h2>
+        <p class="muted" style="font-size:13px;margin-bottom:10px;">LINE 官方統計（跟官方後台同一份資料）。</p>
+        <div id="in-demo"><p class="muted">載入中…</p></div>
+      </section>
+      <section class="card">
+        <h2 style="margin:0 0 4px;">加入來源</h2>
+        <p class="muted" style="font-size:13px;margin-bottom:10px;">掃哪個碼、走哪個入口加入的（有記到來源的才算得出來）。</p>
+        <div id="in-sources"><p class="muted">載入中…</p></div>
+      </section>
+    </div>
+
+    <div class="in-two">
+      <section class="card">
+        <h2 style="margin:0 0 4px;">圖文選單最熱門的按鍵（近 30 天）</h2>
+        <div id="in-buttons"><p class="muted">載入中…</p></div>
+      </section>
+      <section class="card">
+        <h2 style="margin:0 0 4px;">活動成績</h2>
+        <div id="in-acts"><p class="muted">載入中…</p></div>
+        <p class="muted" style="font-size:12px;margin-top:8px;">細節在「活動成效」和「成效報表」頁。</p>
+      </section>
+    </div>
+
+    <style>
+      .in-range{display:flex;gap:6px;}
+      .in-rbtn{padding:7px 14px;border:1.5px solid #ECECEE;background:#fff;border-radius:999px;font-size:13px;font-weight:700;color:#6B7280;cursor:pointer;}
+      .in-rbtn.on{border-color:#1f2937;color:#1f2937;}
+      .in-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
+      .in-card{border:1px solid #ECECEE;border-radius:10px;padding:14px;background:#FAFAFA;}
+      .in-card .v{font-size:26px;font-weight:800;color:#1f2937;font-variant-numeric:tabular-nums;}
+      .in-card .k{font-size:12px;color:#6B6B70;margin-top:4px;line-height:1.5;}
+      .in-two{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+      @media (max-width:860px){.in-two{grid-template-columns:1fr;}}
+      .in-bar{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:12.5px;}
+      .in-bar .lb{width:88px;color:#374151;text-align:right;flex:0 0 auto;}
+      .in-bar .tr{flex:1;background:#F3F4F6;border-radius:6px;height:18px;position:relative;overflow:hidden;}
+      .in-bar .fl{height:100%;border-radius:6px;background:#FBC02D;}
+      .in-bar .pc{width:52px;color:#6B7280;flex:0 0 auto;}
+      .in-table{width:100%;border-collapse:collapse;font-size:13px;}
+      .in-table th,.in-table td{padding:8px 10px;border-bottom:1px solid #F3F4F6;text-align:left;}
+      .in-table th{background:#FAFAFA;font-size:11px;color:#6B6B70;font-weight:600;}
+      .in-legend{display:flex;gap:16px;font-size:12px;color:#374151;margin-bottom:6px;flex-wrap:wrap;}
+      .in-legend span{display:flex;align-items:center;gap:5px;}
+      .in-dot{width:10px;height:10px;border-radius:3px;display:inline-block;}
+      .in-demo-title{font-weight:700;font-size:13px;margin:12px 0 6px;}
+    </style>
+
+    <script>
+    (function(){
+      var $=function(id){return document.getElementById(id);};
+      function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+      var DATA=null, days=30;
+
+      function card(v,k){return '<div class="in-card"><div class="v">'+(v==null?'—':Number(v).toLocaleString())+'</div><div class="k">'+k+'</div></div>';}
+
+      function drawGrowth(){
+        var cv=$('in-growth'),ctx=cv.getContext('2d');
+        var W=cv.width,H=cv.height,P=34;
+        ctx.clearRect(0,0,W,H);
+        var d=DATA.daily||[];
+        if(!d.length)return;
+        var max=1;d.forEach(function(r){max=Math.max(max,r.joins,r.blocks);});
+        var bw=(W-P*2)/d.length;
+        ctx.textAlign='center';ctx.fillStyle='#9CA3AF';ctx.font='11px sans-serif';
+        d.forEach(function(r,i){
+          var x=P+i*bw;
+          var h=Math.round((H-P*2)*r.joins/max);
+          ctx.fillStyle='#FBC02D';
+          ctx.fillRect(x+bw*0.18,H-P-h,bw*0.64,h);
+          if(r.blocks>0){
+            var hb=Math.round((H-P*2)*r.blocks/max);
+            ctx.fillStyle='#E8491D';
+            ctx.beginPath();ctx.arc(x+bw/2,H-P-hb,3.5,0,Math.PI*2);ctx.fill();
+          }
+          if(d.length<=31?(i%5===0):(i%15===0)){
+            ctx.fillStyle='#9CA3AF';ctx.fillText(r.day,x+bw/2,H-P+16);
+          }
+        });
+        ctx.fillStyle='#9CA3AF';ctx.textAlign='right';
+        ctx.fillText(String(max),P-6,P+4);
+        ctx.fillText('0',P-6,H-P);
+      }
+
+      var SERIES=[['msgs','傳訊息','#4E8FD9'],['menu_taps','按選單','#E8873F'],['plays','玩遊戲','#2E9E6B']];
+      function drawEngage(){
+        var cv=$('in-engage'),ctx=cv.getContext('2d');
+        var W=cv.width,H=cv.height,P=34;
+        ctx.clearRect(0,0,W,H);
+        var d=DATA.daily||[];
+        if(!d.length)return;
+        var max=1;d.forEach(function(r){SERIES.forEach(function(sr){max=Math.max(max,r[sr[0]]);});});
+        var step=(W-P*2)/Math.max(1,d.length-1);
+        SERIES.forEach(function(sr){
+          ctx.beginPath();ctx.lineWidth=2.5;ctx.strokeStyle=sr[2];ctx.lineJoin='round';
+          d.forEach(function(r,i){
+            var x=P+i*step,y=H-P-(H-P*2)*r[sr[0]]/max;
+            if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+          });
+          ctx.stroke();
+        });
+        ctx.textAlign='center';ctx.fillStyle='#9CA3AF';ctx.font='11px sans-serif';
+        d.forEach(function(r,i){
+          if(d.length<=31?(i%5===0):(i%15===0))ctx.fillText(r.day,P+i*step,H-P+16);
+        });
+        ctx.textAlign='right';ctx.fillText(String(max),P-6,P+4);ctx.fillText('0',P-6,H-P);
+        $('in-legend').innerHTML=SERIES.map(function(sr){
+          return '<span><span class="in-dot" style="background:'+sr[2]+';"></span>'+sr[1]+'</span>';
+        }).join('');
+      }
+
+      function bar(label,pct,color){
+        return '<div class="in-bar"><div class="lb">'+esc(label)+'</div>'+
+          '<div class="tr"><div class="fl" style="width:'+Math.min(100,pct)+'%;background:'+(color||'#FBC02D')+';"></div></div>'+
+          '<div class="pc">'+pct.toFixed(1)+'%</div></div>';
+      }
+      var AGE_WORDS={from0to14:'14 歲以下',from15to19:'15–19 歲',from20to24:'20–24 歲',from25to29:'25–29 歲',
+        from30to34:'30–34 歲',from35to39:'35–39 歲',from40to44:'40–44 歲',from45to49:'45–49 歲',
+        from50to54:'50–54 歲',from55to59:'55–59 歲',from60to64:'60–64 歲',from65:'65 歲以上',unknown:'不明'};
+      var GENDER_WORDS={male:'男',female:'女',unknown:'不明'};
+      function renderDemo(){
+        var box=$('in-demo');
+        var dm=DATA.line&&DATA.line.demographic;
+        if(!dm||dm.available===false){box.innerHTML='<p class="muted" style="font-size:13px;">LINE 還沒開放這個帳號的輪廓資料（好友要夠多才有）。</p>';return;}
+        var h='';
+        if(dm.genders&&dm.genders.length){
+          h+='<div class="in-demo-title">性別</div>'+dm.genders.map(function(g){
+            return bar(GENDER_WORDS[g.gender]||g.gender,g.percentage,g.gender==='female'?'#E8875A':'#4E8FD9');}).join('');
+        }
+        if(dm.ages&&dm.ages.length){
+          var ages=dm.ages.slice().sort(function(a,b){return b.percentage-a.percentage;}).slice(0,6);
+          h+='<div class="in-demo-title">年齡（前六名）</div>'+ages.map(function(a){
+            return bar(AGE_WORDS[a.age]||a.age,a.percentage,'#FBC02D');}).join('');
+        }
+        if(dm.areas&&dm.areas.length){
+          var areas=dm.areas.slice().sort(function(a,b){return b.percentage-a.percentage;}).slice(0,6);
+          h+='<div class="in-demo-title">地區（前六名）</div>'+areas.map(function(a){
+            return bar(a.area||'不明',a.percentage,'#2E9E6B');}).join('');
+        }
+        box.innerHTML=h||'<p class="muted" style="font-size:13px;">還沒有輪廓資料。</p>';
+      }
+
+      var SRC_WORDS={organic:'自己搜尋或掃碼',unknown:'不明'};
+      function renderSources(){
+        var box=$('in-sources');
+        var srcs=DATA.sources||[];
+        if(!srcs.length){box.innerHTML='<p class="muted" style="font-size:13px;">還沒有記到加入來源。</p>';return;}
+        var total=srcs.reduce(function(s,x){return s+x.n;},0);
+        box.innerHTML=srcs.map(function(x){
+          var name=SRC_WORDS[x.source_key]||x.source_key;
+          return bar(name,total?x.n*100/total:0,'#8E6AC8');
+        }).join('')+'<p class="muted" style="font-size:11.5px;margin-top:6px;">共 '+total.toLocaleString()+' 位記到來源。</p>';
+      }
+
+      function renderButtons(){
+        var box=$('in-buttons');
+        var rows=DATA.top_buttons||[];
+        if(!rows.length){box.innerHTML='<p class="muted" style="font-size:13px;">還沒有點擊紀錄。選單發布並有人使用後，這裡會排出最熱門的按鍵。</p>';return;}
+        var kindName={link:'開啟網址',message:'發送文字',tab:'分頁切換'};
+        box.innerHTML='<table class="in-table"><thead><tr><th>按鍵</th><th>選單</th><th>類型</th><th style="text-align:right;">點擊</th></tr></thead><tbody>'+
+          rows.map(function(r){
+            var nm=r.kind==='tab'?('切到分頁'+String.fromCharCode(65+r.tab)):(r.label||('第 '+(Number(r.cell)+1)+' 格'));
+            return '<tr><td>'+esc(nm)+'</td><td class="muted">'+esc(r.menu_name||'（已刪除的選單）')+'</td>'+
+              '<td>'+(kindName[r.kind]||esc(r.kind))+'</td><td style="text-align:right;font-weight:700;">'+r.taps+'</td></tr>';
+          }).join('')+'</tbody></table>';
+      }
+
+      function renderActs(){
+        var box=$('in-acts');
+        var rows=DATA.activities||[];
+        if(!rows.length){box.innerHTML='<p class="muted" style="font-size:13px;">這段期間沒有活動紀錄。</p>';return;}
+        box.innerHTML='<table class="in-table"><thead><tr><th>活動</th><th style="text-align:right;">玩了幾次</th><th style="text-align:right;">中獎</th><th style="text-align:right;">幾個人玩</th></tr></thead><tbody>'+
+          rows.map(function(r){
+            return '<tr><td>'+esc(r.name)+'</td><td style="text-align:right;">'+r.plays+'</td>'+
+              '<td style="text-align:right;">'+r.wins+'</td><td style="text-align:right;">'+r.people+'</td></tr>';
+          }).join('')+'</tbody></table>';
+      }
+
+      function render(){
+        var lf=DATA.line&&DATA.line.followers;
+        var dv=DATA.line&&DATA.line.delivery;
+        var joined=DATA.totals?DATA.totals.joined_period:null;
+        $('in-cards').innerHTML=
+          card(lf?lf.followers:null,'好友總數（LINE 官方數字）')+
+          card(lf?lf.targetedReaches:null,'可以收到訊息的人')+
+          card(lf?lf.blocks:null,'封鎖中')+
+          card(DATA.totals?DATA.totals.members:null,'進過系統的會員數')+
+          card(joined,'近 '+DATA.days+' 天新加入')+
+          card(dv?((dv.autoResponse||0)+(dv.apiPush||0)+(dv.apiReply||0)+(dv.apiMulticast||0)+(dv.apiBroadcast||0)):null,'昨天發出的訊息');
+        if(!lf)$('in-note').textContent='LINE 官方統計暫時連不上，先看得到我們自己的數字。';
+        drawGrowth();drawEngage();renderDemo();renderSources();renderButtons();renderActs();
+      }
+
+      function load(){
+        fetch('/admin/insight/api/data?days='+days).then(function(r){return r.json();}).then(function(d){
+          if(!d.ok){$('in-cards').innerHTML='<p class="muted">載入失敗：'+esc(d.detail||d.error)+'</p>';return;}
+          DATA=d;render();
+        }).catch(function(){$('in-cards').innerHTML='<p class="muted">載入失敗，請重新整理</p>';});
+      }
+      [].slice.call(document.querySelectorAll('.in-rbtn')).forEach(function(b){
+        b.addEventListener('click',function(){
+          days=Number(b.getAttribute('data-days'));
+          [].slice.call(document.querySelectorAll('.in-rbtn')).forEach(function(x){x.classList.toggle('on',x===b);});
+          load();
+        });
+      });
+      load();
+    })();
+    </script>
+    `
+  })
+%>

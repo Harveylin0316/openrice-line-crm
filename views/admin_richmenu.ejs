@@ -1,0 +1,1543 @@
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="card" id="rm-list-view">
+      <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;">
+        <h1 style="margin:0;">圖文選單</h1>
+        <button type="button" class="rm-btn1" id="rm-new">＋ 從範本開新選單</button>
+      </div>
+      <p class="muted" style="margin-top:8px;line-height:1.7;">
+        選範本、改字、按發布，選單圖自動畫好傳上去；也可以整張用自己上傳的完稿圖。<br>
+        支援分頁切換、上下架時間、名單專屬選單，每一格被按幾次都有紀錄。<br>
+        <b>選單有三種狀態</b>：<b>草稿</b>（只存在這裡）→ 按「發布」變成<b>備用</b>（送上 LINE，但用戶還看不到）→ 按「設為所有人看到的」才真的換掉用戶的選單。<br>
+        換成「所有人看到的」之後，會蓋過你在 LINE 官方後台設定的選單；官方後台做的選單這裡看不到。
+      </p>
+      <div id="rm-live-note" class="rm-livebar"></div>
+      <div id="rm-list" style="margin-top:14px;"><p class="muted">載入中…</p></div>
+      <div id="rm-orphans" style="margin-top:6px;"></div>
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button type="button" class="rm-btn2" id="rm-preview-stop">結束測試預覽（測試人員回到一般選單）</button>
+        <span id="rm-preview-note" class="muted" style="font-size:13px;"></span>
+      </div>
+    </section>
+
+    <section class="card" id="rm-editor-view" hidden>
+      <div class="rm-edit-head">
+        <button type="button" class="rm-btn2" id="rm-back">← 回列表</button>
+        <input type="text" id="rm-name" placeholder="選單名稱（只有你看得到）" maxlength="100">
+        <span id="rm-edit-note" class="muted" style="font-size:13px;"></span>
+        <div style="flex:1"></div>
+        <button type="button" class="rm-btn2" id="rm-save">儲存草稿</button>
+        <button type="button" class="rm-btn1" id="rm-publish">發布</button>
+      </div>
+
+      <div class="rm-tabbar-edit" id="rm-tabpills"></div>
+
+      <div class="rm-edit-grid">
+        <div class="rm-left">
+          <div class="rm-phone">
+            <div class="rm-phone-top">聊天室預覽</div>
+            <div class="rm-phone-chat"></div>
+            <canvas id="rm-canvas" width="1000" height="674"></canvas>
+            <div class="rm-chatbar"><span id="rm-chatbar-label">選單</span><span class="rm-caret">▾</span></div>
+          </div>
+          <p class="muted" style="font-size:12.5px;margin-top:8px;">點上面的格子來編輯那一格；有分頁時點分頁頭可以切換。</p>
+
+          <div class="rm-global">
+            <div class="rm-field">
+              <span>版型（這個分頁）</span>
+              <div id="rm-layouts" class="rm-swatch-row"></div>
+            </div>
+            <div class="rm-field">
+              <span>背景色</span>
+              <div id="rm-bgs" class="rm-swatch-row"></div>
+            </div>
+            <div class="rm-field">
+              <span>格子底色</span>
+              <div id="rm-cellbgs" class="rm-swatch-row"></div>
+            </div>
+            <div class="rm-field">
+              <span>文字顏色（不選＝依底色自動）</span>
+              <div id="rm-textcolors" class="rm-swatch-row"></div>
+            </div>
+            <div class="rm-field">
+              <span>邊框</span>
+              <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;">粗細
+                  <input type="range" id="rm-borderw" min="0" max="24" step="1" style="width:110px;">
+                  <span id="rm-borderw-val" class="muted" style="width:34px;"></span></label>
+                <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;">顏色
+                  <input type="color" id="rm-bordercolor" class="rm-color"></label>
+                <button type="button" class="rm-btn2" id="rm-bordercolor-auto" style="padding:5px 10px;font-size:12px;">跟文字同色</button>
+              </div>
+            </div>
+            <div class="rm-field">
+              <span>形狀</span>
+              <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+                <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;">圓角
+                  <input type="range" id="rm-radius" min="0" max="80" step="2" style="width:110px;">
+                  <span id="rm-radius-val" class="muted" style="width:34px;"></span></label>
+                <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;">格子間距
+                  <input type="range" id="rm-gap" min="0" max="80" step="2" style="width:110px;">
+                  <span id="rm-gap-val" class="muted" style="width:34px;"></span></label>
+              </div>
+            </div>
+            <div class="rm-field">
+              <span>文字大小</span>
+              <div class="rm-actmode" style="max-width:280px;">
+                <button type="button" class="rm-actbtn rm-fs" data-fs="0.8">小</button>
+                <button type="button" class="rm-actbtn rm-fs" data-fs="1">標準</button>
+                <button type="button" class="rm-actbtn rm-fs" data-fs="1.2">大</button>
+              </div>
+            </div>
+            <div class="rm-field" id="rm-tabcolor-field" hidden>
+              <span>分頁頭顏色</span>
+              <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12.5px;">
+                <label style="display:flex;gap:6px;align-items:center;">現在這頁
+                  <input type="color" id="rm-tab-activebg" class="rm-color"></label>
+                <label style="display:flex;gap:6px;align-items:center;">其他頁
+                  <input type="color" id="rm-tab-inactivebg" class="rm-color"></label>
+                <label style="display:flex;gap:6px;align-items:center;">文字
+                  <input type="color" id="rm-tab-textcolor" class="rm-color"></label>
+              </div>
+            </div>
+            <div class="rm-field">
+              <span>整張完稿圖（這個分頁）</span>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="file" id="rm-fullimg-file" accept="image/png,image/jpeg" style="font-size:12.5px;">
+                <button type="button" class="rm-btn2" id="rm-fullimg-clear" hidden>移除完稿圖</button>
+              </div>
+              <small class="muted">有設計師做好整張圖就傳這裡，格子只當「可以點的範圍」用，字和圖示都不會畫上去。有分頁的話，最上面那條分頁頭要自己畫進圖裡。</small>
+            </div>
+            <div class="rm-field-inline">
+              <label><span>聊天室下方那條字（最多 14 字）</span>
+                <input type="text" id="rm-chatbar" maxlength="14" value="選單"></label>
+              <label class="rm-check"><input type="checkbox" id="rm-open-default" checked> 進聊天室自動展開選單</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="rm-right">
+          <h3 style="margin:0 0 2px;font-size:15px;">第 <span id="rm-cell-no">1</span> 格</h3>
+          <label class="rm-field"><span>按鍵文字</span>
+            <input type="text" id="rm-label" maxlength="12" placeholder="例：訂位"></label>
+          <label class="rm-field"><span>小字（可留空）</span>
+            <input type="text" id="rm-sublabel" maxlength="16" placeholder="例：立即預約"></label>
+          <div class="rm-field"><span>這一格的圖片（會蓋住圖示）</span>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input type="file" id="rm-cellimg-file" accept="image/png,image/jpeg" style="font-size:12.5px;">
+              <button type="button" class="rm-btn2" id="rm-cellimg-clear" hidden>移除圖片</button>
+            </div>
+          </div>
+          <div class="rm-field"><span>圖示</span><div id="rm-icons" class="rm-icon-grid"></div></div>
+          <div class="rm-field"><span>這一格的底色（不選＝跟全部一樣）</span>
+            <div id="rm-cellbg-one" class="rm-swatch-row"></div></div>
+          <div class="rm-field"><span>這一格的文字顏色（不選＝跟全部一樣）</span>
+            <div id="rm-cellcolor-one" class="rm-swatch-row"></div></div>
+
+          <div class="rm-field"><span>按下去做什麼</span>
+            <div class="rm-actmode">
+              <button type="button" data-mode="activity" class="rm-actbtn">開啟活動</button>
+              <button type="button" data-mode="uri" class="rm-actbtn">開啟網址</button>
+              <button type="button" data-mode="message" class="rm-actbtn">發送文字</button>
+            </div>
+            <div id="rm-act-activity" class="rm-actbody" hidden>
+              <select id="rm-act-select"></select>
+              <small class="muted">選了活動就自動連到活動頁；「我的獎品」也在這裡面。</small>
+            </div>
+            <div id="rm-act-uri" class="rm-actbody" hidden>
+              <input type="text" id="rm-act-url" placeholder="https://...">
+              <div class="rm-linkcheck">
+                <button type="button" class="rm-btn2" id="rm-check-link">檢查這個連結</button>
+                <button type="button" class="rm-btn2" id="rm-use-app">用「App 下載」網址</button>
+                <span id="rm-check-result"></span>
+              </div>
+              <label class="rm-idcheck">
+                <input type="checkbox" id="rm-act-identify">
+                <span>記錄是誰點的（之後可以拿這批人貼標籤、發訊息）</span>
+              </label>
+              <small class="muted" id="rm-act-idhint">不勾：只知道被按了幾次，跳過去比較快。<br>
+                勾了：跳過去前會多花約一秒確認身分，換來「誰按了這顆」的名單。</small>
+            </div>
+            <div id="rm-act-message" class="rm-actbody" hidden>
+              <input type="text" id="rm-act-text" maxlength="100" placeholder="用戶按下去會自動送出這句話">
+              <div id="rm-act-text-sugg" class="rm-sugg"></div>
+              <small class="muted">打活動名稱（例如「分享超有哩」）官方帳號會自動回活動卡片。</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="rm-modal" id="rm-tpl-modal" hidden>
+      <div class="rm-modal-inner">
+        <div class="rm-modal-head">
+          <h3 style="margin:0;">挑一個範本開始</h3>
+          <button type="button" class="rm-x" id="rm-tpl-close">×</button>
+        </div>
+        <p class="muted" style="font-size:13px;margin:4px 0 12px;">選好之後每一格的字、圖示、動作都還能改。</p>
+        <div id="rm-tpl-grid" class="rm-tpl-grid"></div>
+      </div>
+    </div>
+
+    <div class="rm-modal" id="rm-pub-modal" hidden>
+      <div class="rm-modal-inner" style="max-width:560px;">
+        <div class="rm-modal-head">
+          <h3 style="margin:0;">發布這個選單</h3>
+          <button type="button" class="rm-x" id="rm-pub-close">×</button>
+        </div>
+        <div id="rm-pub-previews"></div>
+        <div id="rm-pub-summary" class="muted" style="font-size:13px;line-height:1.8;margin:10px 0;"></div>
+        <label class="rm-check" style="margin-bottom:4px;"><input type="checkbox" id="rm-pub-default">
+          <b>發布後直接讓所有人看到</b></label>
+        <div class="rm-pub-hint">
+          <div><b>勾</b>：所有用戶的選單立刻換成這一個（連 LINE 官方後台設的那個也會被蓋過去）</div>
+          <div><b>不勾</b>：先放著備用，<b>用戶看到的還是原本那個</b>；之後隨時可以在列表按「設為所有人看到的」切換</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button type="button" class="rm-btn1" id="rm-pub-go">確定發布</button>
+          <button type="button" class="rm-btn2" id="rm-pub-cancel">取消</button>
+          <span id="rm-pub-note" class="muted" style="font-size:13px;align-self:center;"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="rm-modal" id="rm-sch-modal" hidden>
+      <div class="rm-modal-inner" style="max-width:520px;">
+        <div class="rm-modal-head">
+          <h3 style="margin:0;">上下架時間</h3>
+          <button type="button" class="rm-x" id="rm-sch-close">×</button>
+        </div>
+        <p class="muted" style="font-size:13px;margin:4px 0 14px;line-height:1.7;">到點自動生效，前後最多差五分鐘。留空＝不排。時間要選未來的。<br>下架時間到的時候，如果中間已經有人手動換過選單，排程就不會去動它。</p>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <label class="rm-field"><span>上架時間（到點自動設為所有人看到的）</span>
+            <input type="datetime-local" id="rm-sch-start"></label>
+          <label class="rm-field"><span>下架時間</span>
+            <input type="datetime-local" id="rm-sch-end"></label>
+          <label class="rm-field"><span>下架後顯示哪個選單</span>
+            <select id="rm-sch-endmenu"></select></label>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px;">
+          <button type="button" class="rm-btn1" id="rm-sch-save">儲存排程</button>
+          <button type="button" class="rm-btn2" id="rm-sch-clear">清除排程</button>
+          <span id="rm-sch-note" class="muted" style="font-size:13px;align-self:center;"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="rm-modal" id="rm-aud-modal" hidden>
+      <div class="rm-modal-inner" style="max-width:520px;">
+        <div class="rm-modal-head">
+          <h3 style="margin:0;">名單專屬選單</h3>
+          <button type="button" class="rm-x" id="rm-aud-close">×</button>
+        </div>
+        <p class="muted" style="font-size:13px;margin:4px 0 14px;">
+          指定一份名單，名單裡的人看到的就是這個選單，其他人照樣看「所有人看到的」那個。<br>
+          名單在「名單庫」管理；之後名單加了新人，回來再按一次套用。</p>
+        <select id="rm-aud-select" style="width:100%;padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;font-size:14px;"></select>
+        <div style="display:flex;gap:8px;margin-top:16px;">
+          <button type="button" class="rm-btn1" id="rm-aud-apply">套用到名單成員</button>
+          <button type="button" class="rm-btn2" id="rm-aud-clear">取消名單專屬</button>
+          <span id="rm-aud-note" class="muted" style="font-size:13px;align-self:center;"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="rm-modal" id="rm-stats-modal" hidden>
+      <div class="rm-modal-inner" style="max-width:640px;">
+        <div class="rm-modal-head">
+          <h3 style="margin:0;">這個選單的成效</h3>
+          <button type="button" class="rm-x" id="rm-stats-close">×</button>
+        </div>
+        <div id="rm-stats-body"><p class="muted">載入中…</p></div>
+        <p class="muted" style="font-size:12px;margin-top:10px;line-height:1.7;">
+          「開啟網址」記在按下去的當下；「發送文字」是比對訊息內容（手動打一樣的字也會算進來）。<br>
+          開啟網址的按鍵，有勾「記錄是誰點的」才算得出人數，沒勾的只有次數。</p>
+      </div>
+    </div>
+
+    <style>
+      #rm-editor-view[hidden],#rm-list-view[hidden]{display:none;}
+      .rm-btn1{padding:9px 16px;background:#1f2937;color:#fff;border:0;border-radius:8px;font-size:13.5px;font-weight:700;cursor:pointer;}
+      .rm-btn1:disabled{opacity:.5;cursor:default;}
+      .rm-btn2{padding:9px 16px;background:#fff;color:#374151;border:1px solid #ECECEE;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer;}
+      .rm-btn2:hover{border-color:#1f2937;}
+      .rm-btn2:disabled{opacity:.5;cursor:default;}
+      .rm-danger{color:#b91c1c;}
+      .rm-livebar{margin-top:10px;padding:10px 14px;border:1px solid #ECECEE;border-radius:10px;background:#FAFAFA;font-size:13.5px;line-height:1.7;}
+      .rm-cardrow{display:flex;gap:14px;align-items:flex-start;border:1px solid #ECECEE;border-radius:12px;padding:14px;margin-bottom:12px;flex-wrap:wrap;}
+      .rm-cardrow.live{border-color:#1f2937;box-shadow:0 0 0 1px #1f2937;}
+      .rm-thumb{border-radius:8px;border:1px solid #ECECEE;display:block;}
+      .rm-card-main{flex:1;min-width:220px;}
+      .rm-card-name{font-weight:800;font-size:15px;}
+      .rm-tag{display:inline-block;padding:2px 8px;border-radius:999px;background:#1f2937;color:#fff;font-size:11px;font-weight:700;margin-left:6px;}
+      .rm-tag.draft{background:#FFFBEB;color:#92400E;}
+      .rm-card-meta{font-size:12px;color:#6B7280;margin-top:3px;line-height:1.7;}
+      .rm-card-btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+      .rm-edit-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+      .rm-edit-head input#rm-name{flex:0 1 300px;padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;font-size:14px;font-weight:700;}
+      .rm-tabbar-edit{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
+      .rm-tabpill{padding:7px 16px;border:1.5px solid #ECECEE;border-radius:999px;background:#fff;font-size:13px;font-weight:700;cursor:pointer;color:#6B7280;}
+      .rm-tabpill.on{border-color:#E8491D;color:#E8491D;background:#FFF5F2;}
+      .rm-tabpill-add{padding:7px 12px;border:1.5px dashed #D1D5DB;border-radius:999px;background:#fff;font-size:13px;cursor:pointer;color:#6B7280;}
+      .rm-edit-grid{display:grid;grid-template-columns:minmax(320px,1.25fr) minmax(280px,1fr);gap:22px;}
+      @media (max-width:860px){.rm-edit-grid{grid-template-columns:1fr;}}
+      .rm-phone{border:1px solid #E5E7EB;border-radius:16px;overflow:hidden;background:#8E9AAB;}
+      .rm-phone-top{background:#33415C;color:#fff;font-size:12px;padding:7px 12px;letter-spacing:.06em;}
+      .rm-phone-chat{height:56px;background:#8E9AAB;}
+      .rm-phone canvas{display:block;width:100%;height:auto;cursor:pointer;}
+      .rm-chatbar{background:#fff;padding:9px 12px;font-size:13px;font-weight:700;color:#374151;display:flex;justify-content:center;gap:6px;border-top:1px solid #E5E7EB;}
+      .rm-caret{color:#9CA3AF;}
+      .rm-global{margin-top:16px;display:flex;flex-direction:column;gap:14px;}
+      .rm-field{display:flex;flex-direction:column;gap:6px;font-size:13px;}
+      .rm-field > span{font-weight:700;}
+      .rm-field input,.rm-field select{padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;font-size:14px;font-family:inherit;}
+      .rm-field small{line-height:1.6;}
+      .rm-field-inline{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;font-size:13px;}
+      .rm-field-inline label{display:flex;flex-direction:column;gap:6px;}
+      .rm-field-inline label span{font-weight:700;}
+      .rm-field-inline input[type=text]{padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;font-size:14px;}
+      .rm-check{display:flex;align-items:center;gap:7px;font-size:13px;color:#374151;}
+      .rm-swatch-row{display:flex;gap:8px;flex-wrap:wrap;}
+      .rm-swatch{width:34px;height:34px;border-radius:8px;border:2px solid #E5E7EB;cursor:pointer;padding:0;}
+      .rm-swatch.on{border-color:#1f2937;box-shadow:0 0 0 2px #1f2937 inset;}
+      .rm-swatch.none{background:repeating-linear-gradient(45deg,#fff,#fff 4px,#eee 4px,#eee 8px);}
+      .rm-color{width:38px;height:34px;padding:0;border:2px solid #E5E7EB;border-radius:8px;background:#fff;cursor:pointer;}
+      #rm-tabcolor-field[hidden]{display:none;}
+      .rm-layout-btn{border:2px solid #E5E7EB;border-radius:8px;background:#fff;cursor:pointer;padding:4px;}
+      .rm-layout-btn.on{border-color:#1f2937;}
+      .rm-right{display:flex;flex-direction:column;gap:14px;border:1px solid #F3F4F6;border-radius:12px;padding:16px;background:#FAFAFA;align-self:start;}
+      .rm-icon-grid{display:grid;grid-template-columns:repeat(auto-fill,44px);gap:8px;}
+      .rm-icon-btn{width:44px;height:44px;border:2px solid #E5E7EB;border-radius:8px;background:#fff;cursor:pointer;padding:5px;}
+      .rm-icon-btn.on{border-color:#1f2937;}
+      .rm-icon-btn svg{width:100%;height:100%;}
+      .rm-actmode{display:flex;gap:6px;margin-bottom:8px;}
+      .rm-actbtn{flex:1;padding:8px 4px;border:1.5px solid #ECECEE;background:#fff;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;color:#6B7280;}
+      .rm-actbtn.on{border-color:#1f2937;color:#1f2937;background:#fff;}
+      .rm-actbody{display:flex;flex-direction:column;gap:7px;}
+      .rm-actbody[hidden]{display:none;}
+      .rm-actbody input,.rm-actbody select{padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;font-size:13.5px;width:100%;}
+      .rm-sugg{display:flex;gap:6px;flex-wrap:wrap;}
+      .rm-sugg button{padding:4px 10px;border:1px solid #ECECEE;border-radius:999px;background:#fff;font-size:12px;cursor:pointer;color:#374151;}
+      .rm-modal{position:fixed;inset:0;background:rgba(17,24,39,.45);display:flex;align-items:center;justify-content:center;z-index:60;padding:18px;}
+      .rm-modal[hidden]{display:none;}
+      .rm-modal-inner{background:#fff;border-radius:14px;padding:20px;max-width:860px;width:100%;max-height:90vh;overflow:auto;}
+      .rm-modal-head{display:flex;justify-content:space-between;align-items:center;}
+      .rm-x{border:0;background:none;font-size:22px;cursor:pointer;color:#6B7280;line-height:1;}
+      .rm-tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;}
+      .rm-tpl-card{border:1.5px solid #ECECEE;border-radius:12px;padding:12px;cursor:pointer;background:#fff;text-align:left;}
+      .rm-tpl-card:hover{border-color:#1f2937;}
+      .rm-tpl-card canvas{width:100%;border-radius:8px;display:block;}
+      .rm-tpl-name{font-weight:800;font-size:13.5px;margin-top:8px;}
+      .rm-tpl-desc{font-size:12px;color:#6B7280;margin-top:2px;line-height:1.5;}
+      .rm-stat-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
+      .rm-stat-table th,.rm-stat-table td{padding:8px 10px;border-bottom:1px solid #F3F4F6;text-align:left;}
+      .rm-stat-table th{background:#FAFAFA;font-size:11px;color:#6B7280;font-weight:600;}
+      .rm-linkcheck{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+      .rm-linkcheck button{padding:6px 12px;font-size:12.5px;}
+      #rm-check-result{font-size:12.5px;line-height:1.6;flex:1;min-width:180px;}
+      #rm-check-result.ok{color:#047857;}
+      #rm-check-result.suspect{color:#B45309;}
+      #rm-check-result.bad{color:#B91C1C;}
+      .rm-pub-hint{font-size:12.5px;color:#6B6B70;line-height:1.9;margin:0 0 14px 24px;}
+      .rm-pub-hint b{color:#1D1D1F;}
+      .rm-idcheck{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12.5px;color:#3C3C43;cursor:pointer;}
+      .rm-idcheck input{width:15px;height:15px;cursor:pointer;}
+    </style>
+
+    <script>
+    (function(){
+      var $=function(id){return document.getElementById(id);};
+      function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+      function tw(ts){try{return new Date(ts).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});}catch(e){return String(ts||'');}}
+      function dtLocal(ts){ if(!ts)return ''; try{ var d=new Date(ts);
+        var p=function(n){return (n<10?'0':'')+n;};
+        var t=new Date(d.toLocaleString('en-US',{timeZone:'Asia/Taipei'}));
+        return t.getFullYear()+'-'+p(t.getMonth()+1)+'-'+p(t.getDate())+'T'+p(t.getHours())+':'+p(t.getMinutes());
+      }catch(e){return '';} }
+
+      // ── 品牌色 ─────────────────────────────────────────────
+      var BGS=['#FBC02D','#FFF9E8','#FFFFFF','#FFE08A','#E8491D','#4E342E'];
+      var CELLBGS=['#FFF9E8','#FFFFFF','#FBC02D','#FFE08A','#E8491D','#4E342E','#5D4037'];
+      var TB=176;   // 分頁列高度（跟後端一致）
+      function lum(hex){var n=parseInt(hex.slice(1),16);var r=(n>>16)&255,g=(n>>8)&255,b=n&255;return (0.299*r+0.587*g+0.114*b)/255;}
+      function inkFor(bg){return lum(bg)>0.55?'#4E342E':'#FFF9E8';}
+
+      // ── 圖示 ───────────────────────────────────────────────
+      var ICONS={
+        bowl:['M15 45 H85','M20 45 A30 30 0 0 0 80 45','M58 14 L76 40','M68 10 L84 34'],
+        calendar:['M18 26 H82 V82 H18 Z','M18 44 H82','M33 16 V33','M67 16 V33'],
+        gift:['M22 44 H78 V80 H22 Z','M16 30 H84 V44 H16 Z','M50 30 V80','M50 30 C38 30 33 16 43 14 C52 12 52 26 50 30','M50 30 C62 30 67 16 57 14 C48 12 48 26 50 30'],
+        wheel:['M84 50 A34 34 0 1 1 16 50 A34 34 0 1 1 84 50','M50 16 V38','M50 62 V84','M16 50 H38','M62 50 H84','M58 50 A8 8 0 1 1 42 50 A8 8 0 1 1 58 50'],
+        ticket:['M16 32 H84 V78 H16 Z','M60 32 V78'],
+        wallet:['M16 32 H84 V78 H16 Z','M58 48 H84 V62 H58 Z','M70 55 a1 1 0 1 1 0.1 0'],
+        pin:['M50 86 C32 64 24 51 24 38 A26 26 0 1 1 76 38 C76 51 68 64 50 86 Z','M59 38 A9 9 0 1 1 41 38 A9 9 0 1 1 59 38'],
+        phone:['M32 14 H68 V86 H32 Z','M44 22 H56','M50 74 a2 2 0 1 1 0.1 0'],
+        star:['M50 14 L60 38 L86 40 L66 57 L72 84 L50 70 L28 84 L34 57 L14 40 L40 38 Z'],
+        home:['M16 52 L50 20 L84 52','M28 46 V82 H72 V46','M44 82 V60 H56 V82'],
+        share:['M30 58 A10 10 0 1 1 30 38 A10 10 0 1 1 30 58','M72 34 A10 10 0 1 1 72 14 A10 10 0 1 1 72 34','M72 86 A10 10 0 1 1 72 66 A10 10 0 1 1 72 86','M38 43 L63 28','M38 55 L63 72'],
+        chat:['M16 22 H84 V64 H48 L32 80 V64 H16 Z','M30 42 H70'],
+        search:['M64 64 A24 24 0 1 1 64 16 A24 24 0 1 1 64 64','M46 62 L20 88'],
+        cup:['M30 28 H70 L64 84 H36 Z','M46 28 L58 8','M44 62 a3 3 0 1 1 0.1 0','M56 66 a3 3 0 1 1 0.1 0','M50 74 a3 3 0 1 1 0.1 0'],
+        percent:['M40 40 A10 10 0 1 1 40 20 A10 10 0 1 1 40 40','M76 82 A10 10 0 1 1 76 62 A10 10 0 1 1 76 82','M26 82 L78 18'],
+        bell:['M28 60 V42 A22 22 0 0 1 72 42 V60 L80 72 H20 Z','M42 80 A8 8 0 0 0 58 80'],
+        person:['M62 32 A12 12 0 1 1 38 32 A12 12 0 1 1 62 32','M22 84 C22 62 36 54 50 54 C64 54 78 62 78 84'],
+        sparkle:['M50 14 L58 42 L86 50 L58 58 L50 86 L42 58 L14 50 L42 42 Z']
+      };
+      var ICON_ORDER=['bowl','calendar','gift','wheel','ticket','wallet','pin','phone','star','home','share','chat','search','cup','percent','bell','person','sparkle'];
+
+      // ── 版型：以「內容區」為單位產格子（有分頁時內容區從 TB 開始）──
+      function gridAt(cols,rows,y0,H){var cells=[];for(var r=0;r<rows;r++){for(var c=0;c<cols;c++){
+        var x0=Math.round(c*2500/cols),x1=Math.round((c+1)*2500/cols);
+        var yA=Math.round(y0+r*(H-y0)/rows),yB=Math.round(y0+(r+1)*(H-y0)/rows);
+        cells.push({x:x0,y:yA,w:x1-x0,h:yB-yA});}}return cells;}
+      var LAYOUTS=[
+        {id:'big-6',size:'large',label:'大・六格',make:function(y0){return gridAt(3,2,y0,1686);}},
+        {id:'big-4',size:'large',label:'大・四格',make:function(y0){return gridAt(2,2,y0,1686);}},
+        {id:'big-top1-3',size:'large',label:'大・上一大下三',make:function(y0){var mid=Math.round(y0+(1686-y0)/2);
+          return [{x:0,y:y0,w:2500,h:mid-y0}].concat(gridAt(3,1,mid,1686));}},
+        {id:'big-top1-2',size:'large',label:'大・上一大下二',make:function(y0){var mid=Math.round(y0+(1686-y0)/2);
+          return [{x:0,y:y0,w:2500,h:mid-y0}].concat(gridAt(2,1,mid,1686));}},
+        {id:'big-3col',size:'large',label:'大・直三格',make:function(y0){return gridAt(3,1,y0,1686);}},
+        {id:'big-2col',size:'large',label:'大・左右兩格',make:function(y0){return gridAt(2,1,y0,1686);}},
+        {id:'big-1',size:'large',label:'大・整片一格',make:function(y0){return gridAt(1,1,y0,1686);}},
+        {id:'small-4',size:'compact',label:'小・四格',make:function(){return gridAt(4,1,0,843);}},
+        {id:'small-3',size:'compact',label:'小・三格',make:function(){return gridAt(3,1,0,843);}},
+        {id:'small-2',size:'compact',label:'小・兩格',make:function(){return gridAt(2,1,0,843);}},
+        {id:'small-1',size:'compact',label:'小・一格',make:function(){return gridAt(1,1,0,843);}}
+      ];
+      function layoutById(id){for(var i=0;i<LAYOUTS.length;i++){if(LAYOUTS[i].id===id)return LAYOUTS[i];}return LAYOUTS[0];}
+
+      // ── 分頁工具 ───────────────────────────────────────────
+      function getTabs(cfg){
+        if(cfg.tabs&&cfg.tabs.length)return cfg.tabs;
+        return [{label:'',layout:cfg.layout||'big-6',full_image_url:cfg.full_image_url||null,
+                 cells:cfg.cells||[],buttons:cfg.buttons||[]}];
+      }
+      function toTabForm(cfg){
+        if(!cfg.tabs||!cfg.tabs.length){
+          cfg.tabs=[{label:'',layout:cfg.layout||'big-6',full_image_url:cfg.full_image_url||null,
+                     cells:cfg.cells||[],buttons:cfg.buttons||[]}];
+          delete cfg.cells;delete cfg.buttons;delete cfg.full_image_url;
+        }
+        return cfg;
+      }
+      function relayoutTab(cfg,ti){
+        var multi=cfg.tabs.length>1;
+        var t=cfg.tabs[ti];
+        var lay=layoutById(t.layout||'big-6');
+        t.cells=lay.make(multi?TB:0);
+        while((t.buttons||(t.buttons=[])).length<t.cells.length)t.buttons.push({label:'',sublabel:'',icon:null,image:null,action:null,bg:null});
+      }
+
+      // ── 圖片快取（畫布用）──────────────────────────────────
+      var IMG_CACHE={};
+      function getImg(url,onload){
+        if(!url)return null;
+        var c=IMG_CACHE[url];
+        if(c)return c.loaded?c.img:null;
+        var img=new Image();
+        IMG_CACHE[url]={img:img,loaded:false};
+        img.onload=function(){IMG_CACHE[url].loaded=true;if(onload)onload();};
+        img.src=url;
+        return null;
+      }
+      function preloadImages(cfg){
+        var urls=[];
+        getTabs(cfg).forEach(function(t){
+          if(t.full_image_url)urls.push(t.full_image_url);
+          (t.buttons||[]).forEach(function(b){if(b&&b.image)urls.push(b.image);});
+        });
+        return Promise.all(urls.map(function(u){return new Promise(function(ok){
+          var c=IMG_CACHE[u];
+          if(c&&c.loaded)return ok(true);
+          var img=(c&&c.img)||new Image();
+          if(!c)IMG_CACHE[u]={img:img,loaded:false};
+          img.onload=function(){IMG_CACHE[u].loaded=true;ok(true);};
+          img.onerror=function(){ok(false);};
+          if(!img.src)img.src=u;
+          setTimeout(function(){ok(IMG_CACHE[u].loaded);},8000);
+        });})).then(function(rs){return rs.every(Boolean);});
+      }
+      function drawCover(ctx,img,x,y,w,h){
+        var ir=img.width/img.height,r=w/h,sx,sy,sw,sh;
+        if(ir>r){sh=img.height;sw=sh*r;sx=(img.width-sw)/2;sy=0;}
+        else{sw=img.width;sh=sw/r;sx=0;sy=(img.height-sh)/2;}
+        ctx.drawImage(img,sx,sy,sw,sh,x,y,w,h);
+      }
+
+      // ── 畫選單圖（縮圖／編輯預覽／發布輸出共用同一支）──────
+      function renderMenu(canvas,cfg,opts){
+        opts=opts||{};
+        var forExport=!!opts.forExport;
+        var tabs=getTabs(cfg);
+        var multi=tabs.length>1;
+        var ti=Math.min(Number(opts.activeTab||0),tabs.length-1);
+        var tab=tabs[ti];
+        var H=cfg.size==='compact'?843:1686;
+        var scale=canvas.width/2500;
+        canvas.height=Math.round(H*scale);
+        var ctx=canvas.getContext('2d');
+        ctx.setTransform(scale,0,0,scale,0,0);
+        ctx.fillStyle=cfg.bg||'#FBC02D';
+        ctx.fillRect(0,0,2500,H);
+        var redraw=opts.onImage||null;
+
+        var fullImg=tab.full_image_url?getImg(tab.full_image_url,redraw):null;
+        if(tab.full_image_url&&fullImg){
+          drawCover(ctx,fullImg,0,0,2500,H);
+        }else if(!tab.full_image_url){
+          // 分頁頭
+          if(multi){
+            for(var t=0;t<tabs.length;t++){
+              var x0=Math.round(t*2500/tabs.length),x1=Math.round((t+1)*2500/tabs.length);
+              ctx.fillStyle=(t===ti)?(cfg.tab_active_bg||'#E8491D'):(cfg.tab_inactive_bg||'#8E9AAB');
+              ctx.fillRect(x0,0,x1-x0,TB);
+              ctx.fillStyle=cfg.tab_text_color||'#FFFFFF';
+              ctx.textAlign='center';ctx.textBaseline='middle';
+              ctx.font='900 76px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
+              ctx.fillText(tabs[t].label||('分頁'+String.fromCharCode(65+t)),(x0+x1)/2,TB/2+4);
+              if(t>0){ctx.fillStyle='#FFFFFF';ctx.fillRect(x0-4,0,8,TB);}
+            }
+          }
+          var cells=tab.cells||[];
+          var btns=tab.buttons||[];
+          var G=(cfg.gap==null?26:cfg.gap),R=(cfg.radius==null?30:cfg.radius);
+          var BW=(cfg.border_width==null?9:cfg.border_width);
+          var FS=cfg.font_scale||1;
+          for(var i=0;i<cells.length;i++){
+            var c=cells[i],b=btns[i]||{};
+            var g=Math.min(G,Math.floor(Math.min(c.w,c.h)/3));
+            var bg=b.bg||cfg.cell_bg||'#FFF9E8';
+            var ink=b.color||cfg.text_color||inkFor(bg);
+            var line=cfg.border_color||ink;
+            var x=c.x+g,y=c.y+g,w=c.w-g*2,h=c.h-g*2;
+            var rr=Math.min(R,Math.floor(Math.min(w,h)/2));
+            ctx.beginPath();
+            ctx.moveTo(x+rr,y);ctx.arcTo(x+w,y,x+w,y+h,rr);ctx.arcTo(x+w,y+h,x,y+h,rr);
+            ctx.arcTo(x,y+h,x,y,rr);ctx.arcTo(x,y,x+w,y,rr);ctx.closePath();
+            ctx.fillStyle=bg;ctx.fill();
+            var cellImg=b.image?getImg(b.image,redraw):null;
+            if(b.image&&cellImg){
+              ctx.save();ctx.clip();
+              drawCover(ctx,cellImg,x,y,w,h);
+              var lab=String(b.label||'').trim();
+              if(lab){
+                var barH=Math.max(64,Math.round(h*0.2));
+                ctx.fillStyle='rgba(30,20,15,0.55)';
+                ctx.fillRect(x,y+h-barH,w,barH);
+                ctx.fillStyle='#FFFFFF';ctx.textAlign='center';ctx.textBaseline='middle';
+                var px=Math.round(Math.min(Math.round(barH*0.52),Math.round(w*0.12))*FS);
+                ctx.font='900 '+px+'px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
+                ctx.fillText(lab,x+w/2,y+h-barH/2+2);
+              }
+              ctx.restore();
+              if(BW>0){ctx.lineWidth=BW;ctx.strokeStyle=line;ctx.stroke();}
+            }else{
+              if(BW>0){ctx.lineWidth=BW;ctx.strokeStyle=line;ctx.stroke();}
+              drawCellContent(ctx,b,x,y,w,h,ink,forExport,FS);
+            }
+          }
+        }
+        // 完稿圖模式在編輯器裡：把可點範圍描出來（正式輸出不畫）
+        if(tab.full_image_url&&!forExport){
+          ctx.save();ctx.setLineDash([20,14]);ctx.lineWidth=7;ctx.strokeStyle='rgba(232,73,29,0.85)';
+          (tab.cells||[]).forEach(function(c){ctx.strokeRect(c.x+6,c.y+6,c.w-12,c.h-12);});
+          ctx.restore();
+        }
+        if(typeof opts.selIdx==='number'&&opts.selIdx>=0&&(tab.cells||[])[opts.selIdx]){
+          var sc=tab.cells[opts.selIdx];
+          ctx.save();ctx.setLineDash([26,18]);ctx.lineWidth=16;ctx.strokeStyle='#E8491D';
+          ctx.strokeRect(sc.x+8,sc.y+8,sc.w-16,sc.h-16);ctx.restore();
+        }
+        ctx.setTransform(1,0,0,1,0,0);
+      }
+      function drawCellContent(ctx,b,x,y,w,h,ink,forExport,fs){
+        fs=fs||1;
+        var label=String(b.label||'').trim();
+        var sub=String(b.sublabel||'').trim();
+        var iconKey=b.icon&&ICONS[b.icon]?b.icon:null;
+        var cx=x+w/2;
+        var labelPx=Math.round(Math.min(Math.round(w*0.14),Math.round(h*0.22),120)*fs);
+        var subPx=Math.max(30,Math.round(labelPx*0.5));
+        function setFont(px,weight){ctx.font=(weight||900)+' '+px+'px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';}
+        function fit(t,px){setFont(px);while(px>26&&ctx.measureText(t).width>w*0.84){px-=4;setFont(px);}return px;}
+        ctx.textAlign='center';ctx.fillStyle=ink;
+        if(iconKey){
+          var box=Math.min(w,h)*0.4;
+          var blockH=box+(label?labelPx*1.25:0)+(sub?subPx*1.3:0);
+          var top=y+(h-blockH)/2;
+          ctx.save();
+          ctx.translate(cx-box/2,top);
+          ctx.scale(box/100,box/100);
+          ctx.lineWidth=7;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle=ink;
+          var paths=ICONS[iconKey];
+          for(var p=0;p<paths.length;p++){ctx.stroke(new Path2D(paths[p]));}
+          ctx.restore();
+          if(label){labelPx=fit(label,labelPx);ctx.textBaseline='alphabetic';setFont(labelPx);ctx.fillText(label,cx,top+box+labelPx*1.05);}
+          if(sub){setFont(subPx,600);ctx.globalAlpha=0.78;ctx.fillText(sub,cx,top+box+(label?labelPx*1.25:0)+subPx*1.15);ctx.globalAlpha=1;}
+        }else{
+          var showLabel=label||(forExport?'':'（沒有文字）');
+          var bigPx=Math.round(Math.min(Math.round(w*0.16),Math.round(h*0.3),150)*fs);
+          if(showLabel){
+            bigPx=fit(showLabel,bigPx);
+            ctx.textBaseline='middle';setFont(bigPx);
+            ctx.fillText(showLabel,cx,y+h/2-(sub?subPx*0.7:0));
+          }
+          if(sub){setFont(subPx,600);ctx.globalAlpha=0.78;ctx.textBaseline='middle';ctx.fillText(sub,cx,y+h/2+bigPx*0.72);ctx.globalAlpha=1;}
+        }
+      }
+
+      // ── 範本 ───────────────────────────────────────────────
+      function btn(label,sub,icon,action,bg){return {label:label,sublabel:sub||'',icon:icon||null,image:null,action:action||null,bg:bg||null};}
+      function actMsg(t){return {type:'message',text:t};}
+      function actUri(u){return {type:'uri',uri:u};}
+      var OR_URL='https://www.openrice.com';
+      function firstActivity(){return (DATA&&DATA.activities&&DATA.activities[0])||null;}
+      function activityAction(){var a=firstActivity();return (a&&a.liff_url)?{type:'uri',uri:a.liff_url,activity_id:a.id}:actUri(OR_URL);}
+      function activityLabel(){var a=firstActivity();return a?a.name:'最新活動';}
+      function walletAction(){return DATA&&DATA.wallet_url?actUri(DATA.wallet_url):actUri(OR_URL);}
+      function buildPresets(){return [
+        {name:'經典六格・品牌黃',desc:'找餐廳、活動、獎品、訂位一次排好，最常用的排法',layout:'big-6',bg:'#FBC02D',cell:'#FFF9E8',
+         buttons:[btn('找餐廳','附近好店','search',actUri(OR_URL)),
+                  btn(activityLabel(),'玩遊戲抽獎','wheel',activityAction(),'#E8491D'),
+                  btn('我的獎品','中獎紀錄','gift',walletAction()),
+                  btn('訂位','立即預約','calendar',actUri(OR_URL)),
+                  btn('優惠','最新活動訊息','percent',actMsg('優惠')),
+                  btn('找客服','真人回覆','chat',actMsg('我想找客服'))]},
+        {name:'雙分頁・活動＋服務',desc:'分頁A放活動主打，分頁B放常用服務，點上面的頁籤互切',
+         twoTabs:true,bg:'#FFF9E8',cell:'#FFFFFF',
+         tabA:{label:'活動',layout:'big-top1-3',
+           buttons:[btn(activityLabel(),'點我馬上玩','wheel',activityAction(),'#FBC02D'),
+                    btn('我的獎品','','gift',walletAction()),
+                    btn('優惠','','percent',actMsg('優惠')),
+                    btn('邀請朋友','','share',actMsg(activityLabel()))]},
+         tabB:{label:'服務',layout:'big-4',
+           buttons:[btn('找餐廳','','search',actUri(OR_URL)),
+                    btn('訂位','','calendar',actUri(OR_URL)),
+                    btn('找客服','','chat',actMsg('我想找客服')),
+                    btn('關於我們','','home',actUri(OR_URL))]}},
+        {name:'活動主打・上大下三',desc:'上面一整條放活動，下面三格放常用功能',layout:'big-top1-3',bg:'#FFF9E8',cell:'#FFFFFF',
+         buttons:[btn(activityLabel(),'點我馬上玩','wheel',activityAction(),'#FBC02D'),
+                  btn('我的獎品','','gift',walletAction()),
+                  btn('找餐廳','','search',actUri(OR_URL)),
+                  btn('找客服','','chat',actMsg('我想找客服'))]},
+        {name:'簡約直三格・奶油白',desc:'只放三件最重要的事，乾淨',layout:'big-3col',bg:'#FFF9E8',cell:'#FFFFFF',
+         buttons:[btn('找餐廳','','search',actUri(OR_URL)),
+                  btn(activityLabel(),'','wheel',activityAction(),'#FBC02D'),
+                  btn('我的獎品','','gift',walletAction())]},
+        {name:'深棕質感・四格',desc:'深色底，晚上看不刺眼',layout:'big-4',bg:'#4E342E',cell:'#5D4037',
+         buttons:[btn('找餐廳','','search',actUri(OR_URL)),
+                  btn(activityLabel(),'','wheel',activityAction(),'#E8491D'),
+                  btn('我的獎品','','gift',walletAction()),
+                  btn('訂位','','calendar',actUri(OR_URL))]},
+        {name:'小型三格',desc:'不擋畫面的小選單，常聊天的帳號適合',layout:'small-3',bg:'#FBC02D',cell:'#FFF9E8',
+         buttons:[btn('找餐廳','','search',actUri(OR_URL)),
+                  btn(activityLabel(),'','wheel',activityAction()),
+                  btn('我的獎品','','gift',walletAction())]},
+        {name:'小型兩格',desc:'最精簡：一個活動、一個獎品',layout:'small-2',bg:'#FFF9E8',cell:'#FFFFFF',
+         buttons:[btn(activityLabel(),'','wheel',activityAction(),'#FBC02D'),
+                  btn('我的獎品','','gift',walletAction())]}
+      ];}
+      function presetToConfig(p){
+        if(p.twoTabs){
+          var cfg={size:'large',bg:p.bg,cell_bg:p.cell,chat_bar_text:'選單',open_by_default:true,
+                   tabs:[{label:p.tabA.label,layout:p.tabA.layout,full_image_url:null,cells:[],buttons:p.tabA.buttons},
+                         {label:p.tabB.label,layout:p.tabB.layout,full_image_url:null,cells:[],buttons:p.tabB.buttons}]};
+          relayoutTabOnCfg(cfg,0);relayoutTabOnCfg(cfg,1);
+          return cfg;
+        }
+        var lay=layoutById(p.layout);
+        var cfg2={size:lay.size,bg:p.bg,cell_bg:p.cell,chat_bar_text:'選單',open_by_default:true,
+                  tabs:[{label:'',layout:lay.id,full_image_url:null,cells:[],buttons:(p.buttons||[]).slice()}]};
+        relayoutTabOnCfg(cfg2,0);
+        return cfg2;
+      }
+      function relayoutTabOnCfg(cfg,ti){
+        var multi=cfg.tabs.length>1;
+        var t=cfg.tabs[ti];
+        var lay=layoutById(t.layout||'big-6');
+        t.cells=lay.make(multi?TB:0);
+        while((t.buttons||(t.buttons=[])).length<t.cells.length)t.buttons.push({label:'',sublabel:'',icon:null,image:null,action:null,bg:null});
+      }
+
+      // ── 狀態 ───────────────────────────────────────────────
+      var DATA=null, CFG=null, editingId=null, editTab=0, selCell=0,
+          dirty=false, editingIsLive=false, saving=false, publishing=false, modalRow=null;
+
+      // 「點了沒反應」是最難查的狀況：頁面出錯時要講出來，不能靜靜吞掉。
+      // 版本也一起顯示——多數時候是瀏覽器還停在舊版，重新整理就好。
+      // 資料載入走 Promise 鏈，裡面拋的錯不會觸發下面那個 error 事件，
+      // 只會變成「沒人接的 rejection」——這正是這次「按鈕沒反應又沒訊息」的原因。
+      window.addEventListener('unhandledrejection', function (e) {
+        try {
+          var bar = document.getElementById('rm-live-note');
+          if (!bar) return;
+          var msg = (e && e.reason && (e.reason.message || e.reason)) || '不明錯誤';
+          bar.innerHTML = '<b style="color:#b91c1c;">這個頁面載入時出了狀況：' + String(msg) +
+            '</b><br>把這行字截圖給我。';
+        } catch (x) {}
+      });
+      window.addEventListener('error', function (e) {
+        try {
+          var bar = document.getElementById('rm-live-note');
+          if (!bar) return;
+          bar.innerHTML = '<b style="color:#b91c1c;">這個頁面出了狀況：' +
+            String((e && e.message) || '不明錯誤') +
+            '</b><br>先按 Cmd+Shift+R（Windows 是 Ctrl+F5）重新整理一次；還是一樣的話把這行字截圖給我。';
+        } catch (x) {}
+      });
+
+      var ERR_WORDS={not_found:'找不到這筆資料，可能已被刪除。重新整理頁面看看。',
+        bad_id:'資料對不上，重新整理頁面再試一次。',
+        not_published:'這個選單還沒發布，先按發布。',
+        is_live:'這個選單正是所有人看到的，先把別的選單設為所有人看到的，再回來刪。',
+        forbidden:'這個操作需要老闆帳號。'};
+      function post(url,body,ok,fail){
+        return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+          .then(function(r){return r.json();})
+          .then(function(d){
+            if(!d.ok){
+              // fail 回傳 true＝呼叫端自己處理了這個錯誤（例如改問一次確認），不要再跳預設訊息
+              var handled=fail?fail(d):false;
+              if(!handled)alert(d.detail||ERR_WORDS[d.error]||'沒有成功，重新整理頁面再試一次。');
+              return;
+            }
+            if(ok)ok(d);
+          })
+          .catch(function(){alert('連線失敗，再試一次');if(fail)fail(null);});
+      }
+
+      function load(){
+        return fetch('/admin/richmenu/api/data').then(function(r){return r.json();}).then(function(d){
+          if(!d.ok){$('rm-list').innerHTML='<p class="muted">載入失敗：'+esc(d.detail||d.error)+'</p>';return;}
+          DATA=d; renderList(); fillActivitySelect();
+        }).catch(function(){$('rm-list').innerHTML='<p class="muted">載入失敗，請重新整理</p>';});
+      }
+
+      // 編號一律用字串比對：資料庫的編號欄位回來是字串（"2"），
+      // 按鈕上轉出來的是數字（2），用 === 永遠找不到 →
+      // 後面每個函式第一行的 if(!m)return 就靜靜跳掉，變成「點了沒反應」。
+      function sameId(a,b){return String(a)===String(b);}
+      function menuById(id){return (DATA.menus||[]).filter(function(m){return sameId(m.id,id);})[0];}
+
+      function scheduleText(m){
+        if(!m.schedule_state)return '';
+        if(m.schedule_state==='pending')return '排程：'+tw(m.schedule_start_at)+' 上架'+(m.schedule_end_at?('，'+tw(m.schedule_end_at)+' 下架'):'');
+        if(m.schedule_state==='live'&&m.schedule_end_at)return '排程：'+tw(m.schedule_end_at)+' 下架';
+        if(m.schedule_state==='done')return '排程已跑完';
+        return '';
+      }
+      function audienceText(m){
+        if(!m.audience_list_id)return '';
+        var l=(DATA.lists||[]).filter(function(x){return sameId(x.id,m.audience_list_id);})[0];
+        var name=l?l.name:('名單 '+m.audience_list_id);
+        if(!m.audience_applied_at)return '名單專屬：'+name+'（新版還沒套用，按「名單」再套用一次）';
+        return '名單專屬：'+name+'・已套用 '+(m.audience_applied_count||0)+' 人';
+      }
+
+      function renderList(){
+        var live=DATA.default_line_id;
+        var note;
+        if(DATA.line_error){note='連不上 LINE（'+esc(DATA.line_error)+'）。還是可以編草稿，發布時再試。';}
+        else if(!live&&DATA.default_owned_elsewhere){note='所有人現在看到的選單是在 <b>LINE 官方後台</b>設定的，這裡看不到它的內容。從這裡發布並「設為所有人看到的」之後就會換成新的。';}
+        else if(!live){note='<b>現在沒有任何選單</b>：用戶打開聊天室，下方是空的。'+
+          '如果你在 LINE 官方後台有設長青選單，去官方後台把它重新設成使用中就會回來；'+
+          '或是在這裡發布一個選單並「設為所有人看到的」。';}
+        else{var mine=(DATA.menus||[]).filter(function(m){return sameId(m.line_rich_menu_id,live);})[0];
+          note=mine?('所有人現在看到的是「<b>'+esc(mine.name)+'</b>」。'):'所有人現在看到的是一個不是從這裡建立的選單（下面「其他選單」裡有列出來）。';}
+        // 版本代號放在最後面，平常不礙眼，出事時一眼就知道手上是不是最新版
+        $('rm-live-note').innerHTML=note+
+          '<span style="float:right;color:#B0B0B5;font-size:11px;">版本 '+esc(DATA.build||'—')+'</span>';
+
+        var box=$('rm-list');
+        var menus=DATA.menus||[];
+        if(!menus.length){box.innerHTML='<p class="muted" style="font-size:13.5px;">還沒有選單。按上面「＋ 從範本開新選單」開始。</p>';}
+        else{
+          box.innerHTML=menus.map(function(m){
+            var isLive=m.line_rich_menu_id&&sameId(m.line_rich_menu_id,live);
+            var tabsN=(m.config&&Array.isArray(m.config.tabs))?m.config.tabs.length:1;
+            var cellsN=0;
+            if(m.config){
+              if(Array.isArray(m.config.tabs))m.config.tabs.forEach(function(t){cellsN+=(Array.isArray(t.cells)?t.cells.length:0);});
+              else if(Array.isArray(m.config.buttons))cellsN=m.config.buttons.length;
+            }
+            // 三種狀態都直接回答「用戶看得到嗎」，不要讓人猜「已發布」到底上了沒
+            var tag=isLive?'<span class="rm-tag">所有人看到的</span>'
+                   :(m.status==='published'?'<span class="rm-tag draft" style="background:#ECFDF5;color:#047857;">備用・用戶還看不到</span>'
+                   :'<span class="rm-tag draft">草稿・還沒送上 LINE</span>');
+            var meta=[(tabsN>1?(tabsN+' 個分頁・'):'')+cellsN+' 格・最後修改 '+String(m.updated_at||'').slice(0,10)];
+            var st=scheduleText(m); if(st)meta.push(st);
+            var at=audienceText(m); if(at)meta.push(at);
+            return '<div class="rm-cardrow'+(isLive?' live':'')+'" data-id="'+m.id+'">'+
+              '<canvas class="rm-thumb" width="240" data-thumb="'+m.id+'"></canvas>'+
+              '<div class="rm-card-main">'+
+                '<div class="rm-card-name">'+esc(m.name)+tag+'</div>'+
+                '<div class="rm-card-meta">'+meta.map(esc).join('<br>')+'</div>'+
+                '<div class="rm-card-btns">'+
+                  '<button type="button" class="rm-btn2 rm-edit" data-id="'+m.id+'">編輯</button>'+
+                  '<button type="button" class="rm-btn2 rm-dup" data-id="'+m.id+'">複製</button>'+
+                  (m.line_rich_menu_id?'<button type="button" class="rm-btn2 rm-preview" data-id="'+m.id+'">傳到測試手機</button>':'')+
+                  (m.line_rich_menu_id?'<button type="button" class="rm-btn2 rm-stats" data-id="'+m.id+'">成效</button>':'')+
+                  (m.line_rich_menu_id?'<button type="button" class="rm-btn2 rm-sch" data-id="'+m.id+'">上下架</button>':'')+
+                  (m.line_rich_menu_id?'<button type="button" class="rm-btn2 rm-aud" data-id="'+m.id+'">名單</button>':'')+
+                  (m.line_rich_menu_id&&!isLive?'<button type="button" class="rm-btn1 rm-live-btn" data-id="'+m.id+'">設為所有人看到的</button>':'')+
+                  (isLive?'':'<button type="button" class="rm-btn2 rm-danger rm-del" data-id="'+m.id+'" data-name="'+esc(m.name)+'" data-pub="'+(m.line_rich_menu_id?'1':'')+'">刪除</button>')+
+                '</div>'+
+              '</div></div>';
+          }).join('');
+        }
+
+        menus.forEach(function(m){
+          var cv=document.querySelector('canvas[data-thumb="'+m.id+'"]');
+          if(cv&&m.config){try{renderMenu(cv,m.config,{onImage:function(){try{renderMenu(cv,m.config,{});}catch(e){}}});}catch(e){}}
+        });
+
+        var orp=DATA.orphans||[];
+        $('rm-orphans').innerHTML=!orp.length?'' :
+          '<h3 style="font-size:14px;margin:18px 0 8px;">其他選單（不是從這裡建立的）</h3>'+
+          orp.map(function(o){
+            var isLive=o.richMenuId===live;
+            return '<div class="rm-cardrow'+(isLive?' live':'')+'">'+
+              '<div class="rm-card-main">'+
+                '<div class="rm-card-name">'+esc(o.name||'（沒有名字）')+(isLive?'<span class="rm-tag">所有人看到的</span>':'')+'</div>'+
+                '<div class="rm-card-meta">'+o.areas+' 格・'+esc(o.richMenuId)+'</div>'+
+                '<div class="rm-card-btns">'+
+                  '<button type="button" class="rm-btn2 rm-orphan-img" data-rid="'+esc(o.richMenuId)+'">看圖</button>'+
+                  (isLive?'':'<button type="button" class="rm-btn2 rm-orphan-live" data-rid="'+esc(o.richMenuId)+'">設為所有人看到的</button>')+
+                  '<button type="button" class="rm-btn2 rm-danger rm-orphan-del" data-rid="'+esc(o.richMenuId)+'">刪除</button>'+
+                '</div>'+
+                '<img class="rm-thumb" data-orphan-img="'+esc(o.richMenuId)+'" style="max-width:240px;margin-top:8px;display:none;">'+
+              '</div></div>';
+          }).join('');
+
+        bindList();
+      }
+
+      // 列表按鈕改成「委派」：事件掛在整個列表容器上，用點到的按鈕決定做什麼。
+      //
+      // 原本是逐顆 addEventListener，只要中間任何一顆綁定出錯，後面的按鈕就
+      // 全部變成點了沒反應——而且列表是在 Promise 鏈裡重繪的，那種錯誤連
+      // 主控台以外都看不到。委派只綁一次、跟重繪無關，中間出錯也不會波及其他按鈕。
+      var LIST_ACTIONS = {
+        'rm-edit':       function(b){ openEditor(Number(b.getAttribute('data-id'))); },
+        'rm-dup':        function(b){
+          var m=menuById(Number(b.getAttribute('data-id')));
+          if(!m)return;
+          post('/admin/richmenu/api/save',{name:m.name+'（複製）',config:m.config},function(){load();});
+        },
+        'rm-live-btn':   function(b){
+          if(!confirm('這一步會真的換掉用戶看到的選單：所有人的聊天室下方會變成這一個，蓋過現在那個（包含 LINE 官方後台設定的）。舊選單如果有分頁，之前切換過分頁的人要等舊選單被刪掉才會換過來。確定嗎？'))return;
+          post('/admin/richmenu/api/set-default',{id:Number(b.getAttribute('data-id'))},function(){load();});
+        },
+        'rm-del':        function(b){
+          var pub=b.getAttribute('data-pub')==='1';
+          var msg=pub?'這個選單已經發布到 LINE 上。刪掉會連 LINE 上的一起刪（如果它正是所有人看到的，系統會擋下來）。確定？'
+                     :'刪掉草稿「'+b.getAttribute('data-name')+'」？';
+          if(!confirm(msg))return;
+          doDelete(Number(b.getAttribute('data-id')),false);
+        },
+        'rm-preview':    function(b){
+          b.disabled=true;
+          post('/admin/richmenu/api/preview',{id:Number(b.getAttribute('data-id'))},
+            function(d){ b.disabled=false;
+              $('rm-preview-note').textContent='已傳給 '+d.count+' 位測試人員（'+(d.names||[]).join('、')+'）。打開自己的 LINE 看，看完按左邊「結束測試預覽」。'; },
+            function(){ b.disabled=false; });
+        },
+        'rm-stats':      function(b){ openStats(Number(b.getAttribute('data-id'))); },
+        'rm-sch':        function(b){ openSchedule(Number(b.getAttribute('data-id'))); },
+        'rm-aud':        function(b){ openAudience(Number(b.getAttribute('data-id'))); },
+        'rm-orphan-img': function(b){
+          var rid=b.getAttribute('data-rid');
+          fetch('/admin/richmenu/api/line-image?rid='+encodeURIComponent(rid)).then(function(r){return r.json();}).then(function(d){
+            var img=document.querySelector('img[data-orphan-img="'+rid+'"]');
+            if(d.ok&&img){img.src=d.data_url;img.style.display='block';b.disabled=true;}
+            else if(!d.ok){b.textContent='沒有圖';b.disabled=true;}
+          });
+        },
+        'rm-orphan-live':function(b){
+          if(!confirm('把這個選單設為所有人看到的？會蓋過現在的選單（包含 LINE 官方後台設定的那個）。'))return;
+          post('/admin/richmenu/api/set-default',{line_rich_menu_id:b.getAttribute('data-rid')},function(){load();});
+        },
+        'rm-orphan-del': function(b){
+          if(!confirm('從 LINE 上刪掉這個選單？如果它正是所有人看到的，系統會擋下來。'))return;
+          post('/admin/richmenu/api/delete',{line_rich_menu_id:b.getAttribute('data-rid')},function(){load();});
+        }
+      };
+      function doDelete(id,confirmAudience){
+        var body={id:id};
+        if(confirmAudience)body.confirm_audience=true;
+        post('/admin/richmenu/api/delete',body,function(){load();},function(d){
+          // 這個選單是某份名單的專屬選單：後端擋下來並說了後果，這裡照實再問一次
+          if(d&&d.error==='audience_attached'){
+            if(confirm(d.detail))doDelete(id,true);
+            return true;
+          }
+          return false;
+        });
+      }
+      // 整頁只綁這一次，永遠有效——列表怎麼重繪都不影響
+      document.addEventListener('click',function(e){
+        var b=e.target&&e.target.closest?e.target.closest('button'):null;
+        if(!b)return;
+        var names=Object.keys(LIST_ACTIONS);
+        for(var i=0;i<names.length;i++){
+          if(b.classList.contains(names[i])){
+            try{ LIST_ACTIONS[names[i]](b); }
+            catch(err){ alert('這個按鈕出了狀況：'+(err&&err.message||err)+'。把這句話截圖給我。'); }
+            return;
+          }
+        }
+      });
+      function bindList(){ /* 改用委派，不需要每次重繪都重新綁 */ }
+
+      // ── 上下架視窗 ─────────────────────────────────────────
+      function openSchedule(id){
+        var m=menuById(id); if(!m)return;
+        modalRow=m;
+        $('rm-sch-start').value=dtLocal(m.schedule_start_at);
+        $('rm-sch-end').value=dtLocal(m.schedule_end_at);
+        var sel=$('rm-sch-endmenu');
+        var others=(DATA.menus||[]).filter(function(x){return !sameId(x.id,id)&&x.line_rich_menu_id;});
+        // 實測確認：「所有人都看不到選單」是把預設選單整個取消掉，
+        // 連 LINE 官方後台設的長青選單也會一起被關掉，而且不會自動回來。
+        // 所以它不能長得像一個中性的預設選項。
+        sel.innerHTML=others.map(function(x){
+          return '<option value="'+x.id+'"'+(sameId(m.schedule_end_menu_id,x.id)?' selected':'')+'>'+esc(x.name)+'</option>';
+        }).join('')+'<option value="">所有人都看不到選單（危險）</option>';
+        if(!others.length){
+          sel.innerHTML='<option value="">所有人都看不到選單（危險）</option>';
+          $('rm-sch-note').textContent='目前沒有其他已發布的選單可以接手。建議先把平常在用的選單也發布一份到這裡，下架時才有東西換過去。';
+        }else{
+          $('rm-sch-note').textContent='';
+        }
+        if(m.schedule_end_menu_id)sel.value=String(m.schedule_end_menu_id);
+        else sel.value=others.length?String(others[0].id):'';
+        $('rm-sch-modal').hidden=false;
+      }
+      $('rm-sch-close').addEventListener('click',function(){$('rm-sch-modal').hidden=true;});
+      $('rm-sch-save').addEventListener('click',function(){
+        if(!modalRow)return;
+        var sv=$('rm-sch-start').value,ev=$('rm-sch-end').value;
+        // 選了「所有人都看不到選單」＝到點會把全體用戶的選單清空，而且不會自己恢復。
+        // 這種事不能靜靜地排下去。
+        if(ev&&!$('rm-sch-endmenu').value){
+          if(!confirm('確定要「所有人都看不到選單」嗎？到了下架時間，全體用戶的圖文選單會直接消失，'+
+                      '連你在 LINE 官方後台設的長青選單也會一起被關掉，而且不會自動回來——'+
+                      '要有人手動去官方後台重新開啟。建議改成指定一個選單接手。'))return;
+        }
+        post('/admin/richmenu/api/schedule',{id:modalRow.id,
+          start_at:sv?new Date(sv+':00+08:00').toISOString():null,
+          end_at:ev?new Date(ev+':00+08:00').toISOString():null,
+          end_menu_id:Number($('rm-sch-endmenu').value)||null},
+          function(){$('rm-sch-modal').hidden=true;load();});
+      });
+      $('rm-sch-clear').addEventListener('click',function(){
+        if(!modalRow)return;
+        post('/admin/richmenu/api/schedule',{id:modalRow.id,start_at:null,end_at:null,end_menu_id:null},
+          function(){$('rm-sch-modal').hidden=true;load();});
+      });
+
+      // ── 名單視窗 ───────────────────────────────────────────
+      function openAudience(id){
+        var m=menuById(id); if(!m)return;
+        modalRow=m;
+        var sel=$('rm-aud-select');
+        sel.innerHTML=(DATA.lists||[]).map(function(l){
+          return '<option value="'+l.id+'"'+(sameId(m.audience_list_id,l.id)?' selected':'')+'>'+esc(l.name)+'（'+l.total+' 人）</option>';
+        }).join('')||'<option value="">名單庫還沒有名單</option>';
+        $('rm-aud-note').textContent=m.audience_list_id&&!m.audience_applied_at?'發布了新版之後還沒套用，按「套用到名單成員」。':'';
+        $('rm-aud-modal').hidden=false;
+      }
+      $('rm-aud-close').addEventListener('click',function(){$('rm-aud-modal').hidden=true;});
+      // 大名單一次跑不完（伺服器有十秒上限），伺服器會回「還沒跑完、從第幾個接著跑」，
+      // 這裡就接著送下一批，直到跑完為止——中途斷掉會變成「一半的人換了、後台卻說沒套用」
+      function applyAudience(id,listId,offset,btn,done){
+        post('/admin/richmenu/api/audience',{id:id,list_id:listId,offset:offset||0},
+          function(d){
+            if(d.partial){
+              $('rm-aud-note').textContent='套用中… '+d.done+' / '+d.total+' 人';
+              applyAudience(id,listId,d.next_offset,btn,done);
+              return;
+            }
+            btn.disabled=false;done();
+          },
+          function(){btn.disabled=false;$('rm-aud-note').textContent='';});
+      }
+      $('rm-aud-apply').addEventListener('click',function(){
+        if(!modalRow)return;
+        var lid=Number($('rm-aud-select').value);
+        if(!lid){$('rm-aud-note').textContent='先去名單庫建一份名單';return;}
+        var btn=this;btn.disabled=true;$('rm-aud-note').textContent='套用中…';
+        applyAudience(modalRow.id,lid,0,btn,function(){$('rm-aud-modal').hidden=true;load();});
+      });
+      $('rm-aud-clear').addEventListener('click',function(){
+        if(!modalRow)return;
+        if(!confirm('取消名單專屬？名單裡的人會回到「所有人看到的」那個選單（本來就在別份名單裡的人，會換成那份名單的選單）。'))return;
+        var btn=this;btn.disabled=true;$('rm-aud-note').textContent='處理中…';
+        applyAudience(modalRow.id,null,0,btn,function(){$('rm-aud-modal').hidden=true;load();});
+      });
+
+      // ── 成效視窗 ───────────────────────────────────────────
+      function openStats(id){
+        var m=menuById(id); if(!m)return;
+        $('rm-stats-body').innerHTML='<p class="muted">載入中…</p>';
+        $('rm-stats-modal').hidden=false;
+        fetch('/admin/richmenu/api/stats?id='+id).then(function(r){return r.json();}).then(function(d){
+          if(!d||!d.ok){$('rm-stats-body').innerHTML='<p class="muted">載入失敗</p>';return;}
+          // 回傳缺欄位時要當成「沒有資料」，不能直接讀 .length——
+          // 那會在 Promise 鏈裡拋錯，畫面上什麼都不會說
+          var rows=Array.isArray(d.stats)?d.stats:[];
+          if(!rows.length){$('rm-stats-body').innerHTML='<p class="muted" style="font-size:13px;">還沒有任何點擊。</p>';return;}
+          var tabs=getTabs(m.config||{});
+          function cellName(r){
+            if(r.kind==='tab')return '切到分頁'+String.fromCharCode(65+r.tab);
+            var t=tabs[r.tab];var b=t&&t.buttons?t.buttons[r.cell]:null;
+            var nm=r.label||(b&&b.label)||('第 '+(Number(r.cell)+1)+' 格');
+            return (tabs.length>1?('分頁'+String.fromCharCode(65+r.tab)+'・'):'')+nm;
+          }
+          var kindName={link:'開啟網址',message:'發送文字',tab:'分頁切換'};
+          $('rm-stats-body').innerHTML='<table class="rm-stat-table"><thead><tr>'+
+            '<th>按鍵</th><th>類型</th><th style="text-align:right;">總點擊</th><th style="text-align:right;">近 7 天</th><th style="text-align:right;">不重複人數</th></tr></thead><tbody>'+
+            rows.map(function(r){
+              return '<tr><td>'+esc(cellName(r))+'</td><td>'+(kindName[r.kind]||esc(r.kind))+'</td>'+
+                '<td style="text-align:right;font-weight:700;">'+r.taps+'</td>'+
+                '<td style="text-align:right;">'+r.taps_7d+'</td>'+
+                '<td style="text-align:right;">'+(r.kind==='link'?'—':r.people)+'</td></tr>';
+            }).join('')+'</tbody></table>';
+        });
+      }
+      $('rm-stats-close').addEventListener('click',function(){$('rm-stats-modal').hidden=true;});
+
+      // ── 範本庫 ─────────────────────────────────────────────
+      $('rm-new').addEventListener('click',function(){
+        var grid=$('rm-tpl-grid');
+        var presets=buildPresets();
+        var blanks=LAYOUTS.map(function(l){return {name:'空白・'+l.label,desc:'從零開始排',layout:l.id,bg:'#FFF9E8',cell:'#FFFFFF',buttons:[],blank:true};});
+        var all=presets.concat(blanks);
+        grid.innerHTML=all.map(function(p,i){
+          return '<button type="button" class="rm-tpl-card" data-i="'+i+'">'+
+            '<canvas width="220" data-tplthumb="'+i+'"></canvas>'+
+            '<div class="rm-tpl-name">'+esc(p.name)+'</div>'+
+            '<div class="rm-tpl-desc">'+esc(p.desc)+'</div></button>';
+        }).join('');
+        all.forEach(function(p,i){
+          var cv=document.querySelector('canvas[data-tplthumb="'+i+'"]');
+          if(cv){try{renderMenu(cv,presetToConfig(p),{});}catch(e){}}
+        });
+        [].slice.call(grid.querySelectorAll('.rm-tpl-card')).forEach(function(b){
+          b.addEventListener('click',function(){
+            var p=all[Number(b.getAttribute('data-i'))];
+            $('rm-tpl-modal').hidden=true;
+            CFG=presetToConfig(p); editingId=null; editTab=0; selCell=0; dirty=true; editingIsLive=false;
+            $('rm-name').value=p.blank?'新選單':p.name;
+            showEditor();
+          });
+        });
+        $('rm-tpl-modal').hidden=false;
+      });
+      $('rm-tpl-close').addEventListener('click',function(){$('rm-tpl-modal').hidden=true;});
+
+      // ── 編輯器 ─────────────────────────────────────────────
+      function curTab(){return CFG.tabs[editTab];}
+      function openEditor(id){
+        var m=menuById(id);
+        if(!m)return;
+        CFG=toTabForm(JSON.parse(JSON.stringify(m.config||{})));
+        if(!CFG.tabs[0].cells||!CFG.tabs[0].cells.length)relayoutTabOnCfg(CFG,0);
+        editingId=id; editTab=0; selCell=0; dirty=false;
+        editingIsLive=!!(m.line_rich_menu_id&&sameId(m.line_rich_menu_id,DATA.default_line_id));
+        $('rm-name').value=m.name;
+        showEditor();
+      }
+      function showEditor(){
+        $('rm-list-view').hidden=true;
+        $('rm-editor-view').hidden=false;
+        $('rm-chatbar').value=CFG.chat_bar_text||'選單';
+        $('rm-open-default').checked=CFG.open_by_default!==false;
+        renderTabPills(); renderLayoutRow(); renderBgRows(); redraw(); renderCellPanel();
+      }
+      $('rm-back').addEventListener('click',function(){
+        if(dirty&&!confirm('還沒儲存的修改會不見，確定回列表？'))return;
+        $('rm-editor-view').hidden=true;$('rm-list-view').hidden=false;load();
+      });
+
+      function redraw(){
+        renderMenu($('rm-canvas'),CFG,{selIdx:selCell,activeTab:editTab,onImage:function(){redraw();}});
+        $('rm-chatbar-label').textContent=CFG.chat_bar_text||'選單';
+        var t=curTab();
+        $('rm-fullimg-clear').hidden=!t.full_image_url;
+      }
+
+      function renderTabPills(){
+        var box=$('rm-tabpills');
+        var tabs=CFG.tabs;
+        var html=tabs.map(function(t,i){
+          return '<button type="button" class="rm-tabpill'+(i===editTab?' on':'')+'" data-t="'+i+'">'+
+            esc(t.label||('分頁'+String.fromCharCode(65+i)))+'</button>';
+        }).join('');
+        if(tabs.length>1){
+          html+='<input type="text" id="rm-tab-label" maxlength="6" value="'+esc(tabs[editTab].label||'')+'" placeholder="分頁名稱" style="width:110px;padding:7px 10px;border:1px solid #ECECEE;border-radius:8px;font-size:13px;">';
+        }
+        if(tabs.length<3&&CFG.size!=='compact'){
+          html+='<button type="button" class="rm-tabpill-add" id="rm-tab-add">＋ 分頁</button>';
+        }
+        if(tabs.length>1){
+          html+='<button type="button" class="rm-tabpill-add" id="rm-tab-del">移除此分頁</button>';
+        }
+        box.innerHTML=html;
+        [].slice.call(box.querySelectorAll('.rm-tabpill')).forEach(function(b){
+          b.addEventListener('click',function(){editTab=Number(b.getAttribute('data-t'));selCell=0;
+            renderTabPills();renderLayoutRow();redraw();renderCellPanel();});
+        });
+        var lbl=$('rm-tab-label');
+        if(lbl)lbl.addEventListener('input',function(){curTab().label=this.value;dirty=true;renderTabPills();redraw();});
+        var add=$('rm-tab-add');
+        if(add)add.addEventListener('click',function(){
+          if(CFG.size==='compact'){alert('小尺寸選單放不下分頁，先換成大尺寸版型。');return;}
+          CFG.tabs.push({label:'',layout:'big-4',full_image_url:null,cells:[],buttons:[]});
+          for(var i=0;i<CFG.tabs.length;i++)relayoutTabOnCfg(CFG,i);   // 變成多分頁後全部重排（內容區下移）
+          editTab=CFG.tabs.length-1;selCell=0;dirty=true;
+          renderTabPills();renderLayoutRow();renderBgRows();redraw();renderCellPanel();
+        });
+        var del=$('rm-tab-del');
+        if(del)del.addEventListener('click',function(){
+          if(!confirm('移除「'+(curTab().label||('分頁'+String.fromCharCode(65+editTab)))+'」？這個分頁的格子和設定會不見。'))return;
+          CFG.tabs.splice(editTab,1);
+          editTab=0;selCell=0;dirty=true;
+          for(var i=0;i<CFG.tabs.length;i++)relayoutTabOnCfg(CFG,i);
+          renderTabPills();renderLayoutRow();renderBgRows();redraw();renderCellPanel();
+        });
+      }
+
+      function renderLayoutRow(){
+        var row=$('rm-layouts');
+        var multi=CFG.tabs.length>1;
+        var list=LAYOUTS.filter(function(l){return multi?l.size==='large':true;});
+        row.innerHTML=list.map(function(l){
+          return '<button type="button" class="rm-layout-btn'+(curTab().layout===l.id?' on':'')+'" data-lay="'+l.id+'" title="'+esc(l.label)+'">'+
+            '<canvas width="64" data-laythumb="'+l.id+'"></canvas></button>';
+        }).join('');
+        list.forEach(function(l){
+          var cv=document.querySelector('canvas[data-laythumb="'+l.id+'"]');
+          if(cv){try{renderMenu(cv,{size:l.size,bg:'#E5E7EB',cell_bg:'#FFFFFF',
+            tabs:[{label:'',layout:l.id,cells:l.make(0),buttons:[]}]},{ });}catch(e){}}
+        });
+        [].slice.call(row.querySelectorAll('.rm-layout-btn')).forEach(function(b){
+          b.addEventListener('click',function(){
+            var lay=layoutById(b.getAttribute('data-lay'));
+            if(CFG.tabs.length>1&&lay.size==='compact'){alert('有分頁的選單要用大尺寸版型。');return;}
+            var t=curTab();
+            t.layout=lay.id;
+            CFG.size=lay.size;
+            // 不截斷：切到格子較少的版型再切回來，原本填好的字和動作要還在
+            relayoutTabOnCfg(CFG,editTab);
+            if(selCell>=t.cells.length)selCell=0;
+            dirty=true;renderLayoutRow();redraw();renderCellPanel();
+          });
+        });
+      }
+
+      function swatchRow(el,colors,current,allowNone,onPick,noneTitle){
+        var html='';
+        if(allowNone)html+='<button type="button" class="rm-swatch none'+(current==null?' on':'')+'" data-c="" title="'+(noneTitle||'跟全部一樣')+'"></button>';
+        html+=colors.map(function(c){
+          return '<button type="button" class="rm-swatch'+(current===c?' on':'')+'" data-c="'+c+'" style="background:'+c+';"></button>';
+        }).join('');
+        // 自訂：任何顏色都能挑
+        var isCustom=current&&colors.indexOf(current)<0;
+        html+='<input type="color" class="rm-color rm-swatch-cust" value="'+(isCustom?current:'#FBC02D')+'" title="自訂顏色"'+(isCustom?' style="border-color:#1f2937;"':'')+'>';
+        el.innerHTML=html;
+        [].slice.call(el.querySelectorAll('.rm-swatch')).forEach(function(b){
+          b.addEventListener('click',function(){onPick(b.getAttribute('data-c')||null);});
+        });
+        var cust=el.querySelector('.rm-swatch-cust');
+        cust.addEventListener('input',function(){onPick(this.value);});
+      }
+      function renderBgRows(){
+        swatchRow($('rm-bgs'),BGS,CFG.bg||'#FBC02D',false,function(c){CFG.bg=c||'#FBC02D';dirty=true;renderBgRows();redraw();});
+        swatchRow($('rm-cellbgs'),CELLBGS,CFG.cell_bg||'#FFF9E8',false,function(c){CFG.cell_bg=c||'#FFF9E8';dirty=true;renderBgRows();redraw();});
+        swatchRow($('rm-textcolors'),['#4E342E','#FFF9E8','#FFFFFF','#E8491D','#1F2937'],CFG.text_color||null,true,
+          function(c){CFG.text_color=c;dirty=true;renderBgRows();redraw();},'依底色自動');
+        var bw=(CFG.border_width==null?9:CFG.border_width);
+        $('rm-borderw').value=bw;$('rm-borderw-val').textContent=bw===0?'無框':bw;
+        $('rm-bordercolor').value=CFG.border_color||'#4E342E';
+        var rd=(CFG.radius==null?30:CFG.radius);
+        $('rm-radius').value=rd;$('rm-radius-val').textContent=rd;
+        var gp=(CFG.gap==null?26:CFG.gap);
+        $('rm-gap').value=gp;$('rm-gap-val').textContent=gp;
+        var fs=CFG.font_scale||1;
+        [].slice.call(document.querySelectorAll('.rm-fs')).forEach(function(b){
+          b.classList.toggle('on',Number(b.getAttribute('data-fs'))===fs);
+        });
+        var multi=CFG.tabs&&CFG.tabs.length>1;
+        $('rm-tabcolor-field').hidden=!multi;
+        if(multi){
+          $('rm-tab-activebg').value=CFG.tab_active_bg||'#E8491D';
+          $('rm-tab-inactivebg').value=CFG.tab_inactive_bg||'#8E9AAB';
+          $('rm-tab-textcolor').value=CFG.tab_text_color||'#FFFFFF';
+        }
+      }
+      $('rm-borderw').addEventListener('input',function(){
+        CFG.border_width=Number(this.value);
+        $('rm-borderw-val').textContent=CFG.border_width===0?'無框':CFG.border_width;
+        dirty=true;redraw();
+      });
+      $('rm-bordercolor').addEventListener('input',function(){CFG.border_color=this.value;dirty=true;redraw();});
+      $('rm-bordercolor-auto').addEventListener('click',function(){CFG.border_color=null;dirty=true;renderBgRows();redraw();});
+      $('rm-radius').addEventListener('input',function(){CFG.radius=Number(this.value);$('rm-radius-val').textContent=CFG.radius;dirty=true;redraw();});
+      $('rm-gap').addEventListener('input',function(){CFG.gap=Number(this.value);$('rm-gap-val').textContent=CFG.gap;dirty=true;redraw();});
+      [].slice.call(document.querySelectorAll('.rm-fs')).forEach(function(b){
+        b.addEventListener('click',function(){CFG.font_scale=Number(b.getAttribute('data-fs'));dirty=true;renderBgRows();redraw();});
+      });
+      $('rm-tab-activebg').addEventListener('input',function(){CFG.tab_active_bg=this.value;dirty=true;redraw();});
+      $('rm-tab-inactivebg').addEventListener('input',function(){CFG.tab_inactive_bg=this.value;dirty=true;redraw();});
+      $('rm-tab-textcolor').addEventListener('input',function(){CFG.tab_text_color=this.value;dirty=true;redraw();});
+
+      $('rm-canvas').addEventListener('click',function(ev){
+        var cv=$('rm-canvas');
+        var r=cv.getBoundingClientRect();
+        var px=(ev.clientX-r.left)/r.width*2500;
+        var py=(ev.clientY-r.top)/r.height*(CFG.size==='compact'?843:1686);
+        // 點分頁頭 → 切換編輯的分頁
+        if(CFG.tabs.length>1&&py<TB){
+          var t=Math.min(CFG.tabs.length-1,Math.floor(px/(2500/CFG.tabs.length)));
+          if(t!==editTab){editTab=t;selCell=0;renderTabPills();renderLayoutRow();redraw();renderCellPanel();}
+          return;
+        }
+        var cells=curTab().cells||[];
+        for(var i=0;i<cells.length;i++){
+          var c=cells[i];
+          if(px>=c.x&&px<=c.x+c.w&&py>=c.y&&py<=c.y+c.h){selCell=i;redraw();renderCellPanel();return;}
+        }
+      });
+
+      // 我們自己的活動頁編號有哪些（預設的，加上各活動自訂的）
+      function ownLiffIds(){
+        var ids=[];
+        if(DATA&&DATA.liff_id)ids.push(String(DATA.liff_id));
+        ((DATA&&DATA.activities)||[]).forEach(function(a){
+          var u=a.liff_url||'';
+          var p1=u.indexOf('liff.line.me/');
+          if(p1>=0){
+            var rest=u.slice(p1+13);
+            var seg=rest.split('/')[0].split('?')[0];
+            if(seg)ids.push(seg);
+          }
+        });
+        return ids;
+      }
+      function isOwnActivityUrl(url){
+        var u=String(url||'').toLowerCase();
+        var pre='https://liff.line.me/';
+        if(u.indexOf(pre)!==0)return false;
+        var id=u.slice(pre.length).split('/')[0].split('?')[0];
+        var known=ownLiffIds().map(function(x){return String(x).toLowerCase();});
+        if(!known.length)return true;   // 不知道自家有哪些編號就沿用舊行為
+        return known.indexOf(id)>=0;
+      }
+
+      function curBtn(){
+        var t=curTab();
+        while((t.buttons||(t.buttons=[])).length<=selCell)t.buttons.push({label:'',sublabel:'',icon:null,image:null,action:null,bg:null});
+        return t.buttons[selCell];
+      }
+
+      function renderCellPanel(){
+        var b=curBtn();
+        $('rm-cell-no').textContent=String(selCell+1);
+        $('rm-label').value=b.label||'';
+        $('rm-sublabel').value=b.sublabel||'';
+        $('rm-cellimg-clear').hidden=!b.image;
+        var ig=$('rm-icons');
+        ig.innerHTML='<button type="button" class="rm-icon-btn'+(!b.icon?' on':'')+'" data-ic="">無</button>'+
+          ICON_ORDER.map(function(k){
+            var svg='<svg viewBox="0 0 100 100" fill="none" stroke="#4E342E" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">'+
+              ICONS[k].map(function(d){return '<path d="'+d+'"/>';}).join('')+'</svg>';
+            return '<button type="button" class="rm-icon-btn'+(b.icon===k?' on':'')+'" data-ic="'+k+'">'+svg+'</button>';
+          }).join('');
+        [].slice.call(ig.querySelectorAll('.rm-icon-btn')).forEach(function(x){
+          x.addEventListener('click',function(){b.icon=x.getAttribute('data-ic')||null;dirty=true;renderCellPanel();redraw();});
+        });
+        swatchRow($('rm-cellbg-one'),CELLBGS,b.bg||null,true,function(c){b.bg=c;dirty=true;renderCellPanel();redraw();});
+        swatchRow($('rm-cellcolor-one'),['#4E342E','#FFF9E8','#FFFFFF','#E8491D','#1F2937'],b.color||null,true,
+          function(c){b.color=c;dirty=true;renderCellPanel();redraw();});
+
+        var mode=b.action?(b.action.type==='message'?'message':(b.action.activity_id?'activity':'uri')):'activity';
+        [].slice.call(document.querySelectorAll('.rm-actbtn')).forEach(function(x){
+          x.classList.toggle('on',x.getAttribute('data-mode')===mode);
+        });
+        $('rm-act-activity').hidden=mode!=='activity';
+        $('rm-act-uri').hidden=mode!=='uri';
+        $('rm-act-message').hidden=mode!=='message';
+        if(mode==='uri'){
+          $('rm-act-url').value=(b.action&&b.action.uri)||'';
+          var idc=$('rm-act-identify');
+          idc.checked=b.identify===true;
+          var url=(b.action&&b.action.uri)||'';
+          // 這頁不能用正規表示式（樣板字串會吃掉反斜線，整段 JS 會壞）——用字串比對。
+          // 判準要跟後端一致：只有「我們自己的活動頁編號」才算自家，
+          // 合作夥伴的活動頁也是同一個網域，但我們對那種頁面沒有任何紀錄。
+          var isOwn=isOwnActivityUrl(url);
+          var hasLiff=!!(DATA&&DATA.liff_id);
+          // 三種情況分開講，不要讓人勾一個不會有作用的格子
+          idc.disabled=isOwn||!hasLiff;
+          if(isOwn){
+            idc.checked=false;
+            delete b.identify;   // 這種按鍵勾了也不會生效，別在設定檔留一個假的
+            $('rm-act-idhint').innerHTML='這是我們自己的活動頁，<b>本來就知道是誰打開的</b>，不用另外設定。'+
+              '要抓這批人，去「自動貼標籤」用「在活動頁做過某件事」或「玩過遊戲」。';
+          }else if(!hasLiff){
+            $('rm-act-idhint').innerHTML='這個功能需要先設定好活動頁的連結設定，現在只能記次數、記不到是誰。';
+          }else{
+            $('rm-act-idhint').innerHTML='不勾：只知道被按了幾次，跳過去比較快。<br>'+
+              '勾了：跳過去前會多花約一秒確認身分，換來「誰按了這顆」的名單。';
+          }
+        }
+        if(mode==='message')$('rm-act-text').value=(b.action&&b.action.text)||'';
+        if(mode==='activity'&&b.action&&b.action.activity_id)$('rm-act-select').value=String(b.action.activity_id);
+      }
+
+      $('rm-label').addEventListener('input',function(){curBtn().label=this.value;dirty=true;redraw();});
+      $('rm-sublabel').addEventListener('input',function(){curBtn().sublabel=this.value;dirty=true;redraw();});
+      $('rm-chatbar').addEventListener('input',function(){CFG.chat_bar_text=this.value;dirty=true;redraw();});
+      $('rm-open-default').addEventListener('change',function(){CFG.open_by_default=this.checked;dirty=true;});
+
+      // ── 圖片上傳（這一格 / 整張完稿）─────────────────────────
+      function fileToDataUrl(file,maxW,cb){
+        var rd=new FileReader();
+        rd.onload=function(){
+          var img=new Image();
+          img.onload=function(){
+            var w=img.width,h=img.height;
+            if(w>maxW){h=Math.round(h*maxW/w);w=maxW;}
+            var cv=document.createElement('canvas');cv.width=w;cv.height=h;
+            cv.getContext('2d').drawImage(img,0,0,w,h);
+            cb(cv.toDataURL('image/jpeg',0.88));
+          };
+          img.src=rd.result;
+        };
+        rd.readAsDataURL(file);
+      }
+      function uploadImage(dataUrl,cb){
+        post('/admin/richmenu/api/upload-image',{image:dataUrl},function(d){cb(d.url);});
+      }
+      $('rm-cellimg-file').addEventListener('change',function(){
+        var f=this.files&&this.files[0]; if(!f)return; var inp=this;
+        fileToDataUrl(f,1200,function(du){uploadImage(du,function(url){
+          curBtn().image=url;dirty=true;inp.value='';renderCellPanel();redraw();
+        });});
+      });
+      $('rm-cellimg-clear').addEventListener('click',function(){
+        curBtn().image=null;dirty=true;renderCellPanel();redraw();
+      });
+      $('rm-fullimg-file').addEventListener('change',function(){
+        var f=this.files&&this.files[0]; if(!f)return; var inp=this;
+        fileToDataUrl(f,2500,function(du){uploadImage(du,function(url){
+          curTab().full_image_url=url;dirty=true;inp.value='';redraw();
+        });});
+      });
+      $('rm-fullimg-clear').addEventListener('click',function(){
+        curTab().full_image_url=null;dirty=true;redraw();
+      });
+
+      [].slice.call(document.querySelectorAll('.rm-actbtn')).forEach(function(x){
+        x.addEventListener('click',function(){
+          var b=curBtn(),m=x.getAttribute('data-mode');
+          if(m!=='uri')delete b.identify;   // 只有「開啟網址」用得到
+          if(m==='activity'){var sel=$('rm-act-select');applyActivity(b,sel.value);}
+          else if(m==='uri'){
+            b.action={type:'uri',uri:$('rm-act-url').value.trim()};
+            if($('rm-act-identify').checked)b.identify=true;
+          }
+          else{b.action={type:'message',text:$('rm-act-text').value.trim()};}
+          dirty=true;renderCellPanel();
+        });
+      });
+      function applyActivity(b,val){
+        var acts=(DATA?DATA.activities||[]:[]).filter(function(x){return !!x.liff_url;});
+        if(val==='wallet'&&DATA.wallet_url){b.action={type:'uri',uri:DATA.wallet_url,activity_id:'wallet'};return;}
+        var a=acts.filter(function(x){return String(x.id)===String(val);})[0]||acts[0];
+        if(a)b.action={type:'uri',uri:a.liff_url,activity_id:a.id};
+      }
+      function fillActivitySelect(){
+        var sel=$('rm-act-select');
+        var acts=(DATA.activities||[]).filter(function(a){return !!a.liff_url;});
+        sel.innerHTML=acts.map(function(a){
+          return '<option value="'+a.id+'">'+esc(a.name)+(a.status!=='active'?'（還沒上線）':'')+'</option>';
+        }).join('')+(DATA.wallet_url?'<option value="wallet">我的獎品（中獎紀錄）</option>':'');
+        sel.addEventListener('change',function(){applyActivity(curBtn(),sel.value);dirty=true;});
+        var sg=$('rm-act-text-sugg');
+        sg.innerHTML=acts.slice(0,4).map(function(a){
+          return '<button type="button" data-t="'+esc(a.name)+'">'+esc(a.name)+'</button>';
+        }).join('');
+        [].slice.call(sg.querySelectorAll('button')).forEach(function(x){
+          x.addEventListener('click',function(){
+            $('rm-act-text').value=x.getAttribute('data-t');
+            curBtn().action={type:'message',text:x.getAttribute('data-t')};
+            dirty=true;
+          });
+        });
+      }
+      $('rm-act-url').addEventListener('input',function(){curBtn().action={type:'uri',uri:this.value.trim()};dirty=true;});
+      $('rm-check-link').addEventListener('click',function(){
+        var url=$('rm-act-url').value.trim();
+        var out=$('rm-check-result');
+        if(!url){out.className='bad';out.textContent='先把網址填上';return;}
+        var btn=this;btn.disabled=true;
+        out.className='';out.textContent='檢查中…';
+        fetch('/admin/richmenu/api/check-link',{method:'POST',
+          headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url})})
+          .then(function(r){return r.json();}).then(function(d){
+            btn.disabled=false;
+            if(!d.ok){out.className='bad';out.textContent=d.detail||'檢查失敗';return;}
+            out.className=d.verdict;
+            out.textContent=(d.verdict==='ok'?'可以用：':(d.verdict==='suspect'?'要注意：':'有問題：'))+d.note;
+          })
+          .catch(function(){btn.disabled=false;out.className='bad';out.textContent='檢查失敗，再試一次';});
+      });
+      $('rm-use-app').addEventListener('click',function(){
+        // OpenRice 沒有一個網址通吃的下載頁；這個會自動看用戶是 iPhone 還是 Android 再跳
+        var el=$('rm-act-url');
+        el.value=location.origin+'/go/app';
+        curBtn().action={type:'uri',uri:el.value};
+        dirty=true;
+        var out=$('rm-check-result');
+        out.className='ok';
+        out.textContent='已填入。這個網址會自動分辨用戶的手機，跳到對的商店。';
+      });
+      $('rm-act-identify').addEventListener('change',function(){
+        var b=curBtn();
+        if(this.checked)b.identify=true; else delete b.identify;
+        dirty=true;
+      });
+      $('rm-act-text').addEventListener('input',function(){curBtn().action={type:'message',text:this.value.trim()};dirty=true;});
+
+      // ── 儲存 / 發布 ────────────────────────────────────────
+      function setEditButtons(disabled){
+        $('rm-save').disabled=disabled;
+        $('rm-publish').disabled=disabled;
+      }
+      function saveDraft(cb){
+        if(saving)return;
+        var name=$('rm-name').value.trim();
+        if(!name){$('rm-edit-note').textContent='先幫選單取個名字';return;}
+        saving=true;setEditButtons(true);
+        $('rm-edit-note').textContent='儲存中…';
+        post('/admin/richmenu/api/save',{id:editingId,name:name,config:CFG},function(d){
+          saving=false;setEditButtons(false);
+          editingId=d.id;dirty=false;
+          $('rm-edit-note').textContent='已儲存';
+          setTimeout(function(){$('rm-edit-note').textContent='';},1800);
+          if(cb)cb();
+        },function(){
+          saving=false;setEditButtons(false);
+          $('rm-edit-note').textContent='';
+        });
+      }
+      $('rm-save').addEventListener('click',function(){saveDraft();});
+
+      function validateForPublish(){
+        for(var t=0;t<CFG.tabs.length;t++){
+          var tab=CFG.tabs[t];
+          var where=CFG.tabs.length>1?('分頁'+String.fromCharCode(65+t)+'的第 '):'第 ';
+          for(var i=0;i<(tab.cells||[]).length;i++){
+            var b=(tab.buttons||[])[i]||{};
+            var a=b.action||{};
+            var actOk=(a.type==='uri'&&String(a.uri||'').indexOf('https://')===0)||
+                      (a.type==='message'&&String(a.text||'').trim());
+            if(!actOk)return where+(i+1)+' 格還沒設定「按下去做什麼」。點那一格設定好再發布。';
+            if(!tab.full_image_url&&!String(b.label||'').trim()&&!b.icon&&!b.image)
+              return where+(i+1)+' 格還沒放文字、圖示或圖片，發布出去會是一格空白。';
+          }
+        }
+        return null;
+      }
+
+      $('rm-publish').addEventListener('click',function(){
+        var bad=validateForPublish();
+        if(bad){alert(bad);return;}
+        saveDraft(function(){
+          var pv=$('rm-pub-previews');
+          pv.innerHTML=CFG.tabs.map(function(t,i){
+            return '<canvas width="500" data-pub-preview="'+i+'" style="width:100%;border:1px solid #ECECEE;border-radius:10px;margin-bottom:8px;"></canvas>';
+          }).join('');
+          CFG.tabs.forEach(function(t,i){
+            var cv=document.querySelector('canvas[data-pub-preview="'+i+'"]');
+            if(cv)renderMenu(cv,CFG,{activeTab:i,onImage:function(){renderMenu(cv,CFG,{activeTab:i});}});
+          });
+          var n=CFG.tabs.reduce(function(s,t){return s+(t.cells||[]).length;},0);
+          var tabsTxt=CFG.tabs.length>1?(CFG.tabs.length+' 個分頁、'):'';
+          if(editingIsLive){
+            $('rm-pub-summary').innerHTML='共 '+tabsTxt+n+' 格。<br>'+
+              '<b>這個選單正是所有人看到的那一個</b>——按下確定發布，所有用戶的選單立刻換成新版，沒有預覽期。<br>'+
+              '想先做一版備用、不要動到現在的：回列表按「複製」，去編輯複製出來的那一份。';
+            $('rm-pub-default').checked=true;
+            $('rm-pub-default').disabled=true;
+          }else{
+            $('rm-pub-summary').innerHTML='共 '+tabsTxt+n+' 格。<br>'+
+              '<b>發布</b>是把選單圖和按鍵設定送上 LINE 備著——<b>光是發布，用戶還看不到</b>。<br>'+
+              '要讓用戶看到，才勾下面那一格。';
+            $('rm-pub-default').checked=false;
+            $('rm-pub-default').disabled=false;
+          }
+          $('rm-pub-note').textContent='';
+          $('rm-pub-modal').hidden=false;
+        });
+      });
+      $('rm-pub-close').addEventListener('click',function(){$('rm-pub-modal').hidden=true;});
+      $('rm-pub-cancel').addEventListener('click',function(){$('rm-pub-modal').hidden=true;});
+
+      $('rm-pub-go').addEventListener('click',function(){
+        if(publishing)return;   // 在途時再點無效——發布可能要跑十幾秒，解鎖只看結果不看時間
+        publishing=true;
+        var btn=this;
+        btn.disabled=true;$('rm-pub-note').textContent='畫圖並上傳中，最多要等十幾秒…';
+        preloadImages(CFG).then(function(allLoaded){
+          if(!allLoaded){
+            publishing=false;btn.disabled=false;
+            $('rm-pub-note').textContent='';
+            alert('有圖片還沒載入完成，等一下再按一次。');
+            return;
+          }
+          var images=CFG.tabs.map(function(t,i){
+            var full=document.createElement('canvas');
+            full.width=2500;
+            renderMenu(full,CFG,{activeTab:i,forExport:true});
+            var q=0.86,dataUrl=full.toDataURL('image/jpeg',q);
+            while(dataUrl.length*0.75>980*1024&&q>0.5){q-=0.08;dataUrl=full.toDataURL('image/jpeg',q);}
+            return dataUrl;
+          });
+          post('/admin/richmenu/api/publish',
+            {id:editingId,images:images,set_default:$('rm-pub-default').checked},
+            function(d){
+              publishing=false;btn.disabled=false;
+              $('rm-pub-modal').hidden=true;
+              $('rm-editor-view').hidden=true;$('rm-list-view').hidden=false;
+              if(d.audience_needs_reapply)alert('提醒：這個選單有名單專屬設定，發布了新版之後要回列表按「名單」再套用一次。');
+              load();
+            },
+            function(){
+              publishing=false;btn.disabled=false;
+              $('rm-pub-note').textContent='';
+            });
+        });
+      });
+
+      $('rm-preview-stop').addEventListener('click',function(){
+        var btn=this;btn.disabled=true;
+        post('/admin/richmenu/api/preview',{stop:true},
+          function(d){btn.disabled=false;
+            $('rm-preview-note').textContent='已結束，'+d.count+' 位測試人員回到一般選單。';},
+          function(){btn.disabled=false;});
+      });
+
+      load();
+    })();
+    </script>
+    `
+  })
+%>

@@ -21,6 +21,12 @@ const {
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 const { verifyOaFollower } = require('../core/oaFollower');
 
+/** 從 Authorization: Bearer xxx 取出 LIFF id token（GET 端點用；token 不放網址列） */
+function bearerToken(req) {
+  const h = String((req.headers && req.headers.authorization) || '');
+  return h.startsWith('Bearer ') ? h.slice(7).trim() : '';
+}
+
 function registerGameType(app, deps, opts) {
   const { query, pool } = deps;
   const { gameType, viewName, defaultLiffId } = opts;
@@ -51,13 +57,16 @@ function registerGameType(app, deps, opts) {
     catch (e) { v = { ok: false, reason: 'error', detail: String(e && e.message || e).slice(0, 100) }; }
     const verified = !!v.ok;
     const matches = !!(verified && v.sub && bodyUid && v.sub === bodyUid);
-    query(
-      `INSERT INTO liff_token_probe (endpoint, game_type, slug, body_line_user_id, token_present, verified, verified_sub, sub_matches, channel_id, detail)
-       VALUES ($1,$2,$3,$4,true,$5,$6,$7,$8,$9)`,
-      [endpoint, gameType, slug, bodyUid || null, verified, v.sub || null, matches, channelId || null,
-       (v.reason || 'ok') + (v.detail ? (' ' + v.detail) : '') + (v.status ? (' http' + v.status) : '') +
-       (v.attempts > 1 ? (' try' + v.attempts) : '')]
-    ).catch(e => console.error('probe insert failed:', e && e.message));
+    // 必須 await：serverless 回應送出後凍結，不 await 的寫入會不定期消失
+    try {
+      await query(
+        `INSERT INTO liff_token_probe (endpoint, game_type, slug, body_line_user_id, token_present, verified, verified_sub, sub_matches, channel_id, detail)
+         VALUES ($1,$2,$3,$4,true,$5,$6,$7,$8,$9)`,
+        [endpoint, gameType, slug, bodyUid || null, verified, v.sub || null, matches, channelId || null,
+         (v.reason || 'ok') + (v.detail ? (' ' + v.detail) : '') + (v.status ? (' http' + v.status) : '') +
+         (v.attempts > 1 ? (' try' + v.attempts) : '')]
+      );
+    } catch (e) { console.error('probe insert failed:', e && e.message); }
     if (!enforce) return { pass: true };
     if (!verified) return { pass: false, reject: { status: 401, code: 'token_invalid', detail: '身分驗證失敗，請重新開啟頁面。' } };
     if (!matches) return { pass: false, reject: { status: 403, code: 'identity_mismatch', detail: '身分不符，無法進行。' } };
@@ -69,7 +78,7 @@ function registerGameType(app, deps, opts) {
     try {
       const slug = String(req.params.slug || '').trim();
       const { rows } = await query(
-        `SELECT id, slug, name, description, game_type, status, start_at, end_at,
+        `SELECT id, slug, name, description, game_type, status, start_at, end_at, rules,
                 cover_image_url, daily_plays_per_user, require_follow_oa, liff_id_override,
                 base_plays_per_user, referral_bonus_per, referral_bonus_max, referral_invites_per_bonus
          FROM activities WHERE slug = $1 LIMIT 1`,
@@ -108,7 +117,9 @@ function registerGameType(app, deps, opts) {
     try {
       const slug = String(req.params.slug || '').trim();
       const claimedUid = String(req.query.line_user_id || '').trim();
-      const metaToken = String(req.query.id_token || '').trim();
+      // token 走 Authorization header——放在網址列會整條落在 CDN／函式的 request log 裡，
+      // 撿到 log 的人在 token 有效期內就能冒名查資料。網址列讀法保留一版當過渡。
+      const metaToken = bearerToken(req) || String(req.query.id_token || '').trim();
       // 活動與獎品是公開的（頁面要靠它渲染），但 quota 是個人資料，
       // 一律以 token 的 sub 為準。驗證失敗就不給 quota，頁面照樣載得起來。
       const metaId = await verifyGameIdentity('meta', slug, claimedUid, metaToken);
@@ -155,8 +166,11 @@ function registerGameType(app, deps, opts) {
     ]);
     if (!idCheck.pass) return res.status(idCheck.reject.status).json({ ok: false, error: idCheck.reject.code, detail: idCheck.reject.detail });
     if (followerOk === false) return res.status(403).json({ ok: false, error: 'must_follow_oa', detail: '請先加入官方帳號好友才能參加。' });
+    // 防重複扣次數的鑰匙：前端每一次「想抽」產一把；網路斷掉重送會帶同一把
+    const rawKey = String((req.body || {}).play_key || '').trim();
+    const playKey = /^[A-Za-z0-9_-]{8,64}$/.test(rawKey) ? rawKey : null;
     const result = await selectPrizeAndRecord({
-      pool, activitySlug: slug, gameType, lineUserId, lineDisplayName, req
+      pool, activitySlug: slug, gameType, lineUserId, lineDisplayName, req, playKey
     });
     if (result.error) {
       return res.status(result.error.status).json({
@@ -174,12 +188,16 @@ function registerGameType(app, deps, opts) {
   // ----- referral API -----
   // 每一次邀請嘗試不論成敗都留一筆：用戶抱怨「我邀了朋友沒拿到次數」時，
   // 後台要查得到那一次到底發生什麼；只有成功才有紀錄會查不到「為什麼失敗」。
-  function logReferralAttempt(slug, inviterId, inviteeId, outcome) {
-    query(
-      `INSERT INTO activity_referral_attempts (activity_slug, game_type, inviter_line_user_id, invitee_line_user_id, outcome)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [slug, gameType, inviterId || null, inviteeId || null, String(outcome || 'unknown').slice(0, 60)]
-    ).catch(e => console.error('referral attempt log failed:', e && e.message));
+  // 必須 await：serverless 在 response 送出後凍結，不 await 這筆稽核紀錄會不定期消失，
+  // 客訴時查不到——它存在的目的就沒了。失敗只記 log，不影響回應。
+  async function logReferralAttempt(slug, inviterId, inviteeId, outcome) {
+    try {
+      await query(
+        `INSERT INTO activity_referral_attempts (activity_slug, game_type, inviter_line_user_id, invitee_line_user_id, outcome)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [slug, gameType, inviterId || null, inviteeId || null, String(outcome || 'unknown').slice(0, 60)]
+      );
+    } catch (e) { console.error('referral attempt log failed:', e && e.message); }
   }
 
   app.post('/api/games/' + gameType + '/:slug/referral', async (req, res) => {
@@ -188,7 +206,7 @@ function registerGameType(app, deps, opts) {
     const inviterId = String((req.body || {}).inviter_line_user_id || '').trim();
     const idCheck = await verifyGameIdentity('referral', slug, inviteeId, String((req.body || {}).id_token || '').trim());
     if (!idCheck.pass) {
-      logReferralAttempt(slug, inviterId, inviteeId, idCheck.reject.code);
+      await logReferralAttempt(slug, inviterId, inviteeId, idCheck.reject.code);
       return res.status(idCheck.reject.status).json({ ok: false, error: idCheck.reject.code, detail: idCheck.reject.detail });
     }
     try {
@@ -196,23 +214,23 @@ function registerGameType(app, deps, opts) {
         query, activitySlug: slug, gameType, inviterId, inviteeId
       });
       if (result.error) {
-        logReferralAttempt(slug, inviterId, inviteeId, result.error.code);
+        await logReferralAttempt(slug, inviterId, inviteeId, result.error.code);
         return res.status(result.error.status).json({
           ok: false, error: result.error.code, detail: result.error.detail
         });
       }
-      logReferralAttempt(slug, inviterId, inviteeId, result.counted ? 'counted' : 'duplicate');
+      await logReferralAttempt(slug, inviterId, inviteeId, result.counted ? 'counted' : 'duplicate');
       res.json(result);
     } catch (err) {
       console.error(gameType + ' referral error:', err && err.message);
-      logReferralAttempt(slug, inviterId, inviteeId, 'server_error');
+      await logReferralAttempt(slug, inviterId, inviteeId, 'server_error');
       res.status(500).json({ ok: false, error: 'referral_failed', detail: '系統忙線，等一下會自動再試。' });
     }
   });
 }
 
 // ----- 錢包 API（全 game type 共用，僅註冊一次） -----
-// GET /games/wallet/api?line_user_id=&id_token=&activity_slug=（activity_slug 選填）
+// GET /games/wallet/api?line_user_id=&id_token=
 //   回該用戶所有 coupon_code 非空的 activity_plays，JOIN activities 取活動名、
 //   prize_snapshot->>'name' 取獎品名。形狀照共用 API：
 //   { ok:true, coupons:[{ activity_name, prize_name, code, won_at, redeemed:bool, redeemed_at }] }
@@ -226,9 +244,8 @@ function registerWalletApi(app, deps) {
       // userId，貼進群組等於把對方的券公開。
       const enforce = process.env.LIFF_TOKEN_ENFORCE !== '0';
       const claimedUid = String(req.query.line_user_id || '').trim();
-      const idToken = String(req.query.id_token || '').trim();
-      // 活動頁內嵌券列表會傳目前 slug；錢包頁不傳時仍列出所有活動的券。
-      const activitySlug = String(req.query.activity_slug || '').trim().slice(0, 120);
+      // token 走 Authorization header，不放網址列（同 /meta 的理由：會落在伺服器 log）
+      const idToken = bearerToken(req) || String(req.query.id_token || '').trim();
       // 錢包頁一律以 defaultLiffId 渲染（見 /games/wallet 路由），
       // 所以 token 必然來自這個 channel。
       const channelId = channelIdFromLiffId(deps.defaultLiffId || process.env.GAMES_LIFF_ID || process.env.LIFF_ID || '');
@@ -239,13 +256,16 @@ function registerWalletApi(app, deps) {
         catch (e) { v = { ok: false, reason: 'error', detail: String((e && e.message) || e).slice(0, 100) }; }
         const verified = !!(v && v.ok);
         const vSub = (v && v.sub) || null;
-        query(
-          `INSERT INTO liff_token_probe (endpoint, game_type, slug, body_line_user_id, token_present, verified, verified_sub, sub_matches, channel_id, detail)
-           VALUES ('wallet', null, null, $1, true, $2, $3, $4, $5, $6)`,
-          [claimedUid || null, verified, vSub, !!(verified && vSub && vSub === claimedUid), channelId || null,
-           (v && v.reason ? v.reason : 'ok') + (v && v.detail ? (' ' + v.detail) : '') +
-           (v && v.status ? (' http' + v.status) : '') + (v && v.attempts > 1 ? (' try' + v.attempts) : '')]
-        ).catch(e => console.error('wallet probe insert failed:', e && e.message));
+        // 必須 await：serverless 回應送出後凍結，不 await 的寫入會不定期消失
+        try {
+          await query(
+            `INSERT INTO liff_token_probe (endpoint, game_type, slug, body_line_user_id, token_present, verified, verified_sub, sub_matches, channel_id, detail)
+             VALUES ('wallet', null, null, $1, true, $2, $3, $4, $5, $6)`,
+            [claimedUid || null, verified, vSub, !!(verified && vSub && vSub === claimedUid), channelId || null,
+             (v && v.reason ? v.reason : 'ok') + (v && v.detail ? (' ' + v.detail) : '') +
+             (v && v.status ? (' http' + v.status) : '') + (v && v.attempts > 1 ? (' try' + v.attempts) : '')]
+          );
+        } catch (e) { console.error('wallet probe insert failed:', e && e.message); }
       }
 
       if (enforce) {
@@ -278,11 +298,37 @@ function registerWalletApi(app, deps) {
            JOIN activities a ON a.id = p.activity_id
           WHERE p.line_user_id = $1
             AND p.coupon_code IS NOT NULL
-            AND ($2 = '' OR a.slug = $2)
           ORDER BY p.played_at DESC
           LIMIT 100`,
-        [lineUserId, activitySlug]
+        [lineUserId]
       );
+      // 每一次抽獎的紀錄——**含銘謝惠顧**。
+      // 用戶會說「我明明有抽卻沒紀錄」，只列中獎的等於無法自證；沒中也要看得到那一次。
+      // 唯一排除的是後台抽的大獎：那個要等行銷正式公布，而且抽錯還能作廢。
+      const { rows: winRows } = await query(
+        `SELECT a.name AS activity_name, a.slug AS activity_slug,
+                COALESCE(p.prize_snapshot->>'name', '獎品') AS prize_name,
+                COALESCE(p.prize_snapshot->>'description', '') AS prize_desc,
+                COALESCE(p.prize_snapshot->>'prize_type', '') AS prize_type,
+                (p.prize_snapshot->>'miles')::int AS miles,
+                p.coupon_code AS code,
+                p.played_at AS won_at,
+                COALESCE(p.is_redeemed, false) AS redeemed
+           FROM activity_plays p
+           JOIN activities a ON a.id = p.activity_id
+          WHERE p.line_user_id = $1
+            AND COALESCE(p.prize_snapshot->>'kind', '') <> 'draw_win'
+          ORDER BY p.played_at DESC
+          LIMIT 100`,
+        [lineUserId]
+      );
+      const prizes = winRows.map(r => ({
+        activity_name: r.activity_name, activity_slug: r.activity_slug,
+        prize_name: r.prize_name, prize_desc: r.prize_desc || null,
+        is_win: r.prize_type !== 'none',
+        miles: r.miles || null, code: r.code || null,
+        won_at: r.won_at, redeemed: !!r.redeemed
+      }));
       const coupons = rows.map(r => ({
         activity_name: r.activity_name,
         activity_slug: r.activity_slug,
@@ -296,7 +342,7 @@ function registerWalletApi(app, deps) {
         redeem_url_android: r.redeem_url_android || null,
         use_expires_on: r.use_expires_on || null
       }));
-      res.json({ ok: true, coupons });
+      res.json({ ok: true, coupons, prizes });
     } catch (err) {
       console.error('wallet api error:', err && err.message);
       res.status(500).json({ ok: false, error: 'wallet_failed', detail: String(err.message || '').slice(0, 300) });

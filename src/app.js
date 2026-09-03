@@ -9,6 +9,7 @@ const { Pool } = require('pg');
 const { createAuthCore } = require('./core/auth');
 const { pickPrizeByQuantity, enrichPrizesWithHitRate } = require('./core/lottery');
 const { createViewStateCore } = require('./core/viewState');
+const { createAdminLiveness } = require('./core/adminLiveness');
 const { initDb } = require('./core/dbInit');
 const { createAdminLoginThrottle } = require('./core/adminLoginThrottle');
 const { registerWebRoutes } = require('./routes/web');
@@ -34,6 +35,8 @@ const { registerAdminAttributionRoutes } = require('./routes/adminAttribution');
 const { registerAdminActivitiesRoutes } = require('./routes/adminActivities');
 const { registerAdminCouponsRoutes } = require('./routes/adminCoupons');
 const { registerGamesRoutes } = require('./routes/games');
+const { registerMgmMilesRoutes } = require('./routes/mgmMiles');
+const { createMgmMilesEngine } = require('./core/mgmMilesEngine');
 const { registerAdminRecipientListsRoutes } = require('./routes/adminRecipientLists');
 const { registerAdminAccountsRoutes } = require('./routes/adminAccounts');
 const { buildLiffPermanentUrl } = require('./core/liffPermalink');
@@ -41,6 +44,8 @@ const { buildPushImageBaseCandidates } = require('./core/linePushImageResolve');
 const { createLineWebhookHandler } = require('./routes/lineWebhook');
 const { createOaContactsWebhookHandler } = require('./routes/oaContactsWebhook');
 const { registerAdminOaContactsRoutes } = require('./routes/adminOaContacts');
+const { registerAdminRichMenuRoutes } = require('./routes/adminRichMenu');
+const { registerAdminInsightRoutes } = require('./routes/adminInsight');
 const { createLinePushService } = require('./core/linePush');
 const { createGoldPigBookingService } = require('./core/goldPigBookings');
 const { registerGoldPigRoutes } = require('./routes/goldPig');
@@ -290,6 +295,13 @@ const linePush = createLinePushService({
   query,
   lineChannelAccessToken: LINE_CHANNEL_ACCESS_TOKEN
 });
+
+// 揪友賺哩引擎（MGM）：獨立模組，webhook 見面禮 / 里程碑 / 分享卡都走它
+const mgmEngine = createMgmMilesEngine({
+  query,
+  linePush,
+  liffId: process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || ''
+});
 const goldPigBookings = createGoldPigBookingService({ pool });
 
 // Email provider 選擇：EMAIL_PROVIDER=surenotify|brevo；未設時有 SURENOTIFY_API_KEY 就用電子豹，否則 Brevo。
@@ -422,6 +434,7 @@ app.post(
   express.raw({ type: 'application/json' }),
   createLineWebhookHandler({
     pool,
+    mgmEngine,
     channelSecret: LINE_CHANNEL_SECRET,
     inviteBonusMax: Number.isFinite(LIFF_INVITE_BONUS_MAX) ? LIFF_INVITE_BONUS_MAX : 20,
     inviteFriendsPerDraw: LIFF_INVITE_FRIENDS_PER_DRAW,
@@ -505,37 +518,9 @@ app.use(async (_req, _res, next) => {
   }
 });
 
-// /admin 即時權限檢查（liveness）：授權原本只讀 7 天 JWT，登入後不再看 DB，
-// 導致「停用/降級」要等到 token 過期才生效、甚至被降級者能自我復權。
-// 這裡在每個 /admin request 讀一次 DB 現況：帳號不存在/非後台帳號/已停用/session 版本過舊 → 視為登出；
-// 否則用 DB 的即時 role/is_admin 覆寫 req.authUser，讓停用與降級「立即生效」。
-// DB 錯誤時 fail-open（沿用本專案對 initError 的容錯策略），僅記 log，避免暫時性 DB 抖動把管理員全鎖在外。
-app.use(async (req, res, next) => {
-  const au = req.authUser;
-  // 注意：Express 預設路由大小寫不敏感（/ADMIN/... 也會命中 /admin 路由），
-  // 所以這裡的前綴判斷也必須 toLowerCase，否則大寫路徑會繞過 liveness 檢查。
-  const isAdminPath = String(req.path || '').toLowerCase().startsWith('/admin');
-  if (au && au.uid && isAdminPath) {
-    try {
-      const r = await query('SELECT is_admin, role, is_active, sess_epoch FROM users WHERE id = $1', [au.uid]);
-      const row = r.rows[0];
-      const tokenSe = Number(au.se) || 0;
-      if (!row || row.is_admin !== true || row.is_active === false || (Number(row.sess_epoch) || 0) !== tokenSe) {
-        authCore.clearAuthCookie(res);
-        req.authUser = null;
-      } else {
-        req.authUser.adm = true;
-        req.authUser.role = row.role || 'admin';
-      }
-    } catch (e) {
-      console.warn('admin liveness check failed (fail-open):', e && e.message);
-    }
-  }
-  const cur = req.authUser;
-  res.locals.currentRole = cur ? (cur.role || (cur.adm ? 'admin' : null)) : null;
-  res.locals.currentUid = cur ? cur.uid : null;
-  next();
-});
+// 後台權限的即時檢查（liveness）：實作在 src/core/adminLiveness.js，
+// 抽出去是為了讓測試測得到正本——原本寫在這裡時，測試只能抄一份副本來測。
+app.use(createAdminLiveness({ query, authCore }));
 
 registerWebRoutes(app, {
   query,
@@ -608,6 +593,11 @@ registerAdminActivitiesRoutes(app, { query, pool, authCore });
 registerAdminCouponsRoutes(app, { query, pool, authCore });
 
 registerGamesRoutes(app, { query, pool });
+registerMgmMilesRoutes(app, {
+  query, authCore,
+  mgmEngine,
+  defaultLiffId: process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || ''
+});
 
 registerGoldPigRoutes(app, {
   pool,
@@ -623,6 +613,10 @@ registerAdminRecipientListsRoutes(app, { query, pool, authCore, flowEngine });
 registerAdminAccountsRoutes(app, { query, pool, authCore });
 
 registerAdminOaContactsRoutes(app, { query, authCore, oaKey: LINE2_OA_KEY });
+
+registerAdminRichMenuRoutes(app, { query, authCore });
+
+registerAdminInsightRoutes(app, { query, authCore });
 
 registerLiffRoutes(app, {
   query,

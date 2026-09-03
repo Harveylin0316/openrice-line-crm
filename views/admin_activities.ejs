@@ -57,7 +57,14 @@
         var pad = function (n) { return String(n).padStart(2, '0'); };
         return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
       }
-      function statusBadge(s) {
+      // 草稿 + 未來的開始時間 ＝ 排定上線，跟「還沒做完的草稿」不是同一件事，
+      // 列表要分得出來，不然看到「草稿」會以為忘了開
+      function statusBadge(s, a) {
+        if (s === 'draft' && a && a.start_at && new Date(a.start_at).getTime() > Date.now()) {
+          var d = new Date(a.start_at);
+          return '<span class="act-badge badge-active" style="background:#F0FDF4;color:#166534;border-color:#BBF7D0;">排定 ' +
+                 (d.getMonth() + 1) + '/' + d.getDate() + ' 上線</span>';
+        }
         var map = {
           draft:  ['草稿',  'badge-draft'],
           active: ['進行中', 'badge-active'],
@@ -68,7 +75,7 @@
         return '<span class="act-badge ' + v[1] + '">' + v[0] + '</span>';
       }
       function gameLabel(t) {
-        return ({ wheel: '輪盤抽獎', fortune: '每日抽籤', scratch: '刮刮樂', slot: '老虎機', claim: '領取優惠券' })[t] || t;
+        return ({ wheel: '輪盤抽獎', fortune: '每日抽籤', scratch: '刮刮樂', slot: '老虎機', claim: '領取優惠券', mgm: '好友推薦' })[t] || t;
       }
 
       function load() {
@@ -97,16 +104,18 @@
                   '<div class="act-slug">/' + escapeHtml(a.slug) + '</div>' +
                 '</td>' +
                 '<td>' + gameLabel(a.game_type) + '</td>' +
-                '<td>' + statusBadge(a.status) + '</td>' +
+                '<td>' + statusBadge(a.status, a) + '</td>' +
                 '<td>' + fmtDate(a.start_at) + ' → ' + fmtDate(a.end_at) + '</td>' +
-                '<td style="text-align:right;">' + a.prize_count + '</td>' +
+                '<td style="text-align:right;">' + (gt === 'mgm' ? '<span class="muted" title="好友推薦沒有獎品池">—</span>' : a.prize_count) + '</td>' +
                 '<td style="text-align:right;">' + a.player_count + '</td>' +
                 '<td style="text-align:right;">' + a.play_count + '</td>' +
                 '<td><button type="button" class="act-link-btn" data-url="' + escapeHtml(shareUrl) + '" title="LIFF 短網址：給用戶分享用">複製連結</button></td>' +
                 '<td>' +
-                  '<a href="/admin/activities/' + a.id + '/players" class="act-edit-btn">玩家</a>' +
-                  '<a href="/admin/activities/' + a.id + '" class="act-edit-btn">編輯</a>' +
-                  '<button type="button" class="act-del-btn" data-id="' + a.id + '" data-name="' + escapeHtml(a.name) + '" data-status="' + escapeHtml(a.status) + '">刪除</button>' +
+                  (gt === 'mgm'
+                    ? '<a href="/admin/mgm" class="act-edit-btn">去專屬後台</a>'
+                    : ('<a href="/admin/activities/' + a.id + '/players" class="act-edit-btn">玩家</a>' +
+                       '<a href="/admin/activities/' + a.id + '" class="act-edit-btn">編輯</a>')) +
+                  '<button type="button" class="act-del-btn" data-id="' + a.id + '" data-name="' + escapeHtml(a.name) + '" data-status="' + escapeHtml(a.status) + '" data-plays="' + (a.play_count || 0) + '" data-prizes="' + (a.prize_count || 0) + '" data-players="' + (a.player_count || 0) + '">刪除</button>' +
                 '</td>' +
               '</tr>';
             }).join('');
@@ -126,8 +135,26 @@
               btn.addEventListener('click', function () {
                 var id = btn.getAttribute('data-id');
                 var name = btn.getAttribute('data-name');
-                var warn = btn.getAttribute('data-status') === 'active' ? '這個活動正在進行中！\\n\\n' : '';
-                if (!confirm(warn + '確定刪除活動「' + name + '」？所有獎品池與遊玩紀錄都會一併刪除（不可恢復）。')) return;
+                var plays = Number(btn.getAttribute('data-plays') || 0);
+                var players = Number(btn.getAttribute('data-players') || 0);
+                var prizes = Number(btn.getAttribute('data-prizes') || 0);
+                var NL = String.fromCharCode(10);
+                var warn = btn.getAttribute('data-status') === 'active' ? ('這個活動正在進行中！' + NL + NL) : '';
+                // 刪活動會把玩過紀錄、中獎紀錄、邀請紀錄一起帶走，之後用戶來問就查不到了。
+                // 所以有紀錄的活動要打名字才刪得掉，不能只按一次確定。
+                var detail = warn + '要刪掉活動「' + name + '」嗎？' + NL + NL +
+                  '會一起永久刪掉：' + NL +
+                  '・' + prizes + ' 個獎品' + NL +
+                  '・' + plays + ' 筆遊玩／中獎紀錄（' + players + ' 個人）' + NL +
+                  '・這個活動的所有邀請紀錄' + NL + NL +
+                  '刪掉之後，用戶來問「我明明有中獎」你會查不到，救不回來。' + NL + NL;
+                if (plays > 0 || players > 0) {
+                  var typed = prompt(detail + '確定的話，把活動名稱一字不差打一次：');
+                  if (typed === null) return;
+                  if (String(typed).trim() !== name) { alert('名稱不一樣，沒有刪除。'); return; }
+                } else {
+                  if (!confirm(detail + '這個活動還沒有人玩過。確定刪除？')) return;
+                }
                 fetch('/admin/activities/api/' + id, { method: 'DELETE' })
                   .then(function (r) { return r.json(); })
                   .then(function (d) {

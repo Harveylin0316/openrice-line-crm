@@ -12,6 +12,12 @@ const APP_PUBLIC_TABLES_WITH_RLS = [
   'campaign_settings',
   'admin_login_throttle',
   'line_push_media',
+  'rich_menus',
+  'rich_menu_taps',
+  'message_taps',
+  'user_tags',
+  'user_tag_members',
+  'user_tag_rules',
   'admin_push_settings',
   'admin_manual_bonus_logs',
   'admin_broadcasts',
@@ -23,7 +29,31 @@ const APP_PUBLIC_TABLES_WITH_RLS = [
   'admin_broadcast_views',
   'admin_message_templates',
   'admin_keyword_replies',
-  'restaurant_catalog'
+  'restaurant_catalog',
+  'activities',
+  'activity_prizes',
+  'activity_plays',
+  'activity_referrals',
+  'activity_referral_attempts',
+  'activity_user_quotas',
+  'activity_bonus_plays',
+  'user_events',
+  'user_restaurant_clicks',
+  'admin_flows',
+  'admin_flow_nodes',
+  'admin_flow_enrollments',
+  'admin_flow_event_cursor',
+  'admin_flow_schedule_runs',
+  'admin_flow_clicks',
+  'admin_email_unsubscribes',
+  'rfm_profiles',
+  'liff_token_probe',
+  'liff_asset_blobs',
+  'booking_source_answers',
+  'oa_contacts',
+  'line_follow_sources',
+  'campaign_phone_registrations',
+  'campaign_draw_winners'
 ];
 
 /**
@@ -212,6 +242,95 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
 
+  await query(`CREATE TABLE IF NOT EXISTS rich_menus (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    line_rich_menu_id TEXT,
+    status TEXT NOT NULL DEFAULT 'draft',
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    published_at TIMESTAMPTZ,
+    created_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await query(`ALTER TABLE rich_menus
+    ADD COLUMN IF NOT EXISTS published_config JSONB,
+    ADD COLUMN IF NOT EXISTS line_rich_menu_ids JSONB,
+    ADD COLUMN IF NOT EXISTS audience_list_id BIGINT,
+    ADD COLUMN IF NOT EXISTS audience_applied_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS audience_applied_count INTEGER,
+    ADD COLUMN IF NOT EXISTS schedule_start_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS schedule_end_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS schedule_end_menu_id BIGINT,
+    ADD COLUMN IF NOT EXISTS schedule_state TEXT`);
+  await query(`CREATE TABLE IF NOT EXISTS user_tags (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    color TEXT NOT NULL DEFAULT '#FBC02D',
+    created_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await query(`CREATE TABLE IF NOT EXISTS user_tag_members (
+    tag_id BIGINT NOT NULL REFERENCES user_tags(id) ON DELETE CASCADE,
+    line_user_id TEXT NOT NULL,
+    added_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tag_id, line_user_id)
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_user_tag_members_user ON user_tag_members (line_user_id)`);
+  await query(`CREATE TABLE IF NOT EXISTS user_tag_rules (
+    id BIGSERIAL PRIMARY KEY,
+    tag_id BIGINT NOT NULL REFERENCES user_tags(id) ON DELETE CASCADE,
+    rule_kind TEXT NOT NULL,
+    threshold INTEGER NOT NULL DEFAULT 1,
+    target TEXT,
+    target_label TEXT,
+    window_days INTEGER,
+    active BOOLEAN NOT NULL DEFAULT true,
+    last_run_at TIMESTAMPTZ,
+    last_added INTEGER,
+    created_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await query(`ALTER TABLE user_tag_rules
+    ADD COLUMN IF NOT EXISTS target TEXT,
+    ADD COLUMN IF NOT EXISTS target_label TEXT,
+    ADD COLUMN IF NOT EXISTS window_days INTEGER`);
+  // 群發追蹤去重：同一封信同一收件人只算一次開信／一次點擊
+  // （Email 的一次開信會同時觸發自家追蹤圖與服務商通知，不擋會變兩三倍）
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_broadcast_views_recipient
+    ON admin_broadcast_views (broadcast_id, recipient_id) WHERE recipient_id IS NOT NULL`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_broadcast_clicks_recipient
+    ON admin_broadcast_clicks (broadcast_id, recipient_id, target_url) WHERE recipient_id IS NOT NULL`);
+  // 定時流程分批續跑用：NULL＝這個期間還沒把人加完，下次排程接著加
+  await query(`ALTER TABLE admin_flow_schedule_runs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`);
+  await query(`CREATE TABLE IF NOT EXISTS message_taps (
+    id BIGSERIAL PRIMARY KEY,
+    source TEXT NOT NULL,
+    ref_id TEXT,
+    label TEXT,
+    target_url TEXT,
+    line_user_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_message_taps_user ON message_taps (line_user_id, created_at DESC)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_message_taps_ref ON message_taps (source, ref_id, created_at DESC)`);
+  await query(`CREATE TABLE IF NOT EXISTS rich_menu_taps (
+    id BIGSERIAL PRIMARY KEY,
+    menu_id BIGINT NOT NULL,
+    tab INTEGER NOT NULL DEFAULT 0,
+    cell INTEGER,
+    kind TEXT NOT NULL,
+    label TEXT,
+    line_user_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_rich_menu_taps_menu ON rich_menu_taps (menu_id, created_at)`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_plays_play_key
+    ON activity_plays ((properties->>'play_key'))
+    WHERE properties->>'play_key' IS NOT NULL`);
+
   await query(`CREATE TABLE IF NOT EXISTS line_push_media (
     id UUID PRIMARY KEY,
     mime_type TEXT NOT NULL,
@@ -350,28 +469,15 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
 
   // Supabase exposes public schema via PostgREST by default.
   // Enable RLS on app tables to prevent direct external reads/writes.
-  await query('ALTER TABLE users ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE prizes ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE draw_logs ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE prize_change_logs ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE line_invites ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE line_webhook_events ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE line_push_logs ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE campaign_settings ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_login_throttle ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE line_push_media ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_push_settings ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_manual_bonus_logs ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_broadcasts ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_broadcast_recipients ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_test_recipients ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_recipient_lists ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_recipient_list_members ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_broadcast_clicks ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_broadcast_views ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_message_templates ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE admin_keyword_replies ENABLE ROW LEVEL SECURITY');
-  await query('ALTER TABLE restaurant_catalog ENABLE ROW LEVEL SECURITY');
+  // 名單只維護 APP_PUBLIC_TABLES_WITH_RLS 一份；不存在的表跳過（有些表在別的模組建）。
+  for (const t of APP_PUBLIC_TABLES_WITH_RLS) {
+    await query(`
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename='${t}') THEN
+          EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', '${t}');
+        END IF;
+      END $$;`);
+  }
 
   await query(
     'CREATE INDEX IF NOT EXISTS admin_login_throttle_ip_created_idx ON admin_login_throttle (ip_key, created_at DESC)'

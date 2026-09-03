@@ -209,14 +209,17 @@ function registerAdminBroadcastRoutes(app, deps) {
     try {
       const rs = await query('SELECT mime_type, body FROM line_push_media WHERE id = $1', [mediaId]);
       if (rs.rowCount === 0) return res.status(404).type('text/plain').send('Not found');
-      // 寫 view log + 帶 recipient_id / line_user_id（不阻塞回 image）
-      query(
-        `INSERT INTO admin_broadcast_views (broadcast_id, recipient_id, line_user_id, user_agent, variant)
-         SELECT $1, $2, m.line_user_id, $3, $4
-         FROM admin_broadcast_recipients m
-         WHERE m.id = $2 AND m.broadcast_id = $1`,
-        [broadcastId, recipientId, (req.get('user-agent') || '').slice(0, 500), variant]
-      ).catch(err => console.error('view log (rid) failed:', err.message));
+      // view log 必須寫完才回 image：serverless 回應後凍結，沒 await 的寫入會蒸發
+      try {
+        await query(
+          `INSERT INTO admin_broadcast_views (broadcast_id, recipient_id, line_user_id, user_agent, variant)
+           SELECT $1, $2, m.line_user_id, $3, $4
+           FROM admin_broadcast_recipients m
+           WHERE m.id = $2 AND m.broadcast_id = $1
+           ON CONFLICT DO NOTHING`,
+          [broadcastId, recipientId, (req.get('user-agent') || '').slice(0, 500), variant]
+        );
+      } catch (err) { console.error('view log (rid) failed:', err.message); }
       const row = rs.rows[0];
       const buf = Buffer.isBuffer(row.body) ? row.body : Buffer.from(row.body);
       res.setHeader('Content-Type', row.mime_type);
@@ -248,11 +251,12 @@ function registerAdminBroadcastRoutes(app, deps) {
         [mediaId]
       );
       if (rs.rowCount === 0) return res.status(404).type('text/plain').send('Not found');
-      // 寫 view log（不阻塞回 image）
-      query(
-        `INSERT INTO admin_broadcast_views (broadcast_id, user_agent, variant) VALUES ($1, $2, $3)`,
-        [broadcastId, (req.get('user-agent') || '').slice(0, 500), variant]
-      ).catch(err => console.error('view log failed:', err.message));
+      try {
+        await query(
+          `INSERT INTO admin_broadcast_views (broadcast_id, user_agent, variant) VALUES ($1, $2, $3)`,
+          [broadcastId, (req.get('user-agent') || '').slice(0, 500), variant]
+        );
+      } catch (err) { console.error('view log failed:', err.message); }
       const row = rs.rows[0];
       const buf = Buffer.isBuffer(row.body) ? row.body : Buffer.from(row.body);
       res.setHeader('Content-Type', row.mime_type);
@@ -285,26 +289,27 @@ function registerAdminBroadcastRoutes(app, deps) {
       if (!/^https?:\/\//i.test(targetUrl)) {
         return res.status(404).type('text/plain').send('Not found');
       }
-      // 寫 click log + 帶 recipient_id / line_user_id
-      query(
-        `INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, line_user_id, target_url, user_agent, referer, variant)
-         SELECT $1, $2, m.line_user_id, $3, $4, $5, $6
-         FROM admin_broadcast_recipients m
-         WHERE m.id = $2 AND m.broadcast_id = $1`,
-        [
-          broadcastId, recipientId, targetUrl,
-          (req.get('user-agent') || '').slice(0, 500),
-          (req.get('referer') || '').slice(0, 500),
-          variant
-        ]
-      ).catch(err => console.error('click log (rid) failed:', err.message));
-      // 記餐廳興趣（從連結反推餐廳）— best-effort
-      query(`SELECT line_user_id FROM admin_broadcast_recipients WHERE id = $1 AND broadcast_id = $2`, [recipientId, broadcastId])
-        .then(r => {
-          const luid = r.rows[0] && r.rows[0].line_user_id;
-          if (luid) return recordRestaurantClick(query, { lineUserId: luid, url: targetUrl, source: 'broadcast' });
-        })
-        .catch(err => console.error('restaurant click (broadcast) failed:', err.message));
+      // click log 必須寫完才 302：這筆決定 A/B 勝出與「沒點擊」重發名單
+      try {
+        await query(
+          `INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, line_user_id, target_url, user_agent, referer, variant)
+           SELECT $1, $2, m.line_user_id, $3, $4, $5, $6
+           FROM admin_broadcast_recipients m
+           WHERE m.id = $2 AND m.broadcast_id = $1
+           ON CONFLICT DO NOTHING`,
+          [
+            broadcastId, recipientId, targetUrl,
+            (req.get('user-agent') || '').slice(0, 500),
+            (req.get('referer') || '').slice(0, 500),
+            variant
+          ]
+        );
+      } catch (err) { console.error('click log (rid) failed:', err.message); }
+      try {
+        const r = await query(`SELECT line_user_id FROM admin_broadcast_recipients WHERE id = $1 AND broadcast_id = $2`, [recipientId, broadcastId]);
+        const luid = r.rows[0] && r.rows[0].line_user_id;
+        if (luid) await recordRestaurantClick(query, { lineUserId: luid, url: targetUrl, source: 'broadcast' });
+      } catch (err) { console.error('restaurant click (broadcast) failed:', err.message); }
       return res.redirect(302, targetUrl);
     } catch (err) {
       console.error('redirect (rid) error:', err.message);
@@ -335,18 +340,19 @@ function registerAdminBroadcastRoutes(app, deps) {
       if (!/^https?:\/\//i.test(targetUrl)) {
         return res.status(404).type('text/plain').send('Not found');
       }
-      // 寫 click log（不阻塞 redirect）
-      query(
-        `INSERT INTO admin_broadcast_clicks (broadcast_id, target_url, user_agent, referer, variant)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [
-          broadcastId,
-          targetUrl,
-          (req.get('user-agent') || '').slice(0, 500),
-          (req.get('referer') || '').slice(0, 500),
-          variant
-        ]
-      ).catch(err => console.error('click log failed:', err.message));
+      try {
+        await query(
+          `INSERT INTO admin_broadcast_clicks (broadcast_id, target_url, user_agent, referer, variant)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            broadcastId,
+            targetUrl,
+            (req.get('user-agent') || '').slice(0, 500),
+            (req.get('referer') || '').slice(0, 500),
+            variant
+          ]
+        );
+      } catch (err) { console.error('click log failed:', err.message); }
       return res.redirect(302, targetUrl);
     } catch (err) {
       console.error('redirect error:', err.message);
@@ -385,6 +391,10 @@ function registerAdminBroadcastRoutes(app, deps) {
       const msgLibDup = String(req.query.dup || '') === '1';
 
       return res.render('admin_broadcast', {
+        // prizes / recent 一定要傳：頁面直接用它們（獎品篩選清單、最近發送紀錄），
+        // 漏傳整頁會壞掉。這兩個曾經被漏掉，而群發兩個多月沒人用，所以一直沒被發現。
+        prizes,
+        recent,
         title: msgLibMode ? '訊息編輯' : '群發訊息',
         bodyClass: 'admin-shell broadcast-shell' + (msgLibMode ? ' msglib-mode' : ''),
         user: req.authUser && req.authUser.un ? req.authUser.un : '',
@@ -921,8 +931,9 @@ function registerAdminBroadcastRoutes(app, deps) {
         // 接受 ISO 字串或 datetime-local "YYYY-MM-DDTHH:mm"（視為台灣時間）
         let dt;
         if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(rawScheduled)) {
-          // datetime-local 視為台北時間，UTC = 台北 - 8h
-          dt = new Date(rawScheduled + ':00+08:00');
+          // datetime-local 視為台北時間。部分瀏覽器會帶秒（18:30:00），
+          // 先切到分鐘再補秒與時區，否則會拼成 18:30:00:00+08:00 → Invalid Date
+          dt = new Date(rawScheduled.slice(0, 16) + ':00+08:00');
         } else {
           dt = new Date(rawScheduled);
         }
@@ -1292,6 +1303,13 @@ function registerAdminBroadcastRoutes(app, deps) {
       const startedIds = dueRs.rows.map(r => r.id);
 
       // Step 2: 撈所有 running broadcasts（含剛剛 start 的）
+      // 上一輪如果在送到一半被砍（Lambda 超時），會留下 status='sending' 的殭屍列：
+      // 之後永遠不會被撿（claim 只挑 pending），broadcast 也永遠結不了案。先回收。
+      await query(
+        `UPDATE admin_broadcast_recipients SET status = 'pending', error = NULL
+          WHERE status = 'sending' AND pushed_at < now() - interval '10 minutes'`
+      ).catch(e => console.error('reclaim stuck sending failed:', e.message));
+
       const runningRs = await query(
         `SELECT id, message_config, variant_b_message_config, is_ab_test,
                 channel, email_subject, email_from_name, email_from_address
@@ -1300,6 +1318,10 @@ function registerAdminBroadcastRoutes(app, deps) {
          ORDER BY id ASC
          LIMIT 10`
       );
+      // Netlify function 只有 10 秒：一輪的實際發送工作要收在預算內，
+      // 超過就先還沒送的還回 pending，下一輪（5 分鐘後）繼續
+      const roundT0 = Date.now();
+      const ROUND_BUDGET_MS = 7000;
       const origin = process.env.LINE_PUSH_PUBLIC_BASE_URL || process.env.URL || '';
       const cleanOrigin = String(origin).replace(/\/+$/, '');
 
@@ -1361,7 +1383,18 @@ function registerAdminBroadcastRoutes(app, deps) {
         client.release();
 
         let okCount = 0, failCount = 0, skipCount = 0;
+        let cutoff = false;
         for (const r of claimed) {
+          if (Date.now() - roundT0 > ROUND_BUDGET_MS) {
+            // 時間到：這筆之後的全部還回 pending，讓下一輪接手
+            const restIds = claimed.slice(claimed.indexOf(r)).map(x => x.id);
+            await query(
+              `UPDATE admin_broadcast_recipients SET status = 'pending', error = NULL WHERE id = ANY($1::bigint[])`,
+              [restIds]
+            ).catch(e => console.error('return to pending failed:', e.message));
+            cutoff = true;
+            break;
+          }
           const out = await sendOneRecipient(row, r, { origin: cleanOrigin });
           if (out.result === 'sent') {
             await query(
@@ -1388,13 +1421,13 @@ function registerAdminBroadcastRoutes(app, deps) {
         }
 
         await query(
-          `UPDATE admin_broadcasts
-           SET recipient_ok = recipient_ok + $2,
-               recipient_fail = recipient_fail + $3,
-               recipient_skip = recipient_skip + $4,
+          `UPDATE admin_broadcasts b
+           SET recipient_ok   = (SELECT COUNT(*) FROM admin_broadcast_recipients WHERE broadcast_id = b.id AND status = 'sent'),
+               recipient_fail = (SELECT COUNT(*) FROM admin_broadcast_recipients WHERE broadcast_id = b.id AND status = 'failed'),
+               recipient_skip = (SELECT COUNT(*) FROM admin_broadcast_recipients WHERE broadcast_id = b.id AND status = 'skipped'),
                updated_at = NOW()
-           WHERE id = $1`,
-          [bId, okCount, failCount, skipCount]
+           WHERE b.id = $1`,
+          [bId]
         );
 
         // 如果這個 broadcast 沒剩 pending → 結案
@@ -1412,6 +1445,7 @@ function registerAdminBroadcastRoutes(app, deps) {
         }
 
         results.push({ broadcastId: bId, processed: claimed.length, ok: okCount, fail: failCount, skip: skipCount, remaining });
+        if (cutoff) break; // 時間預算用完，剩下的 broadcasts 下一輪處理
       }
 
       return res.json({ ok: true, startedFromScheduled: startedIds, results });
@@ -1436,7 +1470,9 @@ function registerAdminBroadcastRoutes(app, deps) {
         `SELECT b.id, b.created_at, b.status, b.admin_username, b.scheduled_at,
                 b.recipient_total, b.recipient_ok, b.recipient_fail, b.recipient_skip,
                 b.started_at, b.finished_at,
-                (SELECT COUNT(*) FROM admin_broadcast_clicks WHERE broadcast_id = b.id)::int AS click_count
+                -- 算「幾個人點過」，跟詳情頁同一套口徑（沒有逐人紀錄的舊資料退回用瀏覽器指紋粗估）
+                (SELECT COALESCE(NULLIF(COUNT(DISTINCT line_user_id), 0), COUNT(DISTINCT user_agent))
+                   FROM admin_broadcast_clicks WHERE broadcast_id = b.id)::int AS click_count
          FROM admin_broadcasts b
          ORDER BY b.id DESC
          LIMIT $1 OFFSET $2`,
@@ -1511,8 +1547,13 @@ function registerAdminBroadcastRoutes(app, deps) {
 
       // click 統計
       const clickStatRs = await query(
+        // people = 幾個人點過（算比率要用這個）；clicks = 總次數（只當參考）。
+        // 舊資料沒有逐人紀錄時退回用瀏覽器指紋粗估，至少不會超過 100%。
         `SELECT COUNT(*)::int AS clicks,
+                COALESCE(NULLIF(COUNT(DISTINCT line_user_id)::int, 0),
+                         COUNT(DISTINCT user_agent)::int) AS people,
                 COUNT(DISTINCT user_agent)::int AS unique_ua,
+                COUNT(line_user_id)::int AS with_identity,
                 MIN(clicked_at) AS first_click,
                 MAX(clicked_at) AS last_click
          FROM admin_broadcast_clicks
@@ -1523,6 +1564,9 @@ function registerAdminBroadcastRoutes(app, deps) {
       // view 統計（hero 圖被 fetch — 開信率 proxy）
       const viewStatRs = await query(
         `SELECT COUNT(*)::int AS views,
+                COALESCE(NULLIF(COUNT(DISTINCT line_user_id)::int, 0),
+                         COUNT(DISTINCT user_agent)::int) AS people,
+                COUNT(line_user_id)::int AS with_identity,
                 MIN(viewed_at) AS first_view,
                 MAX(viewed_at) AS last_view
          FROM admin_broadcast_views
@@ -1838,6 +1882,22 @@ function registerAdminBroadcastRoutes(app, deps) {
                    WHERE v.broadcast_id = $1 AND v.line_user_id = r.line_user_id
                  )`;
       }
+      // 【擋下整批重發】「沒點擊／沒開信」是拿全部收件人扣掉有紀錄的人。
+      // 如果這個批次根本沒有逐人追蹤資料（舊批次、或用自訂 Flex 發的），
+      // 扣不掉任何人 → 算出來就是「全部人」，按下去等於對已經看過的人再轟一次
+      // （LINE 推播逐則計費，還會被封鎖）。所以先確認真的有追蹤資料才給做。
+      if (filter === 'not_clicked' || filter === 'not_viewed') {
+        const table = filter === 'not_clicked' ? 'admin_broadcast_clicks' : 'admin_broadcast_views';
+        const { rows: tr } = await query(
+          `SELECT COUNT(*)::int AS n FROM ${table}
+            WHERE broadcast_id = $1 AND line_user_id IS NOT NULL`, [broadcastId]);
+        if (!tr[0] || tr[0].n === 0) {
+          return safeJsonError(res, 400, 'no_tracking_data', {
+            detail: '這個批次沒有記錄到「誰」點過或看過，所以算不出誰沒點——照做會把整批人再發一次。' +
+                    '想重發請改用名單庫挑人，或下次發送時用範本模式（自訂 Flex 訊息不會記錄逐人點擊）。'
+          });
+        }
+      }
       const { rows } = await query(sql, [broadcastId]);
       const uids = rows.map(r => r.line_user_id).filter(Boolean);
       if (uids.length === 0) {
@@ -1925,7 +1985,8 @@ function registerAdminBroadcastRoutes(app, deps) {
       // 寫 view log（去重在 SQL：以 recipient_id 為 key，每筆 broadcast 最多一筆 open）
       await query(
         `INSERT INTO admin_broadcast_views (broadcast_id, recipient_id, line_user_id, email, user_agent, variant)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+         VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT DO NOTHING`,
         [bid, rid, luid, emailVal, (req.get('user-agent') || '').slice(0, 500), variant]
       );
       // 更新 recipient.opened_at（保留最早開信時間）
@@ -2032,12 +2093,17 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
    */
   app.post('/webhooks/brevo', async (req, res) => {
     const secret = process.env.BREVO_WEBHOOK_SECRET || '';
+    let verified = false;
     if (secret) {
       const provided = req.query.s || req.get('x-brevo-secret') || '';
       if (String(provided) !== secret) {
         return res.status(403).json({ ok: false, error: 'forbidden' });
       }
+      verified = true;
     }
+    // 沒設 secret 時這個端點是公開的：任何人可以偽造事件。
+    // 追蹤類（開信/點擊/送達）照收——偽造傷害小；
+    // 但「退訂/檢舉」會讓該 email 永遠收不到信，未驗證一律不處理。
 
     // Brevo 通常一次一個 event（也有 batch settings）—兩種都支援
     const events = Array.isArray(req.body) ? req.body : [req.body];
@@ -2071,11 +2137,14 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
               [recipientId, messageId || null]
             );
           }
-        } else if (evType === 'opened' || evType === 'unique_opened') {
+        // 服務商會同時送 opened 與 unique_opened 兩種通知，只認後者，
+        // 不然同一次開信會被記兩筆（唯一鍵擋得住，但少跑一次是一次）
+        } else if (evType === 'unique_opened') {
           if (broadcastId && recipientId) {
             await query(
               `INSERT INTO admin_broadcast_views (broadcast_id, recipient_id, email, variant, user_agent)
-               VALUES ($1, $2, $3, $4, $5)`,
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT DO NOTHING`,
               [broadcastId, recipientId, email || null, variant, 'brevo-webhook']
             );
             await query(
@@ -2088,7 +2157,8 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
           if (broadcastId && recipientId) {
             await query(
               `INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, email, target_url, variant, user_agent)
-               VALUES ($1, $2, $3, $4, $5, $6)`,
+               VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT DO NOTHING`,
               [broadcastId, recipientId, email || null, link, variant, 'brevo-webhook']
             );
             await query(
@@ -2108,6 +2178,11 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
             );
           }
         } else if (evType === 'unsubscribed' || evType === 'unsubscribe' || evType === 'spam' || evType === 'complaint') {
+          if (!verified) {
+            console.error('brevo webhook: unverified unsubscribe ignored (set BREVO_WEBHOOK_SECRET and add ?s= to the webhook URL)');
+            processed.push({ event: evType, ok: false, ignored: 'unverified' });
+            continue;
+          }
           if (email) {
             await query(
               `INSERT INTO admin_email_unsubscribes (email, broadcast_id, reason)
@@ -2156,6 +2231,7 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
         const email = String(emailMatch ? emailMatch[1] : toRaw).trim().toLowerCase();
 
         // 驗章（best-effort）：HmacSHA256(id + eventType, apiKey)，eventType 可能是字串或代碼，兩者都試
+        let sigVerified = false;
         if (apiKey) {
           const sig = String(req.get('x-surenotify-signature') || '');
           if (sig) {
@@ -2168,6 +2244,7 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
                 return sig === h || sig === h2;
               } catch (_) { return false; }
             });
+            sigVerified = ok;
             if (!ok) {
               console.warn('surenotify webhook signature mismatch', { id: messageId, evType });
               if (strict) { processed.push({ ok: false, error: 'bad_signature' }); continue; }
@@ -2196,7 +2273,8 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
           if (broadcastId && recipientId) {
             await query(
               `INSERT INTO admin_broadcast_views (broadcast_id, recipient_id, email, variant, user_agent)
-               VALUES ($1, $2, $3, $4, $5)`,
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT DO NOTHING`,
               [broadcastId, recipientId, email || null, variant, 'surenotify-webhook']
             );
             await query(`UPDATE admin_broadcast_recipients SET opened_at = COALESCE(opened_at, NOW()) WHERE id = $1`, [recipientId]);
@@ -2206,7 +2284,8 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
           if (broadcastId && recipientId) {
             await query(
               `INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, email, target_url, variant, user_agent)
-               VALUES ($1, $2, $3, $4, $5, $6)`,
+               VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT DO NOTHING`,
               [broadcastId, recipientId, email || null, link, variant, 'surenotify-webhook']
             );
             await query(`UPDATE admin_broadcast_recipients SET first_clicked_at = COALESCE(first_clicked_at, NOW()) WHERE id = $1`, [recipientId]);
@@ -2222,6 +2301,12 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
             );
           }
         } else if (evType === 'complaint') {
+          // 退訂類寫入會讓該 email 永遠收不到信，簽章沒驗過就不處理（追蹤類照收）
+          if (!sigVerified) {
+            console.error('surenotify webhook: unverified complaint ignored', { id: messageId });
+            processed.push({ event: evType, ok: false, ignored: 'unverified' });
+            continue;
+          }
           if (email) {
             await query(
               `INSERT INTO admin_email_unsubscribes (email, broadcast_id, reason)

@@ -19,7 +19,7 @@
             <div class="sched-head">
               <div>
                 <h2 style="margin:0;font-size:18px;">執行中的批次（${running.length}）</h2>
-                <p class="muted" style="margin:4px 0 0;font-size:12px;">cron 每 5 分鐘推進一輪；卡住時可手動「立即推進」一波（每次處理最多 50 個）。</p>
+                <p class="muted" style="margin:4px 0 0;font-size:12px;">系統每 5 分鐘自動發一波；卡住時可手動「立即推進」一波（每次最多 50 人）。</p>
               </div>
               <a href="/admin/broadcast/history" class="btn" style="font-size:12px;">完整歷史 ›</a>
             </div>
@@ -52,7 +52,7 @@
             <div class="sched-head">
               <div>
                 <h2 style="margin:0;font-size:18px;">排程中的訊息（${scheduled.length}）</h2>
-                <p class="muted" style="margin:4px 0 0;font-size:12px;">尚未發出，可隨時取消。時間到後 cron 每 5 分鐘檢查一次自動發送。</p>
+                <p class="muted" style="margin:4px 0 0;font-size:12px;">尚未發出，可隨時取消。時間到後系統每 5 分鐘檢查一次自動發送。</p>
               </div>
               <a href="/admin/broadcast/history" class="btn" style="font-size:12px;">完整歷史 ›</a>
             </div>
@@ -378,7 +378,7 @@
             <!-- 通知預覽文字（altText）— 兩種 mode 共用，模板載入時也會帶過來，可隨時改 -->
             <div class="broadcast-field channel-line-only" style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 12px;margin-bottom:14px;">
               <label style="display:block;">
-                <span style="font-size:12px;font-weight:600;color:#92400E;">📱 LINE 通知預覽文字（altText）</span>
+                <span style="font-size:12px;font-weight:600;color:#92400E;">LINE 通知預覽文字（用戶在通知列看到的那行字）</span>
                 <input type="text" id="msg-alt-text" maxlength="400" placeholder="留空自動用標題；改這裡馬上同步到要送的訊息" style="margin-top:6px;width:100%;padding:8px 10px;border:1px solid #FDE68A;border-radius:6px;font-size:14px;box-sizing:border-box;" />
                 <span class="muted" style="font-size:11px;margin-top:4px;display:block;">這是用戶在 LINE 通知列和聊天列表看到的文字。Flex JSON 模式也會覆蓋 JSON 內的 altText。</span>
               </label>
@@ -668,7 +668,7 @@
           <button type="button" class="tft-btn tft-align" data-action="align-end" title="靠右">⟹</button>
           <span class="tft-sep"></span>
           <button type="button" class="tft-btn tft-danger" data-action="delete-row" title="刪除這一列">刪這列</button>
-          <button type="button" class="tft-btn tft-close" data-action="close" title="關閉編輯工具列">✕</button>
+          <button type="button" class="tft-btn tft-close" data-action="close" title="關閉編輯工具列">關閉</button>
         </div>
       </div>
     </section>
