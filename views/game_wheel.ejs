@@ -36,6 +36,14 @@
     size: _wheelNumber(_wheelRaw.size, 260, 360, _wheelBase.size),
     line_width: _wheelNumber(_wheelRaw.line_width, 1, 8, _wheelBase.line_width)
   };
+  var _wheelSliceRaw = _ui.wheel_slice_colors && typeof _ui.wheel_slice_colors === 'object'
+    ? _ui.wheel_slice_colors : {};
+  var _wheelSliceColors = {};
+  (prizes || []).forEach(function (prize) {
+    var key = String(prize.id);
+    var color = _wheelHex(_wheelSliceRaw[key], '');
+    if (color) _wheelSliceColors[key] = color;
+  });
   var _copyDefaults = {
     remaining_lead: '還可以轉',
     remaining_unit: '次',
@@ -471,6 +479,7 @@
       var prizes = <%- JSON.stringify(prizes || []).replace(/</g,'\\u003c') %>;
       var wheelStyle = <%- JSON.stringify(_wheelStyle).replace(/</g,'\\u003c') %>;
       var wheelTheme = <%- JSON.stringify(_wheelConfig).replace(/</g,'\\u003c') %>;
+      var wheelSliceColors = <%- JSON.stringify(_wheelSliceColors).replace(/</g,'\\u003c') %>;
       var GRAND_PRIZE_IMAGE = '/images/share-miles-grand-prize-v1.webp';
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
@@ -578,6 +587,14 @@
         });
         wheelTheme.size = previewNumber(custom.size, 260, 360, wheelTheme.size);
         wheelTheme.line_width = previewNumber(custom.line_width, 1, 8, wheelTheme.line_width);
+        var sliceColors = override.wheel_slice_colors && typeof override.wheel_slice_colors === 'object'
+          ? override.wheel_slice_colors : {};
+        wheelSliceColors = {};
+        prizes.forEach(function (prize) {
+          var key = String(prize.id);
+          var value = previewHex(sliceColors[key], '');
+          if (value) wheelSliceColors[key] = value;
+        });
         wheelStyle = ['brand','clean','bold','custom'].indexOf(override.wheel_style) >= 0 ? override.wheel_style : wheelStyle;
         var stage = document.getElementById('stage');
         stage.className = 'stage wheel-style-' + wheelStyle;
@@ -664,7 +681,9 @@
           // 白／淡黃兩色交替；格數為奇數時最後一格會跟第一格同色且相鄰，往後推一格避開
           var ci = i % 2;
           if (i === n - 1 && n > 2 && ci === 0) ci = 1;
-          if (p.is_grand_prize) ctx.fillStyle = wheelTheme.grand;
+          var individualColor = wheelSliceColors[String(p.id)];
+          if (individualColor) ctx.fillStyle = individualColor;
+          else if (p.is_grand_prize) ctx.fillStyle = wheelTheme.grand;
           else ctx.fillStyle = ci === 0 ? wheelTheme.slice_1 : wheelTheme.slice_2;
           ctx.fill();
         });

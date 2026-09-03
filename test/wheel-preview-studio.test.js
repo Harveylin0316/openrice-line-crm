@@ -11,13 +11,20 @@ const PRIZES = [
   { id: 17, name: '銘謝惠顧', position: 3, is_grand_prize: false, description: '這是內部備註，不可顯示', image_url: null }
 ];
 
-function fakeCtx() {
+function fakeCtx(events) {
   const n = () => {};
+  let fillStyle = '';
+  let strokeStyle = '';
   return {
-    clearRect: n, beginPath: n, moveTo: n, closePath: n, fill: n, stroke: n,
+    clearRect: n, beginPath: n, moveTo: n, closePath: n,
+    fill: () => events.fills.push(fillStyle),
+    stroke: () => events.strokes.push(strokeStyle),
     arc: n, lineTo: n, save: n, restore: n, fillText: n,
     measureText: t => ({ width: String(t).length * 11 }),
-    set font(v) {}, get font() { return ''; }, fillStyle: '', strokeStyle: '', lineWidth: 1,
+    set font(v) {}, get font() { return ''; },
+    set fillStyle(v) { fillStyle = v; }, get fillStyle() { return fillStyle; },
+    set strokeStyle(v) { strokeStyle = v; }, get strokeStyle() { return strokeStyle; },
+    lineWidth: 1,
     textAlign: '', textBaseline: '', globalAlpha: 1, lineJoin: '', lineCap: ''
   };
 }
@@ -33,6 +40,7 @@ async function renderWheel(scenario, ui, previewUi) {
     title: '分享超有哩', activity, prizes: PRIZES, liffId: 'test-liff', addFriendUrl: ''
   });
   const calls = [];
+  const drawEvents = { fills: [], strokes: [] };
   const params = new URLSearchParams({ preview: '1', preview_scenario: scenario });
   if (previewUi) params.set('preview_ui', JSON.stringify(previewUi));
   const dom = new JSDOM(html, {
@@ -40,7 +48,7 @@ async function renderWheel(scenario, ui, previewUi) {
     url: 'https://example.test/games/wheel/share-miles?' + params.toString(),
     beforeParse(window) {
       window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
-      window.HTMLCanvasElement.prototype.getContext = () => fakeCtx();
+      window.HTMLCanvasElement.prototype.getContext = () => fakeCtx(drawEvents);
       window.fetch = (...args) => {
         calls.push(args);
         return Promise.reject(new Error('安全預覽不該呼叫 API'));
@@ -48,7 +56,7 @@ async function renderWheel(scenario, ui, previewUi) {
     }
   });
   await new Promise(resolve => setTimeout(resolve, 80));
-  return { dom, document: dom.window.document, calls };
+  return { dom, document: dom.window.document, calls, drawEvents };
 }
 
 async function openScenario(scenario) {
@@ -70,7 +78,62 @@ test('後台輪盤編輯器提供完整控制項', async () => {
   assert.equal(document.querySelectorAll('.ae-copy-grid input, .ae-copy-grid textarea').length, 24);
   assert.ok(document.querySelector('#ae-wheel-style option[value="custom"]'));
   assert.ok(document.getElementById('ae-save-visual'));
+  assert.ok(document.getElementById('ae-prize-color-grid'));
+  assert.ok(document.getElementById('ae-auto-prize-colors'));
+  assert.ok(document.getElementById('ae-reset-prize-colors'));
+  assert.ok(document.getElementById('ae-preview-highlight'));
+  assert.match(html, /wheel_slice_colors/);
   assert.match(html, /preview_ui/);
+  dom.window.close();
+});
+
+test('後台會為每個獎項產生獨立色票，並可一鍵預覽高亮', async () => {
+  const html = await ejs.renderFile(path.join(REPO, 'views/admin_activity_edit.ejs'), {
+    title: '編輯活動', user: 'admin', isAdmin: true, bodyClass: 'admin-shell',
+    activityId: 6,
+    gameTypes: ['wheel', 'claim'],
+    statuses: ['draft', 'active', 'paused', 'ended'],
+    prizeTypes: ['coupon_code', 'badge', 'none']
+  }, { views: [path.join(REPO, 'views')] });
+  const activity = {
+    id: 6, slug: 'share-miles', name: '分享超有哩', description: '分享越多，機會越多',
+    game_type: 'wheel', status: 'active', start_at: null, end_at: null,
+    cover_image_url: null, daily_plays_per_user: null, require_follow_oa: true,
+    liff_id_override: null, base_plays_per_user: 1, referral_bonus_per: 1,
+    referral_bonus_max: 3, referral_invites_per_bonus: 1,
+    rules: { ui: { wheel_slice_colors: { '11': '#FF8A5C', '15': '#F9C73B', '17': '#FFFFFF' } } }
+  };
+  const writes = [];
+  const dom = new JSDOM(html, {
+    runScripts: 'dangerously',
+    url: 'https://example.test/admin/activities/6',
+    beforeParse(window) {
+      window.fetch = async (url, options = {}) => {
+        if (!options.method || options.method === 'GET') {
+          return { json: async () => ({ ok: true, activity, prizes: PRIZES.map((p, i) => ({
+            ...p, probability_weight: i === 0 ? 10 : 45, stock_total: null,
+            stock_remaining: null, prize_type: p.name === '銘謝惠顧' ? 'none' : 'badge', prize_value: {}
+          })), effective_liff_id: 'test-liff' }) };
+        }
+        writes.push({ url, options });
+        return { json: async () => ({ ok: true }) };
+      };
+      window.confirm = () => true;
+      window.alert = () => {};
+    }
+  });
+  await new Promise(resolve => setTimeout(resolve, 120));
+  const document = dom.window.document;
+  const colorInputs = [...document.querySelectorAll('#ae-prize-color-grid input[data-prize-color-id]')];
+  assert.equal(colorInputs.length, PRIZES.length);
+  assert.match(document.getElementById('ae-prize-color-grid').textContent, /26,000 哩/);
+  assert.equal(colorInputs[0].value.toUpperCase(), '#FF8A5C');
+  document.getElementById('ae-auto-prize-colors').click();
+  const distinct = new Set([...document.querySelectorAll('#ae-prize-color-grid input')].map(input => input.value));
+  assert.equal(distinct.size, PRIZES.length);
+  document.getElementById('ae-preview-highlight').click();
+  assert.equal(document.getElementById('ae-preview-scenario').value, 'prize:11');
+  assert.equal(writes.length, 0, '逐格選色與預覽不可寫入正式資料');
   dom.window.close();
 });
 
@@ -154,6 +217,29 @@ test('後台未儲存的視覺調整也能即時出現在安全預覽', async ()
   assert.equal(stage.style.getPropertyValue('--wheel-size'), '352px');
   assert.equal(stage.style.getPropertyValue('--wheel-line-width'), '6.5px');
   assert.equal(stage.style.getPropertyValue('--wheel-line'), '#345678');
+  assert.equal(calls.length, 0);
+  dom.window.close();
+});
+
+test('每個獎項都能有獨立扇形顏色', async () => {
+  const colors = { '11': '#FF8A5C', '15': '#F9C73B', '17': '#FFFFFF' };
+  const { dom, calls, drawEvents } = await renderWheel('first_open', {
+    wheel_slice_colors: colors
+  });
+  Object.values(colors).forEach(color => assert.ok(drawEvents.fills.includes(color), color + ' 應畫在盤面上'));
+  assert.equal(calls.length, 0);
+  dom.window.close();
+});
+
+test('未儲存的逐格顏色與中獎高亮可在安全預覽看見', async () => {
+  const colors = { '11': '#FFF8E1', '15': '#FFD45A', '17': '#F7F4EC' };
+  const { dom, calls, drawEvents } = await renderWheel('prize:11', null, {
+    wheel_style: 'custom',
+    wheel_custom: { highlight: '#00AA66' },
+    wheel_slice_colors: colors
+  });
+  Object.values(colors).forEach(color => assert.ok(drawEvents.fills.includes(color), color + ' 應即時出現'));
+  assert.ok(drawEvents.strokes.includes('#00AA66'), '中獎格應畫出自訂高亮外框');
   assert.equal(calls.length, 0);
   dom.window.close();
 });

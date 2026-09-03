@@ -194,10 +194,27 @@
                 <label class="ae-color-control"><span>大獎扇形</span><input type="color" id="ae-wheel-grand" value="#F9C73B" /><output data-for="ae-wheel-grand">#F9C73B</output></label>
                 <label class="ae-color-control"><span>文字顏色</span><input type="color" id="ae-wheel-text" value="#4E342E" /><output data-for="ae-wheel-text">#4E342E</output></label>
                 <label class="ae-color-control"><span>格線／外框</span><input type="color" id="ae-wheel-line" value="#4E342E" /><output data-for="ae-wheel-line">#4E342E</output></label>
-                <label class="ae-color-control"><span>中獎高亮</span><input type="color" id="ae-wheel-highlight" value="#F9C73B" /><output data-for="ae-wheel-highlight">#F9C73B</output></label>
+                <label class="ae-color-control"><span>中獎格外框色</span><input type="color" id="ae-wheel-highlight" value="#F9C73B" /><output data-for="ae-wheel-highlight">#F9C73B</output></label>
                 <label class="ae-color-control"><span>指針顏色</span><input type="color" id="ae-wheel-pointer" value="#E8491D" /><output data-for="ae-wheel-pointer">#E8491D</output></label>
                 <label class="ae-color-control"><span>指針圓點</span><input type="color" id="ae-wheel-pointer-dot" value="#FBC02D" /><output data-for="ae-wheel-pointer-dot">#FBC02D</output></label>
                 <label class="ae-color-control"><span>中心底色</span><input type="color" id="ae-wheel-hub" value="#FFFFFF" /><output data-for="ae-wheel-hub">#FFFFFF</output></label>
+              </div>
+              <div class="ae-highlight-preview-row">
+                <button type="button" class="ae-secondary-btn" id="ae-preview-highlight">看中獎高亮效果</button>
+                <small>只有抽中後才會出現；按這裡會用第一個獎項安全預覽。</small>
+              </div>
+              <div class="ae-prize-colors">
+                <div class="ae-editor-title">
+                  <b>每個獎項的扇形顏色</b>
+                  <small>每一格都可以單獨選色，不再只靠兩個扇形色與一個大獎色輪替。</small>
+                </div>
+                <div class="ae-prize-color-actions">
+                  <button type="button" class="ae-secondary-btn" id="ae-auto-prize-colors">套用區隔配色</button>
+                  <button type="button" class="ae-secondary-btn" id="ae-reset-prize-colors">改回上方三色</button>
+                </div>
+                <div class="ae-prize-color-grid" id="ae-prize-color-grid">
+                  <span class="muted">獎項載入後會顯示在這裡。</span>
+                </div>
               </div>
               <div class="ae-range-grid">
                 <label class="ae-range-control">
@@ -496,6 +513,7 @@
         history_title: 'ae-copy-history-title',
         history_note: 'ae-copy-history-note'
       };
+      var PRIZE_COLOR_PALETTE = ['#F9C73B', '#FFF3C4', '#FFFFFF', '#FFE082', '#FFF8E1', '#FFD45A', '#F7F4EC'];
 
       function escapeHtml(s) {
         return String(s == null ? '' : s)
@@ -576,6 +594,56 @@
           if (el) el.value = typeof saved[key] === 'string' ? saved[key] : COPY_DEFAULTS[key];
         });
       }
+      function defaultPrizeColor(prize, index) {
+        if (prize && prize.is_grand_prize) return safeHex($('ae-wheel-grand').value, '#F9C73B');
+        var ci = index % 2;
+        if (index === currentPrizes.length - 1 && currentPrizes.length > 2 && ci === 0) ci = 1;
+        return safeHex($(ci === 0 ? 'ae-wheel-slice-1' : 'ae-wheel-slice-2').value, ci === 0 ? '#FFFFFF' : '#FFF3C4');
+      }
+      function collectPrizeColorControls() {
+        var colors = {};
+        $$('#ae-prize-color-grid input[data-prize-color-id]').forEach(function (input) {
+          colors[String(input.getAttribute('data-prize-color-id'))] = safeHex(input.value, '#FFFFFF');
+        });
+        return colors;
+      }
+      function renderPrizeColorControls(savedColors) {
+        var grid = $('ae-prize-color-grid');
+        if (!grid) return;
+        var saved = savedColors && typeof savedColors === 'object' ? savedColors : {};
+        if (!currentPrizes.length) {
+          grid.innerHTML = '<span class="muted">還沒有獎項，新增獎項後就可以逐格配色。</span>';
+          return;
+        }
+        grid.innerHTML = currentPrizes.map(function (prize, index) {
+          var id = String(prize.id);
+          var color = safeHex(saved[id], defaultPrizeColor(prize, index));
+          return '<label class="ae-prize-color-control">' +
+            '<input type="color" value="' + color + '" data-prize-color-id="' + escapeHtml(id) + '" />' +
+            '<span><b>' + escapeHtml(prize.name || '未命名獎項') + '</b>' +
+              '<small>' + (prize.is_grand_prize ? '大獎 · ' : '') + color + '</small></span>' +
+          '</label>';
+        }).join('');
+        $$('#ae-prize-color-grid input[data-prize-color-id]').forEach(function (input) {
+          input.addEventListener('input', function () {
+            var note = input.parentElement && input.parentElement.querySelector('small');
+            var prize = currentPrizes.find(function (p) { return String(p.id) === String(input.getAttribute('data-prize-color-id')); });
+            var color = safeHex(input.value, '#FFFFFF');
+            if (note) note.textContent = (prize && prize.is_grand_prize ? '大獎 · ' : '') + color;
+            if ($('ae-wheel-style')) $('ae-wheel-style').value = 'custom';
+            scheduleVisualPreview();
+          });
+        });
+      }
+      function applyDistinctPrizeColors() {
+        var colors = {};
+        currentPrizes.forEach(function (prize, index) {
+          colors[String(prize.id)] = prize.is_grand_prize ? '#FF8A5C' : PRIZE_COLOR_PALETTE[index % PRIZE_COLOR_PALETTE.length];
+        });
+        renderPrizeColorControls(colors);
+        if ($('ae-wheel-style')) $('ae-wheel-style').value = 'custom';
+        scheduleVisualPreview();
+      }
 
       function collectActivityForm() {
         var existingRules = currentActivity && currentActivity.rules && typeof currentActivity.rules === 'object'
@@ -587,6 +655,7 @@
             logo_url: $('ae-logo-url').value.trim() || null,
             wheel_style: $('ae-wheel-style').value || 'brand',
             wheel_custom: collectWheelControls(),
+            wheel_slice_colors: collectPrizeColorControls(),
             copy: collectCopyControls()
           });
         }
@@ -647,6 +716,7 @@
           $('ae-wheel-style').value = selectedStyle;
           setWheelControls(Object.assign({}, WHEEL_PRESETS[selectedStyle] || WHEEL_PRESETS.brand, ui.wheel_custom || {}));
         }
+        renderPrizeColorControls(ui.wheel_slice_colors);
         setCopyControls(ui.copy);
         updateLogoPreview();
         updateRefHint();
@@ -715,6 +785,7 @@
             logo_url: $('ae-logo-url').value.trim() || null,
             wheel_style: $('ae-wheel-style').value || 'brand',
             wheel_custom: collectWheelControls(),
+            wheel_slice_colors: collectPrizeColorControls(),
             copy: collectCopyControls()
           }));
         }
@@ -895,7 +966,10 @@
       });
       var wheelStyleSelect = $('ae-wheel-style');
       if (wheelStyleSelect) wheelStyleSelect.addEventListener('change', function () {
-        if (wheelStyleSelect.value !== 'custom') applyWheelPreset(wheelStyleSelect.value);
+        if (wheelStyleSelect.value !== 'custom') {
+          applyWheelPreset(wheelStyleSelect.value);
+          renderPrizeColorControls({});
+        }
         scheduleVisualPreview();
       });
       var resetWheelBtn = $('ae-reset-wheel');
@@ -903,7 +977,23 @@
         var preset = wheelStyleSelect.value === 'custom' ? 'brand' : wheelStyleSelect.value;
         wheelStyleSelect.value = preset;
         applyWheelPreset(preset);
+        renderPrizeColorControls({});
         scheduleVisualPreview();
+      });
+      var autoPrizeColorsBtn = $('ae-auto-prize-colors');
+      if (autoPrizeColorsBtn) autoPrizeColorsBtn.addEventListener('click', applyDistinctPrizeColors);
+      var resetPrizeColorsBtn = $('ae-reset-prize-colors');
+      if (resetPrizeColorsBtn) resetPrizeColorsBtn.addEventListener('click', function () {
+        renderPrizeColorControls({});
+        if (wheelStyleSelect) wheelStyleSelect.value = 'custom';
+        scheduleVisualPreview();
+      });
+      var previewHighlightBtn = $('ae-preview-highlight');
+      if (previewHighlightBtn) previewHighlightBtn.addEventListener('click', function () {
+        var select = $('ae-preview-scenario');
+        if (!select || !currentPrizes.length) return;
+        select.value = 'prize:' + currentPrizes[0].id;
+        updatePreview();
       });
       Object.keys(WHEEL_COLOR_FIELDS).forEach(function (key) {
         var input = $(WHEEL_COLOR_FIELDS[key]);
@@ -1476,6 +1566,26 @@
         cursor: pointer;
       }
       .ae-color-control output { grid-area: value; color: #8a817c; font: 9px ui-monospace, Menlo, monospace; }
+      .ae-highlight-preview-row { display: flex; align-items: center; gap: 9px; margin-top: 9px; }
+      .ae-highlight-preview-row small { color: #7c716b; font-size: 10px; line-height: 1.4; }
+      .ae-prize-colors { margin-top: 14px; padding: 12px; border: 1px solid #eadfca; border-radius: 10px; background: #fffaf0; }
+      .ae-prize-color-actions { display: flex; gap: 7px; margin-bottom: 10px; }
+      .ae-prize-color-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+      .ae-prize-color-control {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-width: 0;
+        padding: 8px;
+        border: 1px solid #eadfca;
+        border-radius: 9px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .ae-prize-color-control input[type="color"] { width: 34px; height: 36px; flex: 0 0 auto; padding: 1px; border: 1px solid #d8cab0; border-radius: 7px; background: #fff; cursor: pointer; }
+      .ae-prize-color-control span { min-width: 0; }
+      .ae-prize-color-control b { display: block; overflow: hidden; color: #51443e; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+      .ae-prize-color-control small { display: block; margin-top: 2px; color: #8a817c; font: 9px ui-monospace, Menlo, monospace; }
       .ae-range-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 13px; }
       .ae-range-control > span { display: flex; justify-content: space-between; gap: 8px; color: #51443e; font-size: 11px; }
       .ae-range-control output { color: #a34a17; font-weight: 800; }
@@ -1638,6 +1748,8 @@
         .ae-phone-frame { height: 650px; border-radius: 24px; }
         .ae-safe-badge { margin-left: 0; }
         .ae-color-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .ae-prize-color-grid { grid-template-columns: 1fr; }
+        .ae-highlight-preview-row { align-items: flex-start; flex-direction: column; }
         .ae-range-grid { grid-template-columns: 1fr; }
         .ae-copy-grid { grid-template-columns: 1fr; }
         .ae-copy-wide { grid-column: auto; }
