@@ -1,4 +1,7 @@
-# LINE MGM Lucky Straw — 專案交接說明（給重開發用）
+# LINE MGM Lucky Straw — 歷史專案交接說明
+
+> [!WARNING]
+> 本文件只記錄 2026-05 以前的「春日野餐刮刮樂」舊系統，**不代表目前完整 LINE CRM**，其中 repo、網址與部分流程已過時。新的 AI／工程師請先讀 [`README.md`](./README.md)、[`AGENTS.md`](./AGENTS.md) 與 [`docs/AI_HANDOFF.md`](./docs/AI_HANDOFF.md)。保留本檔僅供追查 legacy `prizes`、`draw_logs`、`line_invites` 流程。
 
 > 本文件描述**現有程式庫**的業務目標、架構、資料模型、流程與限制，供另一個 AI 或工程師接手重構／重開發。  
 > 最後整理依據：repo 內 `src/`、`views/`、`scripts/`、`.env.example`（2026-05）。
@@ -298,7 +301,7 @@ ORDER BY d.prize_name, d.created_at;
 
 | 變數 | 用途 |
 |------|------|
-| `SKIP_DB_DDL_ON_BOOT=1` | Netlify 冷啟動略過完整 DDL |
+| `RUN_DB_DDL_ON_BOOT=1` | 現行名稱；只有明確初始化 legacy 本機資料庫時才執行 DDL，正式環境保持未設定 |
 | `LIFF_INVITE_BONUS_MAX` | 預設 1（程式 cap 仍 ≤1） |
 | `LIFF_INVITE_FRIENDS_PER_DRAW` | 每幾人 follow 發 1 加碼（預設 2） |
 | `LIFF_ENDPOINT_IS_SITE_ROOT=1` | LIFF Endpoint 為網站根目錄時 |
@@ -379,7 +382,7 @@ npm start              # http://localhost:3000
 2. **保留 `line_user_id` + `draw_logs` + `line_invites`** 三表關係；邀請與 Webhook 是最高複雜度區。
 3. **交易邊界**：抽獎、`applyInviteFollowReward` 已在 transaction；重構時勿拆散 FOR UPDATE 順序。
 4. **LIFF 連結**：統一用 `buildLiffPermalink` + `invite_code`；注意 `LIFF_ENDPOINT_IS_SITE_ROOT`。
-5. **Serverless**：冷啟動、`SKIP_DB_DDL_ON_BOOT`、小連線池 `PG_POOL_MAX=2`。
+5. **Serverless**：正式環境不要啟用 `RUN_DB_DDL_ON_BOOT`，並維持小連線池 `PG_POOL_MAX=2`。
 6. **若要做 LINE 分眾**：新增 Audience API 或後台 CSV 匯出端點，不要只靠手動 SQL。
 7. **觀測性**：已有 `line_webhook_events`、`line_push_logs`；可接 structured logging / Sentry。
 
