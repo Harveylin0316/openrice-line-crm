@@ -99,6 +99,17 @@ test('query command returns linked bookings without contact data', async () => {
   assert.equal(result.result, 'gold_pig_booking_queried');
   assert.match(result.messages[0], /GP260828ABC123/);
   assert.doesNotMatch(result.messages[0], /contact|phone|email/i);
+  assert.doesNotMatch(result.messages[0], /取消訂位/);
+});
+
+test('cancel booking text is left to admin keyword rules and never changes bookings', async () => {
+  let dbCalled = false;
+  const service = createGoldPigBookingService({
+    pool: { query: async () => { dbCalled = true; throw new Error('must not query'); } }
+  });
+  assert.equal(await service.handleCommand('U123', '取消訂位'), null);
+  assert.equal(await service.handleCommand('U123', '取消訂位 GP260828ABC123'), null);
+  assert.equal(dbCalled, false);
 });
 
 test('unrelated messages are left for the existing keyword engine', async () => {

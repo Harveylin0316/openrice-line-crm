@@ -314,6 +314,10 @@ repo 目前**沒有完整可重建正式資料庫的 migration 歷史**：
 
 使用獨立 `GOLD_PIG_LIFF_ID` 與訂位 API key。`GOLD_PIG_DEMO_MODE=1` 時不代表真實訂位成功；正式收款／訂位上線前需關閉 demo 並做端到端驗證。
 
+LINE 內建指令目前只保留「查詢訂位／查看訂位」。`取消訂位` 不再由
+`src/core/goldPigBookings.js` 攔截或寫入取消申請；若日後需要自動回覆，應在後台
+「關鍵字回覆」建立可看見、可停用的規則，不能再把營運文案藏進程式。
+
 ## 10. 登入、權限與安全邊界
 
 - 後台 JWT cookie 有效期 7 天，設為 `httpOnly`、`sameSite=lax`。
