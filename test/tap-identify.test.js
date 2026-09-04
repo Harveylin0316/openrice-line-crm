@@ -177,8 +177,10 @@ const UID = 'U' + 'a'.repeat(32);
       { line_user_id: UID }, { params: { source: 'keyword', refId: '1_0' } });
   ok(m.taps.length === 1, '訊息按鈕同一人連按三次也只記一筆');
 
-  // 12) 指向自家活動頁的按鍵不包轉址：那些頁面本來就認得出是誰，
-  //     包一層只是多繞一圈、還可能影響開啟
+  // 12) 指向自家活動頁（LIFF）的按鍵完全不包裝：原始連結直接送給 LINE。
+  //     包成 /r 站內轉址會讓 LINE 先用內建瀏覽器開網址、再由 302 疊出 LIFF 視窗，
+  //     使用者會在活動頁後面看到多一層灰色瀏覽器（2026-09-04 線上實測）。
+  //     那些頁面自己認得出是誰、也記得到開啟次數，不需要任何跳板。
   {
     const OWN = { size: 'large', chat_bar_text: '選單',
       cells: [{ x: 0, y: 0, w: 1250, h: 1686 }, { x: 1250, y: 0, w: 1250, h: 1686 }],
@@ -212,9 +214,11 @@ const UID = 'U' + 'a'.repeat(32);
     };
     const IMG2 = 'data:image/jpeg;base64,' + Buffer.from('x').toString('base64');
     await run(routes2, 'POST /admin/richmenu/api/publish', { id: 1, image: IMG2 });
-    // 自家活動頁：次數照記（/r 轉址），但不走記名跳板（/t）——
-    // 那種頁面自己認得出是誰，多包一層只是多等一秒
-    ok(sent.some(u => /\/r\/1\/0\/0$/.test(u)), '自家活動頁的按鍵：次數照記');
+    // 自家活動頁：原始 LIFF 連結原封不動送出，不包 /r 轉址也不走 /t 跳板
+    ok(sent.some(u => u === 'https://liff.line.me/1234-abcd/wheel/x'),
+       '自家活動頁的按鍵：保留原始 LIFF 連結');
+    ok(!sent.some(u => /\/r\/1\/0\/0$/.test(u)),
+       '自家活動頁的按鍵：不包站內轉址（會讓 LINE 多開一層內建瀏覽器）');
     // 別人家的 LIFF（合作夥伴活動頁）不算自家——那種頁面我們沒有任何紀錄
     ok(!isOwnLiffFn('https://liff.line.me/9999-partner/page'), '合作夥伴的活動頁不會被當成自家的');
     ok(!sent.some(u => /\/t\/1\/0\/0$/.test(u)), '自家活動頁的按鍵：不走記名跳板');

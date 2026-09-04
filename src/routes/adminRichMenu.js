@@ -141,13 +141,15 @@ function registerAdminRichMenuRoutes(app, deps) {
     const tabs = Array.isArray(clone.tabs) && clone.tabs.length ? clone.tabs : null;
     const wrap = (buttons, tabIdx) => (buttons || []).forEach((b, ci) => {
       if (b && b.action && b.action.type === 'uri' && /^https:\/\//.test(String(b.action.uri || ''))) {
-        // 指向自家活動頁的按鍵不走「記名跳板」：那些頁面本身就認得出是誰
-        // （活動頁自己有紀錄），多包一層 LIFF 跳板只是多等一秒還可能影響開啟。
-        // 但一般轉址（只算次數）要保留——不然最常見的活動按鍵會整列從成效表消失。
-        const own = isOwnLiff(b.action.uri, ownIds);
+        // 指向自家活動頁（LIFF）的按鍵完全不包裝，原始連結直接送給 LINE。
+        // 包成站內轉址會讓 LINE 先用內建瀏覽器開那個網址、再由 302 疊出 LIFF 視窗，
+        // 使用者會在活動頁後面看到多一層灰色瀏覽器（2026-09-04 實測）。
+        // 這些頁面本身就認得出是誰、也自己記得到開啟次數，不需要跳板；
+        // 與訊息端 isTrackableUri（自家 LIFF 一律跳過）的規則一致。
+        if (isOwnLiff(b.action.uri, ownIds)) return;
         // 勾了「記錄是誰點的」→ 走 LIFF 跳板（拿得到身分，可以貼標籤）；
         // 沒勾就走一般轉址（只算次數，但快）。沒設 LIFF ID 時只能走一般轉址。
-        const named = b.identify === true && !!liff && !own;
+        const named = b.identify === true && !!liff;
         b.action = { ...b.action, uri: named
           ? ('https://liff.line.me/' + liff + '/t/' + rowId + '/' + tabIdx + '/' + ci)
           : (base + '/r/' + rowId + '/' + tabIdx + '/' + ci) };
