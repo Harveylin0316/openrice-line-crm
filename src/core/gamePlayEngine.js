@@ -522,7 +522,7 @@ async function detectInviteeWasExisting({ query, activitySlug, gameType, inviter
   return rows[0].was_existing;
 }
 
-async function registerReferral({ query, activitySlug, gameType, inviterId, inviteeId }) {
+async function registerReferral({ query, activitySlug, gameType, inviterId, inviteeId, followConfirmed = false }) {
   if (!inviteeId || !inviterId) {
     return { error: { status: 400, code: 'missing_ids' } };
   }
@@ -576,7 +576,10 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
   // fail-closed：null（LINE API 429/5xx/沒 token）也不寫。玩一次的成本可以吸收，
   // 但 activity_referrals 有 UNIQUE，寫錯一列永久回不來，也分不出當時到底加了沒。
   // 前端拿到 follow_check_unavailable 會留著邀請、稍後自動重送。
-  const invFollows = await verifyOaFollower(inviteeId);
+  // follow webhook 本身已通過 LINE signature 驗證，收到該 userId 的 follow 事件就是最可靠的
+  // 好友證明。這條內部路徑不必再打一次 profile API（事件剛進來時 API 偶爾尚未同步）。
+  // 其他 HTTP 路徑一律維持原本的 server-side 驗證，不能由前端自行宣稱已加好友。
+  const invFollows = followConfirmed === true ? true : await verifyOaFollower(inviteeId);
   if (invFollows !== true) {
     return invFollows === false
       ? { error: { status: 400, code: 'invitee_not_follower', detail: '被邀請的人要先加官方帳號好友，邀請才算成功。' } }

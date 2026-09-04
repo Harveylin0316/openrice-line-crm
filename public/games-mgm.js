@@ -125,6 +125,7 @@
   // ── 加好友閘門 ────────────────────────────────────────────────
   var gate = {
     _el: null, _open: false, _denied: 0, _url: '', _onRecheck: null, _tries: 0,
+    _confirmSeq: 0, _confirmTimer: null,
 
     init: function (addFriendUrl, onRecheck) {
       this._url = addFriendUrl || '';
@@ -142,7 +143,7 @@
       sec.innerHTML =
         '<p class="ormgm-gate-text" id="oa-gate-text"></p>' +
         '<button type="button" class="ormgm-gate-btn" id="oa-gate-add">加入好友</button>' +
-        '<button type="button" class="ormgm-gate-alt" id="oa-gate-done" hidden>我加好了</button>';
+        '<button type="button" class="ormgm-gate-alt" id="oa-gate-done" hidden>重新確認</button>';
       var a = anchor();
       if (a && a.parentNode) a.parentNode.insertBefore(sec, a.nextSibling);
       else d.body.appendChild(sec);
@@ -160,13 +161,12 @@
     // 三段 fallback：LIFF 的 requestFriendship（有些版本沒有）→ 站內開窗 → 直接跳轉
     _goAdd: function (btn) {
       var self = this;
+      this._stopAutoConfirm();
       btn.disabled = true;
       var label = btn.textContent;
       btn.textContent = '開啟中';
       function after() {
-        btn.disabled = false;
-        btn.textContent = label;
-        self._setWaiting();
+        self._startAutoConfirm(btn, label);
       }
       try {
         if (w.liff && typeof w.liff.requestFriendship === 'function') {
@@ -189,11 +189,68 @@
       w.location.href = this._url;
     },
 
-    _setWaiting: function () {
-      if (!this._el) return;
-      this._el.querySelector('#oa-gate-text').textContent =
-        '加好友之後回到這一頁，按下面「我加好了」就可以開始。';
-      this._el.querySelector('#oa-gate-done').hidden = false;
+    _stopAutoConfirm: function () {
+      this._confirmSeq++;
+      if (this._confirmTimer) clearTimeout(this._confirmTimer);
+      this._confirmTimer = null;
+    },
+
+    _startAutoConfirm: function (btn, originalLabel) {
+      var self = this;
+      if (!this._el || !this._onRecheck) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        return;
+      }
+      this._stopAutoConfirm();
+      var seq = this._confirmSeq;
+      var attempt = 0;
+      var retryDelays = [700, 1200, 2000, 3000];
+      var textEl = this._el.querySelector('#oa-gate-text');
+      var retryBtn = this._el.querySelector('#oa-gate-done');
+      textEl.textContent = '正在確認好友狀態，完成後會自動更新，不需要再按按鈕。';
+      retryBtn.hidden = true;
+      btn.disabled = true;
+      btn.textContent = '正在確認';
+
+      function check() {
+        if (seq !== self._confirmSeq || !self._open) return;
+        attempt++;
+        // 官方建議 requestFriendship 後用 getFriendship 重新讀狀態；真正入帳仍由
+        // server-side referral 驗證，不能相信前端回傳值。兩者並行以縮短等待。
+        var local = Promise.resolve(null);
+        try {
+          if (w.liff && typeof w.liff.getFriendship === 'function') {
+            local = Promise.resolve(w.liff.getFriendship()).then(
+              function (r) { return !!(r && r.friendFlag); },
+              function () { return null; }
+            );
+          }
+        } catch (e) { local = Promise.resolve(null); }
+        var server = Promise.resolve().then(function () { return self._onRecheck(); }).then(
+          function (ok) { return ok === true; },
+          function () { return false; }
+        );
+        Promise.all([local, server]).then(function (checks) {
+          if (seq !== self._confirmSeq || !self._open) return;
+          if (checks[1]) {
+            self.hide();
+            return;
+          }
+          if (attempt <= retryDelays.length) {
+            textEl.textContent = checks[0] === true
+              ? '好友已加入，正在同步遊戲次數…'
+              : '正在等待 LINE 同步好友狀態，完成後會自動更新。';
+            self._confirmTimer = setTimeout(check, retryDelays[attempt - 1]);
+            return;
+          }
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+          textEl.textContent = '好友狀態暫時還沒同步。若已完成加入，可以稍後按「重新確認」。';
+          retryBtn.hidden = false;
+        });
+      }
+      check();
     },
 
     _recheck: function (btn) {
@@ -209,8 +266,8 @@
         self._tries++;
         // LINE 那邊剛加好友到查得到，偶爾會有幾秒落差，不要一次就叫人去找客服
         toast(self._tries >= 3
-          ? '還是查不到，可能要等一下下。稍後再回來按一次就好。'
-          : '還沒查到，等幾秒再按一次「我加好了」。');
+          ? '還是查不到，可能要等一下下。稍後再按一次就好。'
+          : '還沒查到，等幾秒再按一次「重新確認」。');
       }, function () {
         btn.disabled = false;
         btn.textContent = label;
@@ -227,9 +284,16 @@
     },
 
     hide: function () {
+      this._stopAutoConfirm();
       this._open = false;
       this._denied = 0;
-      if (this._el) this._el.hidden = true;
+      if (this._el) {
+        this._el.hidden = true;
+        var addBtn = this._el.querySelector('#oa-gate-add');
+        var retryBtn = this._el.querySelector('#oa-gate-done');
+        if (addBtn) { addBtn.disabled = false; addBtn.textContent = '加入好友'; }
+        if (retryBtn) { retryBtn.disabled = false; retryBtn.hidden = true; retryBtn.textContent = '重新確認'; }
+      }
     },
 
     serverDenied: function () { this._denied++; },

@@ -5,6 +5,7 @@ const { buildLineMessages } = require('../core/broadcastTemplates');
 const { withMessageTracking } = require('../core/messageTapTracking');
 const { fetchOaProfile } = require('../core/oaFollower');
 const { normalizeTwMobile, maskTwMobile } = require('../core/twPhone');
+const { completePendingActivityReferralsForFollow } = require('../core/activityReferralFollow');
 
 function safeEqualBase64(a, b) {
   const left = Buffer.from(a || '', 'utf8');
@@ -618,6 +619,25 @@ function createLineWebhookHandler({
           );
           isFirstFollow = !!(upsertRs.rows[0] && upsertRs.rows[0].inserted);
         } catch (e) { console.error('follow user upsert failed:', e.message); }
+
+        // 活動邀請在「被邀請人尚未加好友」時已先留存。follow webhook 是 LINE 已驗簽的
+        // 即時事件，所以在這裡直接補入帳：使用者不用關閉好友視窗，也不用再按確認。
+        // 失敗只記錄，不阻斷既有的 follow 歡迎流程與舊版 line_invites 發獎。
+        let activityReferralResults = [];
+        try {
+          activityReferralResults = await completePendingActivityReferralsForFollow({
+            query: pool.query.bind(pool),
+            inviteeId: lineUserId,
+            onCounted: async (item) => {
+              if (item.gameType !== 'mgm' || item.result.invitee_was_existing === true ||
+                  !mgmEngine || typeof mgmEngine.loadCampaignBySlug !== 'function') return;
+              const campaign = await mgmEngine.loadCampaignBySlug(item.activitySlug);
+              if (campaign) await mgmEngine.onReferralCounted(campaign, item.inviterId);
+            }
+          });
+        } catch (e) {
+          console.error('complete pending activity referral failed:', e.message);
+        }
         let rewardResult;
         try {
           rewardResult = await rewardInviteForFollow(lineUserId, event.timestamp);
@@ -642,6 +662,14 @@ function createLineWebhookHandler({
           logDetail = rewardResult?.detail
             ? `${rewardResult.detail} ${staticHint}`
             : staticHint;
+        }
+        if (activityReferralResults.length > 0) {
+          const activitySummary = activityReferralResults.map((item) =>
+            item.activitySlug + ':' + (item.result && item.result.error
+              ? item.result.error.code
+              : item.result && item.result.counted ? 'counted' : 'duplicate')
+          ).join(',');
+          logDetail = [logDetail, 'activity_referrals=' + activitySummary].filter(Boolean).join(' ');
         }
         await appendWebhookEventLog({
           eventType: 'follow',
