@@ -189,6 +189,7 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 
 - 被邀請者原本已經是 LINE OA 好友：仍可使用自己的基礎遊玩次數。
 - 只有 `invitee_was_existing IS FALSE` 的有效新好友，才計入邀請人的加碼。
+- 新好友通常會先得到 `invitee_not_follower`，加好友後 follow webhook 才建立 `users`；`invitee_was_existing` 必須依第一次邀請嘗試前的狀態判定，不能因重試時已存在於 `users` 就誤標成既有好友。
 - 重複 callback／referral 不得重複發獎；相關 unique constraint 與冪等不能移除。
 
 ### 活動排程

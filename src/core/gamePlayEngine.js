@@ -485,6 +485,43 @@ async function notifyInviterOfReferral({ query, activity, activitySlug, gameType
   });
 }
 
+/**
+ * 判斷被邀請者在「這次邀請旅程開始前」是否已經是現行會員。
+ *
+ * 不能只在成功時查 users：新朋友按下加好友後，LINE follow webhook 會先建立 users，
+ * 接著頁面重送 referral；若此時才看 users，所有剛加入的人都會被誤判成既有好友。
+ * activity_referral_attempts 會留下加好友前的 invitee_not_follower，因此：
+ *   - users 不存在：新朋友
+ *   - 曾先被確認不是好友，之後才建立 users：新朋友
+ *   - users 在第一次「不是好友」嘗試前就存在：既有會員（包含封鎖後重加）
+ */
+async function detectInviteeWasExisting({ query, activitySlug, gameType, inviterId, inviteeId }) {
+  const { rows } = await query(
+    `SELECT CASE
+              WHEN first_seen_at IS NULL THEN FALSE
+              WHEN EXISTS (
+                SELECT 1
+                  FROM activity_referral_attempts att
+                 WHERE att.activity_slug = $2
+                   AND att.game_type = $3
+                   AND att.inviter_line_user_id = $4
+                   AND att.invitee_line_user_id = $1
+                   AND att.outcome = 'invitee_not_follower'
+                   AND att.created_at <= first_seen_at
+              ) THEN FALSE
+              ELSE TRUE
+            END AS was_existing
+       FROM (
+         SELECT MIN(created_at) AS first_seen_at
+           FROM users
+          WHERE line_user_id = $1 AND archived_at IS NULL
+       ) invitee`,
+    [inviteeId, activitySlug, gameType, inviterId]
+  );
+  if (!rows[0] || typeof rows[0].was_existing !== 'boolean') return null;
+  return rows[0].was_existing;
+}
+
 async function registerReferral({ query, activitySlug, gameType, inviterId, inviteeId }) {
   if (!inviteeId || !inviterId) {
     return { error: { status: 400, code: 'missing_ids' } };
@@ -527,6 +564,14 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
   if (inv.length === 0) {
     return { error: { status: 400, code: 'inviter_not_member', detail: '邀請連結無效' } };
   }
+  // 一定要在好友驗證前判斷，並把先前失敗嘗試納入：LINE follow webhook 會在重試前建立 users。
+  // 判斷查詢失敗時維持 null（不算新客），避免資料庫異常時錯發邀請獎勵。
+  let inviteeWasExisting = null;
+  try {
+    inviteeWasExisting = await detectInviteeWasExisting({
+      query, activitySlug, gameType, inviterId, inviteeId
+    });
+  } catch (e) { /* 判斷失敗就記 NULL，不影響好友驗證；配額會 fail-closed */ }
   // 只認「真實加 OA 好友的被邀者」：擋偽造假 id 灌配額、確保邀請真的長 OA、獎勵對應真實獲客
   // fail-closed：null（LINE API 429/5xx/沒 token）也不寫。玩一次的成本可以吸收，
   // 但 activity_referrals 有 UNIQUE，寫錯一列永久回不來，也分不出當時到底加了沒。
@@ -537,17 +582,6 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
       ? { error: { status: 400, code: 'invitee_not_follower', detail: '被邀請的人要先加官方帳號好友，邀請才算成功。' } }
       : { error: { status: 400, code: 'follow_check_unavailable', detail: '好友狀態暫時查不到，等一下會自動再試。' } };
   }
-  // 被邀請人「在這次邀請之前」是不是已經是會員？照樣算邀請成功（剛好已追蹤就判無效，
-  // 客訴大於效益），但記下來，報表才分得出「真的拉到新客」與「邀既有好友」。
-  let inviteeWasExisting = null;
-  try {
-    const { rows: ex } = await query(
-      `SELECT 1 FROM users WHERE line_user_id = $1 AND archived_at IS NULL LIMIT 1`,
-      [inviteeId]
-    );
-    inviteeWasExisting = ex.length > 0;
-  } catch (e) { /* 判斷失敗就記 NULL，不影響邀請本身 */ }
-
   const ins = await query(
     `INSERT INTO activity_referrals (activity_id, inviter_line_user_id, invitee_line_user_id, invitee_was_existing)
      VALUES ($1, $2, $3, $4)
@@ -579,4 +613,7 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
   return { ok: true, counted, same_inviter: sameInviter, invitee_was_existing: inviteeWasExisting };
 }
 
-module.exports = { selectPrizeAndRecord, computeUserQuota, computeQuotaNumbers, registerReferral, notifyInviterOfReferral };
+module.exports = {
+  selectPrizeAndRecord, computeUserQuota, computeQuotaNumbers,
+  registerReferral, notifyInviterOfReferral, detectInviteeWasExisting
+};

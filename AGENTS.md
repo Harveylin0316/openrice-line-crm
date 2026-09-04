@@ -23,7 +23,7 @@
 - 通用遊戲配額只有 `src/core/gamePlayEngine.js` 的 `computeUserQuota()`／`computeQuotaNumbers()` 可以計算。顯示與實際判定必須共用。
 - 抽獎必須保留 `play_key` 冪等、交易、獎品列鎖、併發後複查、庫存與 coupon code 同交易領取。
 - 前端顯示的輪盤停格必須與伺服器回傳獎品一致；改角度時必跑 7 獎項連轉對齊測試。
-- 邀請只把 `invitee_was_existing IS FALSE` 算入加碼；既有好友可以完成自己的首次遊戲，但不能替邀請人增加次數。
+- 邀請只把 `invitee_was_existing IS FALSE` 算入加碼；既有好友可以完成自己的首次遊戲，但不能替邀請人增加次數。`invitee_was_existing` 必須以邀請旅程開始前的狀態判斷，不能在 follow webhook 建立會員後才只查 `users`。
 - LIFF 身分以 LINE 驗證後的 token `sub` 為準，不可信任前端送來的 `line_user_id`。
 - 主 LINE Webhook 與第二 OA Webhook 必須保留 raw body 驗簽，且掛在 JSON body parser 之前。
 - Serverless 中需要完成的 DB 寫入與推播必須在回應前 `await`。
