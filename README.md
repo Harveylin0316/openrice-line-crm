@@ -8,7 +8,7 @@ OpenRice Taiwan 的 LINE 官方帳號 CRM 與 LIFF 活動平台。系統把會�
 - GitHub：<https://github.com/Harveylin0316/openrice-line-crm>
 - 部署：Netlify Functions
 - 主資料庫：PostgreSQL（Supabase，以 `pg` 直連）
-- 本文件狀態：2026-09-03，依 `main` commit `fdfac35` 整理
+- 本文件狀態：2026-09-04，依最新 `main` 整理
 
 ## 交接閱讀順序
 
@@ -42,7 +42,7 @@ npm run dev
 npm test
 ```
 
-2026-09-03 的功能基準為 56 項測試；加入文件守門測試後共 57 項全數通過。任何抽獎、配額、邀請、群發、圖文選單或權限改動，都必須先跑完整測試。
+2026-09-04 的基準為 74 項測試全數通過。任何抽獎、配額、邀請、群發、圖文選單或權限改動，都必須先跑完整測試。
 
 ## 重要提醒
 

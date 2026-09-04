@@ -8,13 +8,30 @@
 const { registerReferral } = require('./gamePlayEngine');
 
 const PENDING_TTL_HOURS = 72;
+const TRANSIENT_RETRY_DELAYS_MS = [80, 240];
+
+// follow 事件只有一瞬間；如果剛好碰上資料庫的短暫斷線，不能期待使用者封鎖再重加。
+// 只重試「丟出例外」的基礎設施失敗，活動已結束、重複邀請等業務結果不重試。
+async function retryTransient(fn) {
+  let lastError;
+  for (let attempt = 0; attempt <= TRANSIENT_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= TRANSIENT_RETRY_DELAYS_MS.length) break;
+      await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+  throw lastError;
+}
 
 async function completePendingActivityReferralsForFollow({ query, inviteeId, onCounted = null }) {
   if (!query || !inviteeId) return [];
 
   // 同一檔活動若開過不只一個人的分享連結，採最後一次有效點擊（last touch）。
   // 已入帳的活動不再處理；UNIQUE(activity_id, invitee_line_user_id) 仍是最後一道併發保護。
-  const { rows } = await query(
+  const { rows } = await retryTransient(() => query(
     `SELECT DISTINCT ON (att.activity_slug, att.game_type)
             att.activity_slug, att.game_type, att.inviter_line_user_id, att.created_at
        FROM activity_referral_attempts att
@@ -29,23 +46,23 @@ async function completePendingActivityReferralsForFollow({ query, inviteeId, onC
              AND a.game_type = att.game_type
              AND r.invitee_line_user_id = $1
         )
-      ORDER BY att.activity_slug, att.game_type, att.created_at DESC
+      ORDER BY att.activity_slug, att.game_type, att.created_at DESC, att.id DESC
       LIMIT 12`,
     [inviteeId, PENDING_TTL_HOURS]
-  );
+  ));
 
   const completed = [];
   for (const pending of rows || []) {
     let result;
     try {
-      result = await registerReferral({
+      result = await retryTransient(() => registerReferral({
         query,
         activitySlug: pending.activity_slug,
         gameType: pending.game_type,
         inviterId: pending.inviter_line_user_id,
         inviteeId,
         followConfirmed: true
-      });
+      }));
     } catch (error) {
       result = { error: { code: 'server_error', detail: String(error && error.message || error) } };
     }
@@ -79,4 +96,9 @@ async function completePendingActivityReferralsForFollow({ query, inviteeId, onC
   return completed;
 }
 
-module.exports = { completePendingActivityReferralsForFollow, PENDING_TTL_HOURS };
+module.exports = {
+  completePendingActivityReferralsForFollow,
+  PENDING_TTL_HOURS,
+  TRANSIENT_RETRY_DELAYS_MS,
+  retryTransient
+};

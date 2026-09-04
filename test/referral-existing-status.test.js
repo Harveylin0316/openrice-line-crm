@@ -90,3 +90,25 @@ test('會員表完全沒有這個人時，成功 follow 應算新朋友', async 
   assert.equal(out.result.invitee_was_existing, false);
   assert.equal(out.inserted[0][3], false);
 });
+
+test('新舊好友無法判定時不占用唯一鍵，保留之後自動補發機會', async () => {
+  let inserted = 0;
+  const query = async (sql) => {
+    const flat = String(sql).replace(/\s+/g, ' ');
+    if (/FROM activities WHERE slug/.test(flat)) return { rows: [{
+      id: 6, status: 'active', start_at: null, end_at: null,
+      referral_bonus_per: 1, referral_bonus_max: 3,
+      referral_invites_per_bonus: 1, liff_id_override: null
+    }] };
+    if (/SELECT 1 FROM users WHERE line_user_id/.test(flat)) return { rows: [{}] };
+    if (/AS was_existing/.test(flat)) throw new Error('temporary read failure');
+    if (/INSERT INTO activity_referrals/.test(flat)) { inserted++; return { rows: [{ id: 1 }] }; }
+    throw new Error('Unexpected SQL: ' + flat);
+  };
+  const result = await registerReferral({
+    query, activitySlug: 'share-miles', gameType: 'wheel',
+    inviterId: INVITER, inviteeId: INVITEE
+  });
+  assert.equal(result.error.code, 'invitee_status_unavailable');
+  assert.equal(inserted, 0);
+});

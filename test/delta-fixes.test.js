@@ -110,6 +110,7 @@ function fakePool(opts) {
         start_at: null, end_at: null, base_plays_per_user: 1, referral_bonus_per: 1,
         referral_bonus_max: 8, referral_invites_per_bonus: 1, daily_plays_per_user: null }] };
       if (/INSERT INTO activity_referrals/.test(f)) return { rows: [{ id: 1 }] };
+      if (/AS was_existing/.test(f)) return { rows: [{ was_existing: false }] };
       if (/FROM users WHERE line_user_id/.test(f)) {
         // 第一次查的是邀請人（必須是現行會員），之後查的是被邀請人（新朋友＝查不到）
         usersLookups++;

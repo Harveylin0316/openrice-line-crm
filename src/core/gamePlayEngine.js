@@ -571,7 +571,20 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
     inviteeWasExisting = await detectInviteeWasExisting({
       query, activitySlug, gameType, inviterId, inviteeId
     });
-  } catch (e) { /* 判斷失敗就記 NULL，不影響好友驗證；配額會 fail-closed */ }
+  } catch (e) { /* 判斷失敗保留 null，下方會 fail-closed 且不寫入正式 referral */ }
+  // 不能把 NULL 寫進正式 referral：(activity_id, invitee) 的 unique key 會讓這筆
+  // 「不確定」永久占位，後來就算查得到也無法補發。follow webhook 路徑用例外
+  // 觸發短暫錯誤重試；一般 HTTP 路徑則保留 pending，稍後再試。
+  if (inviteeWasExisting === null) {
+    if (followConfirmed === true) throw new Error('invitee_status_temporarily_unavailable');
+    return {
+      error: {
+        status: 503,
+        code: 'invitee_status_unavailable',
+        detail: '好友狀態暫時無法確認，系統會稍後再試。'
+      }
+    };
+  }
   // 只認「真實加 OA 好友的被邀者」：擋偽造假 id 灌配額、確保邀請真的長 OA、獎勵對應真實獲客
   // fail-closed：null（LINE API 429/5xx/沒 token）也不寫。玩一次的成本可以吸收，
   // 但 activity_referrals 有 UNIQUE，寫錯一列永久回不來，也分不出當時到底加了沒。

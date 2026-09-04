@@ -189,7 +189,12 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 
 - 被邀請者原本已經是 LINE OA 好友：仍可使用自己的基礎遊玩次數。
 - 只有 `invitee_was_existing IS FALSE` 的有效新好友，才計入邀請人的加碼。
-- 新好友通常會先得到 `invitee_not_follower`，加好友後 follow webhook 才建立 `users`；`invitee_was_existing` 必須依第一次邀請嘗試前的狀態判定，不能因重試時已存在於 `users` 就誤標成既有好友。
+- 新好友通常會先得到 `invitee_not_follower`，這筆 pending 必須先落庫，才能讓使用者開始加好友。
+- LINE 發出已驗簽的 follow webhook 時，`src/core/activityReferralFollow.js` 會在同一個 webhook request 內直接完成 pending referral；使用者不需要返回頁面，也不需要按「我加好了」。
+- 前端的自動重查與異常情況才顯示的「重新確認」，只是 webhook 或 LINE 同步延遲時的備援，不是正常入帳步驟。
+- `invitee_was_existing` 必須依第一次邀請嘗試前的狀態判定，不能因 follow webhook 已建立 `users` 就誤標成既有好友。
+- pending referral 有效期 72 小時；同活動多個邀請連結採 last touch；短暫 DB 異常會在 webhook 內重試。
+- 新／舊好友判定結果是 `null` 時絕對不能寫入 `activity_referrals`，否則 unique key 會把「無法判定」的結果永久占位，後續無法補發。
 - 重複 callback／referral 不得重複發獎；相關 unique constraint 與冪等不能移除。
 
 ### 活動排程
@@ -214,6 +219,8 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 - 好友邀請最多加 3 次，因此未含人工補次時最多可玩 4 次。
 - 原本已是好友的人可以玩自己的首次機會，但不替邀請人增加次數。
 - 抽到的獎項直接留在抽獎頁「我的獎項」，不要求使用者再點另一個頁面查看。
+- 邀請好友使用 LINE Flex Message 卡片：封面圖、標題與說明讀 activity 資料，「馬上玩」CTA 必須保留 `?ref=<inviter LINE user ID>`。
+- Flex 無法送出時會退回文字連結；分享成功本身不加次數，仍要等新好友透過連結加入 OA。
 
 上述數字仍應從 activity rules 讀取，不能在 view 寫死。
 
@@ -239,14 +246,9 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 - 不需要真實 LINE 好友。
 - 不呼叫 spin、quota、wallet、referral 等正式 API。
 
-### 明確待辦：獎項狀態文案
+### 獎項狀態文案
 
-2026-09-03 最新需求是讓同一個活動編輯頁可修改「我的獎項」內兩種狀態文字：
-
-- 尚未發放：目前預設「活動結束後統一發放到你的帳戶」。
-- 已發放：目前預設「哩數已經發放」。
-
-先前工作樹曾開始修改 `views/admin_activity_edit.ejs`、`views/game_wheel.ejs` 與 `test/wheel-preview-studio.test.js`，但該版本尚未完成測試、提交或合併。新的 AI 應從最新 `origin/main` 重新檢視需求，完成後台欄位、`rules.ui.copy` 儲存、前台 fallback 與測試，不要假設未提交版本已上線。
+「我的獎項」的尚未發放／已發放文案已放到同一個活動編輯頁，儲存於 `rules.ui.copy`，並由 `views/game_wheel.ejs` 顯示。新版不應再寫回固定字串。
 
 ## 8. 資料庫與資料模型
 
@@ -382,6 +384,8 @@ npm test
 | 安全預覽 | Network 不出現遊玩／配額／邀請寫入 API |
 | 群發／流程 | 去重、排程鎖、失敗重試、provider event |
 | Webhook | raw body signature 正確；重送不重複寫入 |
+| 加好友邀請 | 已驗簽 follow 當下入帳、last touch、72 小時、新舊好友、webhook／瀏覽器競態、DB 短暫斷線重試 |
+| LINE 邀請卡 | Flex 封面／文案／URI CTA，CTA 與文字 fallback 的 `ref` 不可遺失 |
 | 權限 | 未登入、staff、admin 三種角色 |
 | Schema | migration 可重複套用、索引／constraint／RLS 正確 |
 

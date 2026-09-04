@@ -483,6 +483,8 @@
       var GRAND_PRIZE_IMAGE = '/images/share-miles-grand-prize-v1.webp';
       var activityMeta = <%- JSON.stringify({
         name: activity.name,
+        description: activity.description || '',
+        cover_image_url: activity.cover_image_url || '',
         base_plays_per_user: activity.base_plays_per_user,
         referral_bonus_per: activity.referral_bonus_per,
         referral_bonus_max: activity.referral_bonus_max,
@@ -1567,14 +1569,47 @@
         // /wheel/<slug>?ref=<my_id> 會解析到 /games/wheel/<slug>?ref=<my_id>
         var inviteUrl = 'https://liff.line.me/' + liffId +
           '/wheel/' + encodeURIComponent(slug) + '?ref=' + encodeURIComponent(profile.userId);
-        var msg = '快來抽「' + activityMeta.name + '」！我已經抽過了，你也來試試';
+        var msg = '快來玩「' + activityMeta.name + '」！我已經玩過了，你也來試試';
 
+        // LINE Share Target Picker 可以直接送 Flex Message。封面與文案沿用活動後台，
+        // CTA 的 URI 必須保留 ref，否則卡片雖然漂亮，邀請卻永遠不會入帳。
+        function buildInviteFlexMessage() {
+          var title = String(activityMeta.name || '邀請你一起玩').trim().slice(0, 80);
+          var description = String(activityMeta.description || '打開活動，一起試試好運！').trim().slice(0, 300);
+          var bodyContents = [
+            { type: 'text', text: title, weight: 'bold', size: 'xl', color: '#4E3C2D', wrap: true },
+            { type: 'text', text: description, size: 'sm', color: '#8D6E63', wrap: true, margin: 'md' }
+          ];
+          var bubble = {
+            type: 'bubble',
+            body: { type: 'box', layout: 'vertical', contents: bodyContents, paddingAll: '20px' },
+            footer: {
+              type: 'box', layout: 'vertical', paddingAll: '16px', paddingTop: '0px',
+              contents: [{
+                type: 'button', style: 'primary', height: 'sm', color: '#F4511E',
+                action: { type: 'uri', label: '馬上玩', uri: inviteUrl }
+              }]
+            }
+          };
+          var coverUrl = String(activityMeta.cover_image_url || '').trim();
+          if (/^https:\/\//i.test(coverUrl)) {
+            bubble.hero = {
+              type: 'image', url: coverUrl, size: 'full', aspectRatio: '20:13', aspectMode: 'cover',
+              action: { type: 'uri', label: '馬上玩', uri: inviteUrl }
+            };
+          }
+          return {
+            type: 'flex',
+            altText: (title + '｜好友邀請').slice(0, 400),
+            contents: bubble
+          };
+        }
+
+        var pickerAvailable = false;
         try {
           if (liff.isApiAvailable && liff.isApiAvailable('shareTargetPicker')) {
-            var res = await liff.shareTargetPicker([{
-              type: 'text',
-              text: msg + '\n' + inviteUrl
-            }]);
+            pickerAvailable = true;
+            var res = await liff.shareTargetPicker([buildInviteFlexMessage()]);
             if (res) {
               // 分享成功（不一定代表對方點開，只代表用戶選擇了對象）
               var needShare = Number(activityMeta.referral_invites_per_bonus || 1);
@@ -1585,7 +1620,17 @@
             return;
           }
         } catch (e) {
-          console.warn('shareTargetPicker failed:', e);
+          console.warn('Flex shareTargetPicker failed:', e);
+          // 舊版 LINE 或某些客戶端若無法解析 Flex，仍讓使用者可用原本文字邀請。
+          if (pickerAvailable) {
+            try {
+              var fallbackRes = await liff.shareTargetPicker([{ type: 'text', text: msg + '\n' + inviteUrl }]);
+              if (fallbackRes) flashStatus('已分享！朋友加入官方帳號後會自動計算');
+              return;
+            } catch (fallbackError) {
+              console.warn('Text shareTargetPicker failed:', fallbackError);
+            }
+          }
         }
         // fallback: 複製連結
         try {
