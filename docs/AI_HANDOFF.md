@@ -211,6 +211,7 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 - 前台：`/games/wheel/share-miles`
 - 主要畫面：`views/game_wheel.ejs`
 - 編輯頁：`views/admin_activity_edit.ejs`
+- 成效與得獎管理：`/admin/mgm?activity_id=6`
 
 ### 正式規則基準
 
@@ -223,6 +224,12 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 - Flex 無法送出時會退回文字連結；分享成功本身不加次數，仍要等新好友透過連結加入 OA。
 
 上述數字仍應從 activity rules 讀取，不能在 view 寫死。
+
+### 成效、庫存與得獎名單
+
+`/admin/mgm` 雖保留早期 MGM 命名，但現在是所有通用活動的成效頁。切到「分享超有哩」後，同頁可查看參與／遊玩／邀請 KPI、逐筆邀請、邀請人排行、每個獎項的總量／已抽出／剩餘、依得獎者彙總的待發名單，以及逐筆中獎紀錄與 CSV。
+
+里數存於新版快照的 `prize_snapshot.prize_value.miles`；早期資料可能在 `prize_snapshot.miles`，報表查詢必須同時相容兩種格式。得獎者彙總不可在 grouped query 裡以未分組的 outer `activity_id` 做 correlated subquery；2026-09-04 曾因此讓整頁回 `data_failed`。標記已發須依非 `none` 的 play ID 更新，不能只檢查舊版頂層 `miles` 欄位，否則新版里數、Rice Dollar 與優惠券都不會被標記。
 
 ### 可設定的 UI
 

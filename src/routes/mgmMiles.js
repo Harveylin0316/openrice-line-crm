@@ -199,10 +199,14 @@ function registerMgmMilesRoutes(app, deps) {
       const aid = act.id;
 
       const stats = (await query(
-        `SELECT COALESCE(SUM((prize_snapshot->>'miles')::int), 0)::int AS miles_total,
-                COALESCE(SUM((prize_snapshot->>'miles')::int)
+        `SELECT COALESCE(SUM(COALESCE((prize_snapshot->>'miles')::int,
+                                      (prize_snapshot->'prize_value'->>'miles')::int, 0)), 0)::int AS miles_total,
+                COALESCE(SUM(COALESCE((prize_snapshot->>'miles')::int,
+                                      (prize_snapshot->'prize_value'->>'miles')::int, 0))
                          FILTER (WHERE NOT COALESCE(is_redeemed, false)), 0)::int AS miles_pending,
                 COUNT(*) FILTER (WHERE COALESCE(prize_snapshot->>'prize_type','') <> 'none')::int AS wins,
+                COUNT(*) FILTER (WHERE COALESCE(prize_snapshot->>'prize_type','') <> 'none'
+                                   AND NOT COALESCE(is_redeemed, false))::int AS wins_pending,
                 COUNT(*)::int AS plays,
                 COUNT(DISTINCT line_user_id)::int AS people
            FROM activity_plays WHERE activity_id = $1`, [aid])).rows[0];
@@ -218,15 +222,16 @@ function registerMgmMilesRoutes(app, deps) {
                 COUNT(*) FILTER (WHERE COALESCE(p.prize_snapshot->>'prize_type','') <> 'none')::int AS wins,
                 COUNT(*) FILTER (WHERE COALESCE(p.prize_snapshot->>'prize_type','') <> 'none'
                                    AND NOT COALESCE(p.is_redeemed, false))::int AS wins_pending,
-                (SELECT string_agg(DISTINCT COALESCE(p2.prize_snapshot->>'name','獎品'), '、')
-                   FROM activity_plays p2
-                  WHERE p2.activity_id = p.activity_id AND p2.line_user_id = p.line_user_id
-                    AND COALESCE(p2.prize_snapshot->>'prize_type','') <> 'none'
-                    AND NOT COALESCE(p2.is_redeemed, false)) AS pending_prizes,
-                COALESCE(SUM((p.prize_snapshot->>'miles')::int), 0)::int AS miles,
-                COALESCE(SUM((p.prize_snapshot->>'miles')::int)
+                string_agg(DISTINCT COALESCE(p.prize_snapshot->>'name','獎品'), '、')
+                  FILTER (WHERE COALESCE(p.prize_snapshot->>'prize_type','') <> 'none'
+                            AND NOT COALESCE(p.is_redeemed, false)) AS pending_prizes,
+                COALESCE(SUM(COALESCE((p.prize_snapshot->>'miles')::int,
+                                      (p.prize_snapshot->'prize_value'->>'miles')::int, 0)), 0)::int AS miles,
+                COALESCE(SUM(COALESCE((p.prize_snapshot->>'miles')::int,
+                                      (p.prize_snapshot->'prize_value'->>'miles')::int, 0))
                          FILTER (WHERE NOT COALESCE(p.is_redeemed, false)), 0)::int AS miles_pending,
-                COALESCE(SUM((p.prize_snapshot->>'miles')::int)
+                COALESCE(SUM(COALESCE((p.prize_snapshot->>'miles')::int,
+                                      (p.prize_snapshot->'prize_value'->>'miles')::int, 0))
                          FILTER (WHERE COALESCE(p.is_redeemed, false)), 0)::int AS miles_done,
                 MAX(p.played_at) AS last_at
            FROM activity_plays p
@@ -241,7 +246,8 @@ function registerMgmMilesRoutes(app, deps) {
                 COALESCE(u.line_display_name, p.line_display_name, '(沒有名字)') AS display_name,
                 COALESCE(p.prize_snapshot->>'name', '—') AS prize_name,
                 COALESCE(p.prize_snapshot->>'prize_type', '') AS prize_type,
-                (p.prize_snapshot->>'miles')::int AS miles,
+                COALESCE((p.prize_snapshot->>'miles')::int,
+                         (p.prize_snapshot->'prize_value'->>'miles')::int, 0)::int AS miles,
                 p.coupon_code,
                 COALESCE(p.is_redeemed, false) AS granted_done
            FROM activity_plays p
@@ -274,6 +280,17 @@ function registerMgmMilesRoutes(app, deps) {
           WHERE r.activity_id = $1
           ORDER BY r.created_at DESC LIMIT 5000`, [aid])).rows;
 
+      const prizeInventory = (await query(
+        `SELECT ap.id, ap.name, ap.prize_type, ap.stock_total, ap.stock_remaining,
+                ap.probability_weight, ap.is_grand_prize, ap.position,
+                COUNT(p.id)::int AS drawn
+           FROM activity_prizes ap
+           LEFT JOIN activity_plays p
+             ON p.activity_id = ap.activity_id AND p.prize_id = ap.id
+          WHERE ap.activity_id = $1
+          GROUP BY ap.id
+          ORDER BY ap.position ASC, ap.id ASC`, [aid])).rows;
+
       res.json({
         ok: true,
         activities: list,
@@ -287,10 +304,12 @@ function registerMgmMilesRoutes(app, deps) {
           stats: {
             referrals: refs.c, referrals_existing: refs.existing, inviters: refs.inviters,
             miles_total: stats.miles_total, miles_pending: stats.miles_pending,
-            wins: stats.wins, plays: stats.plays, people: stats.people
+            wins: stats.wins, wins_pending: stats.wins_pending,
+            plays: stats.plays, people: stats.people
           }
         },
-        people, ledger, inviters, pairs, liffId: defaultLiffId || ''
+        people, ledger, inviters, pairs, prize_inventory: prizeInventory,
+        liffId: defaultLiffId || ''
       });
     } catch (err) {
       console.error('mgm admin data error:', err && err.message);
@@ -801,7 +820,7 @@ function registerMgmMilesRoutes(app, deps) {
       const upd = await query(
         `UPDATE activity_plays SET is_redeemed = true, redeemed_at = now()
           WHERE id = ANY($1::bigint[])
-            AND prize_snapshot->>'miles' IS NOT NULL
+            AND COALESCE(prize_snapshot->>'prize_type','') <> 'none'
             AND COALESCE(is_redeemed, false) = false
           RETURNING id`,
         [ids]

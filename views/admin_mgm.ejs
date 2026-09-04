@@ -10,8 +10,15 @@
         <select id="mg-act" class="mg-sel"></select>
         <a href="/admin/activities" class="muted" style="font-size:13px;">活動設定在「活動管理」</a>
       </div>
+      <p class="muted" style="font-size:13px;margin:8px 0 0;">同一頁查看活動參與、好友邀請、獎項庫存與完整得獎名單。</p>
       <div id="mg-rule" class="muted" style="margin-top:8px;font-size:13px;"></div>
       <div id="mg-stats" class="mg-stats" style="margin-top:14px;"><p class="muted">載入中…</p></div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;">獎項庫存</h2>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">每一個獎項的設定總量、已抽出與目前剩餘；數字會隨正式抽獎即時更新。</p>
+      <div id="mg-inventory"><p class="muted">載入中…</p></div>
     </section>
 
     <section class="card">
@@ -47,7 +54,7 @@
     </section>
 
     <section class="card">
-      <h2 style="margin:0 0 4px;">3. 誰中了什麼獎</h2>
+      <h2 style="margin:0 0 4px;">3. 得獎名單（誰中了什麼）</h2>
       <p class="muted" style="font-size:13px;margin-bottom:10px;">一個人一列，列出還沒發給他的東西（哩數、Rice Dollar、優惠券都算）。發完把那個人打勾，按「標記已發」。</p>
       <div class="mg-bar">
         <button type="button" id="mg-people-csv-pending" class="mg-btn1">下載要發的名單</button>
@@ -76,6 +83,16 @@
       .mg-stat{border:1px solid #ECECEE;border-radius:10px;padding:14px;background:#FAFAFA;}
       .mg-stat .v{font-size:24px;font-weight:700;color:#1f2937;font-variant-numeric:tabular-nums;}
       .mg-stat .k{font-size:12px;color:#6B6B70;margin-top:4px;}
+      .mg-inventory{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;}
+      .mg-prize{border:1px solid #ECECEE;border-radius:12px;padding:14px;background:#fff;}
+      .mg-prize-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+      .mg-prize-name{font-size:14px;font-weight:750;color:#1f2937;line-height:1.4;}
+      .mg-prize-left{font-size:22px;font-weight:800;color:#1f2937;white-space:nowrap;font-variant-numeric:tabular-nums;}
+      .mg-prize-left small{display:block;font-size:10.5px;font-weight:600;color:#6B6B70;text-align:right;}
+      .mg-stock-bar{height:7px;background:#F3F4F6;border-radius:999px;overflow:hidden;margin:11px 0 7px;}
+      .mg-stock-bar span{display:block;height:100%;background:#F9C73B;border-radius:999px;}
+      .mg-stock-bar span.low{background:#F15A24;}
+      .mg-prize-meta{display:flex;justify-content:space-between;gap:8px;color:#6B6B70;font-size:11.5px;}
       .mg-sel{padding:8px 10px;border:1px solid #D8D8DC;border-radius:8px;font-size:14px;background:#fff;font-weight:600;}
       .mg-tag{display:inline-block;padding:2px 8px;border-radius:999px;background:#1f2937;color:#fff;font-size:11.5px;font-weight:700;}
       .mg-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center;}
@@ -129,10 +146,35 @@
       function renderStats(a){
         var s=(a&&a.stats)||{};
         $('mg-stats').innerHTML=
-          stat(s.referrals,'邀請成功幾個人')+
-          stat(s.plays,'總共玩了幾次')+
-          stat(s.wins,'中獎幾次')+
-          stat(s.miles_pending,'還要發多少哩');
+          stat(s.referrals,'成功邀請新好友')+
+          stat(s.inviters,'有邀請的會員')+
+          stat(s.referrals_existing,'原本已是好友（不加次數）')+
+          stat(s.people,'參與人數')+
+          stat(s.plays,'總遊玩次數')+
+          stat(s.wins,'得獎次數')+
+          stat(s.wins_pending,'尚未發放獎項')+
+          stat(s.miles_pending,'尚未發放里數');
+      }
+
+      function renderInventory(rows){
+        var list=rows||[];
+        if(!list.length)return empty('mg-inventory','這檔活動還沒有設定獎項。');
+        $('mg-inventory').className='mg-inventory';
+        $('mg-inventory').innerHTML=list.map(function(r){
+          var drawn=Number(r.drawn||0);
+          var limited=r.stock_total!==null && r.stock_total!==undefined;
+          var total=limited?Math.max(0,Number(r.stock_total||0)):0;
+          var left=limited?Math.max(0,Number(r.stock_remaining||0)):null;
+          var pct=limited&&total>0?Math.max(0,Math.min(100,(left/total)*100)):100;
+          var low=limited&&total>0&&pct<=20;
+          var type=r.prize_type==='none'?'未中獎格':(r.is_grand_prize?'大獎':'一般獎項');
+          return '<div class="mg-prize"><div class="mg-prize-top">'+
+            '<div><div class="mg-prize-name">'+esc(r.name)+'</div><div class="muted" style="font-size:11px;margin-top:3px;">'+type+'</div></div>'+
+            '<div class="mg-prize-left">'+(limited?left.toLocaleString():'不限量')+'<small>剩餘</small></div></div>'+
+            '<div class="mg-stock-bar"><span class="'+(low?'low':'')+'" style="width:'+pct.toFixed(2)+'%"></span></div>'+
+            '<div class="mg-prize-meta"><span>已抽出 '+drawn.toLocaleString()+'</span><span>'+
+              (limited?('設定總量 '+total.toLocaleString()):'不計庫存')+'</span></div></div>';
+        }).join('');
       }
 
       function renderPairs(rows){
@@ -196,10 +238,18 @@
       function load(activityId){
         var u='/admin/mgm/api/data'+(activityId?('?activity_id='+encodeURIComponent(activityId)):'');
         return fetch(u).then(function(r){return r.json();}).then(function(d){
-          if(!d.ok){$('mg-rule').textContent='載入失敗：'+esc(d.error||'');return;}
+          if(!d.ok){
+            var reason=esc(d.detail||d.error||'未知原因');
+            $('mg-rule').innerHTML='<span style="color:#B42318;font-weight:700;">資料載入失敗：</span>'+reason;
+            ['mg-stats','mg-inventory','mg-pairs','mg-inviters','mg-people'].forEach(function(id){
+              empty(id,'資料暫時無法顯示，請重新整理。');
+            });
+            return;
+          }
           DATA=d; ACT=d.activity;
           renderPicker(d.activities||[], ACT);
           renderRule(ACT); renderStats(ACT);
+          renderInventory(d.prize_inventory);
           renderPairs(d.pairs); renderInviters(d.inviters);
           renderPeople(d.people); renderLedger(d.ledger);
           if(ACT) $('mg-draw-link').href='/admin/mgm/draw?activity_id='+ACT.id;
