@@ -1600,6 +1600,7 @@
       name_not_found: '找不到該會員顯示名稱或帳號',
       name_ambiguous: '有多人符合，請改填 LINE userId',
       no_recipient: '送給自己時你的帳號未綁定 LINE，請填入收件人',
+      invalid_line_message: '訊息內容不符合 LINE 規格',
       push_failed: 'LINE push 失敗（請至 line_push_logs 查 detail）',
       label_required: '請填顯示名',
       duplicate_line_user_id: '這個 LINE userId 已在清單'
@@ -1711,9 +1712,13 @@
         var idx = 0;
         var ok = 0;
         var fail = 0;
+        var failures = [];
         function next() {
           if (idx >= list.length) {
-            statusEl.innerHTML = '完成：成功 <strong>' + ok + '</strong> ／ 失敗 <strong>' + fail + '</strong>';
+            var detail = failures.length
+              ? '<br><span class="muted">' + failures.map(escapeHtml).join('<br>') + '</span>'
+              : '';
+            statusEl.innerHTML = '完成：成功 <strong>' + ok + '</strong> ／ 失敗 <strong>' + fail + '</strong>' + detail;
             return;
           }
           var r = list[idx++];
@@ -1724,8 +1729,16 @@
             body: JSON.stringify({ test_line_user_id: r.line_user_id, message_config: cfg })
           })
             .then(function (r2) { return r2.json(); })
-            .then(function (d) { if (d.ok) ok++; else fail++; })
-            .catch(function () { fail++; })
+            .then(function (d) {
+              if (d.ok) ok++;
+              else {
+                fail++;
+                var why = errorMap(d.error);
+                if (d.detail) why += '｜' + d.detail;
+                failures.push(r.label + '：' + why);
+              }
+            })
+            .catch(function (e) { fail++; failures.push(r.label + '：網路錯誤｜' + e.message); })
             .then(function () { setTimeout(next, 200); });
         }
         next();

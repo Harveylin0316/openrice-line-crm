@@ -54,6 +54,26 @@ function safeJsonError(res, status, error, extra = {}) {
   return res.status(status).json({ ok: false, error, ...extra });
 }
 
+function humanizeLineApiDetail(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  try {
+    const parsed = JSON.parse(text);
+    const details = Array.isArray(parsed.details)
+      ? parsed.details.map((d) => {
+          const property = String((d && d.property) || '').trim();
+          const message = String((d && d.message) || '').trim();
+          return [property, message].filter(Boolean).join('：');
+        }).filter(Boolean)
+      : [];
+    return details.length
+      ? details.join('；')
+      : String(parsed.message || text).slice(0, 500);
+  } catch (_err) {
+    return text.slice(0, 500);
+  }
+}
+
 function registerAdminBroadcastRoutes(app, deps) {
   const {
     query,
@@ -828,6 +848,15 @@ function registerAdminBroadcastRoutes(app, deps) {
       const builtMsg = buildLineMessages(messageConfig, { heroImageBaseUrl: origin });
       if (!builtMsg.ok) return safeJsonError(res, 400, builtMsg.error);
 
+      if (linePush && typeof linePush.validatePushMessages === 'function') {
+        const valid = await linePush.validatePushMessages(builtMsg.messages);
+        if (!valid.ok) {
+          return safeJsonError(res, 400, 'invalid_line_message', {
+            detail: humanizeLineApiDetail(valid.detail)
+          });
+        }
+      }
+
       let lineTo = '';
       let targetUserId = null;
 
@@ -863,9 +892,14 @@ function registerAdminBroadcastRoutes(app, deps) {
 
       const pushed = await linePush.pushLineMessages(lineTo, builtMsg.messages, {
         userId: targetUserId,
-        pushType: 'admin_broadcast_test'
+        pushType: 'admin_broadcast_test',
+        returnResult: true
       });
-      if (!pushed) return safeJsonError(res, 500, 'push_failed');
+      if (!(pushed && typeof pushed === 'object' ? pushed.ok : pushed)) {
+        return safeJsonError(res, 502, 'push_failed', {
+          detail: humanizeLineApiDetail(pushed && typeof pushed === 'object' ? pushed.detail : '')
+        });
+      }
       return res.json({ ok: true, sentTo: lineTo });
     } catch (err) {
       console.error('test-push error:', err && (err.stack || err.message));
@@ -952,6 +986,14 @@ function registerAdminBroadcastRoutes(app, deps) {
         if (!builtMsg.ok) {
           return safeJsonError(res, 400, builtMsg.error);
         }
+        if (linePush && typeof linePush.validatePushMessages === 'function') {
+          const valid = await linePush.validatePushMessages(builtMsg.messages);
+          if (!valid.ok) {
+            return safeJsonError(res, 400, 'invalid_line_message', {
+              detail: humanizeLineApiDetail(valid.detail)
+            });
+          }
+        }
       } else {
         // email：驗證 template + subject 必填
         if (!emailSubject) return safeJsonError(res, 400, 'email_subject_required');
@@ -972,6 +1014,14 @@ function registerAdminBroadcastRoutes(app, deps) {
         if (channel === 'line') {
           const builtB = buildLineMessages(variantBConfig, { heroImageBaseUrl: origin });
           if (!builtB.ok) return safeJsonError(res, 400, 'variant_b_invalid:' + builtB.error);
+          if (linePush && typeof linePush.validatePushMessages === 'function') {
+            const validB = await linePush.validatePushMessages(builtB.messages);
+            if (!validB.ok) {
+              return safeJsonError(res, 400, 'variant_b_invalid', {
+                detail: humanizeLineApiDetail(validB.detail)
+              });
+            }
+          }
         } else {
           const tplCheckB = validateEmailTemplateInput({
             ...(variantBConfig.template || {}),
@@ -1176,10 +1226,12 @@ function registerAdminBroadcastRoutes(app, deps) {
 
       // 預先驗證訊息設定（不帶 recipientId，用來檢查能否 build）
       let sanityErr = null;
+      let sanityLineMessages = [];
       if (channel === 'line') {
         const sa = buildLineMessages(b.message_config, { heroImageBaseUrl: origin, broadcastId, variant: isAbTest ? 'a' : undefined });
         const sb = isAbTest ? buildLineMessages(b.variant_b_message_config, { heroImageBaseUrl: origin, broadcastId, variant: 'b' }) : null;
         if (!sa.ok || (isAbTest && !sb.ok)) sanityErr = !sa.ok ? sa.error : sb.error;
+        else sanityLineMessages = [sa.messages, ...(isAbTest ? [sb.messages] : [])];
       } else {
         const sa = validateEmailTemplateInput({ ...(b.message_config && b.message_config.template ? b.message_config.template : {}), subject: b.email_subject });
         const sb = isAbTest ? validateEmailTemplateInput({ ...(b.variant_b_message_config && b.variant_b_message_config.template ? b.variant_b_message_config.template : {}), subject: b.email_subject }) : { ok: true };
@@ -1194,6 +1246,23 @@ function registerAdminBroadcastRoutes(app, deps) {
           );
         }
         return safeJsonError(res, 400, 'message_invalid:' + sanityErr);
+      }
+      if (channel === 'line' && linePush && typeof linePush.validatePushMessages === 'function') {
+        for (const messages of sanityLineMessages) {
+          const valid = await linePush.validatePushMessages(messages);
+          if (!valid.ok) {
+            if (claimed.length > 0) {
+              await query(
+                `UPDATE admin_broadcast_recipients SET status = 'pending'
+                 WHERE id = ANY($1::bigint[])`,
+                [claimed.map(r => r.id)]
+              );
+            }
+            return safeJsonError(res, 400, 'invalid_line_message', {
+              detail: humanizeLineApiDetail(valid.detail)
+            });
+          }
+        }
       }
 
       let okCount = 0;

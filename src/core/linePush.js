@@ -55,7 +55,7 @@ function createLinePushService({ query, lineChannelAccessToken }) {
       ? messages.map(normalizeLinePushMessageItem).filter(Boolean)
       : [];
     const pushType = typeof extra.pushType === 'string' && extra.pushType.trim() ? extra.pushType.trim() : 'winner_notification';
-    const { pushType: _pt, ...extraForBody } = extra;
+    const { pushType: _pt, returnResult = false, ...extraForBody } = extra;
     const logPayload = {
       userId: extra.userId || null,
       lineUserId,
@@ -63,16 +63,17 @@ function createLinePushService({ query, lineChannelAccessToken }) {
       body: { messages: normalizedMessages, ...extraForBody }
     };
     if (!lineUserId || !lineChannelAccessToken || normalizedMessages.length === 0) {
+      const detail = !lineUserId
+        ? 'missing_line_user_id'
+        : !lineChannelAccessToken
+          ? 'missing_channel_access_token'
+          : 'empty_messages';
       await logLinePush({
         ...logPayload,
         status: 'skipped',
-        detail: !lineUserId
-          ? 'missing_line_user_id'
-          : !lineChannelAccessToken
-            ? 'missing_channel_access_token'
-            : 'empty_messages'
+        detail
       });
-      return false;
+      return returnResult ? { ok: false, status: 'skipped', httpStatus: null, detail } : false;
     }
     try {
       const response = await fetch('https://api.line.me/v2/bot/message/push', {
@@ -97,14 +98,17 @@ function createLinePushService({ query, lineChannelAccessToken }) {
           httpStatus: Number(response.status),
           detail: detail ? String(detail).slice(0, 1500) : 'line_api_error'
         });
-        return false;
+        return returnResult
+          ? { ok: false, status: 'failed', httpStatus: Number(response.status),
+              detail: detail ? String(detail).slice(0, 1500) : 'line_api_error' }
+          : false;
       }
       await logLinePush({
         ...logPayload,
         status: 'success',
         httpStatus: Number(response.status)
       });
-      return true;
+      return returnResult ? { ok: true, status: 'success', httpStatus: Number(response.status), detail: null } : true;
     } catch (err) {
       console.error('LINE push failed:', err.message);
       await logLinePush({
@@ -112,7 +116,51 @@ function createLinePushService({ query, lineChannelAccessToken }) {
         status: 'failed',
         detail: String(err.message || 'network_error').slice(0, 1500)
       });
-      return false;
+      return returnResult
+        ? { ok: false, status: 'failed', httpStatus: null,
+            detail: String(err.message || 'network_error').slice(0, 1500) }
+        : false;
+    }
+  }
+
+  /**
+   * LINE 官方的 push message 驗證端點。不消耗推播額度，也不需要收件人；
+   * 正式建批次前先跑一次，避免 900 人都因同一份壞 JSON 失敗。
+   */
+  async function validatePushMessages(messages) {
+    const normalizedMessages = Array.isArray(messages)
+      ? messages.map(normalizeLinePushMessageItem).filter(Boolean)
+      : [];
+    if (!lineChannelAccessToken) {
+      return { ok: false, httpStatus: null, detail: 'missing_channel_access_token' };
+    }
+    if (normalizedMessages.length === 0) {
+      return { ok: false, httpStatus: null, detail: 'empty_messages' };
+    }
+    try {
+      const response = await fetch('https://api.line.me/v2/bot/message/validate/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${lineChannelAccessToken}`
+        },
+        body: JSON.stringify({ messages: normalizedMessages })
+      });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        return {
+          ok: false,
+          httpStatus: Number(response.status),
+          detail: detail ? String(detail).slice(0, 1500) : 'line_validation_error'
+        };
+      }
+      return { ok: true, httpStatus: Number(response.status), detail: null };
+    } catch (err) {
+      return {
+        ok: false,
+        httpStatus: null,
+        detail: String(err.message || 'network_error').slice(0, 1500)
+      };
     }
   }
 
@@ -184,7 +232,7 @@ function createLinePushService({ query, lineChannelAccessToken }) {
     }
   }
 
-  return { logLinePush, pushLineMessages, replyLineMessages };
+  return { logLinePush, pushLineMessages, validatePushMessages, replyLineMessages };
 }
 
-module.exports = { createLinePushService };
+module.exports = { createLinePushService, normalizeLinePushMessageItem };

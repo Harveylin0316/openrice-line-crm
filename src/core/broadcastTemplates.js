@@ -312,6 +312,14 @@ function postProcessFlexTree(node) {
   if (node.type === 'text' && typeof node.text === 'string') {
     const normalized = normalizeBullets(node.text);
     if (normalized !== node.text) node.text = normalized;
+
+    // LINE Flex 的 backgroundColor 是 box 屬性，不是 text 屬性。
+    // 後台允許直接貼 Flex JSON，也可能接手 AI 產生的 JSON；這類設定在網頁預覽看起來
+    // 沒問題，實際送 LINE 才會整批被 400 拒絕。已知不合法的欄位在送出前移除，
+    // 背景色若需要保留，應放在包住文字的 box 上。
+    if (Object.prototype.hasOwnProperty.call(node, 'backgroundColor')) {
+      delete node.backgroundColor;
+    }
   }
   // clipboard action auto-sync from box.contents
   if (
