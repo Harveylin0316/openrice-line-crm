@@ -28,8 +28,10 @@ function appStub(routes) {
   // ── 數據總覽 ──
   let routes = {};
   const dailyRow = { day: '08/21', joins: 5, blocks: 1, msgs: 20, menu_taps: 3, plays: 2, referrals: 1 };
-  const insightQuery = async (sql) => {
+  const insightCalls = [];
+  const insightQuery = async (sql, params) => {
     const f = String(sql).replace(/\s+/g, ' ');
+    insightCalls.push({ f, params: params || [] });
     if (/generate_series/.test(f)) return { rows: [dailyRow] };
     if (/AS members/.test(f) && /AS joined_period/.test(f)) {
       // 這三個數字一定要排除 archived_at（換 LINE 帳號時封存的舊會員），
@@ -58,6 +60,10 @@ function appStub(routes) {
   ok((lastTotalsSql || '').match(/archived_at IS NULL/g || []).length >= 3,
      '會員數、封鎖數、近期新加入三個都排除了');
   ok(/Asia\/Taipei/.test(lastTotalsSql || ''), '「近 N 天」用台北日界線，跟長條圖對得起來');
+  r = await run(routes, 'GET /admin/insight/api/data', { q: { days: '365' } });
+  ok(r.body && r.body.days === 365, '數據期間可自己調整到 365 天，不再只有 30／90 天');
+  ok(insightCalls.some(c => /FROM rich_menu_taps/.test(c.f) && c.params[0] === 365),
+     '圖文選單熱門按鍵也使用同一個自訂期間，不再寫死 30 天');
 
   // LINE 全掛 → 頁面照出，官方欄位是 null
   routes = {};

@@ -8,10 +8,14 @@
       <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;">
         <h1 style="margin:0;">數據總覽</h1>
         <div class="in-range">
+          <button type="button" class="in-rbtn" data-days="7">近 7 天</button>
           <button type="button" class="in-rbtn on" data-days="30">近 30 天</button>
           <button type="button" class="in-rbtn" data-days="90">近 90 天</button>
+          <button type="button" class="in-rbtn" data-days="180">近 180 天</button>
+          <button type="button" class="in-rbtn" data-days="365">近 1 年</button>
+          <span class="in-custom"><input type="number" id="in-custom-days" min="1" max="365" placeholder="天數" /><button type="button" id="in-custom-apply">套用</button></span>
         </div>
-        <span id="in-note" class="muted" style="font-size:13px;"></span>
+        <span id="in-note" class="muted" style="font-size:13px;">期間會套用到好友成長、互動、加入來源、圖文選單與活動；LINE 官方好友總數與輪廓仍是最新快照。</span>
       </div>
       <div id="in-cards" class="in-cards" style="margin-top:14px;"><p class="muted">載入中…</p></div>
     </section>
@@ -44,7 +48,7 @@
 
     <div class="in-two">
       <section class="card">
-        <h2 style="margin:0 0 4px;">圖文選單最熱門的按鍵（近 30 天）</h2>
+        <h2 style="margin:0 0 4px;">圖文選單最熱門的按鍵（<span id="in-buttons-range">近 30 天</span>）</h2>
         <div id="in-buttons"><p class="muted">載入中…</p></div>
       </section>
       <section class="card">
@@ -55,9 +59,12 @@
     </div>
 
     <style>
-      .in-range{display:flex;gap:6px;}
+      .in-range{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
       .in-rbtn{padding:7px 14px;border:1.5px solid #ECECEE;background:#fff;border-radius:999px;font-size:13px;font-weight:700;color:#6B7280;cursor:pointer;}
       .in-rbtn.on{border-color:#1f2937;color:#1f2937;}
+      .in-custom{display:flex;gap:4px;align-items:center;}
+      .in-custom input{width:76px;padding:7px 9px;border:1.5px solid #ECECEE;border-radius:8px;font:inherit;}
+      .in-custom button{padding:7px 10px;border:0;border-radius:8px;background:#FCC726;color:#1f2937;font-weight:700;cursor:pointer;}
       .in-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
       .in-card{border:1px solid #ECECEE;border-radius:10px;padding:14px;background:#FAFAFA;}
       .in-card .v{font-size:26px;font-weight:800;color:#1f2937;font-variant-numeric:tabular-nums;}
@@ -83,6 +90,7 @@
       var $=function(id){return document.getElementById(id);};
       function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
       var DATA=null, days=30;
+      var RANGE_NOTE='期間會套用到好友成長、互動、加入來源、圖文選單與活動；LINE 官方好友總數與輪廓仍是最新快照。';
 
       function card(v,k){return '<div class="in-card"><div class="v">'+(v==null?'—':Number(v).toLocaleString())+'</div><div class="k">'+k+'</div></div>';}
 
@@ -219,7 +227,10 @@
           card(DATA.totals?DATA.totals.members:null,'進過系統的會員數')+
           card(joined,'近 '+DATA.days+' 天新加入')+
           card(dv?((dv.autoResponse||0)+(dv.apiPush||0)+(dv.apiReply||0)+(dv.apiMulticast||0)+(dv.apiBroadcast||0)):null,'昨天發出的訊息');
-        if(!lf)$('in-note').textContent='LINE 官方統計暫時連不上，先看得到我們自己的數字。';
+        $('in-buttons-range').textContent='近 '+DATA.days+' 天';
+        $('in-note').textContent=lf
+          ? RANGE_NOTE
+          : 'LINE 官方統計暫時連不上；目前仍可查看這段期間內系統自己的數字。';
         drawGrowth();drawEngage();renderDemo();renderSources();renderButtons();renderActs();
       }
 
@@ -235,6 +246,14 @@
           [].slice.call(document.querySelectorAll('.in-rbtn')).forEach(function(x){x.classList.toggle('on',x===b);});
           load();
         });
+      });
+      $('in-custom-apply').addEventListener('click',function(){
+        var n=Math.round(Number($('in-custom-days').value));
+        if(!Number.isFinite(n)||n<1||n>365){$('in-note').textContent='自訂天數請填 1 到 365。';return;}
+        days=n;
+        [].slice.call(document.querySelectorAll('.in-rbtn')).forEach(function(x){x.classList.remove('on');});
+        $('in-note').textContent='正在載入近 '+n+' 天資料…';
+        load();
       });
       load();
     })();

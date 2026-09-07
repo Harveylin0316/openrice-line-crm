@@ -188,6 +188,17 @@ function registerAdminFlowsRoutes(app, deps) {
     const tType = trigger.type;
     if (!['follow', 'list_join', 'event', 'schedule', 'game_play', 'broadcast_click', 'restaurant_click', 'inactivity', 'streak_risk', 'rich_menu_tap'].includes(tType)) return { ok: false, error: 'invalid_trigger_type' };
     const tCfg = trigger.config || {};
+    const rawUserLimit = tCfg.user_limit;
+    if (rawUserLimit && typeof rawUserLimit === 'object' && rawUserLimit.max !== '' && rawUserLimit.max != null) {
+      const max = Math.round(Number(rawUserLimit.max));
+      if (!Number.isFinite(max) || max < 1 || max > 1000) return { ok: false, error: 'invalid_user_trigger_limit' };
+      const window = ['lifetime', 'day', '7d', '30d'].includes(rawUserLimit.window)
+        ? rawUserLimit.window
+        : 'lifetime';
+      tCfg.user_limit = { max, window };
+    } else {
+      delete tCfg.user_limit;
+    }
     if (tType === 'list_join' && !(Number(tCfg.list_id) > 0)) return { ok: false, error: 'list_join_needs_list' };
     if (tType === 'rich_menu_tap') {
       if (!(Number(tCfg.menu_id) > 0)) return { ok: false, error: 'rich_menu_tap_needs_menu' };
@@ -232,6 +243,8 @@ function registerAdminFlowsRoutes(app, deps) {
       tCfg.days = Math.min(3650, d);
       const bl = Math.round(Number(tCfg.batch_limit));
       tCfg.batch_limit = Number.isFinite(bl) && bl > 0 ? Math.min(500, bl) : 50;
+      // 沉睡者在流程跑完後通常仍符合「沉睡」條件；若允許重入，排程會反覆轟炸。
+      tCfg.user_limit = { max: 1, window: 'lifetime' };
     }
     if (tType === 'streak_risk') {
       const ms = Math.round(Number(tCfg.min_streak));
@@ -283,7 +296,13 @@ function registerAdminFlowsRoutes(app, deps) {
     if (steps.some(s => s && s.type === 'add_to_list' && !(Number(s.list_id) > 0))) {
       return { ok: false, error: 'add_to_list_needs_list' };
     }
-    return { ok: true, name, trigger: { type: tType, config: tCfg }, steps, re_enroll: !!body.re_enroll };
+    // 有設定週期上限，或上限大於一次時，必須允許前一輪結束後再進入；
+    // 真正的次數仍由 flowEngine 的 user_limit 擋住。
+    const userLimit = tCfg.user_limit;
+    const reEnroll = userLimit
+      ? (userLimit.window !== 'lifetime' || userLimit.max > 1)
+      : !!body.re_enroll;
+    return { ok: true, name, trigger: { type: tType, config: tCfg }, steps, re_enroll: reEnroll };
   }
 
   async function writeNodes(client, flowId, steps) {

@@ -51,7 +51,7 @@ function registerAdminAttributionRoutes(app, deps) {
   app.get('/admin/attribution/api/system', requireAdmin, async (req, res) => {
     try {
       const limit = clampInt(req.query.limit, 1, 30, 20);
-      const days = clampInt(req.query.days, 1, 30, 7);
+      const days = clampInt(req.query.days, 1, 365, 7);
 
       // 一次查詢：先取最近 N 則「已送出/有送達」的群發，再左接點擊與後續行為彙總。
       //

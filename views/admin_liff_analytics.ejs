@@ -15,6 +15,17 @@
           <span class="liff-meta-pill liff-meta-pill--muted" id="liff-last-updated">載入中…</span>
           <button type="button" class="liff-refresh-btn" id="btn-liff-refresh">重新整理</button>
         </div>
+        <div class="liff-global-range">
+          <strong>下方全部報表：</strong>
+          <button type="button" data-global-days="7">7 天</button>
+          <button type="button" data-global-days="30" class="on">30 天</button>
+          <button type="button" data-global-days="90">90 天</button>
+          <button type="button" data-global-days="180">180 天</button>
+          <button type="button" data-global-days="365">1 年</button>
+          <input type="number" id="liff-custom-days" min="1" max="365" placeholder="自訂天數" />
+          <button type="button" id="liff-custom-apply">套用</button>
+          <span class="muted" id="liff-range-status"></span>
+        </div>
       </div>
     </section>
 
@@ -111,11 +122,7 @@
     <section class="card">
       <div class="liff-section-head">
         <h2>玩的人裡面，有幾個是你的會員</h2>
-        <div class="liff-range-toggle">
-          <label><input type="radio" name="aud-days" value="7" checked /> 近 7 天</label>
-          <label><input type="radio" name="aud-days" value="30" /> 近 30 天</label>
-          <label><input type="radio" name="aud-days" value="3650" /> 全部</label>
-        </div>
+        <span class="muted liff-shared-range-label">使用上方統一期間</span>
       </div>
       <p class="liff-aud-lead" id="aud-lead">載入中…</p>
       <div class="liff-aud-grid" id="aud-grid" hidden>
@@ -164,10 +171,7 @@
           <label><input type="radio" name="funnel-metric" value="users" /> 以人數</label>
           <label><input type="radio" name="funnel-metric" value="events" /> 以次數</label>
         </div>
-        <div class="liff-range-toggle">
-          <label><input type="radio" name="funnel-days" value="7" checked /> 7 天</label>
-          <label><input type="radio" name="funnel-days" value="30" /> 30 天</label>
-        </div>
+        <span class="muted liff-shared-range-label">使用上方統一期間</span>
       </div>
       <div class="muted" style="font-size:12px;margin-bottom:12px;">
         開啟活動頁 → 打開地圖 → 看餐廳 → 點訂位。最後一步「點訂位」才是真正想看的成果，其他都是過程。
@@ -200,11 +204,7 @@
     <section class="card">
       <div class="liff-section-head">
         <h2>最多人看的餐廳</h2>
-        <div class="liff-range-toggle">
-          <label><input type="radio" name="rest-days" value="7" /> 7 天</label>
-          <label><input type="radio" name="rest-days" value="30" checked /> 30 天</label>
-          <label><input type="radio" name="rest-days" value="3650" /> 全部</label>
-        </div>
+        <span class="muted liff-shared-range-label">使用上方統一期間</span>
       </div>
       <div class="muted" style="font-size:12px;margin-bottom:12px;">
         大家在地圖上點開哪幾間看。被看很多次但沒人按訂位，跟被看不多卻一直有人訂位，是兩種完全不同的合作對象，談約前值得先看這張表。
@@ -229,11 +229,7 @@
     <section class="card">
       <div class="liff-section-head">
         <h2>用過的人</h2>
-        <div class="liff-range-toggle">
-          <label><input type="radio" name="users-days" value="1" /> 今日</label>
-          <label><input type="radio" name="users-days" value="7" checked /> 7 天</label>
-          <label><input type="radio" name="users-days" value="30" /> 30 天</label>
-        </div>
+        <span class="muted liff-shared-range-label">使用上方統一期間</span>
       </div>
       <div class="muted" style="font-size:12px;margin-bottom:12px;">
         有打開過活動頁、而且留得下身分的人。「已在名單」表示這個人在你的會員名單裡對得到名字；「不在名單」可能是新客人，也可能是同事自己測試。點下面那串代碼可以複製。
@@ -260,10 +256,7 @@
     <section class="card">
       <div class="liff-section-head">
         <h2>每日趨勢</h2>
-        <div class="liff-range-toggle">
-          <label><input type="radio" name="trend-days" value="7" /> 7 天</label>
-          <label><input type="radio" name="trend-days" value="30" checked /> 30 天</label>
-        </div>
+        <span class="muted liff-shared-range-label">使用上方統一期間</span>
       </div>
       <div class="muted" style="font-size:12px;margin-bottom:12px;">
         來訪、看餐廳、點訂位看左邊的刻度；轉換率（%）看右邊。轉換率＝當天點訂位次數 ÷ 當天看餐廳次數。
@@ -281,6 +274,7 @@
 
       var funnelChart = null;
       var trendChart = null;
+      var activeDays = 30;
 
       var INK = '#1f2937';
       var GRAY = '#9ca3af';
@@ -541,7 +535,7 @@
         var n = Number(days);
         if (n === 7) return '近 7 天';
         if (n === 30) return '近 30 天';
-        return '目前為止';
+        return '近 ' + n + ' 天';
       }
 
       function loadAudience(days) {
@@ -808,41 +802,52 @@
       }
 
       // ---------------- 觸發 + 互動 ----------------
-      function pick(name, fallback) {
-        return (document.querySelector('input[name="' + name + '"]:checked') || {}).value || fallback;
-      }
-
       function refreshAll() {
         $('liff-last-updated').textContent = '載入中…';
         Promise.all([
           loadOverview(),
-          loadAudience(pick('aud-days', 7)),
-          loadFunnel(pick('funnel-days', 7)),
-          loadRestaurants(pick('rest-days', 30)),
-          loadUsers(pick('users-days', 7)),
-          loadTrend(pick('trend-days', 30))
+          loadAudience(activeDays),
+          loadFunnel(activeDays),
+          loadRestaurants(activeDays),
+          loadUsers(activeDays),
+          loadTrend(activeDays)
         ]).then(function () {
           $('liff-last-updated').textContent = '最後更新: ' + nowLabel();
+          $('liff-range-status').textContent = '目前顯示近 ' + activeDays + ' 天';
         });
       }
 
-      document.querySelectorAll('input[name="funnel-days"]').forEach(function (el) {
-        el.addEventListener('change', function () { loadFunnel(el.value); });
+      function loadAllForDays(days) {
+        activeDays = days;
+        $('liff-last-updated').textContent = '載入中…';
+        $('liff-range-status').textContent = '正在載入近 ' + days + ' 天…';
+        return Promise.all([
+          loadAudience(days), loadFunnel(days), loadRestaurants(days), loadUsers(days), loadTrend(days)
+        ]).then(function () {
+          $('liff-last-updated').textContent = '最後更新: ' + nowLabel();
+          $('liff-range-status').textContent = '目前顯示近 ' + days + ' 天';
+        });
+      }
+
+      document.querySelectorAll('[data-global-days]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var days = Number(btn.getAttribute('data-global-days'));
+          document.querySelectorAll('[data-global-days]').forEach(function (x) { x.classList.toggle('on', x === btn); });
+          loadAllForDays(days);
+        });
       });
+      $('liff-custom-apply').addEventListener('click', function () {
+        var days = Math.round(Number($('liff-custom-days').value));
+        if (!Number.isFinite(days) || days < 1 || days > 365) {
+          $('liff-range-status').textContent = '請填 1 到 365 天';
+          return;
+        }
+        document.querySelectorAll('[data-global-days]').forEach(function (x) { x.classList.remove('on'); });
+        loadAllForDays(days);
+      });
+
       document.querySelectorAll('input[name="funnel-metric"]').forEach(function (el) {
         el.addEventListener('change', function () { renderFunnel(); });
-      });
-      document.querySelectorAll('input[name="rest-days"]').forEach(function (el) {
-        el.addEventListener('change', function () { loadRestaurants(el.value); });
-      });
-      document.querySelectorAll('input[name="trend-days"]').forEach(function (el) {
-        el.addEventListener('change', function () { loadTrend(el.value); });
-      });
-      document.querySelectorAll('input[name="users-days"]').forEach(function (el) {
-        el.addEventListener('change', function () { loadUsers(el.value); });
-      });
-      document.querySelectorAll('input[name="aud-days"]').forEach(function (el) {
-        el.addEventListener('change', function () { loadAudience(el.value); });
       });
       $('btn-liff-refresh').addEventListener('click', refreshAll);
 
@@ -883,6 +888,11 @@
         color: #374151;
       }
       .liff-refresh-btn:hover { background: #f9fafb; border-color: #d1d5db; }
+      .liff-global-range { margin-top:14px;padding:12px;background:#fff;border:1px solid #fde68a;border-radius:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:13px; }
+      .liff-global-range button { padding:6px 10px;border:1px solid #d1d5db;background:#fff;border-radius:999px;cursor:pointer;font-weight:600; }
+      .liff-global-range button.on,.liff-global-range #liff-custom-apply { background:#FCC726;border-color:#FCC726;color:#1f2937; }
+      .liff-global-range input { width:94px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px; }
+      .liff-shared-range-label { font-size:12px; }
 
       .liff-kpi-grid {
         display: grid;

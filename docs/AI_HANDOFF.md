@@ -128,6 +128,8 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 行為與安全邊界：
 
 - 只計算會開啟網址或送出文字的功能按鈕；Rich Menu 分頁切換不算。
+- 流程編輯器可設定「同一人最多觸發幾次」，並選擇整段流程期間、每天、滾動 7 天或滾動 30 天。設定存在 `trigger_config.user_limit`，由 `flowEngine.enrollUser()` 在所有真正新增 enrollment 前統一檢查；未發送前的圖文選單連點只重設倒數，不多扣次數。
+- 舊流程未儲存 `user_limit` 時完全沿用原本 `re_enroll` 行為；編輯器會把舊的「不可重入」顯示成整段期間 1 次，把「可重入」顯示成不限次數。沉睡喚醒固定每人一生一次，避免仍在沉睡的用戶每分鐘被重複加入。
 - 同一用戶在訊息尚未送出前重複點擊，不會堆疊多份推播，而是以最後一次點擊重新倒數。訊息已送出後不會因連點重播。
 - 21:00–08:00 是安靜時段。延遲到安靜時段的訊息會順延至 08:00 後，不會半夜發送。
 - 網址按鈕透過 LIFF ID token 向 LINE 驗證身分；後端不接受前端自行宣告的 LINE user ID。驗證或紀錄失敗不能阻擋按鈕原本的跳轉。
@@ -142,6 +144,8 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 - 歸因與邀請：`/admin/attribution`、`/admin/referrals`
 - LIFF／Random Rice：`/admin/liff/random-rice`
 - RFM：`/admin/rfm`
+
+期間控制：`/admin/insight` 與 Random Rice 行為分析可選 7／30／90／180／365 天，也可自行輸入 1–365 天；同一頁的圖表與表格使用一致期間。`/admin/attribution` 的「點擊後觀察期」可選到 90 天或自行輸入 1–365 天。LINE 官方好友總數、輪廓與昨日訊息量是 LINE API 的最新快照，不會因站內期間篩選而改變；畫面有明確註記。RFM 的「30 天內算活躍」是分群規則，不是報表篩選，不能跟著改。
 
 ### 會員與名單
 

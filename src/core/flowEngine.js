@@ -79,6 +79,37 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     return rs.rowCount > 0 ? rs.rows[0] : null;
   }
 
+  function getUserTriggerLimit(flow) {
+    const cfg = flow && flow.trigger_config && typeof flow.trigger_config === 'object'
+      ? flow.trigger_config.user_limit
+      : null;
+    if (!cfg || typeof cfg !== 'object') return null;
+    const max = Math.round(Number(cfg.max));
+    if (!Number.isFinite(max) || max < 1) return null;
+    const window = ['lifetime', 'day', '7d', '30d'].includes(cfg.window) ? cfg.window : 'lifetime';
+    return { max: Math.min(1000, max), window };
+  }
+
+  async function userTriggerLimitReached(flow, lineUserId) {
+    const limit = getUserTriggerLimit(flow);
+    if (!limit) return { reached: false };
+    const rs = await query(
+      `SELECT COUNT(*)::int AS n
+         FROM admin_flow_enrollments
+        WHERE flow_id = $1 AND line_user_id = $2
+          AND (
+            $3::text = 'lifetime'
+            OR ($3::text = 'day' AND enrolled_at >=
+                (date_trunc('day', now() AT TIME ZONE 'Asia/Taipei') AT TIME ZONE 'Asia/Taipei'))
+            OR ($3::text = '7d' AND enrolled_at >= now() - interval '7 days')
+            OR ($3::text = '30d' AND enrolled_at >= now() - interval '30 days')
+          )`,
+      [flow.id, lineUserId, limit.window]
+    );
+    const count = Number(rs.rows[0] && rs.rows[0].n) || 0;
+    return { reached: count >= limit.max, count, max: limit.max, window: limit.window };
+  }
+
   // ---------- 報名（enrollment） ----------
   async function enrollUser(flow, lineUserId, opts = {}) {
     const luid = String(lineUserId || '').trim();
@@ -101,6 +132,10 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
       );
       if (restarted.rowCount > 0) return { enrolled: false, restarted: true, reason: 'active_restarted' };
     }
+    // 使用者上限只計算「真的新進一輪」；尚未發送前的重複點擊只是重設倒數，
+    // 不可多算一次，也不可因已達上限而阻止最後一次點擊更新倒數。
+    const cap = await userTriggerLimitReached(flow, luid);
+    if (cap.reached) return { enrolled: false, reason: 'user_trigger_limit_reached', limit: cap };
     if (!flow.re_enroll) {
       const ex = await query(
         `SELECT 1 FROM admin_flow_enrollments WHERE flow_id = $1 AND line_user_id = $2 LIMIT 1`,

@@ -5,7 +5,7 @@
  *               圖文選單每格點擊、活動遊玩與邀請、加入來源，全部在同一頁。
  *
  *   GET /admin/insight            頁面
- *   GET /admin/insight/api/data   ?days=30|90
+ *   GET /admin/insight/api/data   ?days=1..365
  */
 
 function registerAdminInsightRoutes(app, deps) {
@@ -36,7 +36,7 @@ function registerAdminInsightRoutes(app, deps) {
 
   app.get('/admin/insight/api/data', requireAdmin, async (req, res) => {
     try {
-      const days = Number(req.query.days) === 90 ? 90 : 30;
+      const days = clampInt(req.query.days, 1, 365, 30);
 
       // ── LINE 官方統計（掛了任何一支都不擋整頁）──
       // 官方數字以「昨天」為準（LINE 當天的還沒結算）
@@ -49,26 +49,53 @@ function registerAdminInsightRoutes(app, deps) {
 
       // ── 我們自己的資料 ──
       const daily = (await query(
-        `WITH d AS (SELECT generate_series((now() AT TIME ZONE 'Asia/Taipei')::date - ($1::int - 1),
-                                           (now() AT TIME ZONE 'Asia/Taipei')::date, '1 day') AS day)
+        `WITH bounds AS (
+           SELECT (now() AT TIME ZONE 'Asia/Taipei')::date AS finish,
+                  (now() AT TIME ZONE 'Asia/Taipei')::date - ($1::int - 1) AS start
+         ),
+         d AS (
+           SELECT generate_series(bounds.start, bounds.finish, '1 day')::date AS day FROM bounds
+         ),
+         counts AS (
+           SELECT (u.created_at AT TIME ZONE 'Asia/Taipei')::date AS day,
+                  COUNT(*)::int AS joins, 0::int AS blocks, 0::int AS msgs,
+                  0::int AS menu_taps, 0::int AS plays, 0::int AS referrals
+             FROM users u, bounds
+            WHERE u.created_at >= (bounds.start AT TIME ZONE 'Asia/Taipei')
+              AND u.line_user_id IS NOT NULL AND u.is_admin = false
+            GROUP BY 1
+           UNION ALL
+           SELECT (u.blocked_at AT TIME ZONE 'Asia/Taipei')::date, 0, COUNT(*)::int, 0, 0, 0, 0
+             FROM users u, bounds
+            WHERE u.blocked_at >= (bounds.start AT TIME ZONE 'Asia/Taipei') GROUP BY 1
+           UNION ALL
+           SELECT (e.created_at AT TIME ZONE 'Asia/Taipei')::date, 0, 0, COUNT(*)::int, 0, 0, 0
+             FROM line_webhook_events e, bounds
+            WHERE e.created_at >= (bounds.start AT TIME ZONE 'Asia/Taipei') AND e.event_type = 'message' GROUP BY 1
+           UNION ALL
+           SELECT (t.created_at AT TIME ZONE 'Asia/Taipei')::date, 0, 0, 0, COUNT(*)::int, 0, 0
+             FROM rich_menu_taps t, bounds
+            WHERE t.created_at >= (bounds.start AT TIME ZONE 'Asia/Taipei') GROUP BY 1
+           UNION ALL
+           SELECT (p.played_at AT TIME ZONE 'Asia/Taipei')::date, 0, 0, 0, 0, COUNT(*)::int, 0
+             FROM activity_plays p, bounds
+            WHERE p.played_at >= (bounds.start AT TIME ZONE 'Asia/Taipei')
+              AND COALESCE(p.prize_snapshot->>'kind','') <> 'draw_win' GROUP BY 1
+           UNION ALL
+           SELECT (r.created_at AT TIME ZONE 'Asia/Taipei')::date, 0, 0, 0, 0, 0, COUNT(*)::int
+             FROM activity_referrals r, bounds
+            WHERE r.created_at >= (bounds.start AT TIME ZONE 'Asia/Taipei')
+              AND r.invitee_was_existing IS FALSE GROUP BY 1
+         )
          SELECT to_char(d.day, 'MM/DD') AS day,
-           (SELECT COUNT(*)::int FROM users u
-             WHERE (u.created_at AT TIME ZONE 'Asia/Taipei')::date = d.day
-               AND u.line_user_id IS NOT NULL AND u.is_admin = false) AS joins,
-           (SELECT COUNT(*)::int FROM users u
-             WHERE (u.blocked_at AT TIME ZONE 'Asia/Taipei')::date = d.day) AS blocks,
-           (SELECT COUNT(*)::int FROM line_webhook_events e
-             WHERE e.event_type = 'message'
-               AND (e.created_at AT TIME ZONE 'Asia/Taipei')::date = d.day) AS msgs,
-           (SELECT COUNT(*)::int FROM rich_menu_taps t
-             WHERE (t.created_at AT TIME ZONE 'Asia/Taipei')::date = d.day) AS menu_taps,
-           (SELECT COUNT(*)::int FROM activity_plays p
-             WHERE COALESCE(p.prize_snapshot->>'kind','') <> 'draw_win'
-               AND (p.played_at AT TIME ZONE 'Asia/Taipei')::date = d.day) AS plays,
-           (SELECT COUNT(*)::int FROM activity_referrals r
-             WHERE r.invitee_was_existing IS FALSE
-               AND (r.created_at AT TIME ZONE 'Asia/Taipei')::date = d.day) AS referrals
-         FROM d ORDER BY d.day`, [days])).rows;
+                COALESCE(SUM(c.joins), 0)::int AS joins,
+                COALESCE(SUM(c.blocks), 0)::int AS blocks,
+                COALESCE(SUM(c.msgs), 0)::int AS msgs,
+                COALESCE(SUM(c.menu_taps), 0)::int AS menu_taps,
+                COALESCE(SUM(c.plays), 0)::int AS plays,
+                COALESCE(SUM(c.referrals), 0)::int AS referrals
+           FROM d LEFT JOIN counts c ON c.day = d.day
+          GROUP BY d.day ORDER BY d.day`, [days])).rows;
 
       const totals = (await query(
         // 一律排除 archived_at：那是 2026-07-29 換 LINE 帳號時封存的舊會員，
@@ -85,15 +112,17 @@ function registerAdminInsightRoutes(app, deps) {
 
       const sources = (await query(
         `SELECT source_key, COUNT(*)::int AS n
-           FROM line_follow_sources GROUP BY source_key ORDER BY n DESC LIMIT 12`)).rows;
+           FROM line_follow_sources
+          WHERE updated_at >= now() - make_interval(days => $1)
+          GROUP BY source_key ORDER BY n DESC LIMIT 12`, [days])).rows;
 
       const topButtons = (await query(
         `SELECT t.menu_id, t.tab, t.cell, t.kind, COALESCE(t.label, '') AS label,
                 m.name AS menu_name, COUNT(*)::int AS taps
            FROM rich_menu_taps t LEFT JOIN rich_menus m ON m.id = t.menu_id
-          WHERE t.created_at >= now() - interval '30 days'
+          WHERE t.created_at >= now() - make_interval(days => $1)
           GROUP BY t.menu_id, t.tab, t.cell, t.kind, t.label, m.name
-          ORDER BY taps DESC LIMIT 10`)).rows;
+          ORDER BY taps DESC LIMIT 10`, [days])).rows;
 
       const activities = (await query(
         `SELECT a.name, COUNT(*)::int AS plays,
@@ -121,3 +150,9 @@ function registerAdminInsightRoutes(app, deps) {
 }
 
 module.exports = { registerAdminInsightRoutes };
+
+function clampInt(v, min, max, def) {
+  const n = Number.parseInt(v, 10);
+  if (!Number.isFinite(n)) return def;
+  return Math.min(max, Math.max(min, n));
+}

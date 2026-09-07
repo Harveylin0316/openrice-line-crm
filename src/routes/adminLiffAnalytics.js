@@ -179,7 +179,7 @@ function registerAdminLiffAnalyticsRoutes(app, deps) {
   // ------------------------------------------------------------------
   app.get('/admin/liff/random-rice/api/funnel', requireAdmin, async (req, res) => {
     try {
-      const days = clampInt(req.query.days, 1, 90, 7);
+      const days = clampInt(req.query.days, 1, 365, 7);
       const step = (alias, inClause) => `
           COUNT(*) FILTER (WHERE event_name IN (${inClause})) AS ${alias}_events,
           COUNT(DISTINCT session_id) FILTER (WHERE event_name IN (${inClause})) AS ${alias}_sessions,
@@ -241,7 +241,7 @@ function registerAdminLiffAnalyticsRoutes(app, deps) {
   // ------------------------------------------------------------------
   app.get('/admin/liff/random-rice/api/restaurants', requireAdmin, async (req, res) => {
     try {
-      const days = clampInt(req.query.days, 1, 3650, 30);
+      const days = clampInt(req.query.days, 1, 365, 30);
       const limit = clampInt(req.query.limit, 1, 100, 10);
       const sql = `
         WITH ev AS (
@@ -291,7 +291,7 @@ function registerAdminLiffAnalyticsRoutes(app, deps) {
   // ------------------------------------------------------------------
   app.get('/admin/liff/random-rice/api/users', requireAdmin, async (req, res) => {
     try {
-      const days = clampInt(req.query.days, 1, 90, 7);
+      const days = clampInt(req.query.days, 1, 365, 7);
       const limit = clampInt(req.query.limit, 1, 500, 100);
       const sql = `
         SELECT
@@ -349,7 +349,7 @@ function registerAdminLiffAnalyticsRoutes(app, deps) {
   // ------------------------------------------------------------------
   app.get('/admin/liff/random-rice/api/audience', requireAdmin, async (req, res) => {
     try {
-      const days = clampInt(req.query.days, 1, 3650, 7);
+      const days = clampInt(req.query.days, 1, 365, 7);
       const limit = clampInt(req.query.limit, 1, 200, 50);
 
       const bucketSql = `
@@ -484,7 +484,7 @@ function registerAdminLiffAnalyticsRoutes(app, deps) {
   // ------------------------------------------------------------------
   app.get('/admin/liff/random-rice/api/trend', requireAdmin, async (req, res) => {
     try {
-      const days = clampInt(req.query.days, 1, 90, 30);
+      const days = clampInt(req.query.days, 1, 365, 30);
       const sql = `
         WITH d AS (
           SELECT generate_series(

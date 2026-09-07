@@ -79,7 +79,21 @@
         </select>
       </div>
       <div id="fl-trigger-config"></div>
-      <label class="fl-check"><input type="checkbox" id="fl-reenroll" /> <span>允許同一人重複進入此流程（預設只進一次）</span></label>
+      <div class="fl-limit-card" id="fl-limit-card">
+        <div class="fl-field" style="margin:0;"><span>同一人最多觸發幾次</span>
+          <input type="number" id="fl-user-limit" min="1" max="1000" placeholder="留空＝不限次數" />
+        </div>
+        <div class="fl-field" style="margin:0;"><span>怎麼計算</span>
+          <select id="fl-user-limit-window">
+            <option value="lifetime">整個流程期間</option>
+            <option value="day">每天重新計算</option>
+            <option value="7d">滾動 7 天</option>
+            <option value="30d">滾動 30 天</option>
+          </select>
+        </div>
+        <p class="muted" id="fl-limit-help">例如填 2，選「每天重新計算」，代表同一人每天最多進入這條流程 2 次。留空就是不限次數。</p>
+      </div>
+      <input type="checkbox" id="fl-reenroll" hidden />
 
       <div class="fl-section-title">2. 依序做這些事</div>
       <div id="fl-steps"></div>
@@ -139,6 +153,8 @@
       .fl-field span{font-weight:600;}
       .fl-field input,.fl-field select{padding:9px 11px;border:1px solid #e5e7eb;border-radius:7px;font-size:14px;font-family:inherit;}
       .fl-check{display:flex;align-items:center;gap:8px;font-size:13px;color:#374151;margin:6px 0 4px;}
+      .fl-limit-card{display:grid;grid-template-columns:minmax(180px,260px) minmax(180px,260px);gap:12px;max-width:560px;padding:14px;border:1px solid #fde68a;background:#fffbeb;border-radius:10px;margin-top:12px;}
+      .fl-limit-card p{grid-column:1/-1;margin:0;font-size:12px;line-height:1.6;}
       .fl-rm-buttons{max-width:520px;border:1px solid #e5e7eb;border-radius:9px;padding:10px 12px;margin:-4px 0 10px;background:#f9fafb;}
       .fl-rm-choice{padding:5px 0;margin:0;align-items:flex-start;}
       .fl-rm-choice small{color:#6b7280;font-weight:400;}
@@ -183,7 +199,7 @@
       .fl-dryrun-list li.sim:before{background:#9ca3af;}
       .fl-dryrun-step-tag{display:inline-block;font-size:11px;font-weight:700;color:#fff;background:#6b7280;border-radius:5px;padding:1px 7px;margin-right:8px;}
       .fl-dryrun-done{font-size:13px;color:#15803d;font-weight:600;margin-top:10px;}
-      @media (max-width:720px){.fl-ex-grid{grid-template-columns:1fr;}}
+      @media (max-width:720px){.fl-ex-grid{grid-template-columns:1fr;}.fl-limit-card{grid-template-columns:1fr;}.fl-limit-card p{grid-column:auto;}}
     </style>
 
     <script>
@@ -199,6 +215,13 @@
         var TRIGGER_LABEL={follow:'加好友',list_join:'加入名單',event:'活動頁互動',schedule:'定時',game_play:'玩遊戲/中獎',broadcast_click:'點推播',rich_menu_tap:'點圖文選單',restaurant_click:'點餐廳連結',inactivity:'沉睡喚醒',streak_risk:'連勝守護'};
         var CUISINES=['日式','韓式','台菜中式','港式','泰式東南亞','義式','美式','火鍋','燒肉','甜點咖啡','早午餐','其他'];
         var ACTIVATE_WARN='啟用後此流程會立刻對真實用戶生效，符合觸發條件的人會真的收到 LINE 訊息（不是測試）。\\n\\n確定啟用？';
+
+        function userLimitLabel(f){
+          var lim=f&&f.trigger_config&&f.trigger_config.user_limit;
+          if(!lim)return f&&f.re_enroll?'不限':'整段期間 1 次';
+          var w={lifetime:'整段期間',day:'每天','7d':'滾動 7 天','30d':'滾動 30 天'}[lim.window]||'整段期間';
+          return w+' '+Number(lim.max)+' 次';
+        }
 
         function loadOptions(cb){
           fetch('/admin/flows/api/options').then(function(r){return r.json();}).then(function(d){
@@ -251,6 +274,7 @@
               var retryBtn=h.failed>0?'<button class="fl-retry" data-retry="'+f.id+'">重試漏掉的人</button>':'';
               return '<tr><td><strong>'+esc(f.name)+'</strong></td>'+
                 '<td>'+esc(TRIGGER_LABEL[f.trigger_type]||f.trigger_type)+'</td>'+
+                '<td>'+esc(userLimitLabel(f))+'</td>'+
                 '<td><span class="fl-badge '+f.status+'">'+(f.status==='active'?'啟用中':f.status==='paused'?'已暫停':'草稿')+'</span></td>'+
                 '<td>'+f.active_count+' 進行中 / '+f.total_count+' 累計</td>'+
                 '<td>'+healthCell+'</td>'+
@@ -261,7 +285,7 @@
                   '<button class="del" data-del="'+f.id+'">刪除</button>'+
                 '</div></td></tr>';
             }).join('');
-            box.innerHTML=banner+'<table class="fl-table"><thead><tr><th>名稱</th><th>觸發</th><th>狀態</th><th>進行中</th><th>健康</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'+recentFailedHtml(hd);
+            box.innerHTML=banner+'<table class="fl-table"><thead><tr><th>名稱</th><th>觸發</th><th>每人上限</th><th>狀態</th><th>進行中</th><th>健康</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'+recentFailedHtml(hd);
             box.querySelectorAll('[data-edit]').forEach(function(b){b.addEventListener('click',function(){openEditor(b.getAttribute('data-edit'));});});
             box.querySelectorAll('[data-del]').forEach(function(b){b.addEventListener('click',function(){delFlow(b.getAttribute('data-del'));});});
             box.querySelectorAll('[data-status]').forEach(function(b){b.addEventListener('click',function(){setStatus(b.getAttribute('data-id'),b.getAttribute('data-status'));});});
@@ -332,7 +356,21 @@
           $('fl-reenroll').checked=!!flow.re_enroll;
           $('fl-trigger-type').value=flow.trigger.type||'follow';
           renderTrigger();
+          renderUserLimit();
           renderSteps();
+        }
+
+        function renderUserLimit(){
+          var c=(flow.trigger&&flow.trigger.config)||{};var lim=c.user_limit;
+          var max=lim&&Number(lim.max)>0?Number(lim.max):(!flow.re_enroll?1:'');
+          $('fl-user-limit').value=max;
+          $('fl-user-limit-window').value=(lim&&lim.window)||'lifetime';
+          var locked=flow.trigger&&flow.trigger.type==='inactivity';
+          $('fl-user-limit').disabled=locked;$('fl-user-limit-window').disabled=locked;
+          $('fl-limit-help').textContent=locked
+            ? '沉睡喚醒為避免對仍在沉睡的人重複轟炸，固定每人只進一次。'
+            : '例如填 2，選「每天重新計算」，代表同一人每天最多進入這條流程 2 次。留空就是不限次數。';
+          if(locked){$('fl-user-limit').value=1;$('fl-user-limit-window').value='lifetime';}
         }
 
         function optionsHtml(arr,val,placeholder){
@@ -408,7 +446,7 @@
             $('tc-aud').addEventListener('change',function(){var w=$('tc-aud-list-wrap');if(w)w.hidden=this.value!=='list';});
           }
           if(t==='rich_menu_tap'){
-            var ms=$('tc-rich-menu');if(ms)ms.addEventListener('change',function(){flow.trigger.config={menu_id:Number(this.value)||null,match:'any',buttons:[]};renderTrigger();});
+            var ms=$('tc-rich-menu');if(ms)ms.addEventListener('change',function(){var lim=flow.trigger.config&&flow.trigger.config.user_limit;flow.trigger.config={menu_id:Number(this.value)||null,match:'any',buttons:[]};if(lim)flow.trigger.config.user_limit=lim;renderTrigger();});
             document.querySelectorAll('input[name="tc-rm-match"]').forEach(function(r){r.addEventListener('change',function(){var w=$('tc-rm-buttons');if(w)w.hidden=this.value!=='selected';});});
           }
         }
@@ -438,6 +476,9 @@
             var aud=($('tc-aud')&&$('tc-aud').value)||'all';
             c.audience=aud==='list'?{type:'list',list_id:Number($('tc-aud-list')&&$('tc-aud-list').value)||null}:{type:'all'};
           }
+          var maxEl=$('fl-user-limit');var winEl=$('fl-user-limit-window');
+          var maxRaw=maxEl&&!maxEl.disabled?String(maxEl.value||'').trim():'1';
+          if(maxRaw)c.user_limit={max:Number(maxRaw),window:(winEl&&winEl.value)||'lifetime'};
           flow.trigger.config=c;
         }
 
@@ -546,9 +587,10 @@
 
         function collectFlow(){
           syncTrigger();syncSteps();
+          var lim=flow.trigger.config&&flow.trigger.config.user_limit;
           return {
             name:$('fl-name').value.trim(),
-            re_enroll:$('fl-reenroll').checked,
+            re_enroll:!lim||lim.window!=='lifetime'||Number(lim.max)>1,
             trigger:flow.trigger,
             steps:flow.steps
           };
@@ -575,7 +617,7 @@
             }).catch(function(e){$('fl-save').disabled=false;$('fl-save-activate').disabled=false;$('fl-save-status').textContent='錯誤：'+e.message;});
         }
         function errMsg(code){
-          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息或加入名單）',branch_must_be_last:'條件分支必須是流程的最後一步',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',add_to_list_needs_list:'加入名單步驟請選一個名單',list_join_needs_list:'請選名單',rich_menu_tap_needs_menu:'請選一個已發布的圖文選單',rich_menu_tap_needs_button:'請至少勾選一顆按鈕，或改選「任一功能按鈕」',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',flow_has_no_steps:'流程至少要有一個步驟才能啟用',follow_source_invalid:'來源代號只能用英數字、底線、減號（不能填中文或空格），最多 40 字'};
+          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息或加入名單）',branch_must_be_last:'條件分支必須是流程的最後一步',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',add_to_list_needs_list:'加入名單步驟請選一個名單',list_join_needs_list:'請選名單',rich_menu_tap_needs_menu:'請選一個已發布的圖文選單',rich_menu_tap_needs_button:'請至少勾選一顆按鈕，或改選「任一功能按鈕」',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',invalid_user_trigger_limit:'每人觸發次數請填 1 到 1000',flow_has_no_steps:'流程至少要有一個步驟才能啟用',follow_source_invalid:'來源代號只能用英數字、底線、減號（不能填中文或空格），最多 40 字'};
           return m[code]||code||'';
         }
         function isDirty(){return !$('fl-editor').hidden&&initialSnapshot!==JSON.stringify(collectFlow());}
@@ -667,7 +709,7 @@
         $('fl-back').addEventListener('click',backToList);
         $('fl-save').addEventListener('click',function(){save(false);});
         $('fl-save-activate').addEventListener('click',function(){if(!window.confirm(ACTIVATE_WARN))return;save(true);});
-        $('fl-trigger-type').addEventListener('change',function(){syncTrigger();flow.trigger={type:this.value,config:{}};renderTrigger();});
+        $('fl-trigger-type').addEventListener('change',function(){syncTrigger();var lim=flow.trigger.config&&flow.trigger.config.user_limit;flow.trigger={type:this.value,config:{}};if(lim)flow.trigger.config.user_limit=lim;renderTrigger();renderUserLimit();});
 
         // 列表獨立載入（不依賴 options），options 失敗也不影響列表顯示
         loadList();
