@@ -34,6 +34,16 @@ function registerAdminMessagesRoutes(app, deps) {
     });
   });
 
+  // 多段訊息（文字／圖片／影片／既有卡片）專用編輯器。
+  app.get('/admin/messages/sequence', requireAdmin, (req, res) => {
+    res.render('admin_message_sequence', {
+      title: '多段訊息編輯器',
+      bodyClass: 'admin-shell messages-shell',
+      user: (req.authUser && req.authUser.un) || '',
+      isAdmin: true
+    });
+  });
+
   // 列表
   app.get('/admin/messages/api/list', requireAdmin, async (_req, res) => {
     try {

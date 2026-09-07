@@ -17,8 +17,9 @@
  *   event      發生某事件    { event_name }（對 user_events）
  *   schedule   定時          { freq, hour, dow/dom, audience }
  *   inactivity 沉睡喚醒      { days, batch_limit }（超過 N 天沒任何互動）
+ *   rich_menu_tap 圖文選單按鈕 { menu_id, match, buttons }（由 webhook / LIFF 即時觸發）
  *
- * 推進：cron 每 5 分鐘呼叫 run()：先跑 schedule/event 觸發建 enrollment，再 advance 到期的 enrollment。
+ * 推進：cron 每分鐘呼叫 run()：先跑 schedule/event 觸發建 enrollment，再 advance 到期的 enrollment。
  */
 
 // 設定錯誤（訊息不存在、節點設定有誤）→ 不可重試，直接標 failed。
@@ -43,7 +44,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
   // 改排到未來重試；retry_count 達上限才標 failed。
   const SEND_MAX_RETRIES = 5; // 第 6 次（retry_count >= 5）仍失敗才放棄
   // 遞增退避（分鐘）：第 1 次失敗等 5 分、第 2 次 15、第 3 次 45、之後 120/360。
-  // 用 cron 每 5 分鐘 tick 推進，所以全是 5 的倍數。
+  // cron 每分鐘 tick 推進；退避維持保守的 5 分鐘級距，避免 LINE 暫時故障時猛烈重試。
   const SEND_BACKOFF_MIN = [5, 15, 45, 120, 360];
   // run() 整體時間預算：單一 serverless function 10s timeout，留 2s 餘裕給收尾/回應。
   // advanceDue 迴圈每筆檢查，超時就停（剩下的下個 cron tick 繼續），避免逾時把整批中斷。
@@ -82,6 +83,24 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
   async function enrollUser(flow, lineUserId, opts = {}) {
     const luid = String(lineUserId || '').trim();
     if (!luid) return { enrolled: false, reason: 'no_user' };
+    const entry = await getEntryNode(flow.id);
+    if (!entry) return { enrolled: false, reason: 'no_entry_node' };
+
+    // 圖文選單採「最後一次點擊重新計時」：同一流程已有尚未發出任何訊息的 active
+    // enrollment 時，不另開一份，而是原子地把它拉回入口並以本次點擊時間重算。
+    // 已經發出第一則訊息後不重播，避免使用者連點造成重複推播。
+    if (opts.restartActive === true) {
+      const restarted = await query(
+        `UPDATE admin_flow_enrollments
+         SET current_node_key = $3, next_run_at = now(), context = $4::jsonb,
+             retry_count = 0, last_error = NULL, updated_at = now()
+         WHERE flow_id = $1 AND line_user_id = $2 AND status = 'active'
+           AND last_message_sent_at IS NULL
+         RETURNING id`,
+        [flow.id, luid, entry.node_key, JSON.stringify(opts.context || {})]
+      );
+      if (restarted.rowCount > 0) return { enrolled: false, restarted: true, reason: 'active_restarted' };
+    }
     if (!flow.re_enroll) {
       const ex = await query(
         `SELECT 1 FROM admin_flow_enrollments WHERE flow_id = $1 AND line_user_id = $2 LIMIT 1`,
@@ -89,8 +108,6 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
       );
       if (ex.rowCount > 0) return { enrolled: false, reason: 'already_enrolled' };
     }
-    const entry = await getEntryNode(flow.id);
-    if (!entry) return { enrolled: false, reason: 'no_entry_node' };
     // 原子去重：靠 partial unique index (flow_id, line_user_id) WHERE status='active'
     // 防止並發 follow/webhook 重送造成同一用戶重複 active 報名（→ 重複推播）
     // 原子去重（partial unique index: (flow_id,line_user_id) WHERE status='active'）。
@@ -155,6 +172,49 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     } catch (err) {
       console.error('flow triggerListJoin error:', err.message);
     }
+  }
+
+  // 圖文選單功能按鈕：由已驗簽 webhook（message action）或已驗證 LIFF token
+  // 的網址跳板即時呼叫。分頁切換不會進這裡。
+  async function triggerRichMenuTap({ menuId, tab, cell, lineUserId, userId, kind, label } = {}) {
+    const mid = Number(menuId);
+    const ti = Number(tab);
+    const ci = Number(cell);
+    const luid = String(lineUserId || '').trim();
+    if (!(mid > 0) || !Number.isInteger(ti) || ti < 0 || !Number.isInteger(ci) || ci < 0 || !luid) {
+      return { matched: 0, enrolled: 0, restarted: 0 };
+    }
+    const flows = await getActiveFlowsByTrigger('rich_menu_tap');
+    let matched = 0, enrolled = 0, restarted = 0;
+    let resolvedUserId = userId || null;
+    if (!resolvedUserId) {
+      try {
+        const ur = await query(`SELECT id FROM users WHERE line_user_id = $1 LIMIT 1`, [luid]);
+        resolvedUserId = ur.rows[0] && ur.rows[0].id;
+      } catch (_) { /* user_id 只是報表輔助；沒有也能推播 */ }
+    }
+    for (const f of flows) {
+      const cfg = (f.trigger_config && typeof f.trigger_config === 'object') ? f.trigger_config : {};
+      if (Number(cfg.menu_id) !== mid) continue;
+      const selected = Array.isArray(cfg.buttons) ? cfg.buttons : [];
+      const isAny = cfg.match === 'any' || selected.length === 0;
+      const hit = isAny || selected.some(b => Number(b && b.tab) === ti && Number(b && b.cell) === ci);
+      if (!hit) continue;
+      matched++;
+      const result = await enrollUser(f, luid, {
+        userId: resolvedUserId,
+        restartActive: true,
+        context: {
+          trigger: 'rich_menu_tap', menu_id: mid, tab: ti, cell: ci,
+          kind: String(kind || '').slice(0, 30) || null,
+          label: String(label || '').slice(0, 100) || null,
+          tapped_at: new Date().toISOString()
+        }
+      });
+      if (result.enrolled) enrolled++;
+      if (result.restarted) restarted++;
+    }
+    return { matched, enrolled, restarted };
   }
 
   // ---------- 觸發：掃描型來源共用 cursor（避免回灌歷史） ----------
@@ -289,9 +349,9 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
 
   // inactivity：沉睡喚醒（超過 N 天沒有任何互動）
   // 沉睡定義：last_activity = GREATEST(加好友時間, 各互動表的最後時間) < now() - N 天。
-  // 每輪每 flow 最多 enroll batch_limit 人（cron 每 5 分鐘會再跑，分批消化避免瞬間大量發送）。
+  // 每輪每 flow 最多 enroll batch_limit 人（cron 每分鐘會再跑，分批消化避免瞬間大量發送）。
   // 語義：SQL 已排除「曾進過此流程」的人 → 每人一生只會被喚醒一次（re_enroll 對此觸發無效，
-  // 否則沉睡者跑完流程後仍然沉睡，每 5 分鐘會再進一次造成轟炸）。
+  // 否則沉睡者跑完流程後仍然沉睡，每分鐘會再進一次造成轟炸）。
   async function runInactivityTriggers() {
     const flows = await getActiveFlowsByTrigger('inactivity');
     let enrolled = 0;
@@ -398,7 +458,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     const tp = taipeiParts(now);
     const hour = Number.isFinite(Number(cfg.hour)) ? Number(cfg.hour) : 11;
     const minute = Number.isFinite(Number(cfg.minute)) ? Number(cfg.minute) : 30;
-    // 到點判斷：當下台北時間 >= 排程時間，且在 30 分鐘窗口內（cron 每 5 分鐘，給容錯）
+    // 到點判斷：當下台北時間 >= 排程時間，且在 30 分鐘窗口內（保留部署延遲的容錯）
     const schedMinutes = hour * 60 + minute;
     const nowMinutes = tp.hour * 60 + tp.minute;
     if (nowMinutes < schedMinutes || nowMinutes >= schedMinutes + 30) return null;
@@ -457,7 +517,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     return rs.rows;
   }
   // 定時流程：一次可能要加幾千人，而 serverless 有十秒上限。
-  // 所以改成分批＋續跑——這一輪加不完的，下一輪（五分鐘後）自動接著加，
+  // 所以改成分批＋續跑——這一輪加不完的，下一輪（約一分鐘後）自動接著加，
   // 直到整個期間的人都加完才標記完成。
   //
   // 原本的寫法是「先標記已跑過、再一次加完所有人」：被時間上限砍在半路時，
@@ -587,7 +647,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     if (rs.rowCount === 0) throw new FlowConfigError('message_template_not_found');
     const cfg = rs.rows[0].message_config;
     const recipientName = await resolveRecipientName(userId, lineUserId);
-    const built = buildLineMessages(cfg, { recipientName });
+    const built = buildLineMessages(cfg, { recipientName, heroImageBaseUrl: getOrigin() });
     if (!built.ok) throw new FlowConfigError('message_build_failed:' + (built.error || ''));
     // 點擊追蹤：把訊息裡的連結換成 /rf/:enrollmentId/:messageId 中轉，
     // 「點了上一則的連結」這個分支條件才判斷得出來。
@@ -872,7 +932,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
       if (rs.rowCount === 0) { push('send', '找不到要發的訊息（可能已被刪除），正式運行時這一步會失敗。', '訊息 #' + messageId); return; }
       const msgName = String(rs.rows[0].name || '').trim() || ('訊息 #' + messageId);
       const cfg = rs.rows[0].message_config;
-      const built = buildLineMessages(cfg, { recipientName: testRecipientName });
+      const built = buildLineMessages(cfg, { recipientName: testRecipientName, heroImageBaseUrl: getOrigin() });
       if (!built.ok) { push('send', '這則訊息內容組不出來，正式運行時這一步會失敗：' + msgName, built.error || ''); return; }
       try {
         const ok = await linePush.pushLineMessages(luid, built.messages, { userId: testUserId || null, pushType: 'flow_dryrun' });
@@ -961,6 +1021,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     enrollUser,
     triggerFollow,
     triggerListJoin,
+    triggerRichMenuTap,
     runEventTriggers,
     runGamePlayTriggers,
     runBroadcastClickTriggers,

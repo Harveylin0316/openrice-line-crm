@@ -1,0 +1,80 @@
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="card msq-head">
+      <a href="/admin/messages" class="msq-back">← 返回訊息庫</a>
+      <div>
+        <h1>多段訊息編輯器</h1>
+        <p class="muted">把文字、圖片、影片與做好的卡片排成一則 LINE 推播，最多 5 段。可先發給自己測試。</p>
+      </div>
+    </section>
+
+    <section class="card msq-grid">
+      <div>
+        <label class="msq-field"><span>訊息名稱 *</span><input id="msq-name" maxlength="200" placeholder="例：點餐廳後 30 分鐘提醒"></label>
+        <label class="msq-field"><span>內部說明</span><input id="msq-desc" maxlength="500" placeholder="只有後台人員看得到"></label>
+
+        <div class="msq-title-row"><h2>內容順序</h2><span id="msq-count" class="muted"></span></div>
+        <div id="msq-items"></div>
+        <div class="msq-add">
+          <button type="button" data-add="text">＋文字</button>
+          <button type="button" data-add="image">＋圖片</button>
+          <button type="button" data-add="video">＋影片</button>
+          <button type="button" data-add="card">＋既有卡片</button>
+        </div>
+        <p class="muted msq-note">影片需提供公開 HTTPS 的 MP4 網址；預覽圖可直接在這裡上傳。LINE 單次最多接受 5 段內容。</p>
+
+        <div class="msq-actions">
+          <button type="button" id="msq-test" class="msq-secondary">發給我自己測試</button>
+          <button type="button" id="msq-save" class="msq-primary">儲存到訊息庫</button>
+          <span id="msq-status" class="muted"></span>
+        </div>
+      </div>
+      <aside>
+        <h2>LINE 預覽</h2>
+        <p class="muted">各段會依下列順序一起送出。</p>
+        <div class="msq-phone"><div id="msq-preview"></div></div>
+      </aside>
+    </section>
+
+    <style>
+      .msq-head{display:flex;align-items:flex-start;gap:18px}.msq-head h1{margin:0 0 5px}.msq-back{font-size:13px;color:#6b7280;text-decoration:none;white-space:nowrap;margin-top:6px}
+      .msq-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:28px}.msq-grid h2{font-size:16px;margin:0 0 10px}.msq-field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;font-size:13px;font-weight:700}.msq-field input,.msq-field textarea,.msq-field select{padding:10px 11px;border:1px solid #d1d5db;border-radius:8px;font:inherit;font-weight:400;width:100%;box-sizing:border-box}.msq-title-row{display:flex;justify-content:space-between;align-items:center;margin-top:24px}
+      .msq-item{border:1px solid #e5e7eb;border-radius:12px;padding:13px;margin-bottom:10px;background:#fff}.msq-item-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.msq-tag{font-size:12px;font-weight:800;color:#7c2d12;background:#ffedd5;padding:3px 8px;border-radius:6px}.msq-item-ops{display:flex;gap:5px}.msq-item-ops button,.msq-add button,.msq-upload{border:1px solid #d1d5db;background:#fff;border-radius:7px;padding:7px 10px;cursor:pointer;color:#374151}.msq-add{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.msq-add button{border-style:dashed}.msq-note{font-size:12px;line-height:1.6}.msq-upload-row{display:flex;gap:8px;align-items:center}.msq-upload-row input{flex:1}.msq-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid #e5e7eb;margin-top:22px;padding-top:16px}.msq-primary,.msq-secondary{padding:10px 16px;border-radius:9px;font-weight:700;cursor:pointer}.msq-primary{background:#FCC726;border:1px solid #FCC726;color:#1f2937}.msq-secondary{background:#fff;border:1px solid #d1d5db;color:#374151}
+      .msq-phone{background:#e8edf3;border-radius:22px;padding:22px 15px;min-height:480px;position:sticky;top:20px}.msq-msg{max-width:280px;margin:0 0 10px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.12)}.msq-text{padding:12px 14px;white-space:pre-wrap;word-break:break-word;line-height:1.5;font-size:14px}.msq-media img{display:block;width:100%}.msq-video{aspect-ratio:16/9;background:#111;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;background-size:cover;background-position:center}.msq-card{padding:16px}.msq-card strong{font-size:18px;display:block}.msq-card p{white-space:pre-wrap;color:#6b7280}.msq-card b{display:block;text-align:center;background:#FCC726;border-radius:10px;padding:10px;margin-top:10px}.msq-empty{color:#6b7280;text-align:center;padding-top:150px}
+      @media(max-width:850px){.msq-grid{grid-template-columns:1fr}.msq-phone{position:static;min-height:300px}.msq-head{flex-direction:column;gap:8px}}
+    </style>
+
+    <script>
+    (function(){
+      var $=function(id){return document.getElementById(id)};
+      var params=new URLSearchParams(location.search),editId=params.get('mid'),dup=params.get('dup')==='1';
+      var items=[],cards=[];
+      function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+      function typeName(t){return {text:'文字',image:'圖片',video:'影片',card:'既有卡片'}[t]||t}
+      function cardOptions(selected){var h='<option value="">請選訊息庫裡的卡片</option>';cards.forEach(function(c){if(c.message_config&&c.message_config.mode!=='sequence')h+='<option value="'+c.id+'"'+(String(selected)===String(c.id)?' selected':'')+'>'+esc(c.name)+'</option>'});return h}
+      function itemHtml(it,i){
+        var body='';
+        if(it.type==='text')body='<label class="msq-field"><span>文字內容</span><textarea rows="4" data-f="text" data-i="'+i+'" maxlength="5000" placeholder="可使用 {暱稱} 做個人化">'+esc(it.text||'')+'</textarea></label>';
+        if(it.type==='image')body='<label class="msq-field"><span>圖片網址</span><div class="msq-upload-row"><input data-f="originalContentUrl" data-i="'+i+'" value="'+esc(it.originalContentUrl||'')+'" placeholder="https://..."><input type="file" data-upload="image" data-i="'+i+'" accept="image/png,image/jpeg"></div></label><label class="msq-field"><span>預覽圖網址（留空會使用同一張）</span><input data-f="previewImageUrl" data-i="'+i+'" value="'+esc(it.previewImageUrl||'')+'" placeholder="https://..."></label>';
+        if(it.type==='video')body='<label class="msq-field"><span>影片 MP4 網址</span><input data-f="originalContentUrl" data-i="'+i+'" value="'+esc(it.originalContentUrl||'')+'" placeholder="https://.../video.mp4"></label><label class="msq-field"><span>影片預覽圖 *</span><div class="msq-upload-row"><input data-f="previewImageUrl" data-i="'+i+'" value="'+esc(it.previewImageUrl||'')+'" placeholder="https://.../preview.jpg"><input type="file" data-upload="preview" data-i="'+i+'" accept="image/png,image/jpeg"></div></label>';
+        if(it.type==='card')body='<label class="msq-field"><span>選一張已設計好的卡片</span><select data-card data-i="'+i+'">'+cardOptions(it.source_message_id||it.message_id)+'</select></label><p class="muted" style="font-size:12px">會複製卡片目前的內容；之後修改原卡片不會影響這則多段訊息。</p>';
+        return '<div class="msq-item"><div class="msq-item-head"><span class="msq-tag">'+(i+1)+' · '+typeName(it.type)+'</span><div class="msq-item-ops">'+(i?'<button data-up="'+i+'">↑</button>':'')+(i<items.length-1?'<button data-down="'+i+'">↓</button>':'')+'<button data-remove="'+i+'">移除</button></div></div>'+body+'</div>';
+      }
+      function sync(){document.querySelectorAll('[data-f]').forEach(function(el){var it=items[Number(el.getAttribute('data-i'))];if(it)it[el.getAttribute('data-f')]=el.value});document.querySelectorAll('[data-card]').forEach(function(el){var it=items[Number(el.getAttribute('data-i'))],c=cards.find(function(x){return String(x.id)===String(el.value)});if(it){it.source_message_id=Number(el.value)||null;delete it.message_id;it.message_config=c?JSON.parse(JSON.stringify(c.message_config)):null}})}
+      function render(){var box=$('msq-items');box.innerHTML=items.length?items.map(itemHtml).join(''):'<p class="muted">還沒有內容，請從下面新增第一段。</p>';$('msq-count').textContent=items.length+' / 5 段';document.querySelectorAll('[data-remove]').forEach(function(b){b.onclick=function(){sync();items.splice(Number(b.getAttribute('data-remove')),1);render()}});document.querySelectorAll('[data-up]').forEach(function(b){b.onclick=function(){sync();var i=Number(b.getAttribute('data-up')),x=items[i];items[i]=items[i-1];items[i-1]=x;render()}});document.querySelectorAll('[data-down]').forEach(function(b){b.onclick=function(){sync();var i=Number(b.getAttribute('data-down')),x=items[i];items[i]=items[i+1];items[i+1]=x;render()}});document.querySelectorAll('[data-f],[data-card]').forEach(function(el){el.oninput=function(){sync();preview()};el.onchange=function(){sync();preview()}});document.querySelectorAll('[data-upload]').forEach(function(el){el.onchange=function(){upload(el)}});preview()}
+      function upload(input){var file=input.files&&input.files[0];if(!file)return;var fd=new FormData();fd.append('hero',file);$('msq-status').textContent='圖片上傳中…';fetch('/admin/broadcast/hero/upload',{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){if(!d.ok||!d.url)throw new Error(d.error||'upload_failed');var i=Number(input.getAttribute('data-i')),it=items[i];if(input.getAttribute('data-upload')==='image'){it.originalContentUrl=d.url;it.previewImageUrl=d.url}else it.previewImageUrl=d.url;$('msq-status').textContent='圖片已上傳';render()}).catch(function(e){$('msq-status').textContent='圖片上傳失敗：'+e.message})}
+      function preview(){sync();var box=$('msq-preview');if(!items.length){box.innerHTML='<div class="msq-empty">新增內容後會在這裡預覽</div>';return}box.innerHTML=items.map(function(it){if(it.type==='text')return '<div class="msq-msg msq-text">'+esc(it.text||'（尚未填文字）')+'</div>';if(it.type==='image')return '<div class="msq-msg msq-media">'+(it.originalContentUrl?'<img src="'+esc(it.previewImageUrl||it.originalContentUrl)+'">':'<div class="msq-text">（尚未選圖片）</div>')+'</div>';if(it.type==='video')return '<div class="msq-msg"><div class="msq-video"'+(it.previewImageUrl?' style="background-image:linear-gradient(rgba(0,0,0,.3),rgba(0,0,0,.3)),url('+esc(it.previewImageUrl)+')"':'')+'>▶ 播放影片</div></div>';var c=it.message_config||{},t=c.template||{};if(c.mode==='template')return '<div class="msq-msg msq-card"><strong>'+esc(t.title||'卡片標題')+'</strong><p>'+esc(t.subtitle||'')+'</p>'+(t.ctaLabel?'<b>'+esc(t.ctaLabel)+'</b>':'')+'</div>';return '<div class="msq-msg msq-card">自訂 Flex 卡片</div>'}).join('')}
+      function payload(){sync();return {name:$('msq-name').value.trim(),description:$('msq-desc').value.trim(),channel:'line',message_config:{mode:'sequence',items:items.map(function(it){var x=JSON.parse(JSON.stringify(it));delete x.message_id;return x})}}}
+      function sendTest(){var p=payload();$('msq-status').textContent='發送測試中…';fetch('/admin/broadcast/test-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:'line',message_config:p.message_config})}).then(function(r){return r.json()}).then(function(d){$('msq-status').textContent=d.ok?'已發到你自己的 LINE':'測試失敗：'+(d.detail||d.error||'未知錯誤')}).catch(function(e){$('msq-status').textContent='測試失敗：'+e.message})}
+      function save(){var p=payload();if(!p.name){$('msq-status').textContent='請先填訊息名稱';return}var url=(!dup&&editId)?'/admin/messages/api/'+editId:'/admin/messages/api',method=(!dup&&editId)?'PUT':'POST';$('msq-status').textContent='儲存中…';fetch(url,{method:method,headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}).then(function(r){return r.json()}).then(function(d){if(d.ok)location.href='/admin/messages';else $('msq-status').textContent='儲存失敗：'+(d.detail||d.error||'未知錯誤')}).catch(function(e){$('msq-status').textContent='儲存失敗：'+e.message})}
+      document.querySelectorAll('[data-add]').forEach(function(b){b.onclick=function(){sync();if(items.length>=5){$('msq-status').textContent='LINE 一次最多 5 段內容';return}var t=b.getAttribute('data-add'),it={type:t};if(t==='text')it.text='';if(t==='image'||t==='video'){it.originalContentUrl='';it.previewImageUrl=''}if(t==='card'){it.source_message_id=null;it.message_config=null}items.push(it);render()}});$('msq-test').onclick=sendTest;$('msq-save').onclick=save;
+      fetch('/admin/messages/api/list').then(function(r){return r.json()}).then(function(d){cards=d.messages||[];if(editId)fetch('/admin/messages/api/'+editId).then(function(r){return r.json()}).then(function(x){if(!x.ok||!x.message||x.message.message_config.mode!=='sequence'){throw new Error('這不是多段訊息')}if(!dup)$('msq-name').value=x.message.name||'';else $('msq-name').value=(x.message.name||'')+'（副本）';$('msq-desc').value=x.message.description||'';items=JSON.parse(JSON.stringify(x.message.message_config.items||[]));render()}).catch(function(e){$('msq-status').textContent='載入失敗：'+e.message});else render()}).catch(function(){render()});
+    })();
+    </script>
+    `
+  })
+%>

@@ -17,9 +17,10 @@
 
 const { createLineRichMenuService, buildLineMenuObject, sanitizeMenuConfig, normalizeTabs } = require('../core/lineRichMenu');
 const { findUriButton, listUriButtons, isOwnLiff } = require('../core/messageTapTracking');
+const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 
 function registerAdminRichMenuRoutes(app, deps) {
-  const { query, authCore } = deps;
+  const { query, authCore, flowEngine } = deps;
   const { requireAdmin, requireOwner } = authCore;
   const rm = createLineRichMenuService({
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || ''
@@ -131,6 +132,11 @@ function registerAdminRichMenuRoutes(app, deps) {
 
   const baseUrl = () => String(process.env.URL || process.env.DEPLOY_PRIME_URL || '').replace(/\/+$/, '');
 
+  function liffIdFromUrl(uri) {
+    const m = /^https:\/\/liff\.line\.me\/([^/?#]+)/i.exec(String(uri || ''));
+    return m ? m[1] : '';
+  }
+
   /** 發布用：把每一格的「開啟網址」包成站內轉址（記一筆點擊再跳過去）。
    *  published_config 存的是原始網址，/r 轉址靠它查目的地——選單上的是追蹤網址。 */
   function withTrackingLinks(config, rowId, ownIds) {
@@ -141,17 +147,13 @@ function registerAdminRichMenuRoutes(app, deps) {
     const tabs = Array.isArray(clone.tabs) && clone.tabs.length ? clone.tabs : null;
     const wrap = (buttons, tabIdx) => (buttons || []).forEach((b, ci) => {
       if (b && b.action && b.action.type === 'uri' && /^https:\/\//.test(String(b.action.uri || ''))) {
-        // 指向自家活動頁（LIFF）的按鍵完全不包裝，原始連結直接送給 LINE。
-        // 包成站內轉址會讓 LINE 先用內建瀏覽器開那個網址、再由 302 疊出 LIFF 視窗，
-        // 使用者會在活動頁後面看到多一層灰色瀏覽器（2026-09-04 實測）。
-        // 這些頁面本身就認得出是誰、也自己記得到開啟次數，不需要跳板；
-        // 與訊息端 isTrackableUri（自家 LIFF 一律跳過）的規則一致。
-        if (isOwnLiff(b.action.uri, ownIds)) return;
-        // 勾了「記錄是誰點的」→ 走 LIFF 跳板（拿得到身分，可以貼標籤）；
-        // 沒勾就走一般轉址（只算次數，但快）。沒設 LIFF ID 時只能走一般轉址。
-        const named = b.identify === true && !!liff;
-        b.action = { ...b.action, uri: named
-          ? ('https://liff.line.me/' + liff + '/t/' + rowId + '/' + tabIdx + '/' + ci)
+        // 延遲自動化必須知道「誰按了」。所有 https 按鈕統一走 LIFF 跳板，
+        // 以 LINE 驗證過的 ID token 取 sub；不再信任前端自稱的 userId。
+        // 自家 LIFF 使用原本那個 LIFF ID 進跳板，避免先開普通瀏覽器再疊 LIFF 灰色視窗。
+        const own = isOwnLiff(b.action.uri, ownIds);
+        const bounceLiff = own ? liffIdFromUrl(b.action.uri) : liff;
+        b.action = { ...b.action, uri: bounceLiff
+          ? ('https://liff.line.me/' + bounceLiff + '/t/' + rowId + '/' + tabIdx + '/' + ci)
           : (base + '/r/' + rowId + '/' + tabIdx + '/' + ci) };
       }
     });
@@ -200,6 +202,12 @@ function registerAdminRichMenuRoutes(app, deps) {
         ownLiffExtra = la.map(x => x.liff_id_override).filter(Boolean);
       } catch (e) { /* 查不到就只用預設編號，不影響發布 */ }
       const trackedConfig = withTrackingLinks(cleanConfig, id, ownLiffExtra);
+      // 跳板收到點擊時也必須使用發布當下相同的 LIFF 清單來判斷目的地。
+      // 活動的 override 之後可能被修改，所以把這次實際使用的清單跟版本一起留存。
+      const trackingOwnLiffIds = Array.from(new Set([
+        process.env.GAMES_LIFF_ID, process.env.WHEEL_LIFF_ID, process.env.LIFF_ID,
+        ...ownLiffExtra
+      ].map(x => String(x || '').trim()).filter(Boolean)));
 
       const menuObjs = [];
       try {
@@ -238,7 +246,11 @@ function registerAdminRichMenuRoutes(app, deps) {
                   published_config=$4::jsonb, status='published',
                   audience_applied_at = CASE WHEN audience_list_id IS NULL THEN audience_applied_at ELSE NULL END,
                   published_at=now(), updated_at=now() WHERE id=$1`,
-          [id, newIds[0], JSON.stringify(idsJson), JSON.stringify(cleanConfig)]);
+          [id, newIds[0], JSON.stringify(idsJson), JSON.stringify({
+            ...cleanConfig,
+            tap_tracking_version: 2,
+            tap_tracking_own_liff_ids: trackingOwnLiffIds
+          })]);
       } catch (e) {
         for (const nid of newIds) await rm.deleteRichMenu(nid).catch(() => {});
         return jsonErr(res, 500, 'db_failed', { detail: '選單沒有發布出去（後台紀錄寫入失敗），再試一次。' });
@@ -474,16 +486,23 @@ function registerAdminRichMenuRoutes(app, deps) {
   });
 
   // ── 記名追蹤跳板：/t/:id/:tab/:cell ──────────────────────────
-  // 「開啟網址」的按鍵本身不帶 LINE 身分，所以直接轉址永遠不知道是誰按的。
-  // 勾了「記錄是誰點的」的按鍵，發布時網址會改指到這裡（LIFF 頁）：
-  // 用 LIFF 拿到身分、記一筆、再跳到真正的目的地。代價是多約 1 秒，
-  // 所以只有要拿來貼標籤／分眾的按鍵才勾。
+  // 「開啟網址」的按鍵本身不帶 LINE 身分，所以發布時所有 HTTPS 網址按鈕
+  // 都會先進這個 LIFF 跳板：驗證身分、記錄點擊、觸發流程，再立刻前往目的地。
   function cellTarget(cfg, tab, cell) {
     if (!cfg) return null;
     const tabs = normalizeTabs(cfg);
     const b = tabs[tab] && tabs[tab].buttons ? tabs[tab].buttons[cell] : null;
     if (b && b.action && b.action.type === 'uri' && /^https:\/\//.test(String(b.action.uri || ''))) {
-      return { uri: b.action.uri, label: b.label || null };
+      const own = isOwnLiff(b.action.uri, cfg.tap_tracking_own_liff_ids);
+      const lid = own ? liffIdFromUrl(b.action.uri) : gamesLiffId();
+      let browserTarget = b.action.uri;
+      if (own && baseUrl()) {
+        const m = /^https:\/\/liff\.line\.me\/[^/?#]+(\/[^?#]*)?(\?[^#]*)?(#.*)?$/i.exec(String(b.action.uri));
+        // LIFF endpoint 是 /games；跳板已在同一個 LIFF 視窗裡，直接切到站內實際路徑，
+        // 不再重新開一次 liff.line.me，避免灰色雙層瀏覽器。
+        if (m) browserTarget = baseUrl() + '/games' + (m[1] || '') + (m[2] || '') + (m[3] || '');
+      }
+      return { uri: b.action.uri, browserTarget, label: b.label || null, liffId: lid };
     }
     return null;
   }
@@ -499,8 +518,8 @@ function registerAdminRichMenuRoutes(app, deps) {
       const { rows } = await query(`SELECT published_config FROM rich_menus WHERE id=$1`, [id]);
       const hit = cellTarget(rows.length ? rows[0].published_config : null, tab, cell);
       res.render('tap_bounce', {
-        target: hit ? hit.uri : FALLBACK,
-        liffId: gamesLiffId(),
+        target: hit ? hit.browserTarget : FALLBACK,
+        liffId: hit ? hit.liffId : gamesLiffId(),
         recordUrl: '/t/' + id + '/' + tab + '/' + cell + '/hit'
       });
     } catch (e) {
@@ -517,11 +536,14 @@ function registerAdminRichMenuRoutes(app, deps) {
   tapHitPaths.forEach(pth => app.post(pth, async (req, res) => {
     try {
       const id = Number(req.params.id), tab = Number(req.params.tab), cell = Number(req.params.cell);
-      const raw = String((req.body || {}).line_user_id || '').trim();
-      const uid = /^U[0-9a-f]{32}$/i.test(raw) ? raw : null;
       const { rows } = await query(`SELECT published_config FROM rich_menus WHERE id=$1`, [id]);
       const hit = cellTarget(rows.length ? rows[0].published_config : null, tab, cell);
       if (!hit) return res.json({ ok: true, skipped: true });
+      const idToken = String((req.body || {}).id_token || '').trim();
+      const verified = await verifyLiffIdToken(idToken, channelIdFromLiffId(hit.liffId));
+      const uid = verified && verified.ok && /^U[0-9a-f]{32}$/i.test(String(verified.sub || ''))
+        ? String(verified.sub) : null;
+      if (!uid) return res.status(401).json({ ok: false, error: 'identity_verification_failed' });
       const ip = String((req.headers && req.headers['x-forwarded-for']) || req.ip || '').split(',')[0].trim();
       const key = id + ':' + tab + ':' + cell + ':' + (uid || ip);
       const now = Date.now();
@@ -534,6 +556,9 @@ function registerAdminRichMenuRoutes(app, deps) {
       await query(
         `INSERT INTO rich_menu_taps (menu_id, tab, cell, kind, label, line_user_id) VALUES ($1,$2,$3,'link',$4,$5)`,
         [id, tab, cell, hit.label, uid]);
+      if (flowEngine && typeof flowEngine.triggerRichMenuTap === 'function') {
+        await flowEngine.triggerRichMenuTap({ menuId: id, tab, cell, lineUserId: uid, kind: 'link', label: hit.label });
+      }
       res.json({ ok: true });
     } catch (e) {
       console.error('tap hit error:', e && e.message);

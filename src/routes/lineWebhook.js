@@ -465,6 +465,12 @@ function createLineWebhookHandler({
                   `INSERT INTO rich_menu_taps (menu_id, tab, cell, kind, label, line_user_id)
                    VALUES ($1,$2,$3,'message',$4,$5)`,
                   [hit.menu, hit.tab, hit.cell, hit.label, event.source.userId || null]);
+                if (flowEngine && typeof flowEngine.triggerRichMenuTap === 'function') {
+                  await flowEngine.triggerRichMenuTap({
+                    menuId: hit.menu, tab: hit.tab, cell: hit.cell,
+                    lineUserId: event.source.userId || null, kind: 'message', label: hit.label
+                  });
+                }
               }
             } catch (e) { console.error('richmenu msg tap log failed:', e.message); }
           }

@@ -1,7 +1,6 @@
-// 編輯器對「開啟網址」按鍵的三種情況要講不同的話，而且判準要跟後端一致：
-//   自家活動頁 → 鎖住勾選框並說明改用別的規則抓
-//   合作夥伴的活動頁（同樣是 liff.line.me，但不是我們的編號）→ 當成外部，可以勾
-//   一般外部網址 → 可以勾
+// 編輯器對所有「開啟網址」按鍵都自動啟用安全記名，且判準要跟後端一致：
+//   自家活動頁 → 使用原本 LIFF 編號進跳板
+//   合作夥伴／一般網址 → 使用我們的 LIFF 編號進跳板
 // 這支同時守住「這頁不可以用正規表示式」——之前那行 regex 讓整個面板每次都丟錯。
 const path = require('path');
 let JSDOM; try { ({ JSDOM } = require('jsdom')); } catch (e) { console.log('SKIP jsdom 沒裝'); process.exit(0); }
@@ -72,7 +71,7 @@ function fakeCtx() { const noop = () => {};
 
   const idc = doc.getElementById('rm-act-identify');
   const hint = doc.getElementById('rm-act-idhint');
-  ok(!!idc && !!hint, '編輯器有「記錄是誰點的」這個設定');
+  ok(!!idc && !!hint, '編輯器有自動點擊追蹤說明');
 
   // 選格子的方式跟真實頁面一致：點畫布上該格的位置（頁面用座標換算出是第幾格）
   const canvas = doc.getElementById('rm-canvas');
@@ -89,10 +88,10 @@ function fakeCtx() { const noop = () => {};
   };
 
   const expect = [
-    { i: 0, name: '自家活動頁',   鎖住: true,  說明含: '本來就知道是誰' },
-    { i: 1, name: '活動自訂編號', 鎖住: true,  說明含: '本來就知道是誰' },
-    { i: 2, name: '夥伴活動頁',   鎖住: false, 說明含: '不勾' },
-    { i: 3, name: '一般網址',     鎖住: false, 說明含: '不勾' }
+    { i: 0, name: '自家活動頁',   說明含: '自動開啟' },
+    { i: 1, name: '活動自訂編號', 說明含: '自動開啟' },
+    { i: 2, name: '夥伴活動頁',   說明含: '自動開啟' },
+    { i: 3, name: '一般網址',     說明含: '自動開啟' }
   ];
   let checked = 0;
   for (const e of expect) {
@@ -101,7 +100,7 @@ function fakeCtx() { const noop = () => {};
     const uriBtn = [].find.call(doc.querySelectorAll('.rm-actbtn'), b => b.getAttribute('data-mode') === 'uri');
     if (uriBtn) uriBtn.click();
     await new Promise(r => setTimeout(r, 60));
-    ok(idc.disabled === e.鎖住, e.name + '：勾選框' + (e.鎖住 ? '鎖住' : '可以勾'));
+    ok(idc.hidden && idc.disabled && idc.checked, e.name + '：安全追蹤固定自動開啟');
     ok(hint.textContent.indexOf(e.說明含) >= 0,
        e.name + '：說明講對了（' + hint.textContent.replace(/\s+/g, '').slice(0, 22) + '…）');
     checked++;
@@ -109,6 +108,6 @@ function fakeCtx() { const noop = () => {};
   ok(checked === expect.length, '四種情況都檢查到了（實際 ' + checked + '/4）');
   ok(errs.length === 0, '整個過程沒有丟出任何錯誤' + (errs.length ? ('：' + errs[0]) : ''));
 
-  console.log(failed ? ('\n有 ' + failed + ' 項失敗') : '\n自家活動頁的判斷前後端一致');
+  console.log(failed ? ('\n有 ' + failed + ' 項失敗') : '\n所有網址按鈕都自動啟用安全追蹤');
   process.exit(failed ? 1 : 0);
 })();

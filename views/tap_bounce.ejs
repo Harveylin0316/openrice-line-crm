@@ -30,7 +30,7 @@
     var REC = <%- JSON.stringify(recordUrl) %>;
     var went = false;
     // 跳轉獨立成一個掛在 window 上的動作：自動測試才攔得到「有沒有真的把人送走」
-    window.__bounceGo = function (u) { location.replace(u); };
+    window.__bounceGo = window.__bounceGo || function (u) { location.replace(u); };
     function go() {
       if (went) return; went = true;
       window.__bounceGo(TARGET);
@@ -43,10 +43,10 @@
       if (m && !went) m.hidden = false;
     }, 2500);
 
-    function record(uid) {
+    function record(idToken) {
       // 用 sendBeacon：頁面正在跳走時，一般的請求會被瀏覽器取消
       try {
-        var body = JSON.stringify({ line_user_id: uid || null });
+        var body = JSON.stringify({ id_token: idToken || null });
         if (navigator.sendBeacon) {
           navigator.sendBeacon(REC, new Blob([body], { type: 'application/json' }));
           return Promise.resolve();
@@ -58,13 +58,12 @@
 
     (async function () {
       try {
-        if (!LIFF_ID || typeof liff === 'undefined') { await record(null); clearTimeout(timer); return go(); }
+        if (!LIFF_ID || typeof liff === 'undefined') { clearTimeout(timer); return go(); }
         await liff.init({ liffId: LIFF_ID });
-        if (!liff.isInClient() || !liff.isLoggedIn()) { await record(null); clearTimeout(timer); return go(); }
-        var p = await liff.getProfile();
-        await record(p && p.userId);
+        if (!liff.isInClient() || !liff.isLoggedIn()) { clearTimeout(timer); return go(); }
+        await record(liff.getIDToken());
       } catch (e) {
-        await record(null);
+        // 追蹤失敗不能阻擋原本按鈕效果。
       }
       clearTimeout(timer);
       go();

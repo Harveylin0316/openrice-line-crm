@@ -12,7 +12,7 @@
  *   POST   /admin/flows/api/:id/status     啟用 / 暫停 / 轉草稿
  *   DELETE /admin/flows/api/:id            刪除
  * cron：
- *   POST   /admin/flows/run                每 5 分鐘排程推進
+ *   POST   /admin/flows/run                每分鐘排程推進
  *   POST   /admin/flows/run-now            admin 手動推進一次（測試）
  *
  * 步驟樹 ←→ 節點：
@@ -22,6 +22,7 @@
  */
 
 const { recordRestaurantClick } = require('../core/restaurantLinkParse');
+const { normalizeTabs } = require('../core/lineRichMenu');
 
 // 「流程觸發事件」下拉：使用者在好康地圖活動頁做的動作。
 // 同時用在兩個地方 —— 觸發條件「活動頁互動」的事件選單，以及條件分支裡的「做了某動作」選單。
@@ -185,9 +186,26 @@ function registerAdminFlowsRoutes(app, deps) {
     if (!name) return { ok: false, error: 'name_required' };
     const trigger = body.trigger || {};
     const tType = trigger.type;
-    if (!['follow', 'list_join', 'event', 'schedule', 'game_play', 'broadcast_click', 'restaurant_click', 'inactivity', 'streak_risk'].includes(tType)) return { ok: false, error: 'invalid_trigger_type' };
+    if (!['follow', 'list_join', 'event', 'schedule', 'game_play', 'broadcast_click', 'restaurant_click', 'inactivity', 'streak_risk', 'rich_menu_tap'].includes(tType)) return { ok: false, error: 'invalid_trigger_type' };
     const tCfg = trigger.config || {};
     if (tType === 'list_join' && !(Number(tCfg.list_id) > 0)) return { ok: false, error: 'list_join_needs_list' };
+    if (tType === 'rich_menu_tap') {
+      if (!(Number(tCfg.menu_id) > 0)) return { ok: false, error: 'rich_menu_tap_needs_menu' };
+      tCfg.menu_id = Number(tCfg.menu_id);
+      tCfg.match = tCfg.match === 'selected' ? 'selected' : 'any';
+      const seen = new Set();
+      tCfg.buttons = (Array.isArray(tCfg.buttons) ? tCfg.buttons : []).map(b => ({
+        tab: Math.max(0, Math.round(Number(b && b.tab) || 0)),
+        cell: Math.max(0, Math.round(Number(b && b.cell) || 0))
+      })).filter(b => {
+        const key = b.tab + ':' + b.cell;
+        if (seen.has(key)) return false;
+        seen.add(key); return true;
+      }).slice(0, 20);
+      if (tCfg.match === 'selected' && tCfg.buttons.length === 0) {
+        return { ok: false, error: 'rich_menu_tap_needs_button' };
+      }
+    }
     if (tType === 'event' && !String(tCfg.event_name || '').trim()) return { ok: false, error: 'event_needs_name' };
     if (tType === 'follow') {
       // 來源代號：空 = 通用流程（對所有新好友觸發）；有值 = 只對該來源的新好友觸發。
@@ -294,16 +312,36 @@ function registerAdminFlowsRoutes(app, deps) {
   // ---------- options（下拉資料） ----------
   app.get('/admin/flows/api/options', requireAdmin, async (_req, res) => {
     try {
-      const [msgs, lists, acts] = await Promise.all([
+      const [msgs, lists, acts, menus] = await Promise.all([
         query(`SELECT id, name FROM admin_message_templates WHERE COALESCE(channel, 'line') = 'line' ORDER BY id DESC`),
         query(`SELECT id, name FROM admin_recipient_lists ORDER BY id DESC`),
-        query(`SELECT id, name FROM activities ORDER BY id DESC`)
+        query(`SELECT id, name FROM activities ORDER BY id DESC`),
+        query(`SELECT id, name, status, published_at, published_config
+               FROM rich_menus WHERE status = 'published' AND published_config IS NOT NULL
+               ORDER BY is_default DESC, published_at DESC NULLS LAST, id DESC`)
       ]);
+      const richMenus = menus.rows.map(m => ({
+        id: m.id,
+        name: m.name,
+        status: m.status,
+        published_at: m.published_at,
+        buttons: normalizeTabs(m.published_config || {}).flatMap((tab, tabIndex) =>
+          (tab.buttons || []).map((button, cellIndex) => ({
+            tab: tabIndex,
+            cell: cellIndex,
+            label: String((button && button.label) || ('第 ' + (cellIndex + 1) + ' 顆按鈕')),
+            action_type: button && button.action && button.action.type,
+            // 2026-09-07 以前發布的 URI 可能還沒走記名 LIFF 跳板；重新發布一次即可。
+            needs_republish: !!(button && button.action && button.action.type === 'uri' && Number(m.published_config.tap_tracking_version) < 2)
+          })).filter(b => b.action_type === 'uri' || b.action_type === 'message')
+        )
+      }));
       return res.json({
         ok: true,
         messages: msgs.rows,
         lists: lists.rows,
         activities: acts.rows,
+        rich_menus: richMenus,
         events: KNOWN_EVENTS
       });
     } catch (err) {

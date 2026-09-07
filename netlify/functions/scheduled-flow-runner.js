@@ -1,5 +1,5 @@
 /**
- * Netlify Scheduled Function：每 5 分鐘觸發自動化流程引擎。
+ * Netlify Scheduled Function：每分鐘觸發自動化流程引擎。
  *
  * 呼叫 /admin/flows/run，該 endpoint 會：
  *   1. 跑 schedule 觸發（到點的定時流程 enroll 受眾）

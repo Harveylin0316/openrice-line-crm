@@ -1,6 +1,6 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
-本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容依 2026-09-03 的 `origin/main`（基準 commit `fdfac35`）與正式站唯讀檢查整理。
+本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-07；正式資料與部署狀態仍應在接手時重新確認。
 
 - Repo：<https://github.com/Harveylin0316/openrice-line-crm>
 - 正式站：<https://openrice-line-crm.netlify.app>
@@ -93,7 +93,7 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 | `src/routes/web.js` | Legacy web 路由 |
 | `src/routes/adminBroadcast.js` | LINE／Email 群發、排程、歷史 |
 | `src/routes/adminFlows.js` | 自動化流程編輯與執行 |
-| `src/routes/adminRichmenu.js` | Rich Menu 管理與排程 |
+| `src/routes/adminRichMenu.js` | Rich Menu 管理、點擊追蹤與排程 |
 | `src/routes/adminUsers.js` | 會員、標籤規則與受眾操作 |
 | `src/routes/lineWebhook.js` | 主 LINE OA webhook |
 | `src/routes/line2Webhook.js` | 第二 OA webhook，資料應與主 OA 隔離 |
@@ -115,6 +115,25 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 - 關鍵字回覆：`/admin/keyword-replies`
 - 自動化流程：`/admin/flows`
 - Rich Menu：`/admin/richmenu`
+
+#### 圖文選單點擊後延遲推播（2026-09-07）
+
+後台已可建立「點了圖文選單」流程：
+
+1. 先到 `/admin/messages` 建立要發送的內容。除了單一卡片與進階 Flex，也可用「新增文字／圖片／影片組合」把最多 5 段內容排成同一次 LINE 推播；圖片可上傳，影片需提供公開 HTTPS MP4 與預覽圖。
+2. 到 `/admin/flows` 新增流程，觸發條件選「點了圖文選單」，再選已發布選單與「任一功能按鈕」或指定按鈕。
+3. 步驟通常依序放「等待」與「發訊息」。排程每分鐘推進，實際送出會有約一分鐘內的排程誤差。
+4. 啟用前用「安全試跑／發給自己」確認訊息。正式啟用後可從流程列表查看進行中、累計、漏發與卡住人數。
+
+行為與安全邊界：
+
+- 只計算會開啟網址或送出文字的功能按鈕；Rich Menu 分頁切換不算。
+- 同一用戶在訊息尚未送出前重複點擊，不會堆疊多份推播，而是以最後一次點擊重新倒數。訊息已送出後不會因連點重播。
+- 21:00–08:00 是安靜時段。延遲到安靜時段的訊息會順延至 08:00 後，不會半夜發送。
+- 網址按鈕透過 LIFF ID token 向 LINE 驗證身分；後端不接受前端自行宣告的 LINE user ID。驗證或紀錄失敗不能阻擋按鈕原本的跳轉。
+- 2026-09-07 以前發布的選單，若流程編輯器顯示舊版追蹤警告，必須回 `/admin/richmenu` 重新發布一次。這會把所有 HTTPS 網址按鈕換成安全追蹤跳板；原始目的地仍保存在 `rich_menus.published_config`。
+
+主要程式入口：`src/core/flowEngine.js` 的 `triggerRichMenuTap()`／`enrollUser(...restartActive)`、`src/routes/adminRichMenu.js` 的 `/t/...` 跳板、`src/routes/lineWebhook.js` 的 message action 比對、`src/core/broadcastTemplates.js` 的 `mode='sequence'`，以及 `views/admin_flows.ejs`、`views/admin_message_sequence.ejs`。
 
 ### 數據與歸因
 
@@ -363,7 +382,7 @@ LINE 內建指令目前只保留「查詢訂位／查看訂位」。`取消訂�
 | 工作 | 排程 | 站內 runner |
 |---|---|---|
 | 排程群發 | 每 5 分鐘 | `/admin/broadcast/run-scheduled` |
-| 自動化流程 | 每 5 分鐘，錯開秒段 | `/admin/flows/run` |
+| 自動化流程 | 每分鐘 | `/admin/flows/run` |
 | Rich Menu 排程 | 每 5 分鐘 | `/admin/richmenu/run-schedule` |
 | 標籤規則 | 每 5 分鐘 | `/admin/users/run-tag-rules` |
 | 活動排程 | 每 5 分鐘 | `/admin/activities/run-schedule` |

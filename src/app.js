@@ -614,7 +614,7 @@ registerAdminAccountsRoutes(app, { query, pool, authCore });
 
 registerAdminOaContactsRoutes(app, { query, authCore, oaKey: LINE2_OA_KEY });
 
-registerAdminRichMenuRoutes(app, { query, authCore });
+registerAdminRichMenuRoutes(app, { query, authCore, flowEngine });
 
 registerAdminInsightRoutes(app, { query, authCore });
 

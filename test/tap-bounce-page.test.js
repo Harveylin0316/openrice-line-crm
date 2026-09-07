@@ -1,5 +1,5 @@
-// 記名跳板頁本身：拿身分 → 回報 → 跳走。
-// 三個硬要求：(1) 一定要把人送到目的地 (2) 拿不到身分也要送 (3) 慢也要送（保底）
+// 記名跳板頁本身：拿 LINE 驗證用的 ID token → 回報 → 跳走。
+// 三個硬要求：(1) 一定要把人送到目的地 (2) 不把未驗證 userId 送給後端 (3) 慢也要送（保底）
 const path = require('path');
 let JSDOM; try { ({ JSDOM } = require('jsdom')); } catch (e) { console.log('SKIP jsdom 沒裝'); process.exit(0); }
 const ejs = require('ejs');
@@ -8,8 +8,6 @@ let failed = 0;
 function ok(c, l) { console.log((c ? 'OK  ' : '錯！ ') + l); if (!c) failed++; }
 
 const TARGET = 'https://example.com/promo';
-const UID = 'U' + 'a'.repeat(32);
-
 async function render() {
   return ejs.renderFile(path.join(REPO, 'views/tap_bounce.ejs'),
     { target: TARGET, liffId: 'LIFFID', recordUrl: '/games/t/3/1/2/hit' });
@@ -47,21 +45,21 @@ async function runBounce(opts) {
   // 1) 正常：拿到身分 → 回報 → 跳走
   let r = await runBounce({ liff: {
     init: async () => {}, isInClient: () => true, isLoggedIn: () => true,
-    getProfile: async () => ({ userId: UID })
+    getIDToken: () => 'signed-line-id-token'
   }});
   ok(r.replaced === TARGET, '正常情況把人送到目的地');
   const sent = r.beacons[0] || r.fetches[0];
   ok(!!sent, '有回報一筆');
-  ok(sent && /U[0-9a-f]{32}/i.test(String(sent.body)), '回報內容帶著是誰按的');
+  ok(sent && /signed-line-id-token/.test(String(sent.body)), '只回報 LINE 可驗證的 ID token，不信任前端自稱的 userId');
 
   // 2) 不在 LINE 裡（例如網址被轉貼到瀏覽器）→ 記不到人，但照樣要送過去
   r = await runBounce({ liff: {
     init: async () => {}, isInClient: () => false, isLoggedIn: () => false,
-    getProfile: async () => ({ userId: UID })
+    getIDToken: () => 'should-not-be-used'
   }});
   ok(r.replaced === TARGET, '不在 LINE 裡也照樣把人送到目的地');
   const b2 = r.beacons[0] || r.fetches[0];
-  ok(b2 && /null/.test(String(b2.body)), '這種情況記成「不知道是誰」，不會亂記');
+  ok(!b2, '不在 LINE 裡不送未驗證身分，也不製造匿名自動化');
 
   // 3) LIFF 整個壞掉 → 還是要送
   r = await runBounce({ liff: { init: async () => { throw new Error('LIFF 掛了'); } } });
@@ -73,8 +71,8 @@ async function runBounce(opts) {
 
   // 5) 拿身分拿很久 → 保底時間到就送人，不能把人卡在白畫面
   r = await runBounce({ waitMs: 2200, liff: {
-    init: async () => {}, isInClient: () => true, isLoggedIn: () => true,
-    getProfile: () => new Promise(() => {})   // 永遠不回
+    init: () => new Promise(() => {}), isInClient: () => true, isLoggedIn: () => true,
+    getIDToken: () => 'never-reached'
   }});
   ok(r.replaced === TARGET, '拿身分卡住時，保底時間到照樣把人送走');
 

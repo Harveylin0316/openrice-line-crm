@@ -5,7 +5,7 @@
  * - 卡片底色 #FFFFFF，主視覺黃色 #FCC726（OpenRice 官方品牌黃）
  * - CTA 按鈕用 box+action 模擬（LINE Flex 原生 button 的 label 字色無法自訂，
  *   白字在 #FCC726 上對比不足；用 box 才能達到「黃底深字」的可讀性）。
- * - 接受 messageConfig.mode = 'template' | 'flex_json' 兩種模式。
+ * - 接受 messageConfig.mode = 'template' | 'flex_json' | 'sequence'。
  */
 
 /**
@@ -275,7 +275,7 @@ function buildYellowFlexFromTemplate(t, { heroImageUrl, heroIsBrandBar } = {}) {
 
 /**
  * 從 message_config 構造 LINE messages 陣列（給 linePush.pushLineMessages 用）
- * messageConfig: { mode: 'template'|'flex_json', template?: {...}, flex?: {...} }
+ * messageConfig: { mode: 'template'|'flex_json'|'sequence', template?: {...}, flex?: {...}, items?: [...] }
  * heroImageBaseUrl: 用來組 hero 圖的 https 公開網址（line_push_media）
  * broadcastId: 若提供且 template 模式有 CTA，會把 CTA URL 包成 /r/b/<id> 中介 redirect
  *              （給點擊追蹤用）。flex_json 模式不包，由 user 自行用 utm 追蹤。
@@ -419,6 +419,58 @@ function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, varia
   const rSeg = (recipientId != null && Number.isFinite(Number(recipientId))) ? `/${Number(recipientId)}` : '';
   if (!messageConfig || typeof messageConfig !== 'object') {
     return { ok: false, error: '訊息設定缺失' };
+  }
+  if (messageConfig.mode === 'sequence') {
+    const items = Array.isArray(messageConfig.items) ? messageConfig.items : [];
+    if (items.length < 1 || items.length > 5) {
+      return { ok: false, error: '多段訊息需要 1～5 個內容區塊。' };
+    }
+    const messages = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i] && typeof items[i] === 'object' ? items[i] : {};
+      const pos = '第 ' + (i + 1) + ' 個內容：';
+      if (item.type === 'text') {
+        let body = String(item.text || '').trim();
+        if (recipientName != null) body = applyPersonalization(body, recipientName);
+        if (!body || body.length > 5000) return { ok: false, error: pos + '文字需為 1～5000 字。' };
+        messages.push({ type: 'text', text: body });
+        continue;
+      }
+      if (item.type === 'image') {
+        const original = String(item.originalContentUrl || '').trim();
+        const preview = String(item.previewImageUrl || original).trim();
+        if (!/^https:\/\//i.test(original) || !/^https:\/\//i.test(preview)) {
+          return { ok: false, error: pos + '圖片網址與預覽網址都必須以 https:// 開頭。' };
+        }
+        messages.push({ type: 'image', originalContentUrl: original, previewImageUrl: preview });
+        continue;
+      }
+      if (item.type === 'video') {
+        const original = String(item.originalContentUrl || '').trim();
+        const preview = String(item.previewImageUrl || '').trim();
+        if (!/^https:\/\//i.test(original) || !/^https:\/\//i.test(preview)) {
+          return { ok: false, error: pos + '影片網址與預覽圖片網址都必須以 https:// 開頭。' };
+        }
+        messages.push({ type: 'video', originalContentUrl: original, previewImageUrl: preview });
+        continue;
+      }
+      if (item.type === 'card') {
+        const nested = item.message_config;
+        if (!nested || nested.mode === 'sequence') return { ok: false, error: pos + '卡片內容缺失。' };
+        // 多段訊息裡的卡片不套 broadcast CTA 中轉：舊中轉端點只認單一卡片設定。
+        // Flow 本身仍會在成品訊息樹上套自己的 /rf 點擊追蹤。
+        const built = buildLineMessages(nested, {
+          heroImageBaseUrl, recipientName, variant, recipientId, broadcastId: undefined
+        });
+        if (!built.ok || !built.messages || built.messages.length !== 1) {
+          return { ok: false, error: pos + (built.error || '卡片內容無法建立。') };
+        }
+        messages.push(built.messages[0]);
+        continue;
+      }
+      return { ok: false, error: pos + '不支援的內容類型。' };
+    }
+    return { ok: true, messages };
   }
   if (messageConfig.mode === 'flex_json') {
     const flex = messageConfig.flex;

@@ -1,4 +1,4 @@
-// 「記錄是誰點的」：勾了的按鍵走 LIFF 跳板，跳板記得到人；沒勾的維持原本的快速轉址。
+// 圖文選單功能按鈕：所有網址都走 LIFF 跳板，且只接受 LINE 驗證過的 ID token。
 const path = require('path');
 const { registerAdminRichMenuRoutes } = require(path.join(__dirname, '..', 'src/routes/adminRichMenu'));
 const { sanitizeMenuConfig } = require(path.join(__dirname, '..', 'src/core/lineRichMenu'));
@@ -19,11 +19,15 @@ const CFG = { size: 'large', chat_bar_text: '選單',
 
 function build(opts) {
   opts = opts || {};
-  const routes = {}, taps = [], lineCalls = [];
+  const routes = {}, taps = [], lineCalls = [], flowTriggers = [];
   const app = { get: (p, ...h) => { routes['GET ' + p] = h; },
                 post: (p, ...h) => { routes['POST ' + p] = h; }, delete: () => {}, put: () => {} };
   global.fetch = async (url, o) => {
     lineCalls.push(((o && o.method) || 'GET') + ' ' + url);
+    if (/oauth2\/v2\.1\/verify/.test(url)) {
+      if (opts.verifyFail) return { ok: false, status: 400, text: async () => 'bad token' };
+      return { ok: true, status: 200, json: async () => ({ sub: UID, aud: '1234' }), text: async () => '{}' };
+    }
     if (/user\/all\/richmenu$/.test(url) && (!o || o.method === 'GET'))
       return { ok: false, status: 404, text: async () => '{}' };
     if (/\/v2\/bot\/richmenu$/.test(url)) return { ok: true, status: 200, text: async () => JSON.stringify({ richMenuId: 'richmenu-n1' }) };
@@ -43,8 +47,9 @@ function build(opts) {
     return { rows: [] };
   };
   const pass = (req, res, next) => next();
-  registerAdminRichMenuRoutes(app, { query, authCore: { requireAdmin: pass, requireOwner: pass } });
-  return { routes, taps, dbCalls, lineCalls };
+  registerAdminRichMenuRoutes(app, { query, authCore: { requireAdmin: pass, requireOwner: pass },
+    flowEngine: { triggerRichMenuTap: async x => { flowTriggers.push(x); } } });
+  return { routes, taps, dbCalls, lineCalls, flowTriggers };
 }
 function res() { const o = { code: 200, body: null, redirected: null, rendered: null, locals: null };
   o.status = c => { o.code = c; return o; }; o.json = b => { o.body = b; return o; };
@@ -70,7 +75,7 @@ const UID = 'U' + 'a'.repeat(32);
   ok(clean.buttons[0].identify === true, '開啟網址的按鍵記得住「要記錄是誰點的」');
   ok(!clean.buttons[1].identify, '發送文字的按鍵不會留下這個設定（用不到）');
 
-  // 2) 發布時：勾了的走 LIFF 跳板，沒勾的走一般轉址
+  // 2) 發布時：所有網址按鈕都走 LIFF 記名跳板（自動化需要可靠身分）
   let t = build({});
   const IMG = 'data:image/jpeg;base64,' + Buffer.from('x').toString('base64');
   await run(t.routes, 'POST /admin/richmenu/api/publish', { id: 1, image: IMG });
@@ -92,8 +97,8 @@ const UID = 'U' + 'a'.repeat(32);
   await run(t.routes, 'POST /admin/richmenu/api/publish', { id: 1, image: IMG });
   ok(sentUris.some(u => /liff\.line\.me\/1234-abcd\/t\/1\/0\/0$/.test(u)),
      '勾了的按鍵指到記名跳板（' + (sentUris[0] || '') + '）');
-  ok(sentUris.some(u => /example\.netlify\.app\/r\/1\/0\/1$/.test(u)),
-     '沒勾的按鍵維持原本的快速轉址（' + (sentUris[1] || '') + '）');
+  ok(sentUris.some(u => /liff\.line\.me\/1234-abcd\/t\/1\/0\/1$/.test(u)),
+     '沒勾的網址按鈕也會安全記名（' + (sentUris[1] || '') + '）');
 
   // 3) 跳板頁：把真正的目的地交給前端，不是自己轉走
   t = build({});
@@ -105,27 +110,30 @@ const UID = 'U' + 'a'.repeat(32);
   // 4) 回報：記下是誰按的
   t = build({});
   r = await run(t.routes, 'POST /t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)/hit',
-    { line_user_id: UID }, { params: { id: '1', tab: '0', cell: '0' } });
+    { id_token: 'valid-token' }, { params: { id: '1', tab: '0', cell: '0' } });
   ok(t.taps.length === 1 && t.taps[0][4] === UID && t.taps[0][3] === '找餐廳',
      '記下了是誰按了哪一顆（含按鍵名稱）');
+  ok(t.flowTriggers.length === 1 && t.flowTriggers[0].lineUserId === UID,
+     '通過身分驗證後立即觸發自動化流程');
 
   // 5) 同一人連按只記一筆
   for (let i = 0; i < 3; i++)
     await run(t.routes, 'POST /t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)/hit',
-      { line_user_id: UID }, { params: { id: '1', tab: '0', cell: '0' } });
+      { id_token: 'valid-token' }, { params: { id: '1', tab: '0', cell: '0' } });
   ok(t.taps.length === 1, '同一人連按三次只記一筆');
 
   // 6) 亂湊的位置不記
   t = build({});
   await run(t.routes, 'POST /t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)/hit',
-    { line_user_id: UID }, { params: { id: '1', tab: '9', cell: '9' } });
+    { id_token: 'valid-token' }, { params: { id: '1', tab: '9', cell: '9' } });
   ok(t.taps.length === 0, '亂湊的按鍵位置不會被記成點擊');
 
-  // 7) 假身分擋掉，但照樣放人過去
-  t = build({});
+  // 7) 偽造／過期 token 擋掉，不寫點擊也不觸發推播
+  t = build({ verifyFail: true });
   r = await run(t.routes, 'POST /t/:id(\\d+)/:tab(\\d+)/:cell(\\d+)/hit',
-    { line_user_id: '我是假的' }, { params: { id: '1', tab: '0', cell: '0' } });
-  ok(t.taps.length === 1 && t.taps[0][4] === null, '格式不對的身分記成「不知道是誰」，不會存進髒資料');
+    { id_token: 'fake-token' }, { params: { id: '1', tab: '0', cell: '0' } });
+  ok(r.code === 401 && t.taps.length === 0 && t.flowTriggers.length === 0,
+     '偽造身分不會留下點擊，也不會觸發訊息');
 
   // ── 訊息裡的按鈕 ──
   function buildMsg(opts) {
@@ -177,10 +185,8 @@ const UID = 'U' + 'a'.repeat(32);
       { line_user_id: UID }, { params: { source: 'keyword', refId: '1_0' } });
   ok(m.taps.length === 1, '訊息按鈕同一人連按三次也只記一筆');
 
-  // 12) 指向自家活動頁（LIFF）的按鍵完全不包裝：原始連結直接送給 LINE。
-  //     包成 /r 站內轉址會讓 LINE 先用內建瀏覽器開網址、再由 302 疊出 LIFF 視窗，
-  //     使用者會在活動頁後面看到多一層灰色瀏覽器（2026-09-04 線上實測）。
-  //     那些頁面自己認得出是誰、也記得到開啟次數，不需要任何跳板。
+  // 12) 自家活動使用原 LIFF ID 直接開跳板，再在同一 LIFF 視窗切到站內頁；
+  //     不經普通瀏覽器 /r，因此不會疊出灰色雙層瀏覽器。
   {
     const OWN = { size: 'large', chat_bar_text: '選單',
       cells: [{ x: 0, y: 0, w: 1250, h: 1686 }, { x: 1250, y: 0, w: 1250, h: 1686 }],
@@ -214,14 +220,13 @@ const UID = 'U' + 'a'.repeat(32);
     };
     const IMG2 = 'data:image/jpeg;base64,' + Buffer.from('x').toString('base64');
     await run(routes2, 'POST /admin/richmenu/api/publish', { id: 1, image: IMG2 });
-    // 自家活動頁：原始 LIFF 連結原封不動送出，不包 /r 轉址也不走 /t 跳板
-    ok(sent.some(u => u === 'https://liff.line.me/1234-abcd/wheel/x'),
-       '自家活動頁的按鍵：保留原始 LIFF 連結');
+    ok(sent.some(u => /liff\.line\.me\/1234-abcd\/t\/1\/0\/0$/.test(u)),
+       '自家活動頁的按鍵：用原本 LIFF ID 進安全跳板');
     ok(!sent.some(u => /\/r\/1\/0\/0$/.test(u)),
        '自家活動頁的按鍵：不包站內轉址（會讓 LINE 多開一層內建瀏覽器）');
     // 別人家的 LIFF（合作夥伴活動頁）不算自家——那種頁面我們沒有任何紀錄
     ok(!isOwnLiffFn('https://liff.line.me/9999-partner/page'), '合作夥伴的活動頁不會被當成自家的');
-    ok(!sent.some(u => /\/t\/1\/0\/0$/.test(u)), '自家活動頁的按鍵：不走記名跳板');
+    ok(!sent.some(u => /example\.netlify\.app\/r\/1\/0\/0$/.test(u)), '自家活動頁的按鍵：不走普通瀏覽器轉址');
     ok(sent.some(u => /\/t\/1\/0\/1$/.test(u)), '外部網址勾了記名的照樣走跳板');
   }
 
