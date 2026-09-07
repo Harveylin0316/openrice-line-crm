@@ -46,6 +46,11 @@
           <p class="fl-ex-card-desc">有人點了圖文選單的功能按鈕後，等一段時間再推送指定訊息；重複點擊不會疊加。</p>
           <button type="button" class="fl-ex-btn" data-example="rich_menu_followup">用這個範例</button>
         </div>
+        <div class="fl-ex-card">
+          <div class="fl-ex-card-title">開啟活動後自動追蹤</div>
+          <p class="fl-ex-card-desc">不論從圖文選單、推播或歡迎訊息進活動，都進入同一條延遲流程，並分開記錄來源。</p>
+          <button type="button" class="fl-ex-btn" data-example="campaign_followup">用這個範例</button>
+        </div>
       </div>
     </section>
 
@@ -71,6 +76,7 @@
           <option value="game_play">玩了活動遊戲 / 中獎</option>
           <option value="broadcast_click">點了群發訊息的連結</option>
           <option value="rich_menu_tap">點了圖文選單按鈕</option>
+          <option value="campaign_open">開啟指定活動（跨入口）</option>
           <option value="restaurant_click">點了訊息裡的餐廳連結</option>
           <option value="inactivity">沉睡喚醒（超過 N 天沒互動）</option>
           <option value="streak_risk">連勝守護（連續玩了幾天、今天還沒玩）</option>
@@ -199,7 +205,12 @@
       .fl-dryrun-list li.sim:before{background:#9ca3af;}
       .fl-dryrun-step-tag{display:inline-block;font-size:11px;font-weight:700;color:#fff;background:#6b7280;border-radius:5px;padding:1px 7px;margin-right:8px;}
       .fl-dryrun-done{font-size:13px;color:#15803d;font-weight:600;margin-top:10px;}
-      @media (max-width:720px){.fl-ex-grid{grid-template-columns:1fr;}.fl-limit-card{grid-template-columns:1fr;}.fl-limit-card p{grid-column:auto;}}
+      .fl-campaign-links{margin:14px 0;padding:14px;border:1px solid #F2D47A;border-radius:10px;background:#FFFBED;}
+      .fl-campaign-link-row{display:grid;grid-template-columns:100px minmax(0,1fr) auto;gap:8px;align-items:center;margin-top:8px;}
+      .fl-campaign-link-row input{width:100%;font-size:12px;background:#fff;}
+      .fl-source-stats{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+      .fl-source-stat{font-size:12px;background:#fff;border:1px solid #eadcae;border-radius:999px;padding:4px 9px;}
+      @media (max-width:720px){.fl-ex-grid{grid-template-columns:1fr;}.fl-limit-card{grid-template-columns:1fr;}.fl-limit-card p{grid-column:auto;}.fl-campaign-link-row{grid-template-columns:1fr auto;}.fl-campaign-link-row span{grid-column:1/-1;}.fl-campaign-link-row input{min-width:0;}}
     </style>
 
     <script>
@@ -212,7 +223,9 @@
         var editingId=null;
         var initialSnapshot='';
 
-        var TRIGGER_LABEL={follow:'加好友',list_join:'加入名單',event:'活動頁互動',schedule:'定時',game_play:'玩遊戲/中獎',broadcast_click:'點推播',rich_menu_tap:'點圖文選單',restaurant_click:'點餐廳連結',inactivity:'沉睡喚醒',streak_risk:'連勝守護'};
+        var TRIGGER_LABEL={follow:'加好友',list_join:'加入名單',event:'活動頁互動',schedule:'定時',game_play:'玩遊戲/中獎',broadcast_click:'點推播',rich_menu_tap:'點圖文選單',campaign_open:'開啟指定活動',restaurant_click:'點餐廳連結',inactivity:'沉睡喚醒',streak_risk:'連勝守護'};
+        var CAMPAIGN_SOURCE_LABEL={richmenu:'圖文選單',broadcast:'推播訊息',welcome:'歡迎訊息',other:'其他入口',direct:'原始活動網址'};
+        var ACTIVITY_STATUS_LABEL={active:'進行中',draft:'草稿',paused:'已暫停',ended:'已結束'};
         var CUISINES=['日式','韓式','台菜中式','港式','泰式東南亞','義式','美式','火鍋','燒肉','甜點咖啡','早午餐','其他'];
         var ACTIVATE_WARN='啟用後此流程會立刻對真實用戶生效，符合觸發條件的人會真的收到 LINE 訊息（不是測試）。\\n\\n確定啟用？';
 
@@ -282,7 +295,7 @@
                   '<button data-edit="'+f.id+'">編輯</button>'+
                   (f.status==='active'?'<button data-status="paused" data-id="'+f.id+'">暫停</button>':'<button data-status="active" data-id="'+f.id+'">啟用</button>')+
                   retryBtn+
-                  '<button class="del" data-del="'+f.id+'">刪除</button>'+
+                  (f.trigger_type==='campaign_open'&&f.status!=='draft'?'<span class="muted" style="font-size:12px;">對外網址保留，請用暫停</span>':'<button class="del" data-del="'+f.id+'">刪除</button>')+
                 '</div></td></tr>';
             }).join('');
             box.innerHTML=banner+'<table class="fl-table"><thead><tr><th>名稱</th><th>觸發</th><th>每人上限</th><th>狀態</th><th>進行中</th><th>健康</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'+recentFailedHtml(hd);
@@ -326,15 +339,15 @@
         function delFlow(id){
           if(!confirm('確定刪除這個流程？進行中的人也會一起移除。'))return;
           fetch('/admin/flows/api/'+id,{method:'DELETE'}).then(function(r){return r.json();}).then(function(d){
-            if(d.ok)loadList();else alert('刪除失敗');
+            if(d.ok)loadList();else alert((d.detail||errMsg(d.error)||'刪除失敗'));
           });
         }
 
         // ---------- 編輯器 ----------
         function showEditor(on){$('fl-list-card').hidden=on;$('fl-new').style.display=on?'none':'';$('fl-editor').hidden=!on;}
-        function openEditor(id){
+        function openEditor(id,statusMessage){
           editingId=id||null;
-          $('fl-save-status').textContent='';
+          $('fl-save-status').textContent=statusMessage||'';
           $('fl-dryrun-status').textContent='';$('fl-dryrun-report').innerHTML='';
           if(id){
             fetch('/admin/flows/api/'+id).then(function(r){return r.json();}).then(function(d){
@@ -393,6 +406,27 @@
               '<label class="fl-check"><input type="checkbox" id="tc-prizeonly"'+(c.prize_only?' checked':'')+'> <span>只在中獎時觸發</span></label>';
           }else if(t==='broadcast_click'){
             h='<p class="muted" style="font-size:13px;margin:0 0 8px;">用戶點了任何一則群發訊息的連結時觸發。</p>';
+          }else if(t==='campaign_open'){
+            var campaignActivity=OPT.activities.find(function(a){return String(a.id)===String(c.activity_id);});
+            var campaignChoice=campaignActivity?String(campaignActivity.id):((c.target_url||c.campaign_name)?'external':'');
+            h='<p class="muted" style="font-size:13px;margin:0 0 10px;line-height:1.65;">用戶真正開啟這個活動時才觸發。CRM 內建活動即使用舊網址也能辨識；外部活動請把下方產生的不同入口網址，分別貼到圖文選單、推播與歡迎訊息。</p>'+
+              '<div class="fl-field"><span>哪一個活動</span><select id="tc-campaign-activity"><option value="">請選活動</option>'+
+              OPT.activities.map(function(a){return '<option value="'+a.id+'"'+(campaignChoice===String(a.id)?' selected':'')+'>'+esc(a.name)+'（'+esc(ACTIVITY_STATUS_LABEL[a.status]||a.status||'')+'）</option>';}).join('')+
+              '<option value="external"'+(campaignChoice==='external'?' selected':'')+'>外部活動網址（例如中秋開飯驚喜）</option></select></div>';
+            if(campaignActivity){
+              h+='<div class="fl-campaign-links"><strong>'+esc(campaignActivity.name)+'</strong><p class="muted" style="font-size:12px;margin:5px 0 0;word-break:break-all;">活動目的地：'+esc(campaignActivity.target_url||c.target_url||'')+'</p></div>';
+            }else if(campaignChoice==='external'){
+              h+='<div class="fl-field"><span>活動名稱</span><input id="tc-campaign-name" maxlength="100" value="'+esc(c.campaign_name||'')+'" placeholder="例：中秋開飯驚喜"></div>'+
+                '<div class="fl-field"><span>活動 HTTPS 網址</span><input id="tc-campaign-url" maxlength="2048" value="'+esc(c.target_url||'')+'" placeholder="https://..."></div>';
+            }
+            if(editingId&&flow.tracking_links){
+              var linkOrder=['richmenu','broadcast','welcome','other'];
+              h+='<div class="fl-campaign-links"><strong>各入口請使用對應網址</strong><p class="muted" style="font-size:12px;margin:5px 0 0;line-height:1.55;">這些網址都會前往同一活動，但會讓系統知道用戶從哪裡進來。先儲存流程才會產生。</p>'+
+                linkOrder.map(function(src){var u=flow.tracking_links[src]||'';return u?'<div class="fl-campaign-link-row"><span>'+CAMPAIGN_SOURCE_LABEL[src]+'</span><input readonly value="'+esc(u)+'"><button type="button" class="fl-secondary-btn" data-copy-campaign="'+src+'">複製</button></div>':'';}).join('');
+              var stats=Array.isArray(flow.source_counts)?flow.source_counts:[];
+              if(stats.length)h+='<div class="fl-source-stats">'+stats.map(function(s){return '<span class="fl-source-stat">'+esc(CAMPAIGN_SOURCE_LABEL[s.source]||s.source)+' '+(Number(s.count)||0)+' 人次</span>';}).join('')+'</div>';
+              h+='</div>';
+            }
           }else if(t==='rich_menu_tap'){
             var menu=OPT.richMenus.find(function(m){return String(m.id)===String(c.menu_id);});
             var buttons=(menu&&menu.buttons)||[];
@@ -449,6 +483,20 @@
             var ms=$('tc-rich-menu');if(ms)ms.addEventListener('change',function(){var lim=flow.trigger.config&&flow.trigger.config.user_limit;flow.trigger.config={menu_id:Number(this.value)||null,match:'any',buttons:[]};if(lim)flow.trigger.config.user_limit=lim;renderTrigger();});
             document.querySelectorAll('input[name="tc-rm-match"]').forEach(function(r){r.addEventListener('change',function(){var w=$('tc-rm-buttons');if(w)w.hidden=this.value!=='selected';});});
           }
+          if(t==='campaign_open'){
+            var cs=$('tc-campaign-activity');if(cs)cs.addEventListener('change',function(){
+              var lim=flow.trigger.config&&flow.trigger.config.user_limit;var next={};
+              if(this.value==='external')next={campaign_name:'',target_url:''};
+              else{var a=OPT.activities.find(function(x){return String(x.id)===String(cs.value);});if(a)next={activity_id:Number(a.id),campaign_name:a.name,target_url:a.target_url};}
+              if(lim)next.user_limit=lim;flow.trigger.config=next;renderTrigger();
+            });
+            box.querySelectorAll('[data-copy-campaign]').forEach(function(btn){btn.addEventListener('click',function(){
+              var src=btn.getAttribute('data-copy-campaign');var val=(flow.tracking_links&&flow.tracking_links[src])||'';
+              function done(){btn.textContent='已複製';setTimeout(function(){btn.textContent='複製';},1200);}
+              if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(val).then(done).catch(function(){});
+              else{var input=btn.parentNode.querySelector('input');input.focus();input.select();try{document.execCommand('copy');done();}catch(_){}}
+            });});
+          }
         }
 
         // 把觸發設定的 DOM 讀回 state
@@ -457,6 +505,16 @@
           if(t==='list_join'){c.list_id=Number($('tc-list')&&$('tc-list').value)||null;}
           else if(t==='game_play'){c.activity_id=Number($('tc-activity')&&$('tc-activity').value)||null;c.prize_only=!!($('tc-prizeonly')&&$('tc-prizeonly').checked);}
           else if(t==='broadcast_click'){/* 無設定 */}
+          else if(t==='campaign_open'){
+            var choice=($('tc-campaign-activity')&&$('tc-campaign-activity').value)||'';
+            if(choice==='external'){
+              c.campaign_name=((($('tc-campaign-name')&&$('tc-campaign-name').value)||'')+'').trim();
+              c.target_url=((($('tc-campaign-url')&&$('tc-campaign-url').value)||'')+'').trim();
+            }else{
+              var a=OPT.activities.find(function(x){return String(x.id)===String(choice);});
+              if(a){c.activity_id=Number(a.id);c.campaign_name=a.name;c.target_url=a.target_url;}
+            }
+          }
           else if(t==='rich_menu_tap'){
             c.menu_id=Number($('tc-rich-menu')&&$('tc-rich-menu').value)||null;
             var match=document.querySelector('input[name="tc-rm-match"]:checked');c.match=match?match.value:'any';c.buttons=[];
@@ -613,11 +671,13 @@
                     if(!d2.ok){$('fl-save-status').textContent='已儲存，但啟用失敗：'+errMsg(d2.error);return;}
                     backToList();
                   });
+              }else if(payload.trigger.type==='campaign_open'){
+                openEditor(newId,'已儲存。下方入口網址已產生，可直接複製到各訊息。');
               }else{backToList();}
             }).catch(function(e){$('fl-save').disabled=false;$('fl-save-activate').disabled=false;$('fl-save-status').textContent='錯誤：'+e.message;});
         }
         function errMsg(code){
-          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息或加入名單）',branch_must_be_last:'條件分支必須是流程的最後一步',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',add_to_list_needs_list:'加入名單步驟請選一個名單',list_join_needs_list:'請選名單',rich_menu_tap_needs_menu:'請選一個已發布的圖文選單',rich_menu_tap_needs_button:'請至少勾選一顆按鈕，或改選「任一功能按鈕」',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',invalid_user_trigger_limit:'每人觸發次數請填 1 到 1000',flow_has_no_steps:'流程至少要有一個步驟才能啟用',follow_source_invalid:'來源代號只能用英數字、底線、減號（不能填中文或空格），最多 40 字'};
+          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息或加入名單）',branch_must_be_last:'條件分支必須是流程的最後一步',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',add_to_list_needs_list:'加入名單步驟請選一個名單',list_join_needs_list:'請選名單',rich_menu_tap_needs_menu:'請選一個已發布的圖文選單',rich_menu_tap_needs_button:'請至少勾選一顆按鈕，或改選「任一功能按鈕」',campaign_open_needs_name:'請填活動名稱',campaign_open_needs_url:'請選 CRM 活動，或填入正確的 HTTPS 活動網址',campaign_flow_use_pause:'這個流程已有對外入口網址，請改用暫停，避免舊網址失效',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',invalid_user_trigger_limit:'每人觸發次數請填 1 到 1000',flow_has_no_steps:'流程至少要有一個步驟才能啟用',follow_source_invalid:'來源代號只能用英數字、底線、減號（不能填中文或空格），最多 40 字'};
           return m[code]||code||'';
         }
         function isDirty(){return !$('fl-editor').hidden&&initialSnapshot!==JSON.stringify(collectFlow());}
@@ -658,6 +718,9 @@
           }
           if(key==='rich_menu_followup'){
             return {name:'點圖文選單後自動追蹤',re_enroll:true,trigger:{type:'rich_menu_tap',config:{match:'any',buttons:[]}},steps:[{type:'wait',amount:30,unit:'minutes'},{type:'send',message_id:null}]};
+          }
+          if(key==='campaign_followup'){
+            return {name:'開啟活動後自動追蹤',re_enroll:false,trigger:{type:'campaign_open',config:{}},steps:[{type:'wait',amount:30,unit:'minutes'},{type:'send',message_id:null}]};
           }
           return null;
         }

@@ -403,7 +403,7 @@
       });
 
       // ---- 自動加入規則 ----
-      var TRIGGER_LABEL = { follow: '加好友時', broadcast_click: '點了群發連結時', game_play: '玩了活動遊戲時', list_join: '加入其他名單時', event: 'LIFF 事件時', schedule: '定時' };
+      var TRIGGER_LABEL = { follow: '加好友時', broadcast_click: '點了群發連結時', game_play: '玩了活動遊戲時', campaign_open: '開啟指定活動時', list_join: '加入其他名單時', event: 'LIFF 事件時', schedule: '定時' };
       function loadAutoRules() {
         fetch('/admin/recipient-lists/api/' + listId + '/auto-rules').then(function (r) { return r.json(); }).then(function (d) {
           var box = $('ar-list');

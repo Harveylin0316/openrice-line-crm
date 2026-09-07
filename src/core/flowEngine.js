@@ -18,6 +18,7 @@
  *   schedule   定時          { freq, hour, dow/dom, audience }
  *   inactivity 沉睡喚醒      { days, batch_limit }（超過 N 天沒任何互動）
  *   rich_menu_tap 圖文選單按鈕 { menu_id, match, buttons }（由 webhook / LIFF 即時觸發）
+ *   campaign_open 開啟指定活動 { activity_id?, campaign_name, target_url }（由 LIFF 入口／活動頁即時觸發）
  *
  * 推進：cron 每分鐘呼叫 run()：先跑 schedule/event 觸發建 enrollment，再 advance 到期的 enrollment。
  */
@@ -63,6 +64,14 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
       [triggerType]
     );
     return rs.rows;
+  }
+  async function getActiveFlowByIdAndTrigger(flowId, triggerType) {
+    const rs = await query(
+      `SELECT id, name, status, trigger_type, trigger_config, re_enroll
+       FROM admin_flows WHERE id = $1 AND status = 'active' AND trigger_type = $2 LIMIT 1`,
+      [Number(flowId), triggerType]
+    );
+    return rs.rows && rs.rows.length ? rs.rows[0] : null;
   }
   async function getEntryNode(flowId) {
     const rs = await query(
@@ -250,6 +259,69 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
       if (result.restarted) restarted++;
     }
     return { matched, enrolled, restarted };
+  }
+
+  async function resolveUserId(lineUserId, userId) {
+    if (userId) return userId;
+    try {
+      const ur = await query(`SELECT id FROM users WHERE line_user_id = $1 LIMIT 1`, [lineUserId]);
+      return ur.rows[0] && ur.rows[0].id;
+    } catch (_) {
+      return null; // user_id 只供報表輔助，沒有也不阻擋流程
+    }
+  }
+
+  // 追蹤入口已明確綁定某一條流程。等待中的人再次開啟時，以最後一次開啟重新倒數；
+  // 已送出第一則訊息後則不重播。來源存在 enrollment.context，後台可分辨圖文選單／推播／歡迎訊息。
+  async function triggerCampaignOpen({ flowId, lineUserId, userId, source } = {}) {
+    const fid = Number(flowId);
+    const luid = String(lineUserId || '').trim();
+    if (!(fid > 0) || !luid) return { matched: 0, enrolled: 0, restarted: 0 };
+    const flow = await getActiveFlowByIdAndTrigger(fid, 'campaign_open');
+    if (!flow) return { matched: 0, enrolled: 0, restarted: 0 };
+    const src = ['richmenu', 'broadcast', 'welcome', 'other'].includes(String(source || ''))
+      ? String(source) : 'other';
+    const result = await enrollUser(flow, luid, {
+      userId: await resolveUserId(luid, userId),
+      restartActive: true,
+      context: {
+        trigger: 'campaign_open', source: src,
+        activity_id: Number(flow.trigger_config && flow.trigger_config.activity_id) || null,
+        opened_at: new Date().toISOString()
+      }
+    });
+    return {
+      matched: 1,
+      enrolled: result.enrolled ? 1 : 0,
+      restarted: result.restarted ? 1 : 0,
+      reason: result.reason || null
+    };
+  }
+
+  // CRM 內建活動另有保險：就算舊推播／歡迎訊息仍貼原始活動網址，活動頁完成
+  // LINE token 驗證後也會觸發。若追蹤入口剛已建立 active enrollment，這裡不重設
+  // context，避免把 richmenu / broadcast / welcome 的正確來源洗成 direct。
+  async function triggerCampaignOpenByActivity({ activityId, lineUserId, userId } = {}) {
+    const aid = Number(activityId);
+    const luid = String(lineUserId || '').trim();
+    if (!(aid > 0) || !luid) return { matched: 0, enrolled: 0 };
+    const flows = await getActiveFlowsByTrigger('campaign_open');
+    let matched = 0, enrolled = 0;
+    const resolvedUserId = await resolveUserId(luid, userId);
+    for (const flow of flows) {
+      if (Number(flow.trigger_config && flow.trigger_config.activity_id) !== aid) continue;
+      matched++;
+      const result = await enrollUser(flow, luid, {
+        userId: resolvedUserId,
+        restartActive: false,
+        context: {
+          trigger: 'campaign_open', source: 'direct', activity_id: aid,
+          opened_at: new Date().toISOString()
+        }
+      });
+      if (result.enrolled) enrolled++;
+    }
+    return { matched, enrolled };
   }
 
   // ---------- 觸發：掃描型來源共用 cursor（避免回灌歷史） ----------
@@ -1057,6 +1129,8 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     triggerFollow,
     triggerListJoin,
     triggerRichMenuTap,
+    triggerCampaignOpen,
+    triggerCampaignOpenByActivity,
     runEventTriggers,
     runGamePlayTriggers,
     runBroadcastClickTriggers,

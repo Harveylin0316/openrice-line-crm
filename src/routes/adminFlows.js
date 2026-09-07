@@ -23,6 +23,9 @@
 
 const { recordRestaurantClick } = require('../core/restaurantLinkParse');
 const { normalizeTabs } = require('../core/lineRichMenu');
+const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
+
+const CAMPAIGN_SOURCES = ['richmenu', 'broadcast', 'welcome', 'other'];
 
 // 「流程觸發事件」下拉：使用者在好康地圖活動頁做的動作。
 // 同時用在兩個地方 —— 觸發條件「活動頁互動」的事件選單，以及條件分支裡的「做了某動作」選單。
@@ -60,11 +63,54 @@ const FLOW_CUISINES = ['日式', '韓式', '台菜中式', '港式', '泰式東�
 function registerAdminFlowsRoutes(app, deps) {
   const { query, pool, flowEngine, authCore } = deps;
   const requireAdmin = authCore && authCore.requireAdmin;
+  const verifyCampaignToken = deps.verifyLiffIdToken || verifyLiffIdToken;
 
   function jsonErr(res, status, error, extra = {}) {
     return res.status(status).json({ ok: false, error, ...extra });
   }
   function isPosInt(s) { return typeof s === 'string' && /^\d+$/.test(s) && Number(s) > 0; }
+  function gamesLiffId() {
+    return process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '';
+  }
+  function siteBase() {
+    return String(process.env.PUBLIC_SITE_URL || process.env.URL || process.env.DEPLOY_PRIME_URL || '').replace(/\/+$/, '');
+  }
+  function liffIdFromUrl(uri) {
+    const m = /^https:\/\/liff\.line\.me\/([^/?#]+)/i.exec(String(uri || ''));
+    return m ? m[1] : '';
+  }
+  function cleanHttpsUrl(raw) {
+    const s = String(raw || '').trim();
+    if (!s || s.length > 2048) return '';
+    try {
+      const u = new URL(s);
+      if (u.protocol !== 'https:' || u.username || u.password) return '';
+      return u.toString();
+    } catch (_) { return ''; }
+  }
+  function campaignTarget(flow) {
+    const cfg = flow && flow.trigger_config && typeof flow.trigger_config === 'object' ? flow.trigger_config : {};
+    const target = cleanHttpsUrl(cfg.target_url);
+    if (!target) return null;
+    const targetLiffId = liffIdFromUrl(target);
+    let browserTarget = target;
+    if (targetLiffId && siteBase()) {
+      const m = /^https:\/\/liff\.line\.me\/[^/?#]+(\/[^?#]*)?(\?[^#]*)?(#.*)?$/i.exec(target);
+      if (m) browserTarget = siteBase() + '/games' + (m[1] || '') + (m[2] || '') + (m[3] || '');
+    }
+    return {
+      target,
+      browserTarget,
+      liffId: targetLiffId || gamesLiffId(),
+      label: String(cfg.campaign_name || flow.name || '活動').trim().slice(0, 100)
+    };
+  }
+  function campaignTrackingLinks(flow) {
+    const hit = campaignTarget(flow);
+    if (!hit || !hit.liffId) return {};
+    const base = 'https://liff.line.me/' + hit.liffId + '/ce/' + flow.id + '/';
+    return Object.fromEntries(CAMPAIGN_SOURCES.map(source => [source, base + source]));
+  }
 
   // ---------- 公開：流程訊息點擊中轉（記點擊 + 302 導向真連結） ----------
   app.get('/rf/:enrollmentId(\\d+)/:messageId(\\d+)', async (req, res) => {
@@ -95,6 +141,79 @@ function registerAdminFlowsRoutes(app, deps) {
       return res.status(500).type('text/plain').send('Server error');
     }
   });
+
+  // ---------- 公開：跨入口活動追蹤 ----------
+  // 圖文選單、推播與歡迎訊息都使用同一條 flow 的不同來源網址。網址只含 flow id，
+  // 真正目的地一律回 DB 查，避免成為任意轉址器。驗證或記錄失敗都不能阻擋用戶進活動。
+  const campaignSeen = new Map();
+  const campaignBouncePaths = ['/ce/:id(\\d+)/:source(richmenu|broadcast|welcome|other)',
+                               '/games/ce/:id(\\d+)/:source(richmenu|broadcast|welcome|other)'];
+  campaignBouncePaths.forEach(pth => app.get(pth, async (req, res) => {
+    const fallback = 'https://www.openrice.com';
+    try {
+      const rs = await query(
+        `SELECT id, name, status, trigger_type, trigger_config FROM admin_flows
+          WHERE id = $1 AND trigger_type = 'campaign_open' LIMIT 1`,
+        [Number(req.params.id)]
+      );
+      const flow = rs.rows[0];
+      const hit = campaignTarget(flow);
+      if (!hit) return res.redirect(fallback);
+      res.setHeader('Cache-Control', 'no-store');
+      return res.render('tap_bounce', {
+        target: hit.browserTarget,
+        liffId: hit.liffId,
+        recordUrl: '/ce/' + flow.id + '/' + req.params.source + '/hit'
+      });
+    } catch (err) {
+      console.error('campaign bounce error:', err && err.message);
+      return res.redirect(fallback);
+    }
+  }));
+
+  const campaignHitPaths = ['/ce/:id(\\d+)/:source(richmenu|broadcast|welcome|other)/hit',
+                            '/games/ce/:id(\\d+)/:source(richmenu|broadcast|welcome|other)/hit'];
+  campaignHitPaths.forEach(pth => app.post(pth, async (req, res) => {
+    try {
+      const flowId = Number(req.params.id);
+      const source = String(req.params.source || 'other');
+      const rs = await query(
+        `SELECT id, name, status, trigger_type, trigger_config FROM admin_flows
+          WHERE id = $1 AND trigger_type = 'campaign_open' LIMIT 1`,
+        [flowId]
+      );
+      const flow = rs.rows[0];
+      const hit = campaignTarget(flow);
+      if (!hit || !hit.liffId) return res.json({ ok: true, skipped: true });
+      const idToken = String((req.body || {}).id_token || '').trim();
+      const verified = await verifyCampaignToken(idToken, channelIdFromLiffId(hit.liffId));
+      const uid = verified && verified.ok && /^U[0-9a-f]{32}$/i.test(String(verified.sub || ''))
+        ? String(verified.sub) : null;
+      if (!uid) return res.status(401).json({ ok: false, error: 'identity_verification_failed' });
+
+      const key = flowId + ':' + source + ':' + uid;
+      const now = Date.now();
+      const last = campaignSeen.get(key);
+      if (last && now - last <= 60 * 1000) return res.json({ ok: true, deduped: true });
+      campaignSeen.set(key, now);
+      if (campaignSeen.size > 5000) {
+        for (const [k, v] of campaignSeen) if (now - v > 60 * 1000) campaignSeen.delete(k);
+      }
+
+      await query(
+        `INSERT INTO message_taps (source, ref_id, label, target_url, line_user_id)
+         VALUES ('campaign', $1, $2, $3, $4)`,
+        [String(flowId) + '_' + source, hit.label, hit.target, uid]
+      );
+      if (flowEngine && typeof flowEngine.triggerCampaignOpen === 'function') {
+        await flowEngine.triggerCampaignOpen({ flowId, lineUserId: uid, source });
+      }
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error('campaign hit error:', err && err.message);
+      return res.json({ ok: true });
+    }
+  }));
 
   // ---------- 步驟樹 → 節點 ----------
   function flattenSteps(steps) {
@@ -186,7 +305,7 @@ function registerAdminFlowsRoutes(app, deps) {
     if (!name) return { ok: false, error: 'name_required' };
     const trigger = body.trigger || {};
     const tType = trigger.type;
-    if (!['follow', 'list_join', 'event', 'schedule', 'game_play', 'broadcast_click', 'restaurant_click', 'inactivity', 'streak_risk', 'rich_menu_tap'].includes(tType)) return { ok: false, error: 'invalid_trigger_type' };
+    if (!['follow', 'list_join', 'event', 'schedule', 'game_play', 'broadcast_click', 'restaurant_click', 'inactivity', 'streak_risk', 'rich_menu_tap', 'campaign_open'].includes(tType)) return { ok: false, error: 'invalid_trigger_type' };
     const tCfg = trigger.config || {};
     const rawUserLimit = tCfg.user_limit;
     if (rawUserLimit && typeof rawUserLimit === 'object' && rawUserLimit.max !== '' && rawUserLimit.max != null) {
@@ -216,6 +335,16 @@ function registerAdminFlowsRoutes(app, deps) {
       if (tCfg.match === 'selected' && tCfg.buttons.length === 0) {
         return { ok: false, error: 'rich_menu_tap_needs_button' };
       }
+    }
+    if (tType === 'campaign_open') {
+      const campaignName = String(tCfg.campaign_name || '').trim().slice(0, 100);
+      const targetUrl = cleanHttpsUrl(tCfg.target_url);
+      if (!campaignName) return { ok: false, error: 'campaign_open_needs_name' };
+      if (!targetUrl) return { ok: false, error: 'campaign_open_needs_url' };
+      tCfg.campaign_name = campaignName;
+      tCfg.target_url = targetUrl;
+      if (Number(tCfg.activity_id) > 0) tCfg.activity_id = Number(tCfg.activity_id);
+      else delete tCfg.activity_id;
     }
     if (tType === 'event' && !String(tCfg.event_name || '').trim()) return { ok: false, error: 'event_needs_name' };
     if (tType === 'follow') {
@@ -334,7 +463,7 @@ function registerAdminFlowsRoutes(app, deps) {
       const [msgs, lists, acts, menus] = await Promise.all([
         query(`SELECT id, name FROM admin_message_templates WHERE COALESCE(channel, 'line') = 'line' ORDER BY id DESC`),
         query(`SELECT id, name FROM admin_recipient_lists ORDER BY id DESC`),
-        query(`SELECT id, name FROM activities ORDER BY id DESC`),
+        query(`SELECT id, name, slug, game_type, status, liff_id_override FROM activities ORDER BY id DESC`),
         query(`SELECT id, name, status, published_at, published_config
                FROM rich_menus WHERE status = 'published' AND published_config IS NOT NULL
                ORDER BY is_default DESC, published_at DESC NULLS LAST, id DESC`)
@@ -361,9 +490,18 @@ function registerAdminFlowsRoutes(app, deps) {
         ok: true,
         messages: msgs.rows,
         lists: lists.rows,
-        activities: acts.rows,
+        activities: acts.rows.map(a => {
+          const lid = String(a.liff_id_override || gamesLiffId() || '').trim();
+          return {
+            id: a.id, name: a.name, slug: a.slug, game_type: a.game_type, status: a.status,
+            target_url: lid
+              ? ('https://liff.line.me/' + lid + '/' + a.game_type + '/' + encodeURIComponent(a.slug))
+              : (siteBase() ? siteBase() + '/games/' + encodeURIComponent(a.game_type) + '/' + encodeURIComponent(a.slug) : '')
+          };
+        }),
         rich_menus: richMenus,
-        events: KNOWN_EVENTS
+        events: KNOWN_EVENTS,
+        tracking_liff_id: gamesLiffId()
       });
     } catch (err) {
       return jsonErr(res, 500, 'options_failed', { detail: err && err.message });
@@ -467,12 +605,24 @@ function registerAdminFlowsRoutes(app, deps) {
       if (fr.rowCount === 0) return jsonErr(res, 404, 'not_found');
       const nr = await query(`SELECT * FROM admin_flow_nodes WHERE flow_id = $1 ORDER BY position ASC`, [Number(idStr)]);
       const flow = fr.rows[0];
+      let sourceCounts = [];
+      if (flow.trigger_type === 'campaign_open') {
+        const sc = await query(
+          `SELECT COALESCE(NULLIF(context->>'source', ''), 'direct') AS source, COUNT(*)::int AS count
+             FROM admin_flow_enrollments WHERE flow_id = $1
+            GROUP BY 1 ORDER BY count DESC, source ASC`,
+          [Number(idStr)]
+        );
+        sourceCounts = sc.rows;
+      }
       return res.json({
         ok: true,
         flow: {
           id: flow.id, name: flow.name, status: flow.status, re_enroll: flow.re_enroll,
           trigger: { type: flow.trigger_type, config: flow.trigger_config },
-          steps: unflattenNodes(nr.rows)
+          steps: unflattenNodes(nr.rows),
+          tracking_links: campaignTrackingLinks(flow),
+          source_counts: sourceCounts
         }
       });
     } catch (err) {
@@ -559,6 +709,12 @@ function registerAdminFlowsRoutes(app, deps) {
     const idStr = String(req.params.id || '').trim();
     if (!isPosInt(idStr)) return jsonErr(res, 400, 'invalid_id');
     try {
+      const existing = await query(`SELECT trigger_type, status FROM admin_flows WHERE id = $1`, [Number(idStr)]);
+      if (existing.rows[0] && existing.rows[0].trigger_type === 'campaign_open' && existing.rows[0].status !== 'draft') {
+        return jsonErr(res, 400, 'campaign_flow_use_pause', {
+          detail: '這個流程的入口網址可能已放在對外訊息中。請改用「暫停」，避免舊網址失效。'
+        });
+      }
       const rs = await query(`DELETE FROM admin_flows WHERE id = $1 RETURNING id`, [Number(idStr)]);
       if (rs.rowCount === 0) return jsonErr(res, 404, 'not_found');
       return res.json({ ok: true, deletedId: Number(idStr) });

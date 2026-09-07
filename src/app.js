@@ -592,7 +592,7 @@ registerAdminActivitiesRoutes(app, { query, pool, authCore });
 
 registerAdminCouponsRoutes(app, { query, pool, authCore });
 
-registerGamesRoutes(app, { query, pool });
+registerGamesRoutes(app, { query, pool, flowEngine });
 registerMgmMilesRoutes(app, {
   query, authCore,
   mgmEngine,

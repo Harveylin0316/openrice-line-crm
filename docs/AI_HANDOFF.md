@@ -138,6 +138,33 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 
 主要程式入口：`src/core/flowEngine.js` 的 `triggerRichMenuTap()`／`enrollUser(...restartActive)`、`src/routes/adminRichMenu.js` 的 `/t/...` 跳板、`src/routes/lineWebhook.js` 的 message action 比對、`src/core/broadcastTemplates.js` 的 `mode='sequence'`，以及 `views/admin_flows.ejs`、`views/admin_message_sequence.ejs`。
 
+#### 跨圖文選單／推播／歡迎訊息的活動開啟觸發（2026-09-07）
+
+同一活動可能從圖文選單、群發卡片、LINE 官方歡迎訊息或外部貼文進入。若只用
+`rich_menu_tap` 或 `broadcast_click`，其他入口不會觸發。這類需求應在 `/admin/flows`
+選「開啟指定活動（跨入口）」：
+
+1. 選 CRM 內建活動，或填外部活動名稱及 HTTPS 網址。
+2. 設定等待、發訊息／加入名單等步驟與「同一人最多觸發幾次」。
+3. 第一次儲存後，編輯器會產生圖文選單、推播、歡迎訊息與其他入口四條 LIFF 網址；
+   把每條網址貼到相應渠道的 CTA。來源人次會顯示在同一設定區。
+
+CRM 內建活動另有 fallback：遊戲頁的 `/meta` 完成 LINE ID token 驗證後，會依
+`activity_id` 呼叫 `triggerCampaignOpenByActivity()`。因此「分享超有哩」即使舊推播或
+歡迎訊息仍貼原始活動網址，也能觸發；fallback 以 `direct` 記錄，而且不會覆蓋剛由
+追蹤入口記下的 `richmenu`／`broadcast`／`welcome` 來源。`preview=1` 絕不觸發。
+
+外部活動（例如「中秋開飯驚喜」在 `tw.openrice.com`）無法由 CRM 直接知道誰開啟，
+所以每個渠道必須改用編輯器產生的對應 LIFF 網址。跳板用 LINE 驗證後的 token `sub`
+辨識身分，將點擊寫入既有 `message_taps`，再呼叫綁定的 `campaign_open` flow；流程暫停
+時已發出的網址仍會把用戶送到活動，追蹤失敗也不會卡住。刪除流程會失去目的地設定，
+因此曾對外使用過的活動流程應改為「暫停」，不要刪除。沒有新增資料表，
+來源保存在 `admin_flow_enrollments.context.source`。
+
+主要程式入口：`src/routes/adminFlows.js` 的 `/ce/:flowId/:source` 跳板、
+`src/core/flowEngine.js` 的 `triggerCampaignOpen()`／`triggerCampaignOpenByActivity()`、
+`src/routes/gamesGeneric.js` 的已驗證 meta fallback，以及 `views/admin_flows.ejs`。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`

@@ -28,13 +28,14 @@ function bearerToken(req) {
 }
 
 function registerGameType(app, deps, opts) {
-  const { query, pool } = deps;
+  const { query, pool, flowEngine } = deps;
   const { gameType, viewName, defaultLiffId } = opts;
 
   // LIFF id token 驗證 + 紀錄探針。回傳 { pass, reject? }。
   // 強制模式（預設開，可用環境變數 LIFF_TOKEN_ENFORCE=0 關閉）：
   //   無 token / 驗證失敗 / sub≠前端送的 userId → pass=false（擋冒用）。
-  // /meta 為唯讀（不檢查 pass，只記探針），避免擋住頁面載入。
+  // /meta 的活動與獎品可公開讀；只有 token 驗證成功時才回個人 quota，並記錄
+  // 「開啟指定活動」流程。驗證失敗仍不擋公開內容，避免整頁載入失敗。
   async function verifyGameIdentity(endpoint, slug, bodyUid, idToken, actRow) {
     const enforce = process.env.LIFF_TOKEN_ENFORCE !== '0';
     if (!idToken) {
@@ -67,10 +68,10 @@ function registerGameType(app, deps, opts) {
          (v.attempts > 1 ? (' try' + v.attempts) : '')]
       );
     } catch (e) { console.error('probe insert failed:', e && e.message); }
-    if (!enforce) return { pass: true };
+    if (!enforce) return { pass: true, verifiedSub: verified && v.sub ? v.sub : null };
     if (!verified) return { pass: false, reject: { status: 401, code: 'token_invalid', detail: '身分驗證失敗，請重新開啟頁面。' } };
     if (!matches) return { pass: false, reject: { status: 403, code: 'identity_mismatch', detail: '身分不符，無法進行。' } };
-    return { pass: true };
+    return { pass: true, verifiedSub: v.sub };
   }
 
   // ----- 頁面 -----
@@ -141,8 +142,22 @@ function registerGameType(app, deps, opts) {
          ORDER BY position ASC, id ASC`,
         [a.id]
       );
-      let quota = null;
-      if (lineUserId) quota = await computeUserQuota(query, a, lineUserId);
+      // CRM 內建活動的統一入口保險：舊推播、LINE 官方歡迎訊息或外部貼文即使仍使用
+      // 原始活動網址，只要活動頁完成 LINE token 驗證，就會觸發「開啟指定活動」流程。
+      // 只接受 LINE 驗證後的 sub；安全預覽絕不建立正式 enrollment。
+      const verifiedUid = /^U[0-9a-f]{32}$/i.test(String(metaId.verifiedSub || ''))
+        ? String(metaId.verifiedSub) : '';
+      // quota 與自動化互不依賴，並行以免新增追蹤拖慢用戶看到活動的時間。
+      const quotaTask = lineUserId ? computeUserQuota(query, a, lineUserId) : Promise.resolve(null);
+      const campaignTask = verifiedUid && req.query.preview !== '1' && flowEngine &&
+          typeof flowEngine.triggerCampaignOpenByActivity === 'function'
+        ? flowEngine.triggerCampaignOpenByActivity({ activityId: a.id, lineUserId: verifiedUid })
+            .catch(flowErr => {
+              // 自動化故障不能拖垮活動頁，否則行銷追蹤反而阻止用戶參加。
+              console.error(gameType + ' campaign open trigger failed:', flowErr && flowErr.message);
+            })
+        : Promise.resolve();
+      const [quota] = await Promise.all([quotaTask, campaignTask]);
       res.json({ ok: true, activity: a, prizes, quota });
     } catch (err) {
       console.error(gameType + ' meta error:', err && err.message);
