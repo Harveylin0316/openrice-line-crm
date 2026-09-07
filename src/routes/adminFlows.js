@@ -331,8 +331,10 @@ function registerAdminFlowsRoutes(app, deps) {
             cell: cellIndex,
             label: String((button && button.label) || ('第 ' + (cellIndex + 1) + ' 顆按鈕')),
             action_type: button && button.action && button.action.type,
-            // v3 才代表所有 URI 都已走安全跳板；v2 可能只包了手動勾選的按鈕。
-            needs_republish: !!(button && button.action && button.action.type === 'uri' && Number(m.published_config.tap_tracking_version) < 3)
+            // 不能只看舊版數字：過去曾出現 version 已增加、但只有部分按鈕有包裝的資料。
+            // 只有這個明確模式標記才代表所有 URI 都已走安全跳板。
+            needs_republish: !!(button && button.action && button.action.type === 'uri' &&
+              m.published_config.tap_tracking_mode !== 'all_verified_v1')
           })).filter(b => b.action_type === 'uri' || b.action_type === 'message')
         )
       }));

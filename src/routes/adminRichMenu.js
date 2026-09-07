@@ -251,6 +251,7 @@ function registerAdminRichMenuRoutes(app, deps) {
             // v3 = 每一顆 HTTPS 網址按鈕都走已驗證身分的 LIFF 跳板。
             // v2 仍可能只有手動勾選的按鈕有包裝，不能視為完整支援。
             tap_tracking_version: 3,
+            tap_tracking_mode: 'all_verified_v1',
             tap_tracking_own_liff_ids: trackingOwnLiffIds
           })]);
       } catch (e) {
