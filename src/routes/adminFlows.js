@@ -331,8 +331,8 @@ function registerAdminFlowsRoutes(app, deps) {
             cell: cellIndex,
             label: String((button && button.label) || ('第 ' + (cellIndex + 1) + ' 顆按鈕')),
             action_type: button && button.action && button.action.type,
-            // 2026-09-07 以前發布的 URI 可能還沒走記名 LIFF 跳板；重新發布一次即可。
-            needs_republish: !!(button && button.action && button.action.type === 'uri' && Number(m.published_config.tap_tracking_version) < 2)
+            // v3 才代表所有 URI 都已走安全跳板；v2 可能只包了手動勾選的按鈕。
+            needs_republish: !!(button && button.action && button.action.type === 'uri' && Number(m.published_config.tap_tracking_version) < 3)
           })).filter(b => b.action_type === 'uri' || b.action_type === 'message')
         )
       }));
