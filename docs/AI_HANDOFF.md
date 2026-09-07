@@ -132,6 +132,7 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 - 21:00–08:00 是安靜時段。延遲到安靜時段的訊息會順延至 08:00 後，不會半夜發送。
 - 網址按鈕透過 LIFF ID token 向 LINE 驗證身分；後端不接受前端自行宣告的 LINE user ID。驗證或紀錄失敗不能阻擋按鈕原本的跳轉。
 - 2026-09-07 以前發布的選單，若流程編輯器顯示舊版追蹤警告，必須回 `/admin/richmenu` 重新發布一次。這會把所有 HTTPS 網址按鈕換成安全追蹤跳板；原始目的地仍保存在 `rich_menus.published_config`。
+- 2026-09-07 已將現役預設選單（DB menu `id=3`，兩分頁）以 LINE 原圖重新發布：前後圖片雜湊一致，8 個 URI 均已接上跳板，4 個 message action 與 2 個分頁切換均保留。備用單頁選單 `id=2` 仍是舊模式；未來若要切它上線，先重新發布一次。
 
 主要程式入口：`src/core/flowEngine.js` 的 `triggerRichMenuTap()`／`enrollUser(...restartActive)`、`src/routes/adminRichMenu.js` 的 `/t/...` 跳板、`src/routes/lineWebhook.js` 的 message action 比對、`src/core/broadcastTemplates.js` 的 `mode='sequence'`，以及 `views/admin_flows.ejs`、`views/admin_message_sequence.ejs`。
 
