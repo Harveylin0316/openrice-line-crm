@@ -17,6 +17,55 @@
 const { registerReferral } = require('../core/gamePlayEngine');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 
+const MAX_REPORT_RANGE_DAYS = 366;
+
+function isRealIsoDate(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const y = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const d = new Date(Date.UTC(y, month - 1, day));
+  return d.getUTCFullYear() === y && d.getUTCMonth() === month - 1 && d.getUTCDate() === day;
+}
+
+/**
+ * 活動成效報表日期以台灣曆日計算；to_date 包含整天，SQL 使用下一日 00:00 的排他上限。
+ * 兩個日期皆未提供代表全部期間，只填一邊或超過一年則明確拒絕。
+ */
+function parseReportDateRange(rawFrom, rawTo) {
+  const from = String(rawFrom || '').trim();
+  const to = String(rawTo || '').trim();
+  if (!from && !to) {
+    return { ok: true, filtered: false, from: null, to: null, startAt: null, endExclusiveAt: null, days: null };
+  }
+  if (!from || !to) {
+    return { ok: false, error: '開始日期和結束日期都要填寫。' };
+  }
+  if (!isRealIsoDate(from) || !isRealIsoDate(to)) {
+    return { ok: false, error: '日期格式不正確。' };
+  }
+  const fromDay = Date.parse(from + 'T00:00:00Z');
+  const toDay = Date.parse(to + 'T00:00:00Z');
+  const days = Math.floor((toDay - fromDay) / 86400000) + 1;
+  if (days <= 0) {
+    return { ok: false, error: '結束日期不能早於開始日期。' };
+  }
+  if (days > MAX_REPORT_RANGE_DAYS) {
+    return { ok: false, error: '自訂期間一次最多 366 天；若要看更久，請選「全部期間」。' };
+  }
+  const nextDate = new Date(toDay + 86400000).toISOString().slice(0, 10);
+  return {
+    ok: true,
+    filtered: true,
+    from,
+    to,
+    startAt: from + 'T00:00:00+08:00',
+    endExclusiveAt: nextDate + 'T00:00:00+08:00',
+    days
+  };
+}
+
 function registerMgmMilesRoutes(app, deps) {
   const { query, authCore, mgmEngine, defaultLiffId } = deps;
   const { requireAdmin, requireOwner } = authCore;
@@ -189,14 +238,34 @@ function registerMgmMilesRoutes(app, deps) {
 
   app.get('/admin/mgm/api/data', requireAdmin, async (req, res) => {
     try {
+      const reportRange = parseReportDateRange(req.query.from_date, req.query.to_date);
+      if (!reportRange.ok) return jsonErr(res, 400, 'invalid_date_range', { detail: reportRange.error });
       const list = (await query(
         `SELECT a.id, a.slug, a.name, a.game_type, a.status,
                 (SELECT COUNT(*) FROM activity_referrals r WHERE r.activity_id = a.id)::int AS referral_count,
                 (SELECT COUNT(*) FROM activity_plays p WHERE p.activity_id = a.id)::int AS play_count
            FROM activities a ORDER BY a.id DESC`)).rows;
       const act = await resolveActivity(req.query.activity_id);
-      if (!act) return res.json({ ok: true, activities: list, activity: null });
+      if (!act) {
+        return res.json({
+          ok: true,
+          activities: list,
+          activity: null,
+          report_range: {
+            filtered: reportRange.filtered,
+            from: reportRange.from,
+            to: reportRange.to,
+            days: reportRange.days,
+            timezone: 'Asia/Taipei'
+          }
+        });
+      }
       const aid = act.id;
+      const reportParams = reportRange.filtered
+        ? [aid, reportRange.startAt, reportRange.endExclusiveAt]
+        : [aid];
+      const playRangeSql = reportRange.filtered ? ' AND p.played_at >= $2 AND p.played_at < $3' : '';
+      const referralRangeSql = reportRange.filtered ? ' AND r.created_at >= $2 AND r.created_at < $3' : '';
 
       const stats = (await query(
         `SELECT COALESCE(SUM(COALESCE((prize_snapshot->>'miles')::int,
@@ -209,12 +278,12 @@ function registerMgmMilesRoutes(app, deps) {
                                    AND NOT COALESCE(is_redeemed, false))::int AS wins_pending,
                 COUNT(*)::int AS plays,
                 COUNT(DISTINCT line_user_id)::int AS people
-           FROM activity_plays WHERE activity_id = $1`, [aid])).rows[0];
+           FROM activity_plays p WHERE p.activity_id = $1${playRangeSql}`, reportParams)).rows[0];
       const refs = (await query(
         `SELECT COUNT(*) FILTER (WHERE invitee_was_existing IS FALSE)::int AS c,
                 COUNT(*) FILTER (WHERE invitee_was_existing IS NOT FALSE)::int AS existing,
                 COUNT(DISTINCT inviter_line_user_id)::int AS inviters
-           FROM activity_referrals WHERE activity_id = $1`, [aid])).rows[0];
+           FROM activity_referrals r WHERE r.activity_id = $1${referralRangeSql}`, reportParams)).rows[0];
 
       const people = (await query(
         `SELECT p.line_user_id AS uid,
@@ -236,10 +305,10 @@ function registerMgmMilesRoutes(app, deps) {
                 MAX(p.played_at) AS last_at
            FROM activity_plays p
            LEFT JOIN users u ON u.line_user_id = p.line_user_id
-          WHERE p.activity_id = $1
+          WHERE p.activity_id = $1${playRangeSql}
           GROUP BY p.line_user_id, u.line_display_name
           ORDER BY miles DESC, wins DESC, last_at DESC
-          LIMIT 5000`, [aid])).rows;
+          LIMIT 5000`, reportParams)).rows;
 
       const ledger = (await query(
         `SELECT p.id, p.line_user_id, p.played_at,
@@ -252,8 +321,8 @@ function registerMgmMilesRoutes(app, deps) {
                 COALESCE(p.is_redeemed, false) AS granted_done
            FROM activity_plays p
            LEFT JOIN users u ON u.line_user_id = p.line_user_id
-          WHERE p.activity_id = $1
-          ORDER BY p.played_at DESC LIMIT 5000`, [aid])).rows;
+          WHERE p.activity_id = $1${playRangeSql}
+          ORDER BY p.played_at DESC LIMIT 5000`, reportParams)).rows;
 
       const inviters = (await query(
         `SELECT r.inviter_line_user_id AS uid,
@@ -263,9 +332,9 @@ function registerMgmMilesRoutes(app, deps) {
                 MAX(r.created_at) AS last_at
            FROM activity_referrals r
            LEFT JOIN users u ON u.line_user_id = r.inviter_line_user_id
-          WHERE r.activity_id = $1
+          WHERE r.activity_id = $1${referralRangeSql}
           GROUP BY r.inviter_line_user_id, u.line_display_name
-          ORDER BY new_friends DESC, last_at DESC LIMIT 2000`, [aid])).rows;
+          ORDER BY new_friends DESC, last_at DESC LIMIT 2000`, reportParams)).rows;
 
       const pairs = (await query(
         `SELECT r.created_at,
@@ -277,8 +346,8 @@ function registerMgmMilesRoutes(app, deps) {
            FROM activity_referrals r
            LEFT JOIN users ui ON ui.line_user_id = r.inviter_line_user_id
            LEFT JOIN users uv ON uv.line_user_id = r.invitee_line_user_id
-          WHERE r.activity_id = $1
-          ORDER BY r.created_at DESC LIMIT 5000`, [aid])).rows;
+          WHERE r.activity_id = $1${referralRangeSql}
+          ORDER BY r.created_at DESC LIMIT 5000`, reportParams)).rows;
 
       const prizeInventory = (await query(
         `SELECT ap.id, ap.name, ap.prize_type, ap.stock_total, ap.stock_remaining,
@@ -286,10 +355,10 @@ function registerMgmMilesRoutes(app, deps) {
                 COUNT(p.id)::int AS drawn
            FROM activity_prizes ap
            LEFT JOIN activity_plays p
-             ON p.activity_id = ap.activity_id AND p.prize_id = ap.id
+             ON p.activity_id = ap.activity_id AND p.prize_id = ap.id${playRangeSql}
           WHERE ap.activity_id = $1
           GROUP BY ap.id
-          ORDER BY ap.position ASC, ap.id ASC`, [aid])).rows;
+          ORDER BY ap.position ASC, ap.id ASC`, reportParams)).rows;
 
       res.json({
         ok: true,
@@ -309,6 +378,13 @@ function registerMgmMilesRoutes(app, deps) {
           }
         },
         people, ledger, inviters, pairs, prize_inventory: prizeInventory,
+        report_range: {
+          filtered: reportRange.filtered,
+          from: reportRange.from,
+          to: reportRange.to,
+          days: reportRange.days,
+          timezone: 'Asia/Taipei'
+        },
         liffId: defaultLiffId || ''
       });
     } catch (err) {
@@ -753,23 +829,34 @@ function registerMgmMilesRoutes(app, deps) {
     try {
       const body = req.body || {};
       const segment = String(body.segment || '').trim();
+      const reportRange = parseReportDateRange(body.from_date, body.to_date);
+      if (!reportRange.ok) return jsonErr(res, 400, 'invalid_date_range', { detail: reportRange.error });
       const act = await resolveActivity(body.activity_id);
       if (!act) return jsonErr(res, 404, 'no_activity');
       const aid = act.id;
 
+      const playRangeSql = reportRange.filtered ? ' AND p.played_at >= $2 AND p.played_at < $3' : '';
+      const referralRangeSql = reportRange.filtered ? ' AND r.created_at >= $2 AND r.created_at < $3' : '';
+      const reportParams = reportRange.filtered
+        ? [aid, reportRange.startAt, reportRange.endExclusiveAt]
+        : [aid];
       const SQL = {
-        pending_miles: `SELECT DISTINCT line_user_id FROM activity_plays
-                         WHERE activity_id=$1 AND prize_snapshot->>'miles' IS NOT NULL
-                           AND NOT COALESCE(is_redeemed,false)`,
-        winners:       `SELECT DISTINCT line_user_id FROM activity_plays
-                         WHERE activity_id=$1 AND COALESCE(prize_snapshot->>'prize_type','') <> 'none'`,
-        players:       `SELECT DISTINCT line_user_id FROM activity_plays WHERE activity_id=$1`,
-        inviters:      `SELECT DISTINCT inviter_line_user_id AS line_user_id FROM activity_referrals
-                         WHERE activity_id=$1 AND invitee_was_existing IS FALSE`
+        pending_miles: `SELECT DISTINCT p.line_user_id FROM activity_plays p
+                         WHERE p.activity_id=$1
+                           AND COALESCE((p.prize_snapshot->>'miles')::int,
+                                        (p.prize_snapshot->'prize_value'->>'miles')::int, 0) > 0
+                           AND NOT COALESCE(p.is_redeemed,false)`,
+        winners:       `SELECT DISTINCT p.line_user_id FROM activity_plays p
+                         WHERE p.activity_id=$1 AND COALESCE(p.prize_snapshot->>'prize_type','') <> 'none'`,
+        players:       `SELECT DISTINCT p.line_user_id FROM activity_plays p WHERE p.activity_id=$1`,
+        inviters:      `SELECT DISTINCT r.inviter_line_user_id AS line_user_id FROM activity_referrals r
+                         WHERE r.activity_id=$1 AND r.invitee_was_existing IS FALSE`
       };
       if (!SQL[segment]) return jsonErr(res, 400, 'bad_segment', { detail: '名單類型不對' });
 
-      const uids = (await query(SQL[segment], [aid])).rows
+      const rangeSql = segment === 'inviters' ? referralRangeSql : playRangeSql;
+
+      const uids = (await query(SQL[segment] + rangeSql, reportParams)).rows
         .map(r => String(r.line_user_id || '').trim())
         .filter(u => /^U[0-9a-f]{32}$/i.test(u));
       if (uids.length === 0) return jsonErr(res, 400, 'empty', { detail: '這個條件目前沒有人，沒有建立名單' });
@@ -783,7 +870,13 @@ function registerMgmMilesRoutes(app, deps) {
       const ins = await query(
         `INSERT INTO admin_recipient_lists (name, description, total, created_by)
          VALUES ($1, $2, $3, $4) RETURNING id, name, total`,
-        [name.slice(0, 120), '從活動報表建立：' + act.name + ' / ' + LABEL[segment], uids.length, createdBy]
+        [
+          name.slice(0, 120),
+          '從活動報表建立：' + act.name + ' / ' + LABEL[segment] +
+            (reportRange.filtered ? ' / ' + reportRange.from + '～' + reportRange.to : ' / 全部期間'),
+          uids.length,
+          createdBy
+        ]
       );
       const listId = ins.rows[0].id;
       try {
@@ -833,4 +926,4 @@ function registerMgmMilesRoutes(app, deps) {
   });
 }
 
-module.exports = { registerMgmMilesRoutes };
+module.exports = { registerMgmMilesRoutes, parseReportDateRange, MAX_REPORT_RANGE_DAYS };

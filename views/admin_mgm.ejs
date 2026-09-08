@@ -11,6 +11,28 @@
         <a href="/admin/activities" class="muted" style="font-size:13px;">活動設定在「活動管理」</a>
       </div>
       <p class="muted" style="font-size:13px;margin:8px 0 0;">同一頁查看活動參與、好友邀請、獎項庫存與完整得獎名單。</p>
+      <div class="mg-range" style="margin-top:14px;">
+        <label>
+          <span>觀察期間</span>
+          <select id="mg-range-preset" class="mg-sel">
+            <option value="all">全部期間</option>
+            <option value="7">近 7 天</option>
+            <option value="30">近 30 天</option>
+            <option value="90">近 90 天</option>
+            <option value="180">近 180 天</option>
+            <option value="365">近 365 天</option>
+            <option value="custom">自訂日期</option>
+          </select>
+        </label>
+        <div id="mg-range-custom" class="mg-range-custom" hidden>
+          <label><span>開始</span><input type="date" id="mg-range-from"></label>
+          <span class="muted">到</span>
+          <label><span>結束</span><input type="date" id="mg-range-to"></label>
+        </div>
+        <button type="button" id="mg-range-apply" class="mg-btn1">套用</button>
+        <span id="mg-range-note" class="muted" style="font-size:12.5px;">目前顯示全部期間</span>
+      </div>
+      <p class="muted" style="font-size:12px;margin:7px 0 0;">日期以台灣時間計算。上方 KPI、邀請、遊玩、得獎、下載檔案及新建名單會一起套用；獎項「目前剩餘」仍顯示即時庫存。</p>
       <div id="mg-rule" class="muted" style="margin-top:8px;font-size:13px;"></div>
       <div id="mg-stats" class="mg-stats" style="margin-top:14px;"><p class="muted">載入中…</p></div>
     </section>
@@ -23,7 +45,7 @@
 
     <section class="card">
       <h2 style="margin:0 0 4px;">有人說沒拿到次數？查他</h2>
-      <p class="muted" style="font-size:13px;margin-bottom:10px;">貼他的 LINE ID，或直接打名字。會列出他的次數是怎麼算出來的、邀請成功幾筆、哪幾次沒算到、為什麼。</p>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">貼他的 LINE ID，或直接打名字。為了查清楚次數，這裡固定顯示他的完整活動紀錄，不受上方期間篩選影響。</p>
       <div class="mg-bar">
         <input type="text" id="mg-q" placeholder="貼 LINE ID 或打名字" style="flex:1;min-width:240px;padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;font-size:14px;">
         <button type="button" id="mg-q-go" class="mg-btn1">查</button>
@@ -74,7 +96,7 @@
 
     <section class="card">
       <h2 style="margin:0 0 4px;">4. 抽大獎</h2>
-      <p class="muted" style="font-size:13px;margin-bottom:10px;">從這檔活動的參加者裡抽，你自己開獎。可以設定「至少要邀請幾位」才有資格。</p>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">從這檔活動的全部參加者裡抽，你自己開獎。可以設定「至少要邀請幾位」才有資格；抽獎池不受上方報表期間影響。</p>
       <a href="/admin/mgm/draw" id="mg-draw-link" class="mg-btn1" style="text-decoration:none;display:inline-block;">開始抽大獎</a>
     </section>
 
@@ -94,6 +116,10 @@
       .mg-stock-bar span.low{background:#F15A24;}
       .mg-prize-meta{display:flex;justify-content:space-between;gap:8px;color:#6B6B70;font-size:11.5px;}
       .mg-sel{padding:8px 10px;border:1px solid #D8D8DC;border-radius:8px;font-size:14px;background:#fff;font-weight:600;}
+      .mg-range{display:flex;align-items:flex-end;gap:9px;flex-wrap:wrap;padding:12px 14px;border:1px solid #F3DC8A;border-radius:10px;background:#FFFCF2;}
+      .mg-range label{display:flex;flex-direction:column;gap:4px;font-size:11.5px;font-weight:700;color:#6B6B70;}
+      .mg-range-custom{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;}
+      .mg-range input[type="date"]{padding:7px 9px;border:1px solid #D8D8DC;border-radius:8px;background:#fff;color:#1f2937;font-size:13px;}
       .mg-tag{display:inline-block;padding:2px 8px;border-radius:999px;background:#1f2937;color:#fff;font-size:11.5px;font-weight:700;}
       .mg-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center;}
       .mg-btn1{padding:9px 16px;background:#1f2937;color:#fff;border:0;border-radius:8px;font-size:13.5px;font-weight:700;cursor:pointer;}
@@ -122,6 +148,57 @@
       function statusLabel(s){return ({draft:'草稿（還沒開放）',active:'進行中',paused:'暫停',ended:'已結束'})[s]||s;}
 
       var DATA=null, ACT=null;
+
+      function taipeiToday(){
+        var parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+        var out={}; parts.forEach(function(p){out[p.type]=p.value;});
+        return out.year+'-'+out.month+'-'+out.day;
+      }
+      function addIsoDays(iso,delta){
+        var p=iso.split('-').map(Number);
+        return new Date(Date.UTC(p[0],p[1]-1,p[2]+delta)).toISOString().slice(0,10);
+      }
+      var SEARCH=new URLSearchParams(location.search);
+      var REPORT_RANGE={
+        period:SEARCH.get('period')||((SEARCH.get('from_date')&&SEARCH.get('to_date'))?'custom':'all'),
+        from:SEARCH.get('from_date')||'',
+        to:SEARCH.get('to_date')||''
+      };
+
+      function syncRangeControls(){
+        var allowed={all:1,'7':1,'30':1,'90':1,'180':1,'365':1,custom:1};
+        if(!allowed[REPORT_RANGE.period])REPORT_RANGE.period=REPORT_RANGE.from&&REPORT_RANGE.to?'custom':'all';
+        $('mg-range-preset').value=REPORT_RANGE.period;
+        $('mg-range-custom').hidden=REPORT_RANGE.period!=='custom';
+        $('mg-range-from').value=REPORT_RANGE.from||addIsoDays(taipeiToday(),-29);
+        $('mg-range-to').value=REPORT_RANGE.to||taipeiToday();
+      }
+      function selectedRange(){
+        var period=$('mg-range-preset').value;
+        if(period==='all')return {ok:true,period:'all',from:'',to:''};
+        if(period==='custom'){
+          var from=$('mg-range-from').value, to=$('mg-range-to').value;
+          if(!from||!to)return {ok:false,error:'開始日期和結束日期都要填寫'};
+          if(from>to)return {ok:false,error:'結束日期不能早於開始日期'};
+          var days=Math.floor((Date.parse(to+'T00:00:00Z')-Date.parse(from+'T00:00:00Z'))/86400000)+1;
+          if(days>366)return {ok:false,error:'自訂期間一次最多 366 天；更久請選「全部期間」'};
+          return {ok:true,period:'custom',from:from,to:to};
+        }
+        var n=Number(period), end=taipeiToday();
+        return {ok:true,period:period,from:addIsoDays(end,1-n),to:end};
+      }
+      function rangeLabel(range){
+        if(!range||!range.from||!range.to)return '目前顯示全部期間';
+        return '目前顯示 '+range.from+'～'+range.to+'（台灣時間）';
+      }
+      function updatePageUrl(activityId){
+        var q=new URLSearchParams();
+        if(activityId)q.set('activity_id',activityId);
+        if(REPORT_RANGE.from&&REPORT_RANGE.to){
+          q.set('period',REPORT_RANGE.period);q.set('from_date',REPORT_RANGE.from);q.set('to_date',REPORT_RANGE.to);
+        }
+        history.replaceState(null,'',location.pathname+(q.toString()?('?'+q.toString()):''));
+      }
 
       function renderPicker(list, current){
         $('mg-act').innerHTML=list.map(function(a){
@@ -172,7 +249,7 @@
             '<div><div class="mg-prize-name">'+esc(r.name)+'</div><div class="muted" style="font-size:11px;margin-top:3px;">'+type+'</div></div>'+
             '<div class="mg-prize-left">'+(limited?left.toLocaleString():'不限量')+'<small>剩餘</small></div></div>'+
             '<div class="mg-stock-bar"><span class="'+(low?'low':'')+'" style="width:'+pct.toFixed(2)+'%"></span></div>'+
-            '<div class="mg-prize-meta"><span>已抽出 '+drawn.toLocaleString()+'</span><span>'+
+            '<div class="mg-prize-meta"><span>'+(DATA&&DATA.report_range&&DATA.report_range.filtered?'此期間抽出 ':'累計抽出 ')+drawn.toLocaleString()+'</span><span>'+
               (limited?('設定總量 '+total.toLocaleString()):'不計庫存')+'</span></div></div>';
         }).join('');
       }
@@ -236,7 +313,10 @@
       }
 
       function load(activityId){
-        var u='/admin/mgm/api/data'+(activityId?('?activity_id='+encodeURIComponent(activityId)):'');
+        var q=new URLSearchParams();
+        if(activityId)q.set('activity_id',activityId);
+        if(REPORT_RANGE.from&&REPORT_RANGE.to){q.set('from_date',REPORT_RANGE.from);q.set('to_date',REPORT_RANGE.to);}
+        var u='/admin/mgm/api/data'+(q.toString()?('?'+q.toString()):'');
         return fetch(u).then(function(r){return r.json();}).then(function(d){
           if(!d.ok){
             var reason=esc(d.detail||d.error||'未知原因');
@@ -247,15 +327,28 @@
             return;
           }
           DATA=d; ACT=d.activity;
+          $('mg-range-note').textContent=rangeLabel(d.report_range);
           renderPicker(d.activities||[], ACT);
           renderRule(ACT); renderStats(ACT);
           renderInventory(d.prize_inventory);
           renderPairs(d.pairs); renderInviters(d.inviters);
           renderPeople(d.people); renderLedger(d.ledger);
           if(ACT) $('mg-draw-link').href='/admin/mgm/draw?activity_id='+ACT.id;
+          updatePageUrl(ACT&&ACT.id);
         }).catch(function(){$('mg-rule').textContent='載入失敗，請重新整理';});
       }
       $('mg-act').addEventListener('change',function(){load(this.value);});
+      $('mg-range-preset').addEventListener('change',function(){
+        $('mg-range-custom').hidden=this.value!=='custom';
+      });
+      $('mg-range-apply').addEventListener('click',function(){
+        var next=selectedRange();
+        if(!next.ok){$('mg-range-note').textContent=next.error;return;}
+        REPORT_RANGE=next;
+        $('mg-range-note').textContent='載入中…';
+        load(ACT?ACT.id:SEARCH.get('activity_id'));
+      });
+      syncRangeControls();
       load(new URLSearchParams(location.search).get('activity_id'));
 
       function downloadCsv(head, rows, filename){
@@ -268,10 +361,14 @@
       }
       function makeList(segment,label,noteId,btn){
         if(!ACT)return;
-        if(!confirm('把「'+label+'」存成一份群發名單？存好之後去群發訊息頁面選它就能發。'))return;
+        var scope=REPORT_RANGE.from&&REPORT_RANGE.to
+          ? '（'+REPORT_RANGE.from+'～'+REPORT_RANGE.to+'）'
+          : '（全部期間）';
+        if(!confirm('把「'+label+'」'+scope+'存成一份群發名單？存好之後去群發訊息頁面選它就能發。'))return;
         btn.disabled=true; $(noteId).textContent='建立中…';
         fetch('/admin/mgm/api/make-list',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({segment:segment,activity_id:ACT.id})})
+          body:JSON.stringify({segment:segment,activity_id:ACT.id,
+            from_date:REPORT_RANGE.from||null,to_date:REPORT_RANGE.to||null})})
           .then(function(r){return r.json();})
           .then(function(d){btn.disabled=false;
             if(!d.ok){$(noteId).textContent='沒有建立：'+(d.detail||d.error);return;}
