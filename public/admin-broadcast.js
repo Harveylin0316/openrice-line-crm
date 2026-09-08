@@ -24,7 +24,7 @@
     heroUrl: null,
     bHeroMediaId: null,
     bHeroUrl: null,
-    audienceSource: 'conditions',  // 'conditions' | 'saved_list' | 'upload'
+    audienceSource: 'conditions',  // 'conditions' | 'saved_list' | 'upload'（直接貼 LINE ID）
     audiencePreviewedTotal: null,
     messagePreviewed: false,
     currentBroadcastId: null,
@@ -199,6 +199,9 @@
       var listId = parseInt(sel, 10);
       return Number.isInteger(listId) && listId > 0 ? { savedListId: listId } : {};
     }
+    if (state.audienceSource === 'upload') {
+      return { lineUserIds: parseUidsFromText($('upload-list-uids').value).valid };
+    }
     // 加入時間（不限/1/7/30/90）
     var joinedWithinDays = null;
     var jw = $('joined-within') ? $('joined-within').value : '';
@@ -317,6 +320,15 @@
     statusEl.textContent = '查詢中…';
     sampleEl.hidden = true;
     sampleEl.innerHTML = '';
+    var directParsed = state.audienceSource === 'upload'
+      ? parseUidsFromText($('upload-list-uids').value)
+      : null;
+    if (directParsed && directParsed.valid.length === 0) {
+      statusEl.textContent = '請先貼上至少一個有效的 LINE User ID';
+      state.audiencePreviewedTotal = null;
+      updateSendButton();
+      return;
+    }
     fetch('/admin/broadcast/audience/preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -333,6 +345,14 @@
         }
         state.audiencePreviewedTotal = data.total;
         statusEl.innerHTML = '預計送 <strong>' + data.total + '</strong> 人';
+        if (directParsed) {
+          var notes = [];
+          if (directParsed.duplicates > 0) notes.push('去除 ' + directParsed.duplicates + ' 個重複');
+          if (directParsed.invalid.length > 0) notes.push('略過 ' + directParsed.invalid.length + ' 個格式錯誤');
+          var excluded = Number(data.inputStats && data.inputStats.excludedKnownUnavailable || 0);
+          if (excluded > 0) notes.push('排除 ' + excluded + ' 個已知封鎖／舊帳號');
+          if (notes.length > 0) statusEl.innerHTML += ' <span class="muted">（' + notes.join('、') + '）</span>';
+        }
         if (data.total > (INIT.maxRecipients || 5000)) {
           statusEl.innerHTML += ' <span style="color:#b45309">（將自動 cap 至 ' + INIT.maxRecipients + ' 人）</span>';
         }
@@ -2158,7 +2178,7 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data.ok) {
-          meta.textContent = '建立失敗：' + (data.error || '');
+          meta.textContent = '建立失敗：' + (data.detail || data.error || '請稍後再試');
           state.sending = false;
           updateSendButton();
           return;
@@ -2578,6 +2598,7 @@
     var seen = {};
     var valid = [];
     var invalid = [];
+    var duplicates = 0;
     tokens.forEach(function (t) {
       var clean = t.replace(/^["']|["']$/g, '');
       if (/^U[0-9a-f]{32}$/i.test(clean)) {
@@ -2585,23 +2606,30 @@
         if (!seen[key]) {
           seen[key] = true;
           valid.push(clean);
+        } else {
+          duplicates++;
         }
       } else if (clean) {
         invalid.push(clean);
       }
     });
-    return { valid: valid, invalid: invalid };
+    return { valid: valid, invalid: invalid, duplicates: duplicates };
   }
 
   $('upload-list-uids').addEventListener('input', function () {
     var parsed = parseUidsFromText($('upload-list-uids').value);
     var c = $('upload-list-counter');
     if (parsed.invalid.length > 0) {
-      c.innerHTML = '已輸入 <strong>' + parsed.valid.length + '</strong> 個有效 UID ' +
-        '<span style="color:#b45309">（另有 ' + parsed.invalid.length + ' 個格式錯誤，上傳時會跳過）</span>';
+      c.innerHTML = '已輸入 <strong>' + parsed.valid.length + '</strong> 個有效 ID ' +
+        '<span style="color:#b45309">（另有 ' + parsed.invalid.length + ' 個格式錯誤，會跳過）</span>';
     } else {
-      c.textContent = '已輸入 ' + parsed.valid.length + ' 個有效 UID';
+      c.textContent = '已輸入 ' + parsed.valid.length + ' 個有效 ID' +
+        (parsed.duplicates > 0 ? '（已去除 ' + parsed.duplicates + ' 個重複）' : '');
     }
+    state.audiencePreviewedTotal = null;
+    $('audience-status').textContent = '名單已變更，請重新預覽';
+    $('audience-sample').hidden = true;
+    updateSendButton();
   });
 
   $('btn-upload-list').addEventListener('click', function () {
@@ -2631,7 +2659,7 @@
         $('upload-list-name').value = '';
         $('upload-list-desc').value = '';
         $('upload-list-uids').value = '';
-        $('upload-list-counter').textContent = '已輸入 0 個 UID';
+        $('upload-list-counter').textContent = '已輸入 0 個有效 ID';
         var savedTabBtn = document.querySelector('.tab-btn[data-audience="saved_list"]');
         if (savedTabBtn) savedTabBtn.click();
         setTimeout(function () {

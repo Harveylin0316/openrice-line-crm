@@ -165,3 +165,19 @@ test('A/B 卡片任一版本不合法都會擋下，不建立正式批次', asyn
   assert.equal(ctx.calls.validate.length, 2);
   assert.equal(ctx.calls.query.length, 0);
 });
+
+test('直接貼超過 5000 個 LINE User ID 會擋下，不會建立只含前 5000 人的批次', async () => {
+  const ctx = build();
+  const lineUserIds = Array.from({ length: 5001 }, (_, i) =>
+    'U' + i.toString(16).padStart(32, '0'));
+  const res = await run(ctx.routes['POST /admin/broadcast/create'], {
+    send_mode: 'immediate',
+    conditions: { lineUserIds },
+    message_config: messageConfig()
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error, 'invalid_audience');
+  assert.match(res.body.detail, /最多可推播 5000/);
+  assert.equal(ctx.calls.query.length, 0);
+});

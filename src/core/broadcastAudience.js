@@ -25,6 +25,42 @@
 
 const MAX_RECIPIENTS_PER_BROADCAST = 5000;
 const PREVIEW_SAMPLE_LIMIT = 10;
+const LINE_USER_ID_RE = /^U[0-9a-f]{32}$/i;
+
+/**
+ * 管理員直接貼上的 LINE user ID。接受陣列或以空白／逗號／分號分隔的文字，
+ * 格式錯誤的值不進入發送；大小寫視為同一個 ID，保留第一筆原字串。
+ */
+function parseExplicitLineUserIds(raw) {
+  const input = Array.isArray(raw)
+    ? raw
+    : (typeof raw === 'string' ? raw.split(/[\s,;]+/) : []);
+  const values = [];
+  const seen = new Set();
+  let invalid = 0;
+  let duplicates = 0;
+  for (const item of input) {
+    const value = String(item || '').trim().replace(/^["']|["']$/g, '');
+    if (!value) continue;
+    if (!LINE_USER_ID_RE.test(value)) {
+      invalid++;
+      continue;
+    }
+    const key = value.toLowerCase();
+    if (seen.has(key)) {
+      duplicates++;
+      continue;
+    }
+    seen.add(key);
+    values.push(value);
+  }
+  return {
+    values,
+    invalid,
+    duplicates,
+    tooMany: values.length > MAX_RECIPIENTS_PER_BROADCAST
+  };
+}
 
 // 活動頁行為資料來源：已把行為紀錄對應到會員的檢視（明碼與雜湊兩種 line_id 都涵蓋），
 // 直接用它就好，不要自己去接原始行為表。
@@ -119,7 +155,8 @@ function normalizeConditions(raw) {
     liffInactiveDays: null,
     bookingSource: null,
     bookingSourceAnswered: null,
-    savedListId: null
+    savedListId: null,
+    lineUserIds: null
   };
 
   if (safe.allMembers === true || safe.allMembers === 'true') {
@@ -179,6 +216,11 @@ function normalizeConditions(raw) {
     out.savedListId = listId;
   }
 
+  const directIds = parseExplicitLineUserIds(safe.lineUserIds);
+  if (directIds.values.length > 0) {
+    out.lineUserIds = directIds.values.slice(0, MAX_RECIPIENTS_PER_BROADCAST);
+  }
+
   return out;
 }
 
@@ -188,6 +230,7 @@ function hasAnyCondition(conds) {
     conds.joinedWithinDays !== null ||
     conds.lifecycleStages ||
     conds.savedListId ||
+    conds.lineUserIds ||
     conds.prizeFilter ||
     conds.inviteCompletedMin !== null ||
     conds.drewInCampaign !== null ||
@@ -330,6 +373,7 @@ function buildWhere(conds) {
 }
 
 async function previewAudience(query, rawConditions, { channel = 'line' } = {}) {
+  const directInput = parseExplicitLineUserIds(rawConditions && rawConditions.lineUserIds);
   const conds = normalizeConditions(rawConditions);
   // channel=email 時：條件式 audience 不適用（users 表沒 email），只能用 savedListId
   if (channel === 'email') {
@@ -359,6 +403,68 @@ async function previewAudience(query, rawConditions, { channel = 'line' } = {}) 
   }
   if (!hasAnyCondition(conds)) {
     return { total: 0, sample: [], conditions: conds, error: '請至少選一個條件或選擇一份名單。' };
+  }
+  if (directInput.tooMany) {
+    return {
+      total: 0,
+      sample: [],
+      conditions: conds,
+      error: '一次最多可推播 ' + MAX_RECIPIENTS_PER_BROADCAST + ' 個 LINE user ID。',
+      inputStats: {
+        valid: directInput.values.length,
+        invalid: directInput.invalid,
+        duplicates: directInput.duplicates,
+        excludedKnownUnavailable: 0
+      }
+    };
+  }
+  // 來源：管理員直接貼 LINE user ID。未知於 CRM 的 ID 仍保留，交由 LINE 官方 API
+  // 判斷是否能收訊；已知已封鎖或屬於封存舊 OA 的 ID 先排除，避免浪費額度。
+  if (conds.lineUserIds) {
+    const availableSql = `(u.id IS NULL OR (u.blocked_at IS NULL AND u.archived_at IS NULL))`;
+    const totalRs = await query(
+      `WITH input(line_user_id, ord) AS (
+         SELECT * FROM unnest($1::text[]) WITH ORDINALITY
+       )
+       SELECT COUNT(*)::int AS n
+       FROM input i
+       LEFT JOIN LATERAL (
+         SELECT id, blocked_at, archived_at
+         FROM users WHERE line_user_id = i.line_user_id
+         ORDER BY id DESC LIMIT 1
+       ) u ON true
+       WHERE ${availableSql}`,
+      [conds.lineUserIds]
+    );
+    const sampleRs = await query(
+      `WITH input(line_user_id, ord) AS (
+         SELECT * FROM unnest($1::text[]) WITH ORDINALITY
+       )
+       SELECT i.ord::bigint AS id, i.line_user_id, u.line_display_name, u.username
+       FROM input i
+       LEFT JOIN LATERAL (
+         SELECT id, line_display_name, username, blocked_at, archived_at
+         FROM users WHERE line_user_id = i.line_user_id
+         ORDER BY id DESC LIMIT 1
+       ) u ON true
+       WHERE ${availableSql}
+       ORDER BY i.ord ASC
+       LIMIT $2`,
+      [conds.lineUserIds, PREVIEW_SAMPLE_LIMIT]
+    );
+    const total = Number(totalRs.rows[0] && totalRs.rows[0].n) || 0;
+    return {
+      total,
+      sample: sampleRs.rows,
+      conditions: conds,
+      error: null,
+      inputStats: {
+        valid: directInput.values.length,
+        invalid: directInput.invalid,
+        duplicates: directInput.duplicates,
+        excludedKnownUnavailable: Math.max(directInput.values.length - total, 0)
+      }
+    };
   }
   // 來源：已儲存名單
   if (conds.savedListId) {
@@ -408,6 +514,7 @@ async function previewAudience(query, rawConditions, { channel = 'line' } = {}) 
 }
 
 async function fetchAudienceRecipients(query, rawConditions, { limit = MAX_RECIPIENTS_PER_BROADCAST, channel = 'line' } = {}) {
+  const directInput = parseExplicitLineUserIds(rawConditions && rawConditions.lineUserIds);
   const conds = normalizeConditions(rawConditions);
   const cappedLimit = Math.min(Math.max(1, Number(limit) || MAX_RECIPIENTS_PER_BROADCAST), MAX_RECIPIENTS_PER_BROADCAST);
   // channel=email：只能從 list 拿 email
@@ -426,6 +533,32 @@ async function fetchAudienceRecipients(query, rawConditions, { limit = MAX_RECIP
     return { conditions: conds, rows: rs.rows };
   }
   if (!hasAnyCondition(conds)) return { conditions: conds, rows: [] };
+  if (directInput.tooMany) {
+    return {
+      conditions: conds,
+      rows: [],
+      error: '一次最多可推播 ' + MAX_RECIPIENTS_PER_BROADCAST + ' 個 LINE user ID。'
+    };
+  }
+  if (conds.lineUserIds) {
+    const rs = await query(
+      `WITH input(line_user_id, ord) AS (
+         SELECT * FROM unnest($1::text[]) WITH ORDINALITY
+       )
+       SELECT u.id AS user_id, i.line_user_id
+       FROM input i
+       LEFT JOIN LATERAL (
+         SELECT id, blocked_at, archived_at
+         FROM users WHERE line_user_id = i.line_user_id
+         ORDER BY id DESC LIMIT 1
+       ) u ON true
+       WHERE u.id IS NULL OR (u.blocked_at IS NULL AND u.archived_at IS NULL)
+       ORDER BY i.ord ASC
+       LIMIT $2`,
+      [conds.lineUserIds, cappedLimit]
+    );
+    return { conditions: conds, rows: rs.rows };
+  }
   // 來源：已儲存名單
   if (conds.savedListId) {
     // LINE 通道：只送有 line_user_id 的成員、排除已封鎖（與預覽一致，避免灌水+漏發）
@@ -469,6 +602,7 @@ module.exports = {
   BOOKING_SOURCE_MAX_LEN,
   LAST_ACTIVITY_SQL,
   LIFECYCLE_STAGE_SQL,
+  parseExplicitLineUserIds,
   lifecycleWhereSql,
   normalizeConditions,
   hasAnyCondition,

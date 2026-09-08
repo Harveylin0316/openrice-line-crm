@@ -116,6 +116,22 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 - 自動化流程：`/admin/flows`
 - Rich Menu：`/admin/richmenu`
 
+#### 直接貼 LINE User ID 推播（2026-09-08）
+
+`/admin/broadcast` 的收件人頁籤有「貼 LINE User ID」：可貼一行一個 ID，或直接貼
+CSV，再預覽人數、編輯文字／圖片／影片／Flex 卡片，最後立即或排程發送。直接推播
+不要求 ID 已存在 `users`，也不必先建立已儲存名單；若日後要重複使用，可在同一區展開
+「另外存進名單庫」。
+
+後端只接受 `U + 32 個十六進位字元`，會去重並限制每批最多 5,000 人。已知已封鎖或
+封存舊 OA 的會員在預覽與建立批次時排除；CRM 未知的格式合法 ID 仍交給 LINE API
+判斷，若屬於其他 Provider、封鎖 OA 或無法接收，逐筆結果會記在群發紀錄。正式批次
+仍沿用訊息預檢、測試訊息、二次確認、分批發送、取消及歷史紀錄等既有防線。
+
+主要程式入口：`src/core/broadcastAudience.js` 的 `lineUserIds` 受眾、
+`src/routes/adminBroadcast.js` 的預覽／建立批次、`views/admin_broadcast.ejs` 與
+`public/admin-broadcast.js`。
+
 #### 圖文選單點擊後延遲推播（2026-09-07）
 
 後台已可建立「點了圖文選單」流程：

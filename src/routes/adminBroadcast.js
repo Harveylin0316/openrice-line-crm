@@ -448,7 +448,8 @@ function registerAdminBroadcastRoutes(app, deps) {
         sample: result.sample,
         conditions: result.conditions,
         channel,
-        error: result.error || null
+        error: result.error || null,
+        inputStats: result.inputStats || null
       });
     } catch (err) {
       console.error('audience preview error:', err.message);
@@ -1040,7 +1041,13 @@ function registerAdminBroadcastRoutes(app, deps) {
         return safeJsonError(res, 400, 'no_conditions_selected');
       }
 
-      const { rows: recipients } = await fetchAudienceRecipients(query, conditions, { channel });
+      // 直接貼 ID 時要保留原始輸入做「超過 5,000 人」檢查；若先只傳正規化後
+      // 的 conditions，超額資料已被截短，會變成悄悄只送前 5,000 人。
+      const audienceResult = await fetchAudienceRecipients(query, rawConditions, { channel });
+      if (audienceResult.error) {
+        return safeJsonError(res, 400, 'invalid_audience', { detail: audienceResult.error });
+      }
+      const recipients = audienceResult.rows;
       if (recipients.length === 0) {
         return safeJsonError(res, 400, channel === 'email' ? 'no_email_recipients' : 'no_matching_recipients');
       }

@@ -134,7 +134,7 @@
             <div class="broadcast-tabs audience-tabs">
               <button type="button" class="tab-btn active" data-audience="conditions">條件篩選</button>
               <button type="button" class="tab-btn" data-audience="saved_list">已儲存名單</button>
-              <button type="button" class="tab-btn" data-audience="upload">上傳新名單</button>
+              <button type="button" class="tab-btn" data-audience="upload">貼 LINE User ID</button>
             </div>
 
             <div class="audience-pane" id="audience-pane-conditions">
@@ -297,29 +297,37 @@
             </div>
 
             <div class="audience-pane" id="audience-pane-upload" hidden>
-              <div class="broadcast-field">
-                <label>
-                  名單顯示名
-                  <input type="text" id="upload-list-name" maxlength="200" placeholder="例如：2026-05 Rice $100 中獎者" />
-                </label>
+              <div class="broadcast-field direct-id-guide">
+                <strong>有 LINE User ID 就能直接推播</strong>
+                <div class="muted" style="font-size:12px;margin-top:4px;">貼上編號後，按下方「預覽收件人」，確認人數，再設計訊息並發送。不必先建立會員，也不必先存成名單。</div>
               </div>
               <div class="broadcast-field">
                 <label>
-                  說明（選填）
-                  <input type="text" id="upload-list-desc" maxlength="500" placeholder="這份名單從哪來、要做什麼用" />
-                </label>
-              </div>
-              <div class="broadcast-field">
-                <label>
-                  LINE userId 清單（一行一個 U + 32 hex；或貼 CSV，會自動忽略其他欄位／空白）
+                  LINE User ID（一行一個；也可直接貼 CSV）
                   <textarea id="upload-list-uids" rows="8" placeholder="Ua59ae887867bfe0a26c6a41616fa4f66&#10;U72b796db38442742d09386bc8d1ac524&#10;..." spellcheck="false" style="font-family:monospace;font-size:12px;"></textarea>
                 </label>
-                <div id="upload-list-counter" class="muted" style="font-size:12px;margin-top:4px;">已輸入 0 個 UID</div>
+                <div id="upload-list-counter" class="muted" style="font-size:12px;margin-top:4px;">已輸入 0 個有效 ID</div>
+                <div class="muted" style="font-size:12px;margin-top:4px;">系統會去除重複及格式錯誤的資料。格式正確不代表一定能收到；若對方封鎖官方帳號、ID 屬於其他 LINE Provider，LINE 仍會拒絕發送，結果會留在群發紀錄。</div>
               </div>
-              <div class="broadcast-action-row">
-                <button type="button" class="btn btn-warning" id="btn-upload-list">儲存名單</button>
-                <div id="upload-list-status" class="muted" style="font-size:13px;">尚未儲存</div>
-              </div>
+              <details class="save-direct-list">
+                <summary>需要下次重複使用？另外存進名單庫</summary>
+                <div class="broadcast-field" style="margin-top:12px;">
+                  <label>
+                    名單顯示名
+                    <input type="text" id="upload-list-name" maxlength="200" placeholder="例如：9 月活動指定名單" />
+                  </label>
+                </div>
+                <div class="broadcast-field">
+                  <label>
+                    說明（選填）
+                    <input type="text" id="upload-list-desc" maxlength="500" placeholder="這份名單從哪來、要做什麼用" />
+                  </label>
+                </div>
+                <div class="broadcast-action-row">
+                  <button type="button" class="btn" id="btn-upload-list">儲存成名單</button>
+                  <div id="upload-list-status" class="muted" style="font-size:13px;">不儲存也可以直接推播</div>
+                </div>
+              </details>
             </div>
 
             <div class="broadcast-action-row" style="margin-top:14px;border-top:1px solid #fde68a;padding-top:12px;">
@@ -1252,6 +1260,23 @@
       .audience-tabs { margin-bottom: 14px; }
       #upload-list-uids {
         line-height: 1.5;
+      }
+      .direct-id-guide {
+        background: #FFFBEB;
+        border: 1px solid #FDE68A;
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+      .save-direct-list {
+        margin-top: 10px;
+        border-top: 1px solid #E5E7EB;
+        padding-top: 12px;
+      }
+      .save-direct-list summary {
+        cursor: pointer;
+        color: #6B6B70;
+        font-size: 13px;
+        font-weight: 600;
       }
       #saved-list-select {
         font-size: 14px;
