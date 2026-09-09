@@ -1,6 +1,6 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
-本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-07；正式資料與部署狀態仍應在接手時重新確認。
+本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-09；正式資料與部署狀態仍應在接手時重新確認。
 
 - Repo：<https://github.com/Harveylin0316/openrice-line-crm>
 - 正式站：<https://openrice-line-crm.netlify.app>
@@ -185,10 +185,31 @@ CRM 內建活動另有 fallback：遊戲頁的 `/meta` 完成 LINE ID token 驗�
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
 - 歸因與邀請：`/admin/attribution`、`/admin/referrals`
+- 通用 LIFF 來源追蹤：`/admin/liff-tracking`
 - LIFF／Random Rice：`/admin/liff/random-rice`
 - RFM：`/admin/rfm`
 
 期間控制：`/admin/insight` 與 Random Rice 行為分析可選 7／30／90／180／365 天，也可自行輸入 1–365 天；同一頁的圖表與表格使用一致期間。`/admin/attribution` 的「點擊後觀察期」可選到 90 天或自行輸入 1–365 天。LINE 官方好友總數、輪廓與昨日訊息量是 LINE API 的最新快照，不會因站內期間篩選而改變；畫面有明確註記。RFM 的「30 天內算活躍」是分群規則，不是報表篩選，不能跟著改。
+
+#### 通用 LIFF 來源追蹤（2026-09-09）
+
+`/admin/liff-tracking` 用來替任何 LIFF／HTTPS 活動建立來源專屬網址，不必建立自動化流程。
+管理員填追蹤名稱、Campaign、來源、目的地，並可選「完成一次指定活動遊玩」或既有
+`user_events.event_name` 作為轉換。來源／Campaign 建立後固定；要換意義就新增另一條，
+避免歷史數據被改名。網址可暫停追蹤，但仍會把使用者送到原目的地。
+
+公開網址為 `https://liff.line.me/{GAMES_LIFF_ID}/lt/{id}`，實際會進
+`/games/lt/:id`，由 `tap_bounce` 取得 LINE ID token，再 POST `/lt/:id/hit`。後端只接受
+LINE 驗證後的 `sub`，同一人同一網址同一分鐘以 DB unique constraint 去重；安全性或
+資料庫失敗都不能阻擋原本跳轉。頁面報表提供 7／30／90／180／365 天與全部期間，包含
+開啟次數、不重複用戶、每日趨勢、來源比較、轉換與轉換率。轉換觀察期由每條網址設定，
+以該人第一次開啟為起點。
+
+資料表為 `liff_tracking_links`、`liff_tracking_events`；兩表啟用 RLS 並撤銷
+`anon`／`authenticated` 權限，僅由後端 PostgreSQL 連線存取。Migration：
+`supabase/migrations/20260909094059_liff_source_tracking.sql`。主要程式：
+`src/routes/adminLiffTracking.js`、`views/admin_liff_tracking.ejs`。不要把追蹤網址直接做成
+任意 `?target=` 轉址；目的地必須回 DB 查，否則會形成公開 open redirect。
 
 ### 會員與名單
 

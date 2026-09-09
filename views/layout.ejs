@@ -34,8 +34,8 @@
       @media (max-width: 640px) {
         .nav-toggle { display: inline-flex; align-items: center; }
         /* 窄螢幕：nav 預設收起，點漢堡才展開（直向堆疊） */
-        .topbar-nav { display: none; width: 100%; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 10px; }
-        .topbar-nav.nav-open { display: flex; }
+        .topbar.topbar--admin .topbar-nav { display: none; width: 100%; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 10px; }
+        .topbar.topbar--admin .topbar-nav.nav-open { display: flex; }
         .topbar-inner { flex-wrap: wrap; }
         .navgrp { display: block; }
         .navgrp-btn { width: 100%; justify-content: space-between; padding: 12px 4px; }
@@ -83,6 +83,7 @@
               <a href="/admin/insight">數據總覽</a>
               <a href="/admin/reports">成效報表</a>
               <a href="/admin/attribution">轉換歸因</a>
+              <a href="/admin/liff-tracking">LIFF 來源追蹤</a>
               <a href="/admin/referrals">邀請成效</a>
               <a href="/admin/liff/random-rice">活動頁面數據</a>
               <a href="/admin/rfm">會員分級分析</a>
@@ -190,4 +191,3 @@
     </script>
   </body>
 </html>
-

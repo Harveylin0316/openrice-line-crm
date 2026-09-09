@@ -1,0 +1,239 @@
+<% const sourcePresetJson = JSON.stringify(Array.isArray(sourcePresets) ? sourcePresets : []).replace(/</g, '\\u003c'); %>
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="lt-hero">
+      <div>
+        <div class="lt-kicker">LIFF TRACKING</div>
+        <h1>知道每一個入口帶來什麼</h1>
+        <p>替圖文選單、推播、歡迎訊息、QR Code 或社群貼文建立專屬網址，再比較誰真的打開 LIFF、完成活動。</p>
+      </div>
+      <button type="button" class="lt-btn lt-btn-primary" id="lt-open-create">新增追蹤網址</button>
+    </section>
+
+    <section class="lt-notice" id="lt-config-warning" hidden>
+      <strong>目前無法產生網址</strong>
+      <span>正式環境尚未設定通用 LIFF ID，請先請管理員完成設定。</span>
+    </section>
+
+    <section class="card lt-create" id="lt-create-card" hidden>
+      <div class="lt-section-head">
+        <div>
+          <h2>新增追蹤網址</h2>
+          <p>一個來源建立一條。例如同一活動分別從圖文選單與 Instagram 進入，就建立兩條。</p>
+        </div>
+        <button type="button" class="lt-icon-btn" id="lt-close-create" aria-label="關閉">×</button>
+      </div>
+      <form id="lt-create-form" class="lt-form">
+        <label class="lt-field lt-span-2">
+          <span>追蹤名稱</span>
+          <input name="name" maxlength="100" required placeholder="例：9/15 分享超有哩圖文選單" />
+          <small>只在後台顯示，讓同事看得懂這條網址放在哪裡。</small>
+        </label>
+        <label class="lt-field">
+          <span>Campaign 名稱</span>
+          <input name="campaign_name" maxlength="100" required placeholder="例：分享超有哩 9 月檔期" />
+        </label>
+        <label class="lt-field">
+          <span>來源</span>
+          <select name="source_preset" id="lt-source-preset"></select>
+        </label>
+        <div class="lt-custom-source lt-span-2" id="lt-custom-source" hidden>
+          <label class="lt-field">
+            <span>自訂來源名稱</span>
+            <input name="source_label" maxlength="60" placeholder="例：店內桌卡" />
+          </label>
+          <label class="lt-field">
+            <span>來源代號</span>
+            <input name="source_key" maxlength="40" placeholder="例：table_card" />
+            <small>只能用英文小寫、數字、底線或減號。</small>
+          </label>
+        </div>
+        <label class="lt-field lt-span-2">
+          <span>LIFF／活動目的地網址</span>
+          <select id="lt-target-preset"><option value="">自己貼網址</option></select>
+          <input id="lt-target-url" name="target_url" type="url" maxlength="2048" required placeholder="https://liff.line.me/..." />
+          <small>用戶完成追蹤後會立刻前往這裡；只接受完整 HTTPS 網址。</small>
+        </label>
+        <label class="lt-field">
+          <span>想觀察的轉換</span>
+          <select name="conversion_type" id="lt-conversion-type">
+            <option value="none">先只看開啟</option>
+            <option value="activity_play">完成一次活動遊玩</option>
+            <option value="user_event">完成既有 LIFF 行為</option>
+          </select>
+        </label>
+        <label class="lt-field" id="lt-conversion-key-wrap" hidden>
+          <span id="lt-conversion-key-label">選擇行為</span>
+          <select name="conversion_key" id="lt-conversion-key"></select>
+        </label>
+        <label class="lt-field" id="lt-attribution-wrap" hidden>
+          <span>轉換觀察期</span>
+          <div class="lt-inline-input"><input name="attribution_days" type="number" min="1" max="365" value="7" /><b>天</b></div>
+          <small>從第一次開啟這條網址後開始計算。</small>
+        </label>
+        <div class="lt-form-actions lt-span-2">
+          <span class="lt-form-message" id="lt-form-message" aria-live="polite"></span>
+          <button type="submit" class="lt-btn lt-btn-primary">建立並產生網址</button>
+        </div>
+      </form>
+      <div class="lt-created" id="lt-created" hidden>
+        <strong>網址已建立</strong>
+        <div class="lt-copy-line"><input id="lt-created-url" readonly /><button type="button" class="lt-btn lt-btn-secondary" id="lt-copy-created">複製網址</button></div>
+        <p>把這條網址貼到剛才選的來源。來源和 Campaign 建立後不會改名，避免歷史數據被洗掉。</p>
+      </div>
+    </section>
+
+    <section class="card lt-report">
+      <div class="lt-section-head lt-report-head">
+        <div>
+          <h2>來源成效</h2>
+          <p>只計算 LINE 驗證成功的開啟；同一人同一分鐘重複載入只算一次。</p>
+        </div>
+        <div class="lt-range">
+          <label for="lt-days">觀察期間</label>
+          <select id="lt-days">
+            <option value="7">近 7 天</option>
+            <option value="30" selected>近 30 天</option>
+            <option value="90">近 90 天</option>
+            <option value="180">近 180 天</option>
+            <option value="365">近 365 天</option>
+            <option value="all">全部期間</option>
+            <option value="custom">自訂天數</option>
+          </select>
+          <input id="lt-custom-days" type="number" min="1" max="365" value="30" hidden />
+          <button type="button" class="lt-btn lt-btn-secondary" id="lt-apply-days">套用</button>
+        </div>
+      </div>
+      <div class="lt-kpis" id="lt-kpis">
+        <div><span>開啟次數</span><strong>—</strong></div>
+        <div><span>不重複用戶</span><strong>—</strong></div>
+        <div><span>歸因轉換</span><strong>—</strong></div>
+        <div><span>追蹤中網址</span><strong>—</strong></div>
+      </div>
+      <div class="lt-chart-wrap">
+        <h3>每日趨勢</h3>
+        <div class="lt-chart" id="lt-chart"><span class="muted">載入中…</span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="lt-section-head">
+        <div>
+          <h2>來源比較</h2>
+          <p>先看哪個入口帶來最多人，再回下方確認是哪一條網址及其轉換。</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="lt-table">
+          <thead><tr><th>來源</th><th>開啟次數</th><th>不重複用戶</th><th>人均開啟</th></tr></thead>
+          <tbody id="lt-source-body"><tr><td colspan="4" class="muted">載入中…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="lt-section-head">
+        <div>
+          <h2>追蹤網址</h2>
+          <p>暫停後不再記錄新成效，但舊網址仍會把用戶正常送到目的地。</p>
+        </div>
+        <div class="lt-heading-actions">
+          <button type="button" class="lt-btn lt-btn-secondary" id="lt-download-csv" disabled>下載 CSV</button>
+          <button type="button" class="lt-btn lt-btn-secondary" id="lt-refresh">重新整理</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="lt-table lt-link-table">
+          <thead><tr><th>追蹤設定</th><th>開啟</th><th>不重複</th><th>轉換</th><th>轉換率</th><th>操作</th></tr></thead>
+          <tbody id="lt-link-body"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody>
+        </table>
+      </div>
+      <p class="lt-footnote">「歸因轉換」以每條網址的第一次開啟為起點；同一人從不同來源進入，可能分別出現在不同網址，因此總和不代表全站唯一人數。</p>
+    </section>
+
+    <script>
+    (function () {
+      var INITIAL_SOURCES = ${sourcePresetJson};
+      var OPTIONS = { sources: INITIAL_SOURCES, activities: [], events: [] };
+      var CURRENT_DAYS = '30';
+      var LATEST_LINKS = [];
+      var $ = function (id) { return document.getElementById(id); };
+      function esc(value) { return String(value == null ? '' : value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+      function fmt(value) { return Number(value || 0).toLocaleString('zh-Hant-TW'); }
+      function fmtDate(value) { if (!value) return '尚無開啟'; var d=new Date(value); return isNaN(d)?'—':d.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+      function copyText(value, button) {
+        function done(){ var old=button.textContent; button.textContent='已複製'; setTimeout(function(){button.textContent=old;},1200); }
+        if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(value).then(done);
+        var input=document.createElement('textarea');input.value=value;document.body.appendChild(input);input.select();document.execCommand('copy');input.remove();done();return Promise.resolve();
+      }
+      function jsonFetch(url, options) {
+        return fetch(url, options).then(function (r) { return r.json().then(function (body) { if (!r.ok || !body.ok) throw new Error(body.detail || '操作失敗'); return body; }); });
+      }
+      function fillSources() {
+        $('lt-source-preset').innerHTML=(OPTIONS.sources||[]).map(function(s){return '<option value="'+esc(s.value)+'">'+esc(s.label)+'</option>';}).join('');
+      }
+      function fillTargets() {
+        $('lt-target-preset').innerHTML='<option value="">自己貼網址</option>'+(OPTIONS.activities||[]).filter(function(a){return a.liff_url;}).map(function(a){return '<option value="'+esc(a.liff_url)+'" data-name="'+esc(a.name)+'">'+esc(a.name)+'（'+esc(a.game_type)+'）</option>';}).join('');
+      }
+      function fillConversion() {
+        var type=$('lt-conversion-type').value;
+        var wrap=$('lt-conversion-key-wrap'), days=$('lt-attribution-wrap'), select=$('lt-conversion-key');
+        wrap.hidden=type==='none';days.hidden=type==='none';
+        if(type==='activity_play'){
+          $('lt-conversion-key-label').textContent='要完成哪個活動？';
+          select.innerHTML=(OPTIONS.activities||[]).map(function(a){return '<option value="'+esc(a.id)+'">'+esc(a.name)+'（'+esc(a.slug)+'）</option>';}).join('');
+        }else if(type==='user_event'){
+          $('lt-conversion-key-label').textContent='要完成哪個 LIFF 行為？';
+          select.innerHTML=(OPTIONS.events||[]).map(function(e){return '<option value="'+esc(e.event_name)+'">'+esc(e.label)+'（近半年 '+fmt(e.count)+' 次）</option>';}).join('');
+        }else select.innerHTML='';
+      }
+      function rangeValue(){if($('lt-days').value==='custom')return String(Math.max(1,Math.min(365,Math.round(Number($('lt-custom-days').value)||30))));return $('lt-days').value;}
+      function renderKpis(summary){var vals=[summary.opens,summary.unique_users,summary.conversions,summary.active_links];$('lt-kpis').querySelectorAll('strong').forEach(function(el,i){el.textContent=fmt(vals[i]);});}
+      function renderChart(rows){var box=$('lt-chart');if(!rows.length){box.innerHTML='<span class="muted">這段期間還沒有開啟紀錄</span>';return;}var show=rows.slice(-31),max=Math.max.apply(null,show.map(function(r){return Number(r.opens)||0;}));box.innerHTML=show.map(function(r){var h=max?Math.max(6,Math.round(Number(r.opens||0)/max*88)):6;return '<div class="lt-bar-col" title="'+esc(r.day)+'｜'+fmt(r.opens)+' 次｜'+fmt(r.unique_users)+' 人"><div class="lt-bar" style="height:'+h+'px"></div><span>'+esc(r.day.slice(5))+'</span></div>';}).join('');}
+      function renderSources(rows){var body=$('lt-source-body');if(!rows.length){body.innerHTML='<tr><td colspan="4" class="muted">這段期間還沒有來源資料</td></tr>';return;}body.innerHTML=rows.map(function(r){var avg=r.unique_users?Number(r.opens)/Number(r.unique_users):0;return '<tr><td><strong>'+esc(r.source_label)+'</strong><small>'+esc(r.source_key)+'</small></td><td>'+fmt(r.opens)+'</td><td>'+fmt(r.unique_users)+'</td><td>'+avg.toFixed(2)+'</td></tr>';}).join('');}
+      function renderLinks(rows){var body=$('lt-link-body');if(!rows.length){body.innerHTML='<tr><td colspan="6" class="lt-empty">還沒有追蹤網址。先新增一條，貼到圖文選單、推播或其他入口。</td></tr>';return;}body.innerHTML=rows.map(function(r){var next=r.status==='active'?'paused':'active';var action=r.status==='active'?'暫停':'繼續追蹤';return '<tr><td class="lt-link-info"><div><span class="lt-status '+(r.status==='active'?'is-active':'')+'">'+(r.status==='active'?'追蹤中':'已暫停')+'</span><strong>'+esc(r.name)+'</strong></div><p>'+esc(r.campaign_name)+' · '+esc(r.source_label)+'</p><a href="'+esc(r.target_url)+'" target="_blank" rel="noopener">查看目的地</a><small>'+esc(r.conversion_label)+' · '+fmt(r.attribution_days)+' 天</small></td><td>'+fmt(r.opens)+'<small>'+esc(fmtDate(r.last_opened_at))+'</small></td><td>'+fmt(r.unique_users)+'</td><td>'+fmt(r.conversions)+'</td><td>'+Number(r.conversion_rate_pct||0).toFixed(2)+'%</td><td class="lt-actions"><button type="button" class="lt-mini-btn" data-copy="'+esc(r.tracking_url)+'" '+(!r.tracking_url?'disabled':'')+'>複製網址</button><button type="button" class="lt-mini-btn" data-status-id="'+r.id+'" data-next="'+next+'">'+action+'</button></td></tr>';}).join('');}
+      function csvCell(value){var text=String(value==null?'':value);return '"'+text.replace(/"/g,'""')+'"';}
+      function downloadCsv(){
+        if(!LATEST_LINKS.length)return;
+        var headings=['追蹤名稱','Campaign','來源','來源代號','狀態','開啟次數','不重複用戶','轉換','轉換率','轉換目標','觀察天數','最後開啟','追蹤網址','目的地網址'];
+        var rows=LATEST_LINKS.map(function(r){return [r.name,r.campaign_name,r.source_label,r.source_key,r.status==='active'?'追蹤中':'已暫停',r.opens,r.unique_users,r.conversions,Number(r.conversion_rate_pct||0).toFixed(2)+'%',r.conversion_label,r.attribution_days,r.last_opened_at||'',r.tracking_url,r.target_url];});
+        var csv='\\ufeff'+[headings].concat(rows).map(function(row){return row.map(csvCell).join(',');}).join('\\r\\n');
+        var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+        a.href=url;a.download='liff-source-'+CURRENT_DAYS+'days-'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},0);
+      }
+      function loadData(){var d=rangeValue();CURRENT_DAYS=d;$('lt-link-body').innerHTML='<tr><td colspan="6" class="muted">載入中…</td></tr>';return jsonFetch('/admin/liff-tracking/api/data?days='+encodeURIComponent(d)).then(function(resp){LATEST_LINKS=resp.links||[];$('lt-download-csv').disabled=!LATEST_LINKS.length;renderKpis(resp.summary);renderChart(resp.daily||[]);renderSources(resp.sources||[]);renderLinks(LATEST_LINKS);$('lt-config-warning').hidden=resp.tracking_available;});}
+      function openCreate(){ $('lt-create-card').hidden=false;$('lt-created').hidden=true;$('lt-create-card').scrollIntoView({behavior:'smooth',block:'start'}); }
+      $('lt-open-create').addEventListener('click',openCreate);
+      $('lt-close-create').addEventListener('click',function(){$('lt-create-card').hidden=true;});
+      $('lt-source-preset').addEventListener('change',function(){$('lt-custom-source').hidden=this.value!=='other';});
+      $('lt-target-preset').addEventListener('change',function(){if(!this.value)return;$('lt-target-url').value=this.value;var opt=this.options[this.selectedIndex],campaign=document.querySelector('[name="campaign_name"]');if(campaign&&!campaign.value)campaign.value=opt.getAttribute('data-name')||'';});
+      $('lt-conversion-type').addEventListener('change',fillConversion);
+      $('lt-days').addEventListener('change',function(){$('lt-custom-days').hidden=this.value!=='custom';});
+      $('lt-apply-days').addEventListener('click',loadData);
+      $('lt-download-csv').addEventListener('click',downloadCsv);
+      $('lt-refresh').addEventListener('click',loadData);
+      $('lt-create-form').addEventListener('submit',function(e){
+        e.preventDefault();var form=e.currentTarget,fd=new FormData(form),preset=String(fd.get('source_preset')||'');var presetRow=(OPTIONS.sources||[]).find(function(s){return s.value===preset;});
+        var body={name:fd.get('name'),campaign_name:fd.get('campaign_name'),target_url:fd.get('target_url'),conversion_type:fd.get('conversion_type'),conversion_key:fd.get('conversion_key')||null,attribution_days:Number(fd.get('attribution_days')||7)};
+        if(preset==='other'){body.source_key=fd.get('source_key');body.source_label=fd.get('source_label');}else{body.source_key=preset;body.source_label=presetRow?presetRow.label:preset;}
+        var msg=$('lt-form-message');msg.textContent='建立中…';
+        jsonFetch('/admin/liff-tracking/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(resp){msg.textContent='';$('lt-created-url').value=resp.tracking_url;$('lt-created').hidden=false;form.reset();fillSources();$('lt-custom-source').hidden=true;fillConversion();loadData();}).catch(function(err){msg.textContent=err.message;});
+      });
+      $('lt-copy-created').addEventListener('click',function(){copyText($('lt-created-url').value,this);});
+      $('lt-link-body').addEventListener('click',function(e){var copy=e.target.closest('[data-copy]');if(copy)return copyText(copy.getAttribute('data-copy'),copy);var status=e.target.closest('[data-status-id]');if(!status)return;status.disabled=true;jsonFetch('/admin/liff-tracking/api/links/'+status.getAttribute('data-status-id')+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status.getAttribute('data-next')})}).then(loadData).catch(function(err){alert(err.message);status.disabled=false;});});
+      Promise.all([jsonFetch('/admin/liff-tracking/api/options'),loadData()]).then(function(results){OPTIONS=results[0];fillSources();fillTargets();fillConversion();$('lt-config-warning').hidden=OPTIONS.tracking_available;}).catch(function(err){$('lt-link-body').innerHTML='<tr><td colspan="6" class="lt-empty">'+esc(err.message)+'</td></tr>';});
+    })();
+    </script>
+
+    <style>
+      .liff-tracking-shell{background:#f4f6f8}.lt-hero{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin:28px 0 18px;padding:28px 30px;background:linear-gradient(130deg,#fff 0%,#fffdf5 62%,#fff4c2 100%);border:1px solid #f4df95;border-radius:18px}.lt-hero h1{margin:3px 0 7px;color:#3e2c28;font-size:30px;letter-spacing:-.03em}.lt-hero p,.lt-section-head p{margin:0;color:#766865;line-height:1.65}.lt-kicker{font-size:11px;font-weight:800;letter-spacing:.18em;color:#b56a00}.lt-btn{border:0;border-radius:10px;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap}.lt-btn-primary{background:#f9c73b;color:#3e2c28;box-shadow:0 3px 0 #d99f00}.lt-btn-primary:hover{background:#ffd45d}.lt-btn-secondary{background:#fff;border:1px solid #dfd7d3;color:#4e3c37;box-shadow:none}.lt-btn:disabled{opacity:.45;cursor:not-allowed}.lt-notice{display:flex;gap:12px;align-items:center;margin:0 0 18px;padding:13px 16px;border:1px solid #f5c66b;background:#fffaf0;border-radius:12px;color:#7c4a03}.lt-notice span{color:#866f62}.lt-create{border:1px solid #f0d36d}.lt-section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:18px}.lt-section-head h2{margin:0 0 5px;color:#302522}.lt-section-head p{font-size:13px}.lt-heading-actions{display:flex;gap:8px;flex-wrap:wrap}.lt-icon-btn{border:0;background:#f5f1ef;width:34px;height:34px;border-radius:50%;font-size:22px;color:#6f5d57;cursor:pointer}.lt-form{display:grid;grid-template-columns:1fr 1fr;gap:17px 20px}.lt-span-2{grid-column:1/-1}.lt-field{display:flex;flex-direction:column;gap:7px}.lt-field>span{font-weight:750;color:#4e3c37}.lt-field input,.lt-field select,.lt-range select,.lt-range input,.lt-copy-line input{min-height:44px;border:1px solid #d9d5d2;border-radius:9px;padding:9px 11px;background:#fff;color:#302522;font:inherit;box-sizing:border-box}.lt-field input:focus,.lt-field select:focus{outline:3px solid rgba(249,199,59,.28);border-color:#d8a900}.lt-field small,.lt-link-info small,td small{display:block;color:#8b7c76;font-size:12px;line-height:1.5}.lt-custom-source{display:grid;grid-template-columns:1fr 1fr;gap:20px}.lt-inline-input{display:flex;align-items:center;gap:8px}.lt-inline-input input{width:110px}.lt-form-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;border-top:1px solid #eee8e4;padding-top:16px}.lt-form-message{margin-right:auto;color:#b42318;font-size:13px}.lt-created{margin-top:20px;padding:17px;background:#fff9dc;border:1px solid #f0d36d;border-radius:12px}.lt-created>strong{display:block;margin-bottom:10px}.lt-created p{font-size:12px;color:#786960;margin:8px 0 0}.lt-copy-line{display:flex;gap:8px}.lt-copy-line input{flex:1;background:#fff}.lt-report-head{align-items:center}.lt-range{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.lt-range label{font-size:12px;color:#766865}.lt-range select{min-height:38px}.lt-range input{width:86px;min-height:38px}.lt-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.lt-kpis>div{padding:17px 18px;border:1px solid #ece7e2;border-radius:13px;background:#fff}.lt-kpis span{display:block;color:#7e706a;font-size:12px}.lt-kpis strong{display:block;margin-top:5px;color:#3e2c28;font-size:28px}.lt-chart-wrap{margin-top:20px;padding-top:18px;border-top:1px solid #eee8e4}.lt-chart-wrap h3{font-size:14px;margin:0 0 13px;color:#50413c}.lt-chart{display:flex;align-items:flex-end;gap:5px;min-height:112px;overflow-x:auto;padding:0 2px 3px}.lt-bar-col{min-width:25px;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px}.lt-bar{width:100%;max-width:34px;background:#f9c73b;border-radius:5px 5px 2px 2px}.lt-bar-col span{font-size:9px;color:#94857e;writing-mode:vertical-rl}.table-wrap{overflow-x:auto}.lt-table{width:100%;border-collapse:collapse}.lt-table th,.lt-table td{padding:12px 13px;border-bottom:1px solid #eeeae7;text-align:right;vertical-align:middle;font-size:13px}.lt-table th{background:#fbfaf9;color:#7b6b65;font-size:12px}.lt-table th:first-child,.lt-table td:first-child{text-align:left}.lt-table td:first-child strong{display:block;color:#3e2c28}.lt-table td:first-child small{margin-top:3px}.lt-link-table{min-width:900px}.lt-link-info{min-width:300px}.lt-link-info>div{display:flex;gap:8px;align-items:center}.lt-link-info p{margin:5px 0 3px;color:#6f5e58}.lt-link-info a{font-size:12px;color:#a45b00}.lt-status{display:inline-block;padding:3px 7px;border-radius:999px;background:#eeeae8;color:#756761;font-size:10px;font-weight:800}.lt-status.is-active{background:#e8f8ee;color:#177447}.lt-actions{display:flex;justify-content:flex-end;gap:6px}.lt-mini-btn{border:1px solid #ddd5d1;background:#fff;border-radius:8px;padding:7px 9px;color:#4e3c37;cursor:pointer}.lt-mini-btn:hover{border-color:#d4a91f;background:#fffaf0}.lt-mini-btn:disabled{opacity:.45;cursor:not-allowed}.lt-empty{text-align:center!important;padding:28px!important;color:#82736d}.lt-footnote{margin:13px 0 0;font-size:12px;line-height:1.65;color:#897a73}
+      [hidden]{display:none!important}
+      @media(max-width:720px){.lt-hero{align-items:stretch;flex-direction:column;padding:22px}.lt-hero h1{font-size:25px}.lt-form,.lt-custom-source{grid-template-columns:1fr}.lt-span-2,.lt-custom-source{grid-column:auto}.lt-kpis{grid-template-columns:1fr 1fr}.lt-section-head,.lt-report-head{flex-direction:column}.lt-range{width:100%}.lt-copy-line{flex-direction:column}.lt-actions{flex-direction:column}.lt-form-actions{align-items:stretch;flex-direction:column}.lt-form-message{margin:0}.lt-form-actions .lt-btn{width:100%}}
+    </style>
+    `
+  })
+%>
