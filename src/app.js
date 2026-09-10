@@ -52,6 +52,8 @@ const { createGoldPigBookingService } = require('./core/goldPigBookings');
 const { registerGoldPigRoutes } = require('./routes/goldPig');
 const { createEmailProvider } = require('./core/emailProvider');
 const { createSureNotifyProvider } = require('./core/emailProviderSureNotify');
+const { createSmtpEmailProvider } = require('./core/emailProviderSmtp');
+const { registerAdminRevisitEmailRoutes } = require('./routes/adminRevisitEmail');
 
 // 多重偵測：Netlify 不會自動設 NODE_ENV，但會設 NETLIFY=true；AWS Lambda 也會設 AWS_LAMBDA_FUNCTION_NAME。
 // 任一條件成立就視為 production，避免單一 env var 沒設導致 ssl/cookie/redirect 等都跑 dev 行為。
@@ -305,9 +307,11 @@ const mgmEngine = createMgmMilesEngine({
 });
 const goldPigBookings = createGoldPigBookingService({ pool });
 
-// Email provider 選擇：EMAIL_PROVIDER=surenotify|brevo；未設時有 SURENOTIFY_API_KEY 就用電子豹，否則 Brevo。
+// 一般 Email 群發仍使用 SureNotify／Brevo。訂位回訪的本機 SMTP 是獨立寄件器，
+// 不得因設定回訪功能而改變既有群發 provider。
 const emailProviderName = (process.env.EMAIL_PROVIDER || '').trim().toLowerCase()
   || (process.env.SURENOTIFY_API_KEY ? 'surenotify' : 'brevo');
+const smtpEmailProvider = createSmtpEmailProvider();
 const emailProvider = emailProviderName === 'surenotify'
   ? createSureNotifyProvider({ query })
   : createEmailProvider({ query });
@@ -584,6 +588,18 @@ registerAdminHubRoutes(app, { query, authCore });
 registerAdminDashboardRoutes(app, { query, authCore });
 
 registerAdminEmailDomainRoutes(app, { authCore });
+
+registerAdminRevisitEmailRoutes(app, {
+  query,
+  pool,
+  authCore,
+  smtpEmailProvider,
+  resolvePublicSiteOrigin,
+  publicBaseUrl: process.env.REVISIT_EMAIL_PUBLIC_BASE_URL || process.env.PUBLIC_SITE_URL || '',
+  // 這個功能刻意只允許本機 Node process 真寄；Netlify production 永遠關閉。
+  localSendEnabled: process.env.REVISIT_EMAIL_LOCAL_SEND_ENABLED === '1' && !isProduction,
+  sendIntervalMs: Number.parseInt(process.env.REVISIT_EMAIL_SEND_INTERVAL_MS || '', 10) || 1500
+});
 
 registerAdminLiffAnalyticsRoutes(app, { query, authCore });
 

@@ -1,6 +1,6 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
-本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-09；正式資料與部署狀態仍應在接手時重新確認。
+本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-10；正式資料與部署狀態仍應在接手時重新確認。
 
 - Repo：<https://github.com/Harveylin0316/openrice-line-crm>
 - 正式站：<https://openrice-line-crm.netlify.app>
@@ -92,6 +92,9 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 | `src/routes/liff.js` | Legacy 春日 LIFF 遊戲與邀請 |
 | `src/routes/web.js` | Legacy web 路由 |
 | `src/routes/adminBroadcast.js` | LINE／Email 群發、排程、歷史 |
+| `src/routes/adminRevisitEmail.js` | Booking record 回訪名單、草稿、人工寄送與追蹤 |
+| `src/core/revisitEmail.js` | 訂位／優惠正規化與回訪信模板 |
+| `src/core/emailProviderSmtp.js` | 僅供 Mac 本機使用的公司 SMTP 寄件器 |
 | `src/routes/adminFlows.js` | 自動化流程編輯與執行 |
 | `src/routes/adminRichMenu.js` | Rich Menu 管理、點擊追蹤與排程 |
 | `src/routes/adminUsers.js` | 會員、標籤規則與受眾操作 |
@@ -115,6 +118,32 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 - 關鍵字回覆：`/admin/keyword-replies`
 - 自動化流程：`/admin/flows`
 - Rich Menu：`/admin/richmenu`
+- 訂位客回訪 Email：`/admin/revisit-email`
+
+#### 訂位客回訪 Email（2026-09-10）
+
+這是獨立於 LINE／SureNotify 群發的人工回訪工作台。第一版**沒有排程自動寄送**：
+
+1. 每週上傳 UTF-8 CSV／JSON booking record；再上傳當期 discount offer／套餐。
+2. 系統只取每位客人在各餐廳最近一次已完成、可做 Email 行銷的訂位，依「用餐後天數」、同店／跨店冷卻、退訂與是否已寄過排除。
+3. 以餐廳 ID 配對優惠；套餐優先於折扣，優惠必須仍在有效期且至少剩設定天數。沒有優惠時，booking record 必須提供餐廳訂位網址，才會產生一般回訪信。
+4. 管理員先逐封查看／修改主旨、預覽文字、內文與 CTA，寄測試信後，再按批次手動寄出；每次最多 20 封、每日上限可設定。
+5. 正式信記錄已寄、第一次開信、第一次點擊與退訂。開信率受郵件客戶端圖片代理／封鎖影響，只能當方向性指標。
+
+寄件安全邊界：
+
+- Netlify production 一律不能從公司信箱寄送。只有非 production 的 Mac process 同時設定 `REVISIT_EMAIL_LOCAL_SEND_ENABLED=1` 與完整 `SMTP_*` 才會顯示測試／正式寄送。
+- 帳號密碼只放 Mac 本機 `.env`，不得放 Netlify、Git、文件、fixture 或 log。正式站仍負責公開 HTTPS 開信、點擊與退訂網址。
+- SMTP 接受後若 DB 回寫失敗，信件標為「需確認」；不得自動重寄。先到公司寄件備份確認未寄出，再由管理員手動重新排入。
+- 每批寄送前會重查全域退訂與同一訂位是否已寄，並以交易、列鎖、每日上限與每次 20 封限制降低誤寄／重寄風險。
+- booking consent 欄位有明確 `no` 時不會被匯入頁的整批確認覆蓋；無法辨識的非空值也一律視為未同意。
+
+資料表：`revisit_email_settings`、`revisit_email_imports`、`revisit_email_bookings`、
+`revisit_email_offers`、`revisit_email_campaigns`、`revisit_email_recipients`。Migration：
+`supabase/migrations/20260910085055_create_revisit_email.sql`。所有表啟用 RLS，撤銷
+`anon`／`authenticated`，客戶 Email 與信件快照不得由 Supabase Data API 公開。
+
+本機實際寄送操作與欄位格式見 [`REVISIT_EMAIL.md`](./REVISIT_EMAIL.md)。
 
 #### 直接貼 LINE User ID 推播（2026-09-08）
 
@@ -372,6 +401,7 @@ repo 目前**沒有完整可重建正式資料庫的 migration 歷史**：
 | 優惠券 | `coupon_codes` | 可領取 code、鎖定與核銷狀態 |
 | Legacy 活動 | `users`、`prizes`、`draw_logs`、`line_invites`、`campaign_settings` | 早期春日刮刮樂，不與通用活動混寫 |
 | 訊息 CRM | broadcast、messages、flows、keywords、delivery events 類表 | 群發、自動化與成效 |
+| 訂位回訪 Email | `revisit_email_*` 六張表 | 每週來源、優惠、草稿、寄送與開信／點擊／退訂 |
 | 第二 OA | `oa_contacts` 等 | 第二官方帳號資料，避免與主 OA 混用 |
 | 金豬食堂 | Gold Pig migrations 所建表 | 訂位與活動資料 |
 
@@ -404,6 +434,7 @@ repo 目前**沒有完整可重建正式資料庫的 migration 歷史**：
 ### Email
 
 - 支援 SureNotify 與 Brevo，依 `EMAIL_PROVIDER` 選擇。
+- 訂位客回訪另用 Mac 本機 `SMTP_*`，與 `EMAIL_PROVIDER` 無關；開啟回訪功能不會改變既有一般 Email 群發 provider。
 - 寄件網域、API key、webhook 驗證都屬 server-side secret。
 - 訊息顯示已送出不等於到達；成效需看 provider event／delivery log。
 
@@ -443,7 +474,7 @@ LINE 內建指令目前只保留「查詢訂位／查看訂位」。`取消訂�
 | LINE 第二 OA | `LINE2_CHANNEL_SECRET`、`LINE2_CHANNEL_ACCESS_TOKEN`、`LINE2_OA_KEY` |
 | LIFF | `LIFF_ID`、`GAMES_LIFF_ID`、`WHEEL_LIFF_ID`、`LIFF_TOKEN_ENFORCE`、`LIFF_ENDPOINT_IS_SITE_ROOT` |
 | 公開 URL | `PUBLIC_SITE_URL`、`LINE_PUSH_IMAGE_BASE_URL`、`LINE_PUSH_PUBLIC_BASE_URL` |
-| Email | `EMAIL_PROVIDER`、`SURENOTIFY_*`、`BREVO_*` |
+| Email | `EMAIL_PROVIDER`、`SURENOTIFY_*`、`BREVO_*`、`SMTP_*`、`REVISIT_EMAIL_LOCAL_SEND_ENABLED`、`REVISIT_EMAIL_PUBLIC_BASE_URL`、`REVISIT_EMAIL_SEND_INTERVAL_MS` |
 | 排程 | `SCHEDULED_RUNNER_SECRET` |
 | Booking | `BOOKING_REPORT_DATABASE_URL`、`BOOKING_REPORT_POOL_MAX`、`BOOKING_REPORT_CONNECTION_TIMEOUT_MS`、`BOOKING_REPORT_SSL_DISABLED`、`LEADERBOARD_TOP_N` |
 | Gold Pig | `GOLD_PIG_LIFF_ID`、`GOLD_PIG_BOOKING_API_KEY`、`GOLD_PIG_DEMO_MODE`、`GOLD_PIG_ALLOWED_ORIGINS` |

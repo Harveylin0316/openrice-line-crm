@@ -8,7 +8,7 @@ OpenRice Taiwan 的 LINE 官方帳號 CRM 與 LIFF 活動平台。系統把會�
 - GitHub：<https://github.com/Harveylin0316/openrice-line-crm>
 - 部署：Netlify Functions
 - 主資料庫：PostgreSQL（Supabase，以 `pg` 直連）
-- 本文件狀態：2026-09-07，依最新 `main` 整理
+- 本文件狀態：2026-09-10，依最新 `main` 整理
 
 ## 交接閱讀順序
 
@@ -21,7 +21,7 @@ OpenRice Taiwan 的 LINE 官方帳號 CRM 與 LIFF 活動平台。系統把會�
 - Node.js + Express 4 + EJS + 原生瀏覽器 JavaScript
 - PostgreSQL / Supabase；後端使用 `pg`，不是 `supabase-js`
 - LINE LIFF、Messaging API、Webhook、Rich Menu
-- LINE 與 Email（SureNotify／Brevo）訊息
+- LINE 與 Email（SureNotify／Brevo 群發；Mac 本機 SMTP 訂位客回訪）訊息
 - Netlify Scheduled Functions 執行群發、流程、活動、標籤與圖文選單排程
 - 測試使用 Node test runner 與 JSDOM
 
@@ -42,7 +42,7 @@ npm run dev
 npm test
 ```
 
-2026-09-07 的基準為 92 項測試全數通過。任何抽獎、配額、邀請、群發、圖文選單或權限改動，都必須先跑完整測試。
+測試數量會隨功能增加；任何抽獎、配額、邀請、群發、圖文選單或權限改動，都必須先跑完整測試。
 
 ## 重要提醒
 
