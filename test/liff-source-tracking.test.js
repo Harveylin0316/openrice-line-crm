@@ -140,6 +140,7 @@ test('公開網址以 LIFF 驗證身分、同分鐘去重，而且暫停不擋�
   assert.equal(bounce.view, 'tap_bounce');
   assert.equal(bounce.locals.target, 'https://crm.example.com/games/wheel/share-miles?x=1');
   assert.equal(bounce.locals.recordUrl, '/lt/41/hit');
+  assert.equal(bounce.locals.externalLiffUrl, 'https://liff.line.me/2000000000-test/lt/41');
   const hit = await run(routes, 'POST /lt/:id(\\d+)/hit', { params: { id: '41' }, body: { id_token: 'valid' } });
   assert.equal(hit.body.ok, true);
   assert.equal(hit.body.recorded, true);

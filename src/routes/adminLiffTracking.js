@@ -351,7 +351,11 @@ function registerAdminLiffTrackingRoutes(app, deps) {
       return res.render('tap_bounce', {
         target: browserTarget(target),
         liffId: trackingLiffId(),
-        recordUrl: `/lt/${id}/hit`
+        recordUrl: `/lt/${id}/hit`,
+        // Instagram／Facebook Story 可能把 LIFF URL 留在自己的 WebView，
+        // 不一定會依 universal link 自動切到 LINE。把原始 LIFF URL 交給
+        // 跳板頁，讓使用者有一顆真正可點的「用 LINE 開啟」按鈕。
+        externalLiffUrl: trackingUrl(id)
       });
     } catch (err) {
       console.error('liff tracking bounce error:', err && err.message);

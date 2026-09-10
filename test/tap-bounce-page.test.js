@@ -8,14 +8,14 @@ let failed = 0;
 function ok(c, l) { console.log((c ? 'OK  ' : '錯！ ') + l); if (!c) failed++; }
 
 const TARGET = 'https://example.com/promo';
-async function render() {
+async function render(externalLiffUrl = '') {
   return ejs.renderFile(path.join(REPO, 'views/tap_bounce.ejs'),
-    { target: TARGET, liffId: 'LIFFID', recordUrl: '/games/t/3/1/2/hit' });
+    { target: TARGET, liffId: 'LIFFID', recordUrl: '/games/t/3/1/2/hit', externalLiffUrl });
 }
 
 // 用假的 LIFF SDK 跑跳板頁，回傳「回報了什麼」與「跳去哪」
 async function runBounce(opts) {
-  const html = await render();
+  const html = await render(opts.externalLiffUrl || '');
   const beacons = [], fetches = [];
   let replaced = null;
   const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'https://x/games/t/3/1/2',
@@ -60,6 +60,16 @@ async function runBounce(opts) {
   ok(r.replaced === TARGET, '不在 LINE 裡也照樣把人送到目的地');
   const b2 = r.beacons[0] || r.fetches[0];
   ok(!b2, '不在 LINE 裡不送未驗證身分，也不製造匿名自動化');
+
+  // 2b) 從 Story 開追蹤 LIFF：不能只丟到一個玩不了的網頁，必須給可點的 LINE 入口
+  const storyUrl = 'https://liff.line.me/LIFFID/lt/1';
+  r = await runBounce({ externalLiffUrl: storyUrl, liff: {
+    init: async () => {}, isInClient: () => false, isLoggedIn: () => false
+  }});
+  ok(r.replaced === null, 'Story 內建瀏覽器不會被送到無法玩的活動頁');
+  ok(!r.doc.getElementById('line-handoff').hidden, '畫面會顯示 LINE 開啟說明');
+  ok(r.doc.getElementById('open-in-line').getAttribute('href') === storyUrl, '有可點的官方 LIFF 連結');
+  ok(/複製活動連結/.test(r.doc.getElementById('copy-liff').textContent), '也提供複製連結備援');
 
   // 3) LIFF 整個壞掉 → 還是要送
   r = await runBounce({ liff: { init: async () => { throw new Error('LIFF 掛了'); } } });

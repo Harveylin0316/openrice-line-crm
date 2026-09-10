@@ -15,6 +15,17 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   p{margin:0;font-size:14px;color:#8D6E63;}
   a{color:#E8491D;font-size:14px;}
+  .handoff{width:min(100%,390px);padding:28px 22px 22px;border:1px solid #F1E3C4;border-radius:22px;
+    background:#fff;box-shadow:0 14px 40px rgba(78,52,46,.10);text-align:center;}
+  .handoff-mark{display:inline-flex;align-items:center;justify-content:center;min-width:64px;height:28px;
+    margin-bottom:14px;padding:0 12px;border-radius:999px;background:#F9C73B;color:#3F2C25;font-size:12px;font-weight:800;}
+  .handoff h1{margin:0 0 10px;font-size:24px;line-height:1.3;color:#3F2C25;}
+  .handoff p{font-size:15px;line-height:1.65;}
+  .handoff .primary{display:flex;align-items:center;justify-content:center;width:100%;min-height:52px;
+    margin-top:20px;border:0;border-radius:14px;background:#F9C73B;color:#3F2C25;text-decoration:none;font-size:17px;font-weight:800;}
+  .handoff .copy{margin-top:8px;padding:10px 14px;border:0;background:transparent;color:#806A61;
+    text-decoration:underline;text-underline-offset:3px;font:inherit;font-size:14px;cursor:pointer;}
+  .handoff .copy-note{margin-top:8px;font-size:13px;color:#806A61;}
 </style>
 </head>
 <body>
@@ -22,12 +33,21 @@
     <div class="sp"></div>
     <p id="msg">前往中…</p>
     <a id="manual" href="<%= target %>" hidden>沒有自動跳過去？點這裡</a>
+    <section class="handoff" id="line-handoff" aria-labelledby="line-handoff-title" hidden>
+      <div class="handoff-mark">OPENRICE × LINE</div>
+      <h1 id="line-handoff-title">請用 LINE 開啟活動</h1>
+      <p>Instagram、Facebook 的內建瀏覽器有時不會自動跳到 LINE。請按下面按鈕繼續。</p>
+      <a class="primary" id="open-in-line" href="#">前往 LINE 開啟</a>
+      <button class="copy" id="copy-liff" type="button">無法跳轉？複製活動連結</button>
+      <p class="copy-note" id="copy-note" hidden>已複製。請打開 LINE，貼到任一聊天室後再點一次。</p>
+    </section>
   </div>
 <script>
   (function () {
     var TARGET = <%- JSON.stringify(target) %>;
     var LIFF_ID = <%- JSON.stringify(liffId) %>;
     var REC = <%- JSON.stringify(recordUrl) %>;
+    var EXTERNAL_LIFF_URL = <%- JSON.stringify(typeof externalLiffUrl === 'string' ? externalLiffUrl : '') %>;
     var went = false;
     // 跳轉獨立成一個掛在 window 上的動作：自動測試才攔得到「有沒有真的把人送走」
     window.__bounceGo = window.__bounceGo || function (u) { location.replace(u); };
@@ -35,9 +55,50 @@
       if (went) return; went = true;
       window.__bounceGo(TARGET);
     }
+    function copyText(value) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(value);
+      }
+      return new Promise(function (resolve, reject) {
+        try {
+          var field = document.createElement('textarea');
+          field.value = value; field.setAttribute('readonly', '');
+          field.style.position = 'fixed'; field.style.opacity = '0';
+          document.body.appendChild(field); field.select();
+          var copied = document.execCommand('copy'); field.remove();
+          copied ? resolve() : reject(new Error('copy_failed'));
+        } catch (e) { reject(e); }
+      });
+    }
+    function showLineHandoff() {
+      if (!EXTERNAL_LIFF_URL || went) return go();
+      went = true;
+      clearTimeout(timer);
+      var spinner = document.querySelector('.sp');
+      var message = document.getElementById('msg');
+      var manual = document.getElementById('manual');
+      var card = document.getElementById('line-handoff');
+      var open = document.getElementById('open-in-line');
+      if (spinner) spinner.hidden = true;
+      if (message) message.hidden = true;
+      if (manual) manual.hidden = true;
+      if (open) open.href = EXTERNAL_LIFF_URL;
+      if (card) card.hidden = false;
+    }
+    document.getElementById('copy-liff').addEventListener('click', function () {
+      var button = this;
+      copyText(EXTERNAL_LIFF_URL).then(function () {
+        button.textContent = '活動連結已複製';
+        document.getElementById('copy-note').hidden = false;
+      }).catch(function () {
+        button.textContent = '請長按上方按鈕複製連結';
+      });
+    });
     // 保險：不管記錄成不成功，1.6 秒內一定要把人送過去。
     // 追蹤絕不能擋住用戶要去的地方。
-    var timer = setTimeout(go, 1600);
+    var likelyOutsideLine = EXTERNAL_LIFF_URL && typeof liff !== 'undefined' &&
+      typeof liff.isInClient === 'function' && !liff.isInClient();
+    var timer = setTimeout(likelyOutsideLine ? showLineHandoff : go, 1600);
     setTimeout(function () {
       var m = document.getElementById('manual');
       if (m && !went) m.hidden = false;
@@ -60,7 +121,12 @@
       try {
         if (!LIFF_ID || typeof liff === 'undefined') { clearTimeout(timer); return go(); }
         await liff.init({ liffId: LIFF_ID });
-        if (!liff.isInClient() || !liff.isLoggedIn()) { clearTimeout(timer); return go(); }
+        if (!liff.isInClient()) {
+          clearTimeout(timer);
+          if (EXTERNAL_LIFF_URL) return showLineHandoff();
+          return go();
+        }
+        if (!liff.isLoggedIn()) { clearTimeout(timer); return go(); }
         await record(liff.getIDToken());
       } catch (e) {
         // 追蹤失敗不能阻擋原本按鈕效果。
