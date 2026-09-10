@@ -75,6 +75,16 @@ function registerAdminLiffTrackingRoutes(app, deps) {
     const liffId = trackingLiffId();
     return liffId ? `https://liff.line.me/${liffId}/lt/${id}` : '';
   }
+  function officialAccountUrl() {
+    const value = cleanHttpsUrl(process.env.LINE_OFFICIAL_ADD_FRIEND_URL);
+    if (!value) return '';
+    try {
+      const host = new URL(value).hostname.toLowerCase();
+      return host === 'line.me' || host === 'lin.ee' ? value : '';
+    } catch (_) {
+      return '';
+    }
+  }
   function browserTarget(rawTarget) {
     const target = cleanHttpsUrl(rawTarget);
     const liffId = trackingLiffId();
@@ -355,7 +365,10 @@ function registerAdminLiffTrackingRoutes(app, deps) {
         // Instagram／Facebook Story 可能把 LIFF URL 留在自己的 WebView，
         // 不一定會依 universal link 自動切到 LINE。把原始 LIFF URL 交給
         // 跳板頁，讓使用者有一顆真正可點的「用 LINE 開啟」按鈕。
-        externalLiffUrl: trackingUrl(id)
+        externalLiffUrl: trackingUrl(id),
+        externalLineUrl: officialAccountUrl(),
+        externalActivityLabel: /\/wheel\/share-miles(?:[/?#]|$)/i.test(target)
+          ? '分享超有哩' : '活動入口'
       });
     } catch (err) {
       console.error('liff tracking bounce error:', err && err.message);

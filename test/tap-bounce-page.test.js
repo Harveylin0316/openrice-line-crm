@@ -8,14 +8,15 @@ let failed = 0;
 function ok(c, l) { console.log((c ? 'OK  ' : '錯！ ') + l); if (!c) failed++; }
 
 const TARGET = 'https://example.com/promo';
-async function render(externalLiffUrl = '') {
+async function render(externalLiffUrl = '', externalLineUrl = '', externalActivityLabel = '') {
   return ejs.renderFile(path.join(REPO, 'views/tap_bounce.ejs'),
-    { target: TARGET, liffId: 'LIFFID', recordUrl: '/games/t/3/1/2/hit', externalLiffUrl });
+    { target: TARGET, liffId: 'LIFFID', recordUrl: '/games/t/3/1/2/hit',
+      externalLiffUrl, externalLineUrl, externalActivityLabel });
 }
 
 // 用假的 LIFF SDK 跑跳板頁，回傳「回報了什麼」與「跳去哪」
 async function runBounce(opts) {
-  const html = await render(opts.externalLiffUrl || '');
+  const html = await render(opts.externalLiffUrl || '', opts.externalLineUrl || '', opts.externalActivityLabel || '');
   const beacons = [], fetches = [];
   let replaced = null;
   const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'https://x/games/t/3/1/2',
@@ -63,13 +64,16 @@ async function runBounce(opts) {
 
   // 2b) 從 Story 開追蹤 LIFF：不能只丟到一個玩不了的網頁，必須給可點的 LINE 入口
   const storyUrl = 'https://liff.line.me/LIFFID/lt/1';
-  r = await runBounce({ externalLiffUrl: storyUrl, liff: {
+  const oaUrl = 'https://line.me/R/ti/p/@openrice';
+  r = await runBounce({ externalLiffUrl: storyUrl, externalLineUrl: oaUrl,
+    externalActivityLabel: '分享超有哩', liff: {
     init: async () => {}, isInClient: () => false, isLoggedIn: () => false
   }});
   ok(r.replaced === null, 'Story 內建瀏覽器不會被送到無法玩的活動頁');
   ok(!r.doc.getElementById('line-handoff').hidden, '畫面會顯示 LINE 開啟說明');
-  ok(r.doc.getElementById('open-in-line').getAttribute('href') === storyUrl, '有可點的官方 LIFF 連結');
-  ok(/複製活動連結/.test(r.doc.getElementById('copy-liff').textContent), '也提供複製連結備援');
+  ok(r.doc.getElementById('open-in-line').getAttribute('href') === oaUrl, '按鈕前往 OpenRice LINE 官方帳號，不是繞回 LIFF');
+  ok(r.doc.getElementById('activity-label').textContent === '分享超有哩', '畫面告訴用戶要按哪個圖文選單入口');
+  ok(/複製官方帳號連結/.test(r.doc.getElementById('copy-liff').textContent), '也提供官方帳號連結複製備援');
 
   // 3) LIFF 整個壞掉 → 還是要送
   r = await runBounce({ liff: { init: async () => { throw new Error('LIFF 掛了'); } } });

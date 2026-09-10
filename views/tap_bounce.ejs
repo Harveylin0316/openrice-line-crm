@@ -21,6 +21,11 @@
     margin-bottom:14px;padding:0 12px;border-radius:999px;background:#F9C73B;color:#3F2C25;font-size:12px;font-weight:800;}
   .handoff h1{margin:0 0 10px;font-size:24px;line-height:1.3;color:#3F2C25;}
   .handoff p{font-size:15px;line-height:1.65;}
+  .handoff .steps{display:grid;grid-template-columns:26px 1fr;gap:9px 10px;margin-top:18px;padding:14px;
+    border-radius:14px;background:#FFF9E8;text-align:left;}
+  .handoff .steps span{display:flex;align-items:center;justify-content:center;width:26px;height:26px;
+    border-radius:50%;background:#F9C73B;color:#3F2C25;font-size:13px;font-weight:800;}
+  .handoff .steps p{align-self:center;font-size:14px;line-height:1.45;color:#4E342E;}
   .handoff .primary{display:flex;align-items:center;justify-content:center;width:100%;min-height:52px;
     margin-top:20px;border:0;border-radius:14px;background:#F9C73B;color:#3F2C25;text-decoration:none;font-size:17px;font-weight:800;}
   .handoff .copy{margin-top:8px;padding:10px 14px;border:0;background:transparent;color:#806A61;
@@ -35,11 +40,15 @@
     <a id="manual" href="<%= target %>" hidden>沒有自動跳過去？點這裡</a>
     <section class="handoff" id="line-handoff" aria-labelledby="line-handoff-title" hidden>
       <div class="handoff-mark">OPENRICE × LINE</div>
-      <h1 id="line-handoff-title">請用 LINE 開啟活動</h1>
-      <p>Instagram、Facebook 的內建瀏覽器有時不會自動跳到 LINE。請按下面按鈕繼續。</p>
-      <a class="primary" id="open-in-line" href="#">前往 LINE 開啟</a>
-      <button class="copy" id="copy-liff" type="button">無法跳轉？複製活動連結</button>
-      <p class="copy-note" id="copy-note" hidden>已複製。請打開 LINE，貼到任一聊天室後再點一次。</p>
+      <h1 id="line-handoff-title">到 OpenRice LINE 玩活動</h1>
+      <p>按下方按鈕進入 OpenRice LINE 官方帳號。還不是好友請先加入；已經是好友可直接往下看圖文選單。</p>
+      <div class="steps" aria-label="進入活動步驟">
+        <span>1</span><p>開啟 OpenRice LINE 官方帳號</p>
+        <span>2</span><p>回到聊天頁，點下方圖文選單「<strong id="activity-label">活動入口</strong>」</p>
+      </div>
+      <a class="primary" id="open-in-line" href="#">前往 OpenRice LINE 官方帳號</a>
+      <button class="copy" id="copy-liff" type="button">無法跳轉？複製官方帳號連結</button>
+      <p class="copy-note" id="copy-note" hidden>已複製。請貼到 Safari 或 Chrome 網址列開啟。</p>
     </section>
   </div>
 <script>
@@ -48,6 +57,8 @@
     var LIFF_ID = <%- JSON.stringify(liffId) %>;
     var REC = <%- JSON.stringify(recordUrl) %>;
     var EXTERNAL_LIFF_URL = <%- JSON.stringify(typeof externalLiffUrl === 'string' ? externalLiffUrl : '') %>;
+    var EXTERNAL_LINE_URL = <%- JSON.stringify(typeof externalLineUrl === 'string' ? externalLineUrl : '') %>;
+    var EXTERNAL_ACTIVITY_LABEL = <%- JSON.stringify(typeof externalActivityLabel === 'string' ? externalActivityLabel : '活動入口') %>;
     var went = false;
     // 跳轉獨立成一個掛在 window 上的動作：自動測試才攔得到「有沒有真的把人送走」
     window.__bounceGo = window.__bounceGo || function (u) { location.replace(u); };
@@ -71,7 +82,7 @@
       });
     }
     function showLineHandoff() {
-      if (!EXTERNAL_LIFF_URL || went) return go();
+      if (!EXTERNAL_LIFF_URL || !EXTERNAL_LINE_URL || went) return go();
       went = true;
       clearTimeout(timer);
       var spinner = document.querySelector('.sp');
@@ -82,13 +93,15 @@
       if (spinner) spinner.hidden = true;
       if (message) message.hidden = true;
       if (manual) manual.hidden = true;
-      if (open) open.href = EXTERNAL_LIFF_URL;
+      if (open) open.href = EXTERNAL_LINE_URL;
+      var label = document.getElementById('activity-label');
+      if (label) label.textContent = EXTERNAL_ACTIVITY_LABEL;
       if (card) card.hidden = false;
     }
     document.getElementById('copy-liff').addEventListener('click', function () {
       var button = this;
-      copyText(EXTERNAL_LIFF_URL).then(function () {
-        button.textContent = '活動連結已複製';
+      copyText(EXTERNAL_LINE_URL).then(function () {
+        button.textContent = '官方帳號連結已複製';
         document.getElementById('copy-note').hidden = false;
       }).catch(function () {
         button.textContent = '請長按上方按鈕複製連結';
@@ -96,7 +109,7 @@
     });
     // 保險：不管記錄成不成功，1.6 秒內一定要把人送過去。
     // 追蹤絕不能擋住用戶要去的地方。
-    var likelyOutsideLine = EXTERNAL_LIFF_URL && typeof liff !== 'undefined' &&
+    var likelyOutsideLine = EXTERNAL_LIFF_URL && EXTERNAL_LINE_URL && typeof liff !== 'undefined' &&
       typeof liff.isInClient === 'function' && !liff.isInClient();
     var timer = setTimeout(likelyOutsideLine ? showLineHandoff : go, 1600);
     setTimeout(function () {
@@ -123,7 +136,7 @@
         await liff.init({ liffId: LIFF_ID });
         if (!liff.isInClient()) {
           clearTimeout(timer);
-          if (EXTERNAL_LIFF_URL) return showLineHandoff();
+          if (EXTERNAL_LIFF_URL && EXTERNAL_LINE_URL) return showLineHandoff();
           return go();
         }
         if (!liff.isLoggedIn()) { clearTimeout(timer); return go(); }

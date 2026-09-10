@@ -119,8 +119,10 @@ test('建立活動轉換追蹤網址會驗證活動並保留歸因設定', async
 test('公開網址以 LIFF 驗證身分、同分鐘去重，而且暫停不擋跳轉', async () => {
   const oldLiff = process.env.GAMES_LIFF_ID;
   const oldUrl = process.env.PUBLIC_SITE_URL;
+  const oldOa = process.env.LINE_OFFICIAL_ADD_FRIEND_URL;
   process.env.GAMES_LIFF_ID = '2000000000-test';
   process.env.PUBLIC_SITE_URL = 'https://crm.example.com';
+  process.env.LINE_OFFICIAL_ADD_FRIEND_URL = 'https://line.me/R/ti/p/@openrice';
   const routes = {};
   const calls = [];
   const query = async (sql, params) => {
@@ -141,6 +143,8 @@ test('公開網址以 LIFF 驗證身分、同分鐘去重，而且暫停不擋�
   assert.equal(bounce.locals.target, 'https://crm.example.com/games/wheel/share-miles?x=1');
   assert.equal(bounce.locals.recordUrl, '/lt/41/hit');
   assert.equal(bounce.locals.externalLiffUrl, 'https://liff.line.me/2000000000-test/lt/41');
+  assert.equal(bounce.locals.externalLineUrl, 'https://line.me/R/ti/p/@openrice');
+  assert.equal(bounce.locals.externalActivityLabel, '分享超有哩');
   const hit = await run(routes, 'POST /lt/:id(\\d+)/hit', { params: { id: '41' }, body: { id_token: 'valid' } });
   assert.equal(hit.body.ok, true);
   assert.equal(hit.body.recorded, true);
@@ -149,6 +153,7 @@ test('公開網址以 LIFF 驗證身分、同分鐘去重，而且暫停不擋�
   assert.match(insert.sql, /ON CONFLICT/);
   if (oldLiff == null) delete process.env.GAMES_LIFF_ID; else process.env.GAMES_LIFF_ID = oldLiff;
   if (oldUrl == null) delete process.env.PUBLIC_SITE_URL; else process.env.PUBLIC_SITE_URL = oldUrl;
+  if (oldOa == null) delete process.env.LINE_OFFICIAL_ADD_FRIEND_URL; else process.env.LINE_OFFICIAL_ADD_FRIEND_URL = oldOa;
 });
 
 test('成效 API 同步套用期間並計算開啟、來源與轉換率', async () => {
