@@ -74,7 +74,13 @@ function createSmtpEmailProvider() {
         response: info && info.response ? String(info.response).slice(0, 500) : ''
       };
     } catch (err) {
-      return { ok: false, error: String(err && err.message ? err.message : err).slice(0, 1500) };
+      return {
+        ok: false,
+        error: String(err && err.message ? err.message : err).slice(0, 1500),
+        code: err && err.code ? String(err.code).slice(0, 100) : '',
+        command: err && err.command ? String(err.command).slice(0, 100) : '',
+        responseCode: Number(err && err.responseCode) || null
+      };
     }
   }
 

@@ -6,7 +6,7 @@ const {
   normalizeOfferRecord,
   parseDate
 } = require('../src/core/revisitEmail');
-const { chooseOffer, selectEligibleCandidates } = require('../src/routes/adminRevisitEmail');
+const { chooseOffer, isPermanentRecipientFailure, selectEligibleCandidates } = require('../src/routes/adminRevisitEmail');
 
 test('訂位匯入支援常用中英文欄名、Excel 日期與保守同意判定', () => {
   const explicitNo = normalizeBookingRecord({
@@ -107,9 +107,26 @@ test('完整回訪判定會逐項排除，且同一人一批最多只收到一�
   });
   assert.deepEqual(result.eligible.map((item) => item.booking.id), [1]);
   assert.deepEqual(result.excluded, {
-    not_due: 1, unsubscribed: 1, already_sent: 1,
+    not_due: 1, unsubscribed: 1, suppressed: 0, already_sent: 1,
     restaurant_cooldown: 1, global_cooldown: 2, missing_cta: 1
   });
+});
+
+test('抑制名單會在名單產生前排除，只有收件階段永久拒收算硬退信', () => {
+  const result = selectEligibleCandidates({
+    bookings: [{
+      id: 1, customer_email: 'blocked@example.com', restaurant_id: 'R-1', restaurant_name: '米花餐廳',
+      dining_date: '2026-01-01', booking_url: 'https://tw.openrice.com/r/1'
+    }],
+    offers: [], sentRows: [], unsubscribedEmails: [], suppressedEmails: ['blocked@example.com'],
+    asOfDate: '2026-09-10',
+    settings: { revisit_after_days: 30, same_restaurant_cooldown_days: 60, global_cooldown_days: 0, min_offer_days_remaining: 7 }
+  });
+  assert.equal(result.eligible.length, 0);
+  assert.equal(result.excluded.suppressed, 1);
+  assert.equal(isPermanentRecipientFailure({ responseCode: 550, command: 'RCPT TO' }), true);
+  assert.equal(isPermanentRecipientFailure({ responseCode: 535, command: 'AUTH LOGIN' }), false);
+  assert.equal(isPermanentRecipientFailure({ responseCode: 451, command: 'RCPT TO' }), false);
 });
 
 test('同店冷卻滿整天數後即可再次寄送', () => {

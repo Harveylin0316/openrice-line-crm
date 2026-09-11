@@ -31,10 +31,28 @@ test('回訪 Email 頁面可渲染且瀏覽器程式碼語法正確', async () =
   assert.match(html, /每週資料上傳/);
   assert.match(html, /產生本週回訪草稿/);
   assert.match(html, /從公司信箱寄下一批/);
+  assert.match(html, /寄正式等同測試信/);
+  assert.match(html, /不可寄送名單/);
+  assert.match(html, /寄件備份有這封：標記已寄/);
   assert.match(html, /我確認這份資料中的 Email 可用於回訪行銷/);
   const scripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)]
     .filter((match) => !/\ssrc=/i.test(match[1])).map((match) => match[2]);
   scripts.forEach((script) => assert.doesNotThrow(() => new vm.Script(script)));
+});
+
+test('回訪 Email 安全 migration 保護測試、稽核與抑制資料表', () => {
+  const sql = fs.readFileSync(path.join(REPO, 'supabase/migrations/20260911105839_revisit_email_delivery_safety.sql'), 'utf8');
+  ['test_deliveries', 'recipient_events', 'suppressions'].forEach((name) => {
+    assert.match(sql, new RegExp(`ALTER TABLE public\\.revisit_email_${name} ENABLE ROW LEVEL SECURITY`));
+  });
+  assert.match(sql, /FROM PUBLIC, anon, authenticated/);
+  assert.match(sql, /content_version/);
+  assert.match(sql, /tested_version/);
+  assert.doesNotMatch(sql, /GRANT .* TO anon|GRANT .* TO authenticated/);
+  const indexes = fs.readFileSync(path.join(REPO, 'supabase/migrations/20260911111039_revisit_email_fk_indexes.sql'), 'utf8');
+  ['bookings_import', 'offers_import', 'recipients_offer'].forEach((name) => {
+    assert.match(indexes, new RegExp(`revisit_email_${name}_idx`));
+  });
 });
 
 test('migration 對所有客戶資料表啟用 RLS，且不授權 anon/authenticated', () => {

@@ -6,7 +6,8 @@ function appStub(routes) {
   return {
     get(path, ...handlers) { routes['GET ' + path] = handlers; },
     post(path, ...handlers) { routes['POST ' + path] = handlers; },
-    put(path, ...handlers) { routes['PUT ' + path] = handlers; }
+    put(path, ...handlers) { routes['PUT ' + path] = handlers; },
+    delete(path, ...handlers) { routes['DELETE ' + path] = handlers; }
   };
 }
 
@@ -56,6 +57,99 @@ test('後台頁面與所有公開追蹤路徑都有註冊', async () => {
   assert.ok(routes['GET /email/revisit/open/:token([a-f0-9]{48}).gif']);
   assert.ok(routes['GET /email/revisit/click/:token([a-f0-9]{48})']);
   assert.ok(routes['POST /email/revisit/unsubscribe/:token([a-f0-9]{48})']);
+  assert.ok(routes['POST /admin/revisit-email/api/recipients/:id(\\d+)/review']);
+  assert.ok(routes['DELETE /admin/revisit-email/api/suppressions/:id(\\d+)']);
+});
+
+test('正式寄送在目前草稿版本未成功測試時由後端擋下', async () => {
+  let smtpCalls = 0;
+  const client = {
+    async query(sql) {
+      if (/SELECT status, content_version/.test(sql)) {
+        return { rowCount: 1, rows: [{ status: 'draft', content_version: 2, tested_version: 1, last_tested_at: new Date() }] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+  const routes = register({
+    localSendEnabled: true,
+    smtpEmailProvider: {
+      isConfigured: () => true,
+      async sendEmail() { smtpCalls += 1; return { ok: true }; },
+      getDefaultSender: () => ({ email: 'sender@example.com' })
+    },
+    pool: { connect: async () => client }
+  });
+  const result = await run(routes, 'POST /admin/revisit-email/api/campaigns/:id(\\d+)/send', {
+    params: { id: '9' }, body: { limit: 5 }
+  });
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.body.error, 'successful_test_required');
+  assert.equal(smtpCalls, 0);
+});
+
+test('測試信使用正式 CTA、追蹤與安全退訂鏈路，成功後才核准同版本', async () => {
+  const sqlCalls = [];
+  let mail;
+  const routes = register({
+    localSendEnabled: true,
+    publicBaseUrl: 'https://crm.example.com',
+    smtpEmailProvider: {
+      isConfigured: () => true,
+      async sendEmail(options) { mail = options; return { ok: true, messageId: 'test-message-id' }; },
+      getDefaultSender: () => ({ email: 'sender@example.com' })
+    },
+    query: async (sql, params) => {
+      sqlCalls.push({ sql, params });
+      if (/SELECT r\.\*, c\.status AS campaign_status/.test(sql)) {
+        return { rowCount: 1, rows: [{
+          id: 4, campaign_id: 2, status: 'pending', campaign_status: 'draft', content_version: 3,
+          subject: '歡迎回來', preheader: '預覽', restaurant_name: '測試餐廳', recipient_name: 'Hen',
+          body_copy: '回來吃飯吧', cta_url: 'https://tw.openrice.com/r/1', offer_snapshot: null
+        }] };
+      }
+      if (/INSERT INTO revisit_email_test_deliveries/.test(sql)) return { rowCount: 1, rows: [{ id: 77 }] };
+      return { rowCount: 1, rows: [] };
+    }
+  });
+  const result = await run(routes, 'POST /admin/revisit-email/api/recipients/:id(\\d+)/test', {
+    params: { id: '4' }, body: { test_email: 'hen@example.com' }
+  });
+  assert.equal(result.statusCode, 200);
+  assert.match(mail.subject, /^\[測試\]/);
+  assert.match(mail.html, /https:\/\/crm\.example\.com\/email\/revisit\/click\/[a-f0-9]{48}/);
+  assert.match(mail.html, /https:\/\/crm\.example\.com\/email\/revisit\/unsubscribe\/[a-f0-9]{48}/);
+  assert.match(mail.html, /email\/revisit\/open\/[a-f0-9]{48}\.gif/);
+  assert.match(mail.headers['List-Unsubscribe'], /email\/revisit\/unsubscribe/);
+  assert.ok(sqlCalls.some((call) => /SET tested_version=a\.content_version/.test(call.sql)));
+});
+
+test('需確認信件只能逐封處理，重新排入會留下稽核紀錄', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (/SELECT id, campaign_id, status, failure_detail/.test(sql)) {
+        return { rowCount: 1, rows: [{ id: 42, campaign_id: 8, status: 'needs_review', failure_detail: 'smtp_timeout' }] };
+      }
+      if (/SELECT COUNT\(\*\)::int AS count/.test(sql)) return { rowCount: 1, rows: [{ count: 1 }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  const routes = register({ pool: { connect: async () => client } });
+  const result = await run(routes, 'POST /admin/revisit-email/api/recipients/:id(\\d+)/review', {
+    params: { id: '42' }, body: { action: 'retry' }
+  });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.status, 'pending');
+  assert.ok(calls.some((call) => /UPDATE revisit_email_recipients SET status=\$2/.test(call.sql) && call.params[0] === 42 && call.params[1] === 'pending'));
+  assert.ok(calls.some((call) => /INSERT INTO revisit_email_recipient_events/.test(call.sql) && call.params[2] === 'manual_retry'));
+
+  const bulk = await run(routes, 'POST /admin/revisit-email/api/campaigns/:id(\\d+)/retry-review', { params: { id: '8' } });
+  assert.equal(bulk.statusCode, 410);
+  assert.equal(bulk.body.error, 'bulk_review_disabled');
 });
 
 test('正式環境未開本機旗標時，測試信與正式寄送都在查資料前擋下', async () => {
