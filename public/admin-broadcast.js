@@ -202,14 +202,29 @@
     if (state.audienceSource === 'upload') {
       return { lineUserIds: parseUidsFromText($('upload-list-uids').value).valid };
     }
-    // 加入時間（不限/1/7/30/90）
+    // 加入時間：保留常用天數，也可用台灣曆日的自訂起訖日期。
     var joinedWithinDays = null;
     var jw = $('joined-within') ? $('joined-within').value : '';
-    if (jw) { var jwn = parseInt(jw, 10); if (Number.isInteger(jwn) && jwn > 0) joinedWithinDays = jwn; }
+    var joinedDateMode = jw === 'custom' ? 'custom' : 'preset';
+    var joinedFromDate = null;
+    var joinedToDate = null;
+    if (jw === 'custom') {
+      joinedFromDate = String(($('joined-from-date') && $('joined-from-date').value) || '').trim() || null;
+      joinedToDate = String(($('joined-to-date') && $('joined-to-date').value) || '').trim() || null;
+    } else if (jw) {
+      var jwn = parseInt(jw, 10);
+      if (Number.isInteger(jwn) && jwn > 0) joinedWithinDays = jwn;
+    }
 
     // 全部會員：忽略行為條件，但保留加入時間
     if ($('all-members') && $('all-members').checked) {
-      return { allMembers: true, joinedWithinDays: joinedWithinDays };
+      return {
+        allMembers: true,
+        joinedDateMode: joinedDateMode,
+        joinedWithinDays: joinedWithinDays,
+        joinedFromDate: joinedFromDate,
+        joinedToDate: joinedToDate
+      };
     }
 
     // conditions（預設）
@@ -249,7 +264,10 @@
     else if (answeredRaw === 'false') bookingSourceAnswered = false;
 
     return {
+      joinedDateMode: joinedDateMode,
       joinedWithinDays: joinedWithinDays,
+      joinedFromDate: joinedFromDate,
+      joinedToDate: joinedToDate,
       lifecycleStages: lifecycleStages,
       prizeFilter: prizeFilter,
       inviteCompletedMin: inviteCompletedMin,
@@ -266,6 +284,21 @@
   (function wireAllMembers() {
     var amEl = $('all-members');
     var jwEl = $('joined-within');
+    var fromEl = $('joined-from-date');
+    var toEl = $('joined-to-date');
+    var customRangeEl = $('joined-custom-range');
+    var customHintEl = $('joined-custom-hint');
+    function invalidateAudiencePreview() {
+      state.audiencePreviewedTotal = null;
+      var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
+      updateSendButton();
+    }
+    function refreshJoinedDateMode() {
+      var isCustom = Boolean(jwEl && jwEl.value === 'custom');
+      if (customRangeEl) customRangeEl.hidden = !isCustom;
+      if (customHintEl) customHintEl.hidden = !isCustom;
+      invalidateAudiencePreview();
+    }
     function refresh() {
       var on = amEl && amEl.checked;
       var bc = $('behavior-conditions');
@@ -279,12 +312,21 @@
       updateSendButton();
     }
     if (amEl) amEl.addEventListener('change', refresh);
-    if (jwEl) jwEl.addEventListener('change', function () {
-      state.audiencePreviewedTotal = null;
-      var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
-      updateSendButton();
-    });
+    if (jwEl) jwEl.addEventListener('change', refreshJoinedDateMode);
+    if (fromEl) fromEl.addEventListener('change', invalidateAudiencePreview);
+    if (toEl) toEl.addEventListener('change', invalidateAudiencePreview);
+    refreshJoinedDateMode();
   })();
+
+  function validateJoinedDateSelection() {
+    var mode = $('joined-within') ? $('joined-within').value : '';
+    if (mode !== 'custom') return null;
+    var from = String(($('joined-from-date') && $('joined-from-date').value) || '').trim();
+    var to = String(($('joined-to-date') && $('joined-to-date').value) || '').trim();
+    if (!from && !to) return '自訂加入日期請至少選擇開始日或結束日。';
+    if (from && to && from > to) return '加入日期的開始日不能晚於結束日。';
+    return null;
+  }
 
   // 活動頁行為／訂位來源欄位一改動，之前預覽出來的人數就作廢，要重新按「預覽收件人」
   ['liff-played-days', 'liff-booking-days', 'liff-inactive-days',
@@ -320,6 +362,13 @@
     statusEl.textContent = '查詢中…';
     sampleEl.hidden = true;
     sampleEl.innerHTML = '';
+    var joinedDateError = validateJoinedDateSelection();
+    if (state.audienceSource === 'conditions' && joinedDateError) {
+      statusEl.textContent = joinedDateError;
+      state.audiencePreviewedTotal = null;
+      updateSendButton();
+      return;
+    }
     var directParsed = state.audienceSource === 'upload'
       ? parseUidsFromText($('upload-list-uids').value)
       : null;
@@ -2070,6 +2119,10 @@
   }
 
   function checkSendReadiness() {
+    var joinedDateError = state.audienceSource === 'conditions' ? validateJoinedDateSelection() : null;
+    if (joinedDateError) {
+      return { ok: false, reason: joinedDateError, focusEl: 'joined-from-date' };
+    }
     if (state.sending) return { ok: false, reason: '正在送出中，請稍候' };
     if (getActiveChannel() === 'line' && !INIT.hasLineToken) return { ok: false, reason: '還沒設定 LINE 發送金鑰，請找系統管理員開通' };
     if (state.audiencePreviewedTotal === null) {

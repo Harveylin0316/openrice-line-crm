@@ -30,6 +30,7 @@ const {
 } = require('../core/emailTemplates');
 const {
   normalizeConditions,
+  validateJoinedDateRange,
   hasAnyCondition,
   previewAudience,
   fetchAudienceRecipients,
@@ -1036,6 +1037,12 @@ function registerAdminBroadcastRoutes(app, deps) {
       // channel=email 時只允許 savedListId
       if (channel === 'email' && !conditions.savedListId) {
         return safeJsonError(res, 400, 'email_requires_saved_list');
+      }
+      if (channel === 'line') {
+        const joinedDateError = validateJoinedDateRange(rawConditions);
+        if (joinedDateError) {
+          return safeJsonError(res, 400, 'invalid_audience', { detail: joinedDateError });
+        }
       }
       if (channel === 'line' && !hasAnyCondition(conditions)) {
         return safeJsonError(res, 400, 'no_conditions_selected');

@@ -147,14 +147,27 @@
               <div class="muted" style="font-size:12px;margin-top:4px;">勾選後忽略下方的獎品／邀請／刮獎／活動頁行為／訂位來源條件（可搭配「加入時間」一起用）。</div>
               <div class="broadcast-inline-field" style="margin-top:10px;">
                 <span>加入時間</span>
-                <select id="joined-within" style="width:160px;">
+                <select id="joined-within" style="width:180px;">
                   <option value="">不限</option>
                   <option value="1">1 天內加入</option>
                   <option value="7">7 天內加入</option>
                   <option value="30">30 天內加入</option>
                   <option value="90">90 天內加入</option>
+                  <option value="custom">自訂日期範圍</option>
                 </select>
               </div>
+              <div id="joined-custom-range" class="joined-custom-range" hidden>
+                <label>
+                  <span>開始日</span>
+                  <input type="date" id="joined-from-date" aria-label="加入好友開始日" />
+                </label>
+                <span class="joined-date-separator">到</span>
+                <label>
+                  <span>結束日</span>
+                  <input type="date" id="joined-to-date" aria-label="加入好友結束日" />
+                </label>
+              </div>
+              <div id="joined-custom-hint" class="muted" style="font-size:12px;margin-top:6px;" hidden>可只填一邊；日期以台灣時間整天計算，結束日包含當天。</div>
             </div>
 
             <div class="broadcast-field" id="behavior-conditions">
@@ -849,6 +862,37 @@
       .broadcast-inline-field select {
         width: auto !important;
         margin-top: 0 !important;
+      }
+      .joined-custom-range {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      .joined-custom-range[hidden] { display: none; }
+      .joined-custom-range label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 12px;
+        color: #6b7280;
+      }
+      .joined-custom-range input[type="date"] {
+        width: 168px;
+        padding: 8px 10px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        background: #fff;
+        color: #1f2937;
+        font: inherit;
+      }
+      .joined-date-separator { padding-bottom: 9px; color: #6b7280; }
+      @media (max-width: 520px) {
+        .joined-custom-range { align-items: stretch; }
+        .joined-custom-range label { flex: 1 1 140px; }
+        .joined-custom-range input[type="date"] { width: 100%; box-sizing: border-box; }
+        .joined-date-separator { align-self: flex-end; padding-bottom: 9px; }
       }
       .prize-checkbox-list,
       .lifecycle-checkbox-list {

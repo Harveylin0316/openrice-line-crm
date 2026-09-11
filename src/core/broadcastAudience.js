@@ -9,6 +9,9 @@
  *   } | null,
  *   inviteCompletedMin: number | null,  // 邀請成功 rewarded 數 ≥ N
  *   drewInCampaign: boolean | null,     // true = 活動期間刮過; false = 從未刮過
+ *   joinedWithinDays: number | null,    // 最近 N 天內加入（舊設定與快捷選項）
+ *   joinedFromDate: string | null,      // 自訂加入開始日 YYYY-MM-DD（台灣時間）
+ *   joinedToDate: string | null,        // 自訂加入結束日 YYYY-MM-DD，包含當天（台灣時間）
  *
  *   // 活動頁（好康地圖／擲骰子）行為條件
  *   playedLiffWithinDays: number | null,     // 最近 N 天內開過活動頁、或在裡面做過任何動作
@@ -89,6 +92,35 @@ function parseDays(value) {
   return Number.isInteger(n) && n > 0 && n <= 3650 ? n : null;
 }
 
+// 嚴格接受真實存在的 YYYY-MM-DD，避免讓 PostgreSQL 收到 2026-02-31 之類的值。
+function parseIsoDate(value) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const [year, month, day] = raw.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) return null;
+  return raw;
+}
+
+function validateJoinedDateRange(raw) {
+  const safe = raw && typeof raw === 'object' ? raw : {};
+  const fromRaw = String(safe.joinedFromDate == null ? '' : safe.joinedFromDate).trim();
+  const toRaw = String(safe.joinedToDate == null ? '' : safe.joinedToDate).trim();
+  const from = parseIsoDate(fromRaw);
+  const to = parseIsoDate(toRaw);
+  if (safe.joinedDateMode === 'custom' && !fromRaw && !toRaw) {
+    return '自訂加入日期請至少選擇開始日或結束日。';
+  }
+  if (fromRaw && !from) return '加入日期的開始日格式錯誤。';
+  if (toRaw && !to) return '加入日期的結束日格式錯誤。';
+  if (from && to && from > to) return '加入日期的開始日不能晚於結束日。';
+  return null;
+}
+
 // 生命週期階段門檻（天）— 與 flowEngine.runInactivityTriggers 的 last_activity 口徑一致。
 const LIFECYCLE_NEW_DAYS = 14;       // 新客：加入 <= 14 天（優先判定）
 const LIFECYCLE_ACTIVE_DAYS = 30;    // 活躍：last_activity <= 30 天（且非新客）
@@ -146,6 +178,8 @@ function normalizeConditions(raw) {
   const out = {
     allMembers: false,
     joinedWithinDays: null,
+    joinedFromDate: null,
+    joinedToDate: null,
     lifecycleStages: null,
     prizeFilter: null,
     inviteCompletedMin: null,
@@ -177,7 +211,12 @@ function normalizeConditions(raw) {
     }
   }
 
-  out.joinedWithinDays = parseDays(safe.joinedWithinDays);
+  out.joinedFromDate = parseIsoDate(safe.joinedFromDate);
+  out.joinedToDate = parseIsoDate(safe.joinedToDate);
+  // 自訂日期優先，避免舊快捷天數殘值與日期範圍被意外交集。
+  if (!out.joinedFromDate && !out.joinedToDate) {
+    out.joinedWithinDays = parseDays(safe.joinedWithinDays);
+  }
 
   // 活動頁行為條件（都是天數，沒填就維持 null、完全不影響原本的篩選結果）
   out.playedLiffWithinDays = parseDays(safe.playedLiffWithinDays);
@@ -228,6 +267,8 @@ function hasAnyCondition(conds) {
   return Boolean(
     conds.allMembers ||
     conds.joinedWithinDays !== null ||
+    conds.joinedFromDate !== null ||
+    conds.joinedToDate !== null ||
     conds.lifecycleStages ||
     conds.savedListId ||
     conds.lineUserIds ||
@@ -258,6 +299,14 @@ function buildWhere(conds) {
   if (conds.joinedWithinDays !== null) {
     params.push(conds.joinedWithinDays);
     where.push(`u.created_at >= now() - ($${params.length}::int * interval '1 day')`);
+  }
+  if (conds.joinedFromDate !== null) {
+    params.push(conds.joinedFromDate);
+    where.push(`u.created_at >= ($${params.length}::date::timestamp AT TIME ZONE 'Asia/Taipei')`);
+  }
+  if (conds.joinedToDate !== null) {
+    params.push(conds.joinedToDate);
+    where.push(`u.created_at < ((($${params.length}::date + 1)::timestamp) AT TIME ZONE 'Asia/Taipei')`);
   }
   // allMembers 為 true 時，跳過後面的行為條件（生命週期/prize/invite/drew）
   if (conds.allMembers) {
@@ -401,6 +450,10 @@ async function previewAudience(query, rawConditions, { channel = 'line' } = {}) 
       error: null
     };
   }
+  const joinedDateError = validateJoinedDateRange(rawConditions);
+  if (joinedDateError) {
+    return { total: 0, sample: [], conditions: conds, error: joinedDateError };
+  }
   if (!hasAnyCondition(conds)) {
     return { total: 0, sample: [], conditions: conds, error: '請至少選一個條件或選擇一份名單。' };
   }
@@ -532,6 +585,8 @@ async function fetchAudienceRecipients(query, rawConditions, { limit = MAX_RECIP
     );
     return { conditions: conds, rows: rs.rows };
   }
+  const joinedDateError = validateJoinedDateRange(rawConditions);
+  if (joinedDateError) return { conditions: conds, rows: [], error: joinedDateError };
   if (!hasAnyCondition(conds)) return { conditions: conds, rows: [] };
   if (directInput.tooMany) {
     return {
@@ -603,6 +658,8 @@ module.exports = {
   LAST_ACTIVITY_SQL,
   LIFECYCLE_STAGE_SQL,
   parseExplicitLineUserIds,
+  parseIsoDate,
+  validateJoinedDateRange,
   lifecycleWhereSql,
   normalizeConditions,
   hasAnyCondition,

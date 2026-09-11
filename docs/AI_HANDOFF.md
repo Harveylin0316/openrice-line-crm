@@ -161,6 +161,15 @@ CSV，再預覽人數、編輯文字／圖片／影片／Flex 卡片，最後立
 `src/routes/adminBroadcast.js` 的預覽／建立批次、`views/admin_broadcast.ejs` 與
 `public/admin-broadcast.js`。
 
+#### 群發加入好友日期篩選（2026-09-11）
+
+`/admin/broadcast` 的「條件篩選」除了最近 1／7／30／90 天，也可選「自訂日期範圍」。
+開始日或結束日可單獨使用；兩者都填時是包含首尾日期的閉區間，並以 `Asia/Taipei`
+曆日換算 `users.created_at`。預覽人數與建立正式批次共用
+`src/core/broadcastAudience.js` 的正規化、日期檢核與 SQL，避免預覽／實際發送名單不一致。
+既有 `joinedWithinDays` 批次維持相容；自訂日期存在時優先使用 `joinedFromDate`／
+`joinedToDate`，不會與殘留的快捷天數意外交集。
+
 #### 圖文選單點擊後延遲推播（2026-09-07）
 
 後台已可建立「點了圖文選單」流程：
