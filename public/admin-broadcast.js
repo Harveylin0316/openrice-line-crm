@@ -228,6 +228,11 @@
     }
 
     // conditions（預設）
+    var activityParticipationRaw = $('activity-participation') ? $('activity-participation').value : '';
+    var activityParticipation = (activityParticipationRaw === 'any' || activityParticipationRaw === 'none')
+      ? activityParticipationRaw
+      : null;
+
     // 生命週期階段（多選）：全選 4 個或全不選都視為不限（後端會把全選正規化掉）
     var lifecycleStages = $$('input[name="lifecycle_stage"]:checked').map(function (el) { return el.value; });
 
@@ -268,6 +273,7 @@
       joinedWithinDays: joinedWithinDays,
       joinedFromDate: joinedFromDate,
       joinedToDate: joinedToDate,
+      activityParticipation: activityParticipation,
       lifecycleStages: lifecycleStages,
       prizeFilter: prizeFilter,
       inviteCompletedMin: inviteCompletedMin,
@@ -303,6 +309,8 @@
       var on = amEl && amEl.checked;
       var bc = $('behavior-conditions');
       if (bc) { bc.style.opacity = on ? '0.4' : '1'; bc.style.pointerEvents = on ? 'none' : 'auto'; }
+      var ap = $('activity-participation-conditions');
+      if (ap) { ap.style.opacity = on ? '0.4' : '1'; ap.style.pointerEvents = on ? 'none' : 'auto'; }
       var lb = $('liff-behavior-conditions');
       if (lb) { lb.style.opacity = on ? '0.4' : '1'; lb.style.pointerEvents = on ? 'none' : 'auto'; }
       var bs = $('booking-source-conditions');
@@ -318,6 +326,42 @@
     refreshJoinedDateMode();
   })();
 
+  (function wireNewFriendNoActivityPreset() {
+    var button = $('preset-new-no-activity');
+    if (!button) return;
+    button.addEventListener('click', function () {
+      var allMembers = $('all-members');
+      if (allMembers) allMembers.checked = false;
+      var joined = $('joined-within');
+      if (joined) joined.value = '7';
+      var activity = $('activity-participation');
+      if (activity) activity.value = 'none';
+      ['joined-from-date', 'joined-to-date', 'invite-min', 'liff-played-days',
+        'liff-booking-days', 'liff-inactive-days'].forEach(function (id) {
+        var field = $(id); if (field) field.value = '';
+      });
+      ['drew-in-campaign', 'booking-source', 'booking-source-answered'].forEach(function (id) {
+        var field = $(id); if (field) field.value = '';
+      });
+      var prizeMode = $('prize-mode'); if (prizeMode) prizeMode.value = 'any';
+      $$('input[name="lifecycle_stage"], input[name="prize_name"]').forEach(function (field) {
+        field.checked = false;
+      });
+      if (allMembers) allMembers.dispatchEvent(new Event('change', { bubbles: true }));
+      if (joined) joined.dispatchEvent(new Event('change', { bubbles: true }));
+      if (activity) activity.dispatchEvent(new Event('change', { bubbles: true }));
+      state.audiencePreviewedTotal = null;
+      var sample = $('audience-sample');
+      if (sample) {
+        sample.hidden = true;
+        sample.innerHTML = '';
+      }
+      updateSendButton();
+      var status = $('audience-status');
+      if (status) status.textContent = '已套用：近 7 天新好友，而且尚未參加任何活動。請按「預覽收件人」。';
+    });
+  })();
+
   function validateJoinedDateSelection() {
     var mode = $('joined-within') ? $('joined-within').value : '';
     if (mode !== 'custom') return null;
@@ -330,7 +374,7 @@
 
   // 活動頁行為／訂位來源欄位一改動，之前預覽出來的人數就作廢，要重新按「預覽收件人」
   ['liff-played-days', 'liff-booking-days', 'liff-inactive-days',
-    'booking-source', 'booking-source-answered',
+    'booking-source', 'booking-source-answered', 'activity-participation',
     'prize-mode', 'invite-min', 'drew-in-campaign'].forEach(function (id) {
     var el = $(id);
     if (!el) return;

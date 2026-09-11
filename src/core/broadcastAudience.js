@@ -12,6 +12,8 @@
  *   joinedWithinDays: number | null,    // 最近 N 天內加入（舊設定與快捷選項）
  *   joinedFromDate: string | null,      // 自訂加入開始日 YYYY-MM-DD（台灣時間）
  *   joinedToDate: string | null,        // 自訂加入結束日 YYYY-MM-DD，包含當天（台灣時間）
+ *   activityParticipation: 'any' | 'none' | null,
+ *                                          // 參加過任一 CRM 活動 / 尚未參加任何 CRM 活動
  *
  *   // 活動頁（好康地圖／擲骰子）行為條件
  *   playedLiffWithinDays: number | null,     // 最近 N 天內開過活動頁、或在裡面做過任何動作
@@ -180,6 +182,7 @@ function normalizeConditions(raw) {
     joinedWithinDays: null,
     joinedFromDate: null,
     joinedToDate: null,
+    activityParticipation: null,
     lifecycleStages: null,
     prizeFilter: null,
     inviteCompletedMin: null,
@@ -216,6 +219,10 @@ function normalizeConditions(raw) {
   // 自訂日期優先，避免舊快捷天數殘值與日期範圍被意外交集。
   if (!out.joinedFromDate && !out.joinedToDate) {
     out.joinedWithinDays = parseDays(safe.joinedWithinDays);
+  }
+
+  if (safe.activityParticipation === 'any' || safe.activityParticipation === 'none') {
+    out.activityParticipation = safe.activityParticipation;
   }
 
   // 活動頁行為條件（都是天數，沒填就維持 null、完全不影響原本的篩選結果）
@@ -269,6 +276,7 @@ function hasAnyCondition(conds) {
     conds.joinedWithinDays !== null ||
     conds.joinedFromDate !== null ||
     conds.joinedToDate !== null ||
+    conds.activityParticipation !== null ||
     conds.lifecycleStages ||
     conds.savedListId ||
     conds.lineUserIds ||
@@ -316,6 +324,20 @@ function buildWhere(conds) {
   if (conds.lifecycleStages) {
     const lcSql = lifecycleWhereSql(conds.lifecycleStages);
     if (lcSql) where.push(lcSql);
+  }
+
+  // CRM 活動參與以 activity_plays 為準。EXISTS／NOT EXISTS 不會因同一人玩多次而重複計數；
+  // production 已有 activity_plays(line_user_id) 索引支援這個反查。
+  if (conds.activityParticipation === 'any') {
+    where.push(`EXISTS (
+      SELECT 1 FROM activity_plays ap
+      WHERE ap.line_user_id = u.line_user_id
+    )`);
+  } else if (conds.activityParticipation === 'none') {
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM activity_plays ap
+      WHERE ap.line_user_id = u.line_user_id
+    )`);
   }
 
   if (conds.prizeFilter) {

@@ -139,12 +139,18 @@
 
             <div class="audience-pane" id="audience-pane-conditions">
 
+            <div class="broadcast-field audience-logic-note">
+              <strong>條件會一起計算</strong>
+              <span>選兩個條件代表兩個都要符合（AND）。例如：近 7 天加入，而且尚未參加任何活動。</span>
+              <button type="button" class="btn link-btn" id="preset-new-no-activity">一鍵套用這個範例（會清除其他條件）</button>
+            </div>
+
             <div class="broadcast-field" style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px;">
               <label class="broadcast-inline-field" style="font-weight:600;">
                 <input type="checkbox" id="all-members" />
                 <span>發送給全部會員</span>
               </label>
-              <div class="muted" style="font-size:12px;margin-top:4px;">勾選後忽略下方的獎品／邀請／刮獎／活動頁行為／訂位來源條件（可搭配「加入時間」一起用）。</div>
+              <div class="muted" style="font-size:12px;margin-top:4px;">勾選後忽略下方的活動參與／獎品／邀請／刮獎／活動頁行為／訂位來源條件（可搭配「加入時間」一起用）。</div>
               <div class="broadcast-inline-field" style="margin-top:10px;">
                 <span>加入時間</span>
                 <select id="joined-within" style="width:180px;">
@@ -168,6 +174,19 @@
                 </label>
               </div>
               <div id="joined-custom-hint" class="muted" style="font-size:12px;margin-top:6px;" hidden>可只填一邊；日期以台灣時間整天計算，結束日包含當天。</div>
+            </div>
+
+            <div class="broadcast-field" id="activity-participation-conditions">
+              <div class="broadcast-field-label">活動參與（可包含或排除）</div>
+              <label class="broadcast-inline-field">
+                <span>參與狀況</span>
+                <select id="activity-participation" style="width:240px;">
+                  <option value="">不限</option>
+                  <option value="any">參加過任一活動</option>
+                  <option value="none">尚未參加任何活動</option>
+                </select>
+              </label>
+              <div class="muted" style="font-size:12px;margin-top:6px;">以 CRM 活動的實際遊玩紀錄為準；只開啟頁面但沒有開始玩，仍視為尚未參加。</div>
             </div>
 
             <div class="broadcast-field" id="behavior-conditions">
@@ -817,6 +836,22 @@
         font-size: 13px;
       }
       .broadcast-field { margin-bottom: 12px; }
+      .audience-logic-note {
+        display: flex;
+        align-items: center;
+        gap: 8px 12px;
+        flex-wrap: wrap;
+        padding: 10px 12px;
+        border: 1px solid #fcd34d;
+        border-radius: 8px;
+        background: #fff8dc;
+        color: #4e3c2d;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .audience-logic-note strong { font-size: 13px; }
+      .audience-logic-note span { flex: 1 1 280px; }
+      .audience-logic-note .link-btn { color: #9a3412; font-weight: 600; }
       .field-hint {
         font-size: 12px;
         margin-top: 4px;
