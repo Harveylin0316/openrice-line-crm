@@ -134,7 +134,7 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 
 - Netlify production 一律不能從公司信箱寄送。只有非 production 的 Mac process 同時設定 `REVISIT_EMAIL_LOCAL_SEND_ENABLED=1`，以及完整 EWS 或 SMTP 連線，才會顯示測試／正式寄送。OpenRice 現行公司 Exchange 實測走 EWS／NTLM；`REVISIT_EMAIL_PROVIDER=ews`，帳密僅留在 Mac。
 - 帳號密碼只放 Mac 本機 `.env`，不得放 Netlify、Git、文件、fixture 或 log。正式站仍負責公開 HTTPS 開信、點擊與退訂網址。
-- SMTP 接受後若 DB 回寫失敗，信件標為「需確認」；不得自動重寄。先到公司寄件備份確認未寄出，再由管理員手動重新排入。
+- 公司郵件服務接受後若 DB 回寫失敗，信件標為「需確認」；不得自動重寄。先到公司寄件備份確認未寄出，再由管理員手動重新排入。EWS 採 `SendAndSaveCopy`，正式寄送前需確認信箱未接近容量上限。
 - 「需確認」只能逐封標記已寄、確認未寄後重排、或取消，所有決定寫入 `revisit_email_recipient_events`；舊的整批重排端點固定回 410。
 - 測試信使用和正式信相同的主旨、CTA、開信／點擊追蹤與安全測試退訂路徑；測試 token 存在 `revisit_email_test_deliveries`，點測試退訂不會修改客戶退訂名單，也不混入正式成效。不要在主旨強加「[測試]」，否則無法驗證真實收件匣分類。
 - `revisit_email_suppressions` 保存硬退信、客訴與人工排除。名單產生和 SMTP 寄送前都會查；收件人階段同步 5xx 會自動加入硬退信。SMTP 接受後的非同步退信／申訴仍需人工登錄，直到另接獲核准的 Graph／EWS 回報來源。
