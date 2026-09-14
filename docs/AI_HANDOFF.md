@@ -1,6 +1,6 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
-本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-11；正式資料與部署狀態仍應在接手時重新確認。
+本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-14；正式資料與部署狀態仍應在接手時重新確認。
 
 - Repo：<https://github.com/Harveylin0316/openrice-line-crm>
 - 正式站：<https://openrice-line-crm.netlify.app>
@@ -241,7 +241,28 @@ CRM 內建活動另有 fallback：遊戲頁的 `/meta` 完成 LINE ID token 驗�
 - LIFF／Random Rice：`/admin/liff/random-rice`
 - RFM：`/admin/rfm`
 
-期間控制：`/admin/insight` 與 Random Rice 行為分析可選 7／30／90／180／365 天，也可自行輸入 1–365 天；同一頁的圖表與表格使用一致期間。`/admin/attribution` 的「點擊後觀察期」可選到 90 天或自行輸入 1–365 天。LINE 官方好友總數、輪廓與昨日訊息量是 LINE API 的最新快照，不會因站內期間篩選而改變；畫面有明確註記。RFM 的「30 天內算活躍」是分群規則，不是報表篩選，不能跟著改。
+期間控制：`/admin/insight` 可選 7／30／90／180／365 天，也可直接選開始日與結束日；
+最多 397 天、包含首尾，所有 CRM 圖表與表格使用同一組 `Asia/Taipei` 曆日。網址會保留
+`from`／`to`，重新整理仍是同一區間；舊的 `?days=` API 仍相容。Random Rice 行為分析
+仍可選快捷期間或自行輸入 1–365 天。`/admin/attribution` 的「點擊後觀察期」可選到
+90 天或自行輸入 1–365 天。LINE 官方好友總數、輪廓與昨日訊息量是最新快照，不會因
+站內期間篩選而改變；畫面有明確註記。RFM 的「30 天內算活躍」是分群規則，不是報表
+篩選，不能跟著改。
+
+`/admin/insight` 的圖文選單區同時呈現兩種不同口徑：
+
+- 「LINE 官方曝光次數／曝光人數」呼叫 rich menu insight summary API；依 CRM 目前仍保留
+  在 LINE 上的 published rich-menu ID 逐分頁查詢，總曝光只加總 `impression.metrics.count`。
+  各分頁的 `uniqueUsers` 不可跨分頁相加，畫面也不顯示誤導性的總曝光人數。
+- 「CRM 記名點擊」來自 `rich_menu_taps`，可辨識點擊者並供自動化使用，不能拿來假裝曝光。
+- LINE 曝光以官方 UTC+9 曆日統計且通常隔天完成；查詢含今天時，曝光最多只查到 LINE
+  已可結算的昨天，CRM 其他資料仍照使用者選的完整區間。
+- 若期間內點擊的不重複用戶少於 20，LINE 會因隱私只回 rich-menu ID，不回曝光；畫面顯示
+  「隱私門檻未達」，不可顯示 0。summary 回 404 時會再查選單本體：本體仍存在就顯示
+  「待更新」，只有本體也 404 才標「已刪除」。已從 LINE 刪除的舊選單版本無法
+  回溯官方曝光。
+- 官方端點限制 60 requests/hour。後端同一選單頁與日期區間快取 15 分鐘，單次最多查前
+  12 個選單頁；任何 LINE 失敗都不得拖垮整頁 CRM 統計。
 
 #### 通用 LIFF 來源追蹤（2026-09-09）
 

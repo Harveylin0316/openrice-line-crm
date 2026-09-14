@@ -5,7 +5,7 @@
     bodyClass: bodyClass,
     body: `
     <section class="card">
-      <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
         <h1 style="margin:0;">數據總覽</h1>
         <div class="in-range">
           <button type="button" class="in-rbtn" data-days="7">近 7 天</button>
@@ -13,10 +13,15 @@
           <button type="button" class="in-rbtn" data-days="90">近 90 天</button>
           <button type="button" class="in-rbtn" data-days="180">近 180 天</button>
           <button type="button" class="in-rbtn" data-days="365">近 1 年</button>
-          <span class="in-custom"><input type="number" id="in-custom-days" min="1" max="365" placeholder="天數" /><button type="button" id="in-custom-apply">套用</button></span>
         </div>
-        <span id="in-note" class="muted" style="font-size:13px;">期間會套用到好友成長、互動、加入來源、圖文選單與活動；LINE 官方好友總數與輪廓仍是最新快照。</span>
       </div>
+      <div class="in-date-range" aria-label="自訂日期範圍">
+        <label>開始日 <input type="date" id="in-from" /></label>
+        <span aria-hidden="true">至</span>
+        <label>結束日 <input type="date" id="in-to" /></label>
+        <button type="button" id="in-custom-apply">套用日期</button>
+      </div>
+      <p id="in-note" class="muted in-note">期間會套用到好友成長、互動、加入來源、圖文選單曝光與點擊、活動；LINE 官方好友總數與輪廓仍是最新快照。</p>
       <div id="in-cards" class="in-cards" style="margin-top:14px;"><p class="muted">載入中…</p></div>
     </section>
 
@@ -48,7 +53,10 @@
 
     <div class="in-two">
       <section class="card">
-        <h2 style="margin:0 0 4px;">圖文選單最熱門的按鍵（<span id="in-buttons-range">近 30 天</span>）</h2>
+        <h2 style="margin:0 0 4px;">圖文選單（<span id="in-buttons-range">近 30 天</span>）</h2>
+        <p class="muted" style="font-size:13px;margin-bottom:10px;">曝光取自 LINE 官方；熱門按鍵是 CRM 記到可辨識用戶的點擊。</p>
+        <div id="in-richmenu"><p class="muted">載入曝光中…</p></div>
+        <h3 class="in-subtitle">最熱門的按鍵</h3>
         <div id="in-buttons"><p class="muted">載入中…</p></div>
       </section>
       <section class="card">
@@ -62,9 +70,11 @@
       .in-range{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
       .in-rbtn{padding:7px 14px;border:1.5px solid #ECECEE;background:#fff;border-radius:999px;font-size:13px;font-weight:700;color:#6B7280;cursor:pointer;}
       .in-rbtn.on{border-color:#1f2937;color:#1f2937;}
-      .in-custom{display:flex;gap:4px;align-items:center;}
-      .in-custom input{width:76px;padding:7px 9px;border:1.5px solid #ECECEE;border-radius:8px;font:inherit;}
-      .in-custom button{padding:7px 10px;border:0;border-radius:8px;background:#FCC726;color:#1f2937;font-weight:700;cursor:pointer;}
+      .in-date-range{display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:14px;padding:12px 14px;background:#FFF9E8;border:1px solid #F7E2A2;border-radius:12px;width:max-content;max-width:100%;}
+      .in-date-range label{display:grid;gap:4px;font-size:12px;font-weight:700;color:#6B5A44;}
+      .in-date-range input{padding:8px 10px;border:1.5px solid #E5D6B8;border-radius:8px;background:#fff;color:#1f2937;font:inherit;}
+      .in-date-range button{padding:9px 13px;border:0;border-radius:8px;background:#FCC726;color:#1f2937;font-weight:800;cursor:pointer;}
+      .in-note{font-size:13px;margin:10px 0 0;}
       .in-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
       .in-card{border:1px solid #ECECEE;border-radius:10px;padding:14px;background:#FAFAFA;}
       .in-card .v{font-size:26px;font-weight:800;color:#1f2937;font-variant-numeric:tabular-nums;}
@@ -83,14 +93,52 @@
       .in-legend span{display:flex;align-items:center;gap:5px;}
       .in-dot{width:10px;height:10px;border-radius:3px;display:inline-block;}
       .in-demo-title{font-weight:700;font-size:13px;margin:12px 0 6px;}
+      .in-subtitle{font-size:14px;margin:16px 0 6px;padding-top:13px;border-top:1px solid #F0F0F2;}
+      .in-rm-summary{display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:8px;margin:10px 0;}
+      .in-rm-metric{padding:12px;border-radius:10px;background:#FFF8DF;border:1px solid #F7E2A2;}
+      .in-rm-metric strong{display:block;font-size:24px;color:#1f2937;font-variant-numeric:tabular-nums;}
+      .in-rm-metric span{font-size:12px;color:#6B6B70;}
+      .in-rm-note{font-size:11.5px;color:#6B7280;line-height:1.55;margin:7px 0 0;}
+      .in-status{display:inline-flex;padding:3px 7px;border-radius:999px;background:#F3F4F6;color:#6B7280;font-size:11px;}
+      .in-rm-table .in-status{white-space:nowrap;}
+      @media (max-width:560px){
+        .in-date-range{width:100%;align-items:center;}
+        .in-date-range label{flex:1;min-width:130px;}
+        .in-date-range input{width:100%;box-sizing:border-box;}
+        .in-date-range button{width:100%;}
+        .in-rm-summary{grid-template-columns:1fr;}
+      }
     </style>
 
     <script>
     (function(){
       var $=function(id){return document.getElementById(id);};
       function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-      var DATA=null, days=30;
-      var RANGE_NOTE='期間會套用到好友成長、互動、加入來源、圖文選單與活動；LINE 官方好友總數與輪廓仍是最新快照。';
+      var DATA=null, range={from:'',to:'',days:30};
+      var RANGE_NOTE='期間會套用到好友成長、互動、加入來源、圖文選單曝光與點擊、活動；LINE 官方好友總數與輪廓仍是最新快照。';
+
+      function taipeiToday(){
+        try{
+          var parts=new Intl.DateTimeFormat('en',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+          var out={};parts.forEach(function(p){out[p.type]=p.value;});return out.year+'-'+out.month+'-'+out.day;
+        }
+        catch(e){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);}
+      }
+      function addDays(iso,n){var d=new Date(iso+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
+      function displayDate(iso){return String(iso||'').replace(/-/g,'/');}
+      function displayRange(r){return r?displayDate(r.from)+' – '+displayDate(r.to):'';}
+      function setRangeByDays(n){
+        var today=taipeiToday();
+        range={from:addDays(today,-(n-1)),to:today,days:n};
+        $('in-from').value=range.from;$('in-to').value=range.to;
+      }
+      function syncPreset(){
+        var today=taipeiToday();
+        [].slice.call(document.querySelectorAll('.in-rbtn')).forEach(function(b){
+          var n=Number(b.getAttribute('data-days'));
+          b.classList.toggle('on',range.to===today&&range.days===n&&range.from===addDays(today,-(n-1)));
+        });
+      }
 
       function card(v,k){return '<div class="in-card"><div class="v">'+(v==null?'—':Number(v).toLocaleString())+'</div><div class="k">'+k+'</div></div>';}
 
@@ -205,6 +253,43 @@
           }).join('')+'</tbody></table>';
       }
 
+      function renderRichMenu(){
+        var box=$('in-richmenu');
+        var rm=DATA.line&&DATA.line.rich_menu;
+        if(!rm){box.innerHTML='<p class="muted" style="font-size:13px;">LINE 曝光統計暫時連不上，CRM 點擊仍可查看。</p>';return;}
+        var reasonText={
+          not_configured:'尚未設定 LINE Channel access token。',
+          not_ready:'LINE 曝光通常隔天才完成，這個日期尚無已結算資料。',
+          no_published_menu:'目前沒有由 CRM 發布且仍在 LINE 上的圖文選單。',
+          menu_lookup_failed:'讀取圖文選單資料失敗，請稍後重試。',
+          privacy_limited:'此期間點擊圖文選單的不重複用戶少於 20，LINE 基於隱私不提供曝光數。',
+          rate_limited:'LINE 查詢額度暫時用完，請稍後再試。',
+          deleted:'這段期間的選單版本已從 LINE 刪除，官方無法回溯曝光。',
+          unavailable:'LINE 曝光統計暫時無法取得，請稍後重試。'
+        };
+        var html='<div class="in-rm-summary"><div class="in-rm-metric"><strong>'+
+          (rm.total_impressions==null?'—':Number(rm.total_impressions).toLocaleString())+
+          '</strong><span>LINE 官方曝光次數'+(rm.partial?'（部分）':'')+'</span></div><div class="in-rm-metric"><strong>'+
+          ((DATA.daily||[]).reduce(function(s,x){return s+Number(x.menu_taps||0);},0)).toLocaleString()+
+          '</strong><span>CRM 記名點擊次數</span></div></div>';
+        if(rm.reason)html+='<p class="in-rm-note">'+esc(reasonText[rm.reason]||reasonText.unavailable)+'</p>';
+        var pages=rm.pages||[];
+        if(pages.length){
+          html+='<table class="in-table in-rm-table"><thead><tr><th>選單頁</th><th style="text-align:right;">曝光</th><th style="text-align:right;">曝光人數</th></tr></thead><tbody>'+
+            pages.map(function(p){
+              var status=p.status==='privacy_limited'?'隱私限制':p.status==='not_ready'?'待更新':p.status==='deleted'?'已刪除':p.status==='rate_limited'?'稍後重試':p.status==='unavailable'?'暫無資料':'';
+              return '<tr><td>'+esc(p.menu_name||'未命名選單')+(p.tab?'<span class="muted"> · 分頁 '+p.tab+'</span>':'')+
+                (p.is_default?' <span class="in-status">預設</span>':'')+'</td><td style="text-align:right;font-weight:700;">'+
+                (p.impressions==null?(status?'<span class="in-status">'+status+'</span>':'—'):Number(p.impressions).toLocaleString())+
+                '</td><td style="text-align:right;">'+(p.unique_users==null?'—':Number(p.unique_users).toLocaleString())+'</td></tr>';
+            }).join('')+'</tbody></table>';
+        }
+        var coverage=rm.metrics_from&&rm.metrics_to?('LINE 已結算：'+displayDate(rm.metrics_from)+' – '+displayDate(rm.metrics_to)):'LINE 官方資料通常於隔天完成彙整。';
+        html+='<p class="in-rm-note">'+coverage+'；「曝光人數」為單一選單頁的不重複人數，跨分頁不可直接相加。'+
+          (rm.partial?' 部分選單頁暫無官方數字。':'')+(rm.truncated?' 選單頁過多，本次只查前 12 頁。':'')+'</p>';
+        box.innerHTML=html;
+      }
+
       function renderActs(){
         var box=$('in-acts');
         var rows=DATA.activities||[];
@@ -225,36 +310,50 @@
           card(lf?lf.targetedReaches:null,'可以收到訊息的人')+
           card(lf?lf.blocks:null,'封鎖中')+
           card(DATA.totals?DATA.totals.members:null,'進過系統的會員數')+
-          card(joined,'近 '+DATA.days+' 天新加入')+
+          card(joined,'此期間新加入')+
           card(dv?((dv.autoResponse||0)+(dv.apiPush||0)+(dv.apiReply||0)+(dv.apiMulticast||0)+(dv.apiBroadcast||0)):null,'昨天發出的訊息');
-        $('in-buttons-range').textContent='近 '+DATA.days+' 天';
+        range=DATA.range||range;
+        $('in-from').value=range.from;$('in-to').value=range.to;syncPreset();
+        $('in-buttons-range').textContent=displayRange(range);
         $('in-note').textContent=lf
-          ? RANGE_NOTE
-          : 'LINE 官方統計暫時連不上；目前仍可查看這段期間內系統自己的數字。';
-        drawGrowth();drawEngage();renderDemo();renderSources();renderButtons();renderActs();
+          ? '目前顯示 '+displayRange(range)+'。'+RANGE_NOTE
+          : '目前顯示 '+displayRange(range)+'。LINE 官方統計暫時連不上；系統自己的數字仍可查看。';
+        drawGrowth();drawEngage();renderDemo();renderSources();renderRichMenu();renderButtons();renderActs();
       }
 
       function load(){
-        fetch('/admin/insight/api/data?days='+days).then(function(r){return r.json();}).then(function(d){
+        var qs='from='+encodeURIComponent(range.from)+'&to='+encodeURIComponent(range.to);
+        $('in-note').textContent='正在載入 '+displayRange(range)+'…';
+        fetch('/admin/insight/api/data?'+qs).then(function(r){return r.json();}).then(function(d){
           if(!d.ok){$('in-cards').innerHTML='<p class="muted">載入失敗：'+esc(d.detail||d.error)+'</p>';return;}
-          DATA=d;render();
+          DATA=d;
+          if(window.history&&window.history.replaceState)window.history.replaceState(null,'','/admin/insight?'+qs);
+          render();
         }).catch(function(){$('in-cards').innerHTML='<p class="muted">載入失敗，請重新整理</p>';});
       }
       [].slice.call(document.querySelectorAll('.in-rbtn')).forEach(function(b){
         b.addEventListener('click',function(){
-          days=Number(b.getAttribute('data-days'));
-          [].slice.call(document.querySelectorAll('.in-rbtn')).forEach(function(x){x.classList.toggle('on',x===b);});
+          setRangeByDays(Number(b.getAttribute('data-days')));syncPreset();
           load();
         });
       });
       $('in-custom-apply').addEventListener('click',function(){
-        var n=Math.round(Number($('in-custom-days').value));
-        if(!Number.isFinite(n)||n<1||n>365){$('in-note').textContent='自訂天數請填 1 到 365。';return;}
-        days=n;
-        [].slice.call(document.querySelectorAll('.in-rbtn')).forEach(function(x){x.classList.remove('on');});
-        $('in-note').textContent='正在載入近 '+n+' 天資料…';
+        var from=$('in-from').value,to=$('in-to').value,today=taipeiToday();
+        if(!from||!to){$('in-note').textContent='請同時選擇開始日與結束日。';return;}
+        if(from>to){$('in-note').textContent='開始日不能晚於結束日。';return;}
+        if(to>today){$('in-note').textContent='結束日不能晚於今天。';return;}
+        var n=Math.round((Date.parse(to+'T00:00:00Z')-Date.parse(from+'T00:00:00Z'))/86400000)+1;
+        if(n>397){$('in-note').textContent='一次最多查詢 397 天，請縮短日期範圍。';return;}
+        range={from:from,to:to,days:n};syncPreset();
         load();
       });
+      var initial=new URLSearchParams(window.location.search);
+      var qFrom=initial.get('from'),qTo=initial.get('to');
+      if(/^\\d{4}-\\d{2}-\\d{2}$/.test(qFrom||'')&&/^\\d{4}-\\d{2}-\\d{2}$/.test(qTo||'')){
+        range={from:qFrom,to:qTo,days:Math.round((Date.parse(qTo+'T00:00:00Z')-Date.parse(qFrom+'T00:00:00Z'))/86400000)+1};
+        $('in-from').value=qFrom;$('in-to').value=qTo;syncPreset();
+      }else{setRangeByDays(30);syncPreset();}
+      $('in-from').max=taipeiToday();$('in-to').max=taipeiToday();
       load();
     })();
     </script>

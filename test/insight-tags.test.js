@@ -41,14 +41,24 @@ function appStub(routes) {
     }
     if (/FROM line_follow_sources/.test(f)) return { rows: [{ source_key: 'organic', n: 100 }] };
     if (/FROM rich_menu_taps t LEFT JOIN rich_menus/.test(f)) return { rows: [] };
+    if (/FROM rich_menus/.test(f) && /line_rich_menu_ids/.test(f)) return { rows: [{
+      id: 3, name: '雙分頁主選單', line_rich_menu_id: 'richmenu-a', is_default: true,
+      line_rich_menu_ids: [{ tab: 0, id: 'richmenu-a' }, { tab: 1, id: 'richmenu-b' }]
+    }] };
     if (/JOIN activities a ON/.test(f)) return { rows: [{ name: '分享超有哩', plays: 10, wins: 3, people: 6 }] };
     return { rows: [] };
   };
   let lastTotalsSql = '';
-  global.fetch = async (url) => ({ ok: true, status: 200,
-    text: async () => JSON.stringify(/followers/.test(url) ? { followers: 1551, targetedReaches: 1491, blocks: 59 } :
+  const lineUrls = [];
+  global.fetch = async (url) => {
+    lineUrls.push(String(url));
+    const body = /followers/.test(url) ? { followers: 1551, targetedReaches: 1491, blocks: 59 } :
       /demographic/.test(url) ? { available: true, genders: [{ gender: 'female', percentage: 60.3 }] } :
-      { autoResponse: 156 }) });
+      /insight\/richmenu\/richmenu-a/.test(url) ? { richMenuId: 'richmenu-a', metricsFrom: '20260901', metricsTo: '20260910', impression: { metrics: { count: 800, uniqueUsers: 500 } } } :
+      /insight\/richmenu\/richmenu-b/.test(url) ? { richMenuId: 'richmenu-b', metricsFrom: '20260901', metricsTo: '20260910', impression: { metrics: { count: 300, uniqueUsers: 200 } } } :
+      { autoResponse: 156 };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
   const pass = (req, res2, next) => next();
   registerAdminInsightRoutes(appStub(routes), { query: insightQuery, authCore: { requireAdmin: pass } });
   let r = await run(routes, 'GET /admin/insight/api/data', { q: { days: '30' } });
@@ -60,10 +70,30 @@ function appStub(routes) {
   ok((lastTotalsSql || '').match(/archived_at IS NULL/g || []).length >= 3,
      '會員數、封鎖數、近期新加入三個都排除了');
   ok(/Asia\/Taipei/.test(lastTotalsSql || ''), '「近 N 天」用台北日界線，跟長條圖對得起來');
-  r = await run(routes, 'GET /admin/insight/api/data', { q: { days: '365' } });
-  ok(r.body && r.body.days === 365, '數據期間可自己調整到 365 天，不再只有 30／90 天');
-  ok(insightCalls.some(c => /FROM rich_menu_taps/.test(c.f) && c.params[0] === 365),
-     '圖文選單熱門按鍵也使用同一個自訂期間，不再寫死 30 天');
+  r = await run(routes, 'GET /admin/insight/api/data', { q: { from: '2026-09-01', to: '2026-09-10' } });
+  ok(r.body && r.body.range.from === '2026-09-01' && r.body.range.to === '2026-09-10' && r.body.days === 10,
+     '數據總覽可用起訖日精確篩選，首尾都包含');
+  ok(insightCalls.some(c => /FROM rich_menu_taps/.test(c.f) && c.params[0] === '2026-09-01' && c.params[1] === '2026-09-10'),
+     '圖文選單熱門按鍵也使用同一組日期，不再寫死 30 天');
+  ok(r.body.line.rich_menu.total_impressions === 1100 && r.body.line.rich_menu.pages.length === 2,
+     'LINE 官方兩個圖文選單分頁的曝光次數有正確加總');
+  ok(lineUrls.some(u => /richmenu-a\/summary\?from=20260901&to=20260910/.test(u)),
+     '曝光查詢把畫面日期傳給 LINE 官方 summary API');
+
+  r = await run(routes, 'GET /admin/insight/api/data', { q: { from: '2026-09-10', to: '2026-09-01' } });
+  ok(r.code === 400 && r.body.error === 'bad_range', '開始日晚於結束日會擋下，不會查出錯誤數據');
+
+  // 新選單的 summary 可能先回 404，但選單本體仍存在；不能誤報為已刪除。
+  routes = {};
+  global.fetch = async url => {
+    if (/\/insight\/richmenu\//.test(url)) return { ok: false, status: 404, text: async () => '{"message":"Not Found"}' };
+    if (/\/v2\/bot\/richmenu\//.test(url)) return { ok: true, status: 200, text: async () => '{}' };
+    return { ok: true, status: 200, text: async () => '{}' };
+  };
+  registerAdminInsightRoutes(appStub(routes), { query: insightQuery, authCore: { requireAdmin: pass } });
+  r = await run(routes, 'GET /admin/insight/api/data', { q: { from: '2026-09-01', to: '2026-09-10' } });
+  ok(r.body.line.rich_menu.reason === 'not_ready' && r.body.line.rich_menu.pages.every(p => p.status === 'not_ready'),
+     'LINE 尚未產生統計時會顯示「待更新」，不會把仍存在的選單誤報成已刪除');
 
   // LINE 全掛 → 頁面照出，官方欄位是 null
   routes = {};
