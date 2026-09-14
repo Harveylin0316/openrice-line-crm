@@ -117,7 +117,7 @@ test('測試信使用正式 CTA、追蹤與安全退訂鏈路，成功後才核�
     params: { id: '4' }, body: { test_email: 'hen@example.com' }
   });
   assert.equal(result.statusCode, 200);
-  assert.match(mail.subject, /^\[測試\]/);
+  assert.equal(mail.subject, '歡迎回來');
   assert.match(mail.html, /https:\/\/crm\.example\.com\/email\/revisit\/click\/[a-f0-9]{48}/);
   assert.match(mail.html, /https:\/\/crm\.example\.com\/email\/revisit\/unsubscribe\/[a-f0-9]{48}/);
   assert.match(mail.html, /email\/revisit\/open\/[a-f0-9]{48}\.gif/);

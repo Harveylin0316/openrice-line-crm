@@ -190,11 +190,13 @@ function selectEligibleCandidates({
 
 function registerAdminRevisitEmailRoutes(app, deps) {
   const {
-    query, pool, authCore, smtpEmailProvider, resolvePublicSiteOrigin,
+    query, pool, authCore, revisitEmailProvider: configuredProvider, smtpEmailProvider, resolvePublicSiteOrigin,
     publicBaseUrl: configuredPublicBaseUrl,
     localSendEnabled = false,
     sendIntervalMs = 1500
   } = deps;
+  // smtpEmailProvider 保留給既有測試與舊呼叫端；實際可為 SMTP 或 Exchange EWS。
+  const emailProvider = configuredProvider || smtpEmailProvider;
   const { requireAdmin, requireOwner } = authCore;
 
   app.get('/admin/revisit-email', requireAdmin, (req, res) => {
@@ -249,9 +251,10 @@ function registerAdminRevisitEmailRoutes(app, deps) {
         campaigns: campaigns.rows,
         suppressions: suppressions.rows,
         sender: {
-          configured: Boolean(smtpEmailProvider && smtpEmailProvider.isConfigured()),
+          configured: Boolean(emailProvider && emailProvider.isConfigured()),
           local_send_enabled: Boolean(localSendEnabled),
-          from: smtpEmailProvider && smtpEmailProvider.getDefaultSender ? smtpEmailProvider.getDefaultSender() : null
+          provider: emailProvider && emailProvider.getProviderName ? emailProvider.getProviderName() : 'smtp',
+          from: emailProvider && emailProvider.getDefaultSender ? emailProvider.getDefaultSender() : null
         }
       });
     } catch (err) {
@@ -683,7 +686,7 @@ function registerAdminRevisitEmailRoutes(app, deps) {
     const testEmail = String(req.body && req.body.test_email || '').trim().toLowerCase();
     if (!isValidEmail(testEmail)) return jsonError(res, 400, 'invalid_test_email');
     if (!localSendEnabled) return jsonError(res, 403, 'local_send_disabled', '測試信只能在已開啟本機寄送的 CRM 執行。');
-    if (!smtpEmailProvider || !smtpEmailProvider.isConfigured()) return jsonError(res, 400, 'smtp_not_configured');
+    if (!emailProvider || !emailProvider.isConfigured()) return jsonError(res, 400, 'email_provider_not_configured');
     try {
       const origin = publicBaseUrl(req, configuredPublicBaseUrl, resolvePublicSiteOrigin);
       if (!isHttpUrl(origin) || !origin.startsWith('https://')) {
@@ -712,9 +715,10 @@ function registerAdminRevisitEmailRoutes(app, deps) {
           unsubscribeToken, row.cta_url, req.authUser.un]
       );
       const testId = testRs.rows[0].id;
-      const sent = await smtpEmailProvider.sendEmail({
+      const sent = await emailProvider.sendEmail({
         to: testEmail,
-        subject: `[測試] ${row.subject}`,
+        // 寄達率驗收必須與正式信使用完全相同主旨；是否為測試由收件人與稽核資料區分。
+        subject: row.subject,
         html: delivery.html,
         text: delivery.text,
         headers: {
@@ -728,7 +732,7 @@ function registerAdminRevisitEmailRoutes(app, deps) {
           `UPDATE revisit_email_test_deliveries SET status='failed', failure_detail=$2, updated_at=NOW()
             WHERE id=$1`, [testId, String(sent.error || 'smtp_send_failed').slice(0, 1500)]
         );
-        return jsonError(res, 502, 'smtp_send_failed', sent.error);
+        return jsonError(res, 502, 'email_send_failed', sent.error);
       }
       await query(
         `WITH accepted AS (
@@ -749,16 +753,19 @@ function registerAdminRevisitEmailRoutes(app, deps) {
     }
   });
 
-  app.post('/admin/revisit-email/api/smtp/verify', requireOwner, async (_req, res) => {
+  async function verifyEmailProvider(_req, res) {
     if (!localSendEnabled) return jsonError(res, 403, 'local_send_disabled');
-    if (!smtpEmailProvider || !smtpEmailProvider.isConfigured()) return jsonError(res, 400, 'smtp_not_configured');
-    const result = await smtpEmailProvider.verify();
-    return result.ok ? res.json({ ok: true }) : jsonError(res, 502, 'smtp_verify_failed', result.error);
-  });
+    if (!emailProvider || !emailProvider.isConfigured()) return jsonError(res, 400, 'email_provider_not_configured');
+    const result = await emailProvider.verify();
+    return result.ok ? res.json({ ok: true, provider: emailProvider.getProviderName ? emailProvider.getProviderName() : 'smtp' }) : jsonError(res, 502, 'email_provider_verify_failed', result.error);
+  }
+  app.post('/admin/revisit-email/api/provider/verify', requireOwner, verifyEmailProvider);
+  // 舊版前端仍可呼叫，避免部署期間前後端版本錯開。
+  app.post('/admin/revisit-email/api/smtp/verify', requireOwner, verifyEmailProvider);
 
   app.post('/admin/revisit-email/api/campaigns/:id(\\d+)/send', requireOwner, async (req, res) => {
     if (!localSendEnabled) return jsonError(res, 403, 'local_send_disabled', '正式寄送只能在 Mac 本機明確開啟 REVISIT_EMAIL_LOCAL_SEND_ENABLED=1 後執行。');
-    if (!smtpEmailProvider || !smtpEmailProvider.isConfigured()) return jsonError(res, 400, 'smtp_not_configured');
+    if (!emailProvider || !emailProvider.isConfigured()) return jsonError(res, 400, 'email_provider_not_configured');
     const campaignId = Number(req.params.id);
     const requested = positiveInt(req.body && req.body.limit, 10, 1, MAX_SEND_BATCH);
     let client;
@@ -868,7 +875,7 @@ function registerAdminRevisitEmailRoutes(app, deps) {
       const row = claimed[index];
       let result;
       try {
-        result = await smtpEmailProvider.sendEmail({
+        result = await emailProvider.sendEmail({
           to: row.recipient_email,
           toName: row.recipient_name || undefined,
           subject: row.subject,

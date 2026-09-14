@@ -17,7 +17,7 @@
 - 修改任何一封草稿都會讓舊測試失效，必須重新寄測試信。測試紀錄存在 `revisit_email_test_deliveries`，不會混入正式開信／點擊數。
 - 「需確認」不再能整批重排。逐封打開後，只能選：寄件備份已有這封（標記已寄）、確認沒寄出（重新排入）、或取消；每次人工決定都記在 `revisit_email_recipient_events`。
 - 後台「不可寄送名單」可登錄硬退信、客訴／垃圾信申訴及人工排除。系統在產生草稿與真正寄出前各檢查一次。
-- SMTP 在收件人階段同步回覆 5xx 時，系統會自動把該 Email 記為硬退信並停止後續寄送。公司信箱已接受後才出現的非同步退信，以及垃圾信申訴，SMTP 本身不會主動回報；收到 Exchange／收件匣通知後要人工加入不可寄送名單，直到另接核准的 Graph／EWS 回報流程。
+- SMTP 在收件人階段同步回覆 5xx 時，系統會自動把該 Email 記為硬退信並停止後續寄送。EWS 的同步成功只代表 Exchange 已接受信件，兩者都無法在這一步得知稍後才出現的非同步退信或垃圾信申訴；收到 Exchange／收件匣通知後要人工加入不可寄送名單。
 
 ## 支援欄位
 
@@ -45,20 +45,29 @@ offer_id,restaurant_id,restaurant_name,offer_type,offer_title,offer_description,
 
 ## Mac 本機寄件設定
 
-複製 `.env.example` 的「訂位客回訪 Email」欄位到本機 `.env`，填入公司郵件主機與帳號。不要把真實值 commit，也不要放到 Netlify。
+複製 `.env.example` 的「訂位客回訪 Email」欄位到本機 `.env`，填入公司郵件主機與帳號。不要把真實值 commit，也不要放到 Netlify。OpenRice 目前實測可用的是 Exchange EWS／NTLM：
 
 ```text
-SMTP_HOST=你的公司郵件主機
-SMTP_PORT=587
-SMTP_SECURE=0
-SMTP_USER=你的公司信箱
-SMTP_PASSWORD=本機密碼
-SMTP_FROM_EMAIL=你的公司信箱
-SMTP_FROM_NAME=OpenRice 台灣開飯喇
-SMTP_REPLY_TO=你的公司信箱
+REVISIT_EMAIL_PROVIDER=ews
+REVISIT_EMAIL_EWS_URL=https://你的 Exchange/EWS/Exchange.asmx
+REVISIT_EMAIL_EWS_USER=網域\\登入帳號
+REVISIT_EMAIL_EWS_PASSWORD=本機密碼
+REVISIT_EMAIL_EWS_FROM_EMAIL=寄件信箱
+REVISIT_EMAIL_EWS_FROM_NAME=OpenRice 台灣開飯喇
+REVISIT_EMAIL_EWS_REPLY_TO=回覆信箱
 REVISIT_EMAIL_LOCAL_SEND_ENABLED=1
 REVISIT_EMAIL_PUBLIC_BASE_URL=https://openrice-line-crm.netlify.app
 ```
+
+若 Mac 上已有含 `OUTREACH_EWS_USER`／`OUTREACH_EWS_PASSWORD` 的安全 dotenv，可用 `REVISIT_EMAIL_EWS_ENV_FILE=/絕對路徑/.env` 讓本機 worker 讀取，不必複製密碼。這個路徑也只留在 Mac，不提交 Git。
+
+EWS 寄件器使用 Mac 上的 Python 3，第一次設定時確認本機已有以下套件：
+
+```bash
+python3 -m pip install requests requests-ntlm python-dotenv
+```
+
+若另一個環境有開 SMTP AUTH，將 `REVISIT_EMAIL_PROVIDER` 改為 `smtp`，再設定 `.env.example` 內的 `SMTP_*`。未指定 provider 時，程式會優先使用設定完整的 EWS，否則使用 SMTP。
 
 接著執行：
 
@@ -67,13 +76,15 @@ npm ci --include=dev
 npm run dev
 ```
 
-用 CRM 真正設定的登入路徑登入本機站。頁首出現「Mac 本機寄件已就緒」後，先按「測試公司信箱連線」，再寄測試信。若公司 Exchange 環境只開 EWS 而沒有 SMTP AUTH，這個 provider 不會把 EWS 偽裝成 SMTP；需另做經 IT 核准的 EWS／Microsoft Graph provider。
+用 CRM 真正設定的登入路徑登入本機站。頁首出現「Mac 本機寄件已就緒 · Exchange EWS」後，先按「測試公司信箱連線」，再寄測試信。測試信主旨、HTML、CTA、追蹤與安全測試退訂均與正式信一致，避免「[測試]」字樣改變收件匣分類；差別只在收件地址與後台稽核紀錄。
 
 ## 程式與資料
 
 - Route／名單與寄送：`src/routes/adminRevisitEmail.js`
 - 匯入正規化與 Email HTML／純文字：`src/core/revisitEmail.js`
+- Exchange EWS：`src/core/emailProviderEws.js`
 - SMTP：`src/core/emailProviderSmtp.js`
+- 回訪寄件器選擇：`src/core/revisitEmailProvider.js`
 - 後台：`views/admin_revisit_email.ejs`
 - Schema：`supabase/migrations/20260910085055_create_revisit_email.sql`
 - 寄送安全 migration：`supabase/migrations/20260911105839_revisit_email_delivery_safety.sql`

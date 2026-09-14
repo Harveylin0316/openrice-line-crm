@@ -94,7 +94,8 @@ function createSmtpEmailProvider() {
     verify,
     sendEmail,
     close,
-    getDefaultSender: () => ({ email: senderEmail, name: senderName })
+    getDefaultSender: () => ({ email: senderEmail, name: senderName }),
+    getProviderName: () => 'smtp'
   };
 }
 
