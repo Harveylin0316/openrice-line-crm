@@ -32,6 +32,7 @@
   - `APP_ENV=staging`
   - `SAFE_PREVIEW_MODE=1`
   - `DATABASE_URL`：只可使用 `crm_staging_app`，search path 由該角色固定為 `crm_staging, extensions`
+    - 連線字串不要加 `sslmode=require`；應用程式已自行啟用 TLS，重複設定會讓 Node.js 誤判 Supabase 憑證鏈。
   - `ADMIN_USERNAME=staging-admin`
   - `ADMIN_PASSWORD`、`JWT_SECRET`：Staging 專用，不與正式共用
   - `LIFF_TOKEN_ENFORCE=0`
