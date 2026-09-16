@@ -13,8 +13,9 @@ OpenRice Taiwan 的 LINE 官方帳號 CRM 與 LIFF 活動平台。系統把會�
 ## 交接閱讀順序
 
 1. [AGENTS.md](./AGENTS.md)：AI／工程代理的工作規則與不可破壞的系統邊界。
-2. [docs/AI_HANDOFF.md](./docs/AI_HANDOFF.md)：完整產品、架構、資料流、模組、環境、測試、部署及已知風險。
-3. [PROJECT_HANDOFF.md](./PROJECT_HANDOFF.md)：早期「春日野餐刮刮樂」歷史交接；僅供追溯，不代表目前完整系統。
+2. [docs/STAGING_HANDOFF.md](./docs/STAGING_HANDOFF.md)：同事讓 AI 直接更新固定測試站的操作方式。
+3. [docs/AI_HANDOFF.md](./docs/AI_HANDOFF.md)：完整產品、架構、資料流、模組、環境、測試、部署及已知風險。
+4. [PROJECT_HANDOFF.md](./PROJECT_HANDOFF.md)：早期「春日野餐刮刮樂」歷史交接；僅供追溯，不代表目前完整系統。
 
 ## 技術摘要
 
