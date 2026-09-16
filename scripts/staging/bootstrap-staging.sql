@@ -173,6 +173,18 @@ BEGIN
   IF has_table_privilege('crm_staging_app', 'public.users', 'SELECT') THEN
     RAISE EXCEPTION 'unsafe staging role: production public.users is readable';
   END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM information_schema.tables
+     WHERE table_schema = 'public'
+       AND has_table_privilege(
+         'crm_staging_app',
+         format('%I.%I', table_schema, table_name),
+         'SELECT,INSERT,UPDATE,DELETE'
+       )
+  ) THEN
+    RAISE EXCEPTION 'unsafe staging role: a production public relation is accessible';
+  END IF;
   IF NOT has_table_privilege('crm_staging_app', 'crm_staging.users', 'SELECT,INSERT,UPDATE,DELETE') THEN
     RAISE EXCEPTION 'staging role is missing required crm_staging.users privileges';
   END IF;
