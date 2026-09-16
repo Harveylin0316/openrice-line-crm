@@ -431,8 +431,6 @@ function registerAdminBroadcastRoutes(app, deps) {
         bodyClass: 'admin-shell broadcast-shell' + (msgLibMode ? ' msglib-mode' : ''),
         user: req.authUser && req.authUser.un ? req.authUser.un : '',
         isAdmin: true,
-        prizes,
-        recent,
         scheduled: scheduledRs.rows,
         running: runningRs.rows,
         hasLineToken: Boolean(lineChannelAccessToken),
