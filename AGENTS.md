@@ -18,6 +18,15 @@
 - 從最新 `origin/main` 建立 `codex/` 前綴分支。
 - 涉及正式資料前，先做唯讀查詢確認活動 ID、slug、狀態與欄位。
 
+## 交接與上線權限
+
+- AI 與接手者只能在功能分支作業並建立 Pull Request；不得自行 merge `main`。
+- 只有 Hen 能核准合併、發布 production、修改 Netlify／Supabase／LINE／Exchange 正式憑證。
+- 不得用 Netlify CLI、API 或其他方式繞過 GitHub `main` 直接發布 production。
+- 每個 PR 必須完成 repo 的 PR 樣板，列出影響範圍、驗證、資料庫影響、截圖與 rollback 方式。
+- 涉及 migration、正式資料寫入、抽獎、邀請、群發、webhook、排程或權限時，在改動前先向 Hen 確認。
+- 完整交接與復原流程見 [`docs/HANDOFF_GUARDRAILS.md`](docs/HANDOFF_GUARDRAILS.md)。
+
 ## 不可破壞的核心邊界
 
 - 通用遊戲配額只有 `src/core/gamePlayEngine.js` 的 `computeUserQuota()`／`computeQuotaNumbers()` 可以計算。顯示與實際判定必須共用。
