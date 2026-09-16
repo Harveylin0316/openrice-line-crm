@@ -178,15 +178,37 @@
 
             <div class="broadcast-field" id="activity-participation-conditions">
               <div class="broadcast-field-label">活動參與（可包含或排除）</div>
-              <label class="broadcast-inline-field">
-                <span>參與狀況</span>
-                <select id="activity-participation" style="width:240px;">
-                  <option value="">不限</option>
-                  <option value="any">參加過任一活動</option>
-                  <option value="none">尚未參加任何活動</option>
-                </select>
-              </label>
-              <div class="muted" style="font-size:12px;margin-top:6px;">以 CRM 活動的實際遊玩紀錄為準；只開啟頁面但沒有開始玩，仍視為尚未參加。</div>
+              <div class="broadcast-inline-field" style="align-items:flex-end;flex-wrap:wrap;gap:12px;">
+                <label>
+                  <span style="display:block;margin-bottom:5px;">篩選方式</span>
+                  <select id="activity-participation" style="width:240px;">
+                    <option value="">不限</option>
+                    <option value="any">包含玩過的人</option>
+                    <option value="none">排除玩過的人</option>
+                  </select>
+                </label>
+                <label>
+                  <span style="display:block;margin-bottom:5px;">指定活動</span>
+                  <select id="activity-participation-activity-id" style="width:min(360px, 80vw);" disabled>
+                    <option value="">任一活動</option>
+                    ${
+                      Array.isArray(activities) && activities.length > 0
+                        ? activities.map(a => {
+                            const id = Number(a.id);
+                            const name = String(a.name == null ? '' : a.name)
+                              .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                              .replace(/"/g, '&quot;');
+                            const status = String(a.status == null ? '' : a.status)
+                              .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                              .replace(/"/g, '&quot;');
+                            return `<option value="${id}">${name || `活動 #${id}`}（#${id}${status ? `｜${status}` : ''}）</option>`;
+                          }).join('')
+                        : ''
+                    }
+                  </select>
+                </label>
+              </div>
+              <div class="muted" id="activity-participation-help" style="font-size:12px;margin-top:6px;">先選包含或排除，再選活動。例如：選「排除玩過的人」＋「分享超有哩」，即可排除玩過分享超有哩的人。若活動選「任一活動」，排除代表只保留從未玩過任何活動的人。只開啟頁面但沒有開始玩，仍視為未參加。</div>
             </div>
 
             <div class="broadcast-field" id="behavior-conditions">

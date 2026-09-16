@@ -13,7 +13,9 @@
  *   joinedFromDate: string | null,      // 自訂加入開始日 YYYY-MM-DD（台灣時間）
  *   joinedToDate: string | null,        // 自訂加入結束日 YYYY-MM-DD，包含當天（台灣時間）
  *   activityParticipation: 'any' | 'none' | null,
- *                                          // 參加過任一 CRM 活動 / 尚未參加任何 CRM 活動
+ *                                          // 包含玩過的人 / 排除玩過的人
+ *   activityParticipationActivityId: number | null,
+ *                                          // 指定 CRM 活動；null 代表任一活動（舊批次相容）
  *
  *   // 活動頁（好康地圖／擲骰子）行為條件
  *   playedLiffWithinDays: number | null,     // 最近 N 天內開過活動頁、或在裡面做過任何動作
@@ -183,6 +185,7 @@ function normalizeConditions(raw) {
     joinedFromDate: null,
     joinedToDate: null,
     activityParticipation: null,
+    activityParticipationActivityId: null,
     lifecycleStages: null,
     prizeFilter: null,
     inviteCompletedMin: null,
@@ -223,6 +226,10 @@ function normalizeConditions(raw) {
 
   if (safe.activityParticipation === 'any' || safe.activityParticipation === 'none') {
     out.activityParticipation = safe.activityParticipation;
+    const activityId = Number(safe.activityParticipationActivityId);
+    if (Number.isSafeInteger(activityId) && activityId > 0) {
+      out.activityParticipationActivityId = activityId;
+    }
   }
 
   // 活動頁行為條件（都是天數，沒填就維持 null、完全不影響原本的篩選結果）
@@ -326,17 +333,21 @@ function buildWhere(conds) {
     if (lcSql) where.push(lcSql);
   }
 
-  // CRM 活動參與以 activity_plays 為準。EXISTS／NOT EXISTS 不會因同一人玩多次而重複計數；
-  // production 已有 activity_plays(line_user_id) 索引支援這個反查。
-  if (conds.activityParticipation === 'any') {
-    where.push(`EXISTS (
+  // CRM 活動參與以 activity_plays 為準。指定活動時仍用參數綁定，並加 activities
+  // 存在性防線：即使有人繞過畫面送入不存在的活動 ID，也只會得到空名單，不會因
+  // NOT EXISTS 意外選中全部會員。production 的 activity_plays(line_user_id) 索引支援反查。
+  if (conds.activityParticipation === 'any' || conds.activityParticipation === 'none') {
+    let activityClause = '';
+    if (conds.activityParticipationActivityId !== null) {
+      params.push(conds.activityParticipationActivityId);
+      const activityIdParam = `$${params.length}::bigint`;
+      where.push(`EXISTS (SELECT 1 FROM activities af WHERE af.id = ${activityIdParam})`);
+      activityClause = `\n        AND ap.activity_id = ${activityIdParam}`;
+    }
+    const existsKeyword = conds.activityParticipation === 'none' ? 'NOT EXISTS' : 'EXISTS';
+    where.push(`${existsKeyword} (
       SELECT 1 FROM activity_plays ap
-      WHERE ap.line_user_id = u.line_user_id
-    )`);
-  } else if (conds.activityParticipation === 'none') {
-    where.push(`NOT EXISTS (
-      SELECT 1 FROM activity_plays ap
-      WHERE ap.line_user_id = u.line_user_id
+      WHERE ap.line_user_id = u.line_user_id${activityClause}
     )`);
   }
 

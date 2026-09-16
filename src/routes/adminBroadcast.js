@@ -116,6 +116,15 @@ function registerAdminBroadcastRoutes(app, deps) {
     return rs.rows;
   }
 
+  async function loadActivities() {
+    const rs = await query(
+      `SELECT id, name, status
+       FROM activities
+       ORDER BY created_at DESC, id DESC`
+    );
+    return rs.rows;
+  }
+
   async function loadRecentBroadcasts(limit = 10) {
     const rs = await query(
       `SELECT id, created_at, status, admin_username, recipient_total, recipient_ok, recipient_fail, recipient_skip,
@@ -384,8 +393,9 @@ function registerAdminBroadcastRoutes(app, deps) {
   // ---------- 1. main page ----------
   app.get('/admin/broadcast', requireAdmin, async (req, res, next) => {
     try {
-      const [prizes, recent, scheduledRs, runningRs] = await Promise.all([
+      const [prizes, activities, recent, scheduledRs, runningRs] = await Promise.all([
         loadPrizes(),
+        loadActivities(),
         loadRecentBroadcasts(10),
         query(
           `SELECT id, scheduled_at, admin_username, recipient_total, created_at
@@ -412,9 +422,10 @@ function registerAdminBroadcastRoutes(app, deps) {
       const msgLibDup = String(req.query.dup || '') === '1';
 
       return res.render('admin_broadcast', {
-        // prizes / recent 一定要傳：頁面直接用它們（獎品篩選清單、最近發送紀錄），
-        // 漏傳整頁會壞掉。這兩個曾經被漏掉，而群發兩個多月沒人用，所以一直沒被發現。
+        // prizes / activities / recent 一定要傳：頁面直接用它們（獎品與活動篩選、最近發送紀錄），
+        // 漏傳會讓整頁或對應選單壞掉。
         prizes,
+        activities,
         recent,
         title: msgLibMode ? '訊息編輯' : '群發訊息',
         bodyClass: 'admin-shell broadcast-shell' + (msgLibMode ? ' msglib-mode' : ''),

@@ -96,16 +96,46 @@ test('群發頁提供自訂日期 UI、前端檢核與預覽失效機制', () =>
 });
 
 test('活動參與條件只接受包含或排除，錯誤值不會意外縮小受眾', () => {
-  const included = normalizeConditions({ activityParticipation: 'any' });
-  const excluded = normalizeConditions({ activityParticipation: 'none' });
-  const invalid = normalizeConditions({ activityParticipation: 'anything-else' });
+  const included = normalizeConditions({ activityParticipation: 'any', activityParticipationActivityId: 6 });
+  const excluded = normalizeConditions({ activityParticipation: 'none', activityParticipationActivityId: '7' });
+  const invalid = normalizeConditions({ activityParticipation: 'anything-else', activityParticipationActivityId: 6 });
+  const invalidId = normalizeConditions({ activityParticipation: 'none', activityParticipationActivityId: 'not-an-id' });
 
   assert.equal(included.activityParticipation, 'any');
+  assert.equal(included.activityParticipationActivityId, 6);
   assert.equal(excluded.activityParticipation, 'none');
+  assert.equal(excluded.activityParticipationActivityId, 7);
   assert.equal(invalid.activityParticipation, null);
+  assert.equal(invalid.activityParticipationActivityId, null);
+  assert.equal(invalidId.activityParticipationActivityId, null);
   assert.equal(hasAnyCondition(included), true);
   assert.equal(hasAnyCondition(excluded), true);
   assert.equal(hasAnyCondition(invalid), false);
+});
+
+test('指定活動的包含或排除使用同一個參數化條件，預覽與正式名單一致', async () => {
+  const raw = {
+    joinedWithinDays: 7,
+    activityParticipation: 'none',
+    activityParticipationActivityId: 6
+  };
+  const previewCalls = [];
+  await previewAudience(async (sql, params) => {
+    previewCalls.push({ sql: String(sql).replace(/\s+/g, ' '), params: params.slice() });
+    if (/COUNT\(DISTINCT u\.id\)/.test(sql)) return { rows: [{ total: 12 }] };
+    return { rows: [] };
+  }, raw);
+  assert.deepEqual(previewCalls[0].params, [7, 6]);
+  assert.match(previewCalls[0].sql, /EXISTS \(SELECT 1 FROM activities af WHERE af\.id = \$2::bigint\)/);
+  assert.match(previewCalls[0].sql, /NOT EXISTS \( SELECT 1 FROM activity_plays ap WHERE ap\.line_user_id = u\.line_user_id AND ap\.activity_id = \$2::bigint \)/);
+
+  const sendCalls = [];
+  await fetchAudienceRecipients(async (sql, params) => {
+    sendCalls.push({ sql: String(sql).replace(/\s+/g, ' '), params: params.slice() });
+    return { rows: [] };
+  }, raw);
+  assert.deepEqual(sendCalls[0].params, [7, 6, 5000]);
+  assert.match(sendCalls[0].sql, /NOT EXISTS \( SELECT 1 FROM activity_plays ap WHERE ap\.line_user_id = u\.line_user_id AND ap\.activity_id = \$2::bigint \)/);
 });
 
 test('近 7 天新好友且尚未參加活動會在預覽與正式名單套用同一組 AND 條件', async () => {
@@ -157,11 +187,15 @@ test('群發頁可選活動參與包含或排除，並提供近 7 天未參加�
   const view = fs.readFileSync(path.join(__dirname, '..', 'views/admin_broadcast.ejs'), 'utf8');
   const script = fs.readFileSync(path.join(__dirname, '..', 'public/admin-broadcast.js'), 'utf8');
   assert.match(view, /id="activity-participation"/);
-  assert.match(view, /<option value="any">參加過任一活動<\/option>/);
-  assert.match(view, /<option value="none">尚未參加任何活動<\/option>/);
+  assert.match(view, /<option value="any">包含玩過的人<\/option>/);
+  assert.match(view, /<option value="none">排除玩過的人<\/option>/);
+  assert.match(view, /id="activity-participation-activity-id"/);
+  assert.match(view, /Array\.isArray\(activities\)/);
+  assert.match(view, /activities\.map/);
   assert.match(view, /id="preset-new-no-activity"/);
   assert.match(view, /兩個都要符合（AND）/);
   assert.match(script, /activityParticipation: activityParticipation/);
+  assert.match(script, /activityParticipationActivityId: activityParticipationActivityId/);
   assert.match(script, /joined\.value = '7'/);
   assert.match(script, /activity\.value = 'none'/);
 });

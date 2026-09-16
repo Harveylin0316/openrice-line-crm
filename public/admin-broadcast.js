@@ -232,6 +232,16 @@
     var activityParticipation = (activityParticipationRaw === 'any' || activityParticipationRaw === 'none')
       ? activityParticipationRaw
       : null;
+    var activityParticipationActivityId = null;
+    if (activityParticipation) {
+      var selectedActivityId = parseInt(
+        ($('activity-participation-activity-id') && $('activity-participation-activity-id').value) || '',
+        10
+      );
+      if (Number.isSafeInteger(selectedActivityId) && selectedActivityId > 0) {
+        activityParticipationActivityId = selectedActivityId;
+      }
+    }
 
     // 生命週期階段（多選）：全選 4 個或全不選都視為不限（後端會把全選正規化掉）
     var lifecycleStages = $$('input[name="lifecycle_stage"]:checked').map(function (el) { return el.value; });
@@ -274,6 +284,7 @@
       joinedFromDate: joinedFromDate,
       joinedToDate: joinedToDate,
       activityParticipation: activityParticipation,
+      activityParticipationActivityId: activityParticipationActivityId,
       lifecycleStages: lifecycleStages,
       prizeFilter: prizeFilter,
       inviteCompletedMin: inviteCompletedMin,
@@ -336,6 +347,8 @@
       if (joined) joined.value = '7';
       var activity = $('activity-participation');
       if (activity) activity.value = 'none';
+      var activityId = $('activity-participation-activity-id');
+      if (activityId) activityId.value = '';
       ['joined-from-date', 'joined-to-date', 'invite-min', 'liff-played-days',
         'liff-booking-days', 'liff-inactive-days'].forEach(function (id) {
         var field = $(id); if (field) field.value = '';
@@ -362,6 +375,18 @@
     });
   })();
 
+  (function wireActivityParticipationFilter() {
+    var mode = $('activity-participation');
+    var activity = $('activity-participation-activity-id');
+    if (!mode || !activity) return;
+    function refresh() {
+      activity.disabled = !mode.value;
+      if (!mode.value) activity.value = '';
+    }
+    mode.addEventListener('change', refresh);
+    refresh();
+  })();
+
   function validateJoinedDateSelection() {
     var mode = $('joined-within') ? $('joined-within').value : '';
     if (mode !== 'custom') return null;
@@ -375,6 +400,7 @@
   // 活動頁行為／訂位來源欄位一改動，之前預覽出來的人數就作廢，要重新按「預覽收件人」
   ['liff-played-days', 'liff-booking-days', 'liff-inactive-days',
     'booking-source', 'booking-source-answered', 'activity-participation',
+    'activity-participation-activity-id',
     'prize-mode', 'invite-min', 'drew-in-campaign'].forEach(function (id) {
     var el = $(id);
     if (!el) return;
