@@ -100,7 +100,7 @@ BEGIN
       -- Prefix the referenced table in either form so no FK can point back to production.
       definition := regexp_replace(
         r.constraint_definition,
-        'REFERENCES (public\\.)?',
+        'REFERENCES (public\.)?',
         'REFERENCES crm_staging.'
       );
       EXECUTE format(
@@ -112,6 +112,28 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+-- Recreate the app views with fully-qualified staging sources. Never copy a public
+-- view definition verbatim: PostgreSQL may persist its references back to public.
+CREATE OR REPLACE VIEW crm_staging.member_booking_source AS
+SELECT DISTINCT ON (line_user_id)
+  line_user_id, source_key, source_label, raw_text, answered_at
+FROM crm_staging.booking_source_answers
+ORDER BY line_user_id, answered_at DESC;
+
+CREATE OR REPLACE VIEW crm_staging.member_liff_events AS
+SELECT
+  u.id AS user_id,
+  u.line_user_id,
+  ue.id AS event_id,
+  ue.event_name,
+  ue.properties,
+  ue.session_id,
+  ue.created_at
+FROM crm_staging.user_events ue
+JOIN crm_staging.users u
+  ON ue.line_id = u.line_user_id OR ue.line_id = u.line_id_hash
+WHERE ue.line_id IS NOT NULL;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA crm_staging TO crm_staging_app;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA crm_staging TO crm_staging_app;
@@ -153,6 +175,24 @@ BEGIN
   END IF;
   IF NOT has_table_privilege('crm_staging_app', 'crm_staging.users', 'SELECT,INSERT,UPDATE,DELETE') THEN
     RAISE EXCEPTION 'staging role is missing required crm_staging.users privileges';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_views
+     WHERE schemaname = 'crm_staging'
+       AND definition LIKE '%public.%'
+  ) THEN
+    RAISE EXCEPTION 'unsafe staging view: a crm_staging view references public';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_constraint c
+      JOIN pg_class t ON t.oid = c.conrelid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+     WHERE c.contype = 'f'
+       AND n.nspname = 'crm_staging'
+       AND pg_get_constraintdef(c.oid) LIKE '%public.%'
+  ) THEN
+    RAISE EXCEPTION 'unsafe staging foreign key: a crm_staging table references public';
   END IF;
 END $$;
 

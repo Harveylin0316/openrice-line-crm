@@ -20,6 +20,12 @@ test('staging bootstrap 不含真實憑證或正式資料複製', () => {
   assert.match(sql, /WITH NO DATA|LIKE public\.%I INCLUDING ALL/);
   assert.doesNotMatch(sql, /INSERT INTO crm_staging\.[^\n]+SELECT \* FROM public\./i);
   assert.match(sql, /has_table_privilege\('crm_staging_app', 'public\.users', 'SELECT'\)/);
+  assert.match(sql, /CREATE OR REPLACE VIEW crm_staging\.member_booking_source/);
+  assert.match(sql, /FROM crm_staging\.booking_source_answers/);
+  assert.match(sql, /FROM crm_staging\.user_events ue/);
+  assert.match(sql, /JOIN crm_staging\.users u/);
+  assert.match(sql, /unsafe staging view/);
+  assert.match(sql, /unsafe staging foreign key/);
 });
 
 test('preview 模式有明顯橫幅與 health check 訊號', () => {
