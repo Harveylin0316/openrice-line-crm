@@ -552,10 +552,18 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
   await query('ALTER TABLE admin_broadcasts ADD COLUMN IF NOT EXISTS variant_b_message_config JSONB');
   await query("ALTER TABLE admin_broadcast_recipients ADD COLUMN IF NOT EXISTS variant TEXT NOT NULL DEFAULT 'a'");
   await query('ALTER TABLE admin_broadcast_recipients ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ');
+  await query('ALTER TABLE admin_broadcast_recipients ADD COLUMN IF NOT EXISTS opened_at TIMESTAMPTZ');
+  await query('ALTER TABLE admin_broadcast_recipients ADD COLUMN IF NOT EXISTS first_clicked_at TIMESTAMPTZ');
   await query('ALTER TABLE admin_broadcast_clicks ADD COLUMN IF NOT EXISTS variant TEXT');
   await query('ALTER TABLE admin_broadcast_views ADD COLUMN IF NOT EXISTS variant TEXT');
   await query(
     'CREATE INDEX IF NOT EXISTS admin_broadcast_recipients_broadcast_variant_idx ON admin_broadcast_recipients (broadcast_id, variant)'
+  );
+  await query(
+    'CREATE INDEX IF NOT EXISTS admin_broadcast_recipients_opened_idx ON admin_broadcast_recipients (broadcast_id, opened_at) WHERE opened_at IS NOT NULL'
+  );
+  await query(
+    'CREATE INDEX IF NOT EXISTS admin_broadcast_recipients_clicked_idx ON admin_broadcast_recipients (broadcast_id, first_clicked_at) WHERE first_clicked_at IS NOT NULL'
   );
   await query(
     'CREATE INDEX IF NOT EXISTS admin_broadcast_clicks_broadcast_variant_idx ON admin_broadcast_clicks (broadcast_id, variant)'

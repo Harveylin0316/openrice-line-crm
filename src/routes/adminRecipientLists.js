@@ -132,13 +132,16 @@ function registerAdminRecipientListsRoutes(app, deps) {
     try {
       const lists = await query(
         `SELECT id FROM admin_recipient_lists
-          WHERE list_type = 'dynamic' AND auto_refresh = true ORDER BY id ASC LIMIT 100`);
+          WHERE list_type = 'dynamic' AND auto_refresh = true
+          ORDER BY last_synced_at ASC NULLS FIRST, id ASC
+          LIMIT 25`);
       const results = [];
       for (const row of lists.rows) {
         try { results.push({ id: row.id, ok: true, ...(await syncDynamicList(pool, row.id)) }); }
         catch (err) { results.push({ id: row.id, ok: false, error: String(err.message || err) }); }
       }
-      return res.json({ ok: true, results });
+      return res.json({ ok: true, results, processed: results.length,
+        note: '依最久未同步優先處理；其餘名單會在後續排程輪次接續' });
     } catch (err) {
       return safeJson(res, 500, 'sync_failed', { detail: err && err.message });
     }
@@ -502,14 +505,40 @@ function registerAdminRecipientListsRoutes(app, deps) {
       const name = String(body.name || '').trim().slice(0, 200);
       const description = String(body.description || '').trim().slice(0, 500);
       if (!name) return safeJson(res, 400, 'name_required');
+      const current = await query(
+        `SELECT id, list_type FROM admin_recipient_lists WHERE id = $1`, [id]);
+      if (!current.rows.length) return safeJson(res, 404, 'not_found');
+      let definition = null;
+      if (current.rows[0].list_type === 'dynamic' && body.definition !== undefined) {
+        try { definition = cleanDefinition(body.definition); }
+        catch (err) { return safeJson(res, 400, 'invalid_definition', { detail: err.message }); }
+      }
       const { rows } = await query(
         `UPDATE admin_recipient_lists
-         SET name = $1, description = $2, updated_at = NOW()
+         SET name = $1, description = $2,
+             definition = CASE WHEN $4::jsonb IS NULL THEN definition ELSE $4::jsonb END,
+             auto_refresh = CASE WHEN list_type = 'dynamic' AND $5::boolean IS NOT NULL THEN $5 ELSE auto_refresh END,
+             last_sync_status = CASE WHEN $4::jsonb IS NULL THEN last_sync_status ELSE 'pending' END,
+             last_sync_error = CASE WHEN $4::jsonb IS NULL THEN last_sync_error ELSE NULL END,
+             updated_at = NOW()
          WHERE id = $3
          RETURNING *`,
-        [name, description || null, id]
+        [name, description || null, id, definition ? JSON.stringify(definition) : null,
+          current.rows[0].list_type === 'dynamic' && body.auto_refresh !== undefined ? body.auto_refresh !== false : null]
       );
       if (rows.length === 0) return safeJson(res, 404, 'not_found');
+      if (definition) {
+        try {
+          const synced = await syncDynamicList(pool, id);
+          rows[0].total = synced.total;
+          rows[0].last_sync_status = 'ok';
+          rows[0].last_sync_error = null;
+        } catch (syncErr) {
+          return safeJson(res, 400, 'sync_failed', {
+            detail: '條件已儲存，但同步失敗：' + String(syncErr.message || syncErr)
+          });
+        }
+      }
       res.json({ ok: true, list: rows[0] });
     } catch (err) {
       console.error('update list error:', err && err.message);

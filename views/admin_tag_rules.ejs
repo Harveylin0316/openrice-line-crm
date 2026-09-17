@@ -174,18 +174,25 @@
           return '<div class="tr-row'+(r.active?'':' tr-off')+'">'+
             '<div class="tr-cond">'+condText(r)+' → '+action+' <span class="tr-chip" style="background:'+esc(r.tag_color||'#8E8E93')+';">'+esc(r.tag_name)+'</span>'+ttl+'</div>'+
             '<span class="tr-meta">'+(r.active?('上次 '+when+'：新增 '+(r.last_added==null?'—':r.last_added)+'／移除 '+(r.last_removed==null?'—':r.last_removed)):'已停用')+'</span>'+
-            '<button type="button" class="tr-mini tr-toggle" data-id="'+r.id+'">'+(r.active?'停用':'啟用')+'</button>'+
+            '<button type="button" class="tr-mini tr-toggle" data-id="'+r.id+'" data-active="'+(r.active?'1':'0')+'">'+(r.active?'停用':'啟用')+'</button>'+
             '<button type="button" class="tr-mini tr-del" data-id="'+r.id+'" style="color:#b91c1c;">刪除</button>'+
           '</div>';
         }).join('');
         [].slice.call(box.querySelectorAll('.tr-toggle')).forEach(function(b){
           b.addEventListener('click',function(){
-            post('/admin/users/api/tag-rules/toggle',{id:Number(b.getAttribute('data-id'))},function(){load();});
+            var isActive=b.getAttribute('data-active')==='1';
+            var remove=false;
+            if(isActive){
+              if(!confirm('確定停用這條規則？停用後不會再自動更新。'))return;
+              remove=confirm('是否同時移除「這條規則自動貼上」的既有標籤？確定＝移除；取消＝保留目前標籤。人工貼上的標籤不受影響。');
+            }
+            post('/admin/users/api/tag-rules/toggle',{id:Number(b.getAttribute('data-id')),remove_members:remove},function(){load();});
           });});
         [].slice.call(box.querySelectorAll('.tr-del')).forEach(function(b){
           b.addEventListener('click',function(){
-            if(!confirm('刪掉這條規則？已經貼上去的標籤會留著，只是以後不再自動貼。'))return;
-            post('/admin/users/api/tag-rules/delete',{id:Number(b.getAttribute('data-id'))},function(){load();});
+            if(!confirm('確定刪掉這條規則？刪除後無法復原。'))return;
+            var remove=confirm('是否同時移除「這條規則自動貼上」的既有標籤？確定＝移除；取消＝保留目前標籤。人工貼上的標籤不受影響。');
+            post('/admin/users/api/tag-rules/delete',{id:Number(b.getAttribute('data-id')),remove_members:remove},function(){load();});
           });});
       }
 

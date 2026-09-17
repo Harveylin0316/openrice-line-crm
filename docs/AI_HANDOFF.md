@@ -196,14 +196,16 @@ Email 已儲存名單）都可選「全部符合條件的人」或「隨機抽�
 
 建立批次時會一次抓取受眾、隨機分組並物化到 `admin_broadcast_recipients`。測試組狀態為
 `pending`，保留名單為 `waiting_winner`；後續不重算受眾，所以各組互斥且不會重複發送。
-測試組送完後母批次進入 `awaiting_winner`。排程 runner 到達 `winnerAt` 後依 CTR 建立一個
+測試組全部送完後才寫入 `observationStartedAt`／`winnerAt` 並進入 `awaiting_winner`；排程或
+手動 chunk 重試不會把截止時間往後延。排程 runner 到達 `winnerAt` 後依 CTR 建立一個
 一般 LINE 勝出版批次，將原保留名單標為 `released`，母批次改為 `winner_released`。
 釋放時會鎖定母批次，cron 與管理員手動按鈕同時操作也只會成功一次；若所有測試版皆無
 成功送達，不會自動發送保留名單。管理員也能在母批次詳情手動指定版本，或取消保留名單。
 
 實驗設定與 C 版內容儲存在既有 `admin_broadcasts.audience_config.experiment` JSONB，沒有新增
 公開資料表。CTR 依帶 `recipient_id` 的追蹤網址計算，因此 Campaign Testing 限用一般訊息
-編輯器；進階 Flex JSON 的任意按鈕尚不能保證都經過 CTR 追蹤。核心純邏輯在
+編輯器；進階 Flex JSON 的任意按鈕尚不能保證都經過 CTR 追蹤。Flex 仍可編輯及預覽，
+但畫面會立即顯示原因並鎖住正式送出，不會等到最後一步才用不明確錯誤拒絕。核心純邏輯在
 `src/core/campaignExperiment.js`，route／runner 在 `src/routes/adminBroadcast.js`，回歸測試在
 `test/campaign-experiment.test.js`。
 
@@ -623,27 +625,31 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 - 條件支援 Include／Exclude 與 Include 間 AND／OR。Exclude 永遠是強制排除，不會因選 OR 而意外把排除者放回名單；只有 Exclude 時語意是「全部有效會員扣掉排除條件」。
 - 可用加入日期、目前好友／封鎖狀態、Tag、指定圖文選單／按鈕、LIFF event、活動進入／開始／完成／分享、成功邀請、獎勵、LINE Login、活動手機登記、金豬訂位、群發已發／Email delivered／open／click／測試組／CTA conversion 等條件。現有 `campaign_phone_registrations` 只能證明活動手機登記，不能當作 OpenRice App Registration；後者須等正式身份橋接後才能加入。
 - 建立畫面會在條件變更後 debounce 即時計數。啟用自動同步的名單由既有 scheduled runner 每五分鐘更新；群發預覽與正式建立批次前仍會強制同步一次，避免送到排程間隔內的舊快照。
-- 流程編輯器的「加入名單」步驟可直接建立空白靜態名單，不必離開編輯畫面。
+- 已建立的動態名單可在列表或詳情頁查看、修改條件並立即同步；同步失敗會顯示最後錯誤。排程每輪以 `last_synced_at NULLS FIRST` 處理最久未同步的 25 筆，避免名單超過上限後永遠只更新較小 id。
+- 流程編輯器的「加入名單」步驟可直接建立空白靜態名單，不必離開編輯畫面。這個動作只允許靜態名單；前端、儲存 API 與執行引擎都有防線，避免流程加入的成員被下一次動態重算洗掉。
+- 刪除名單前會同時檢查 Automation 與 Rich Menu 引用；仍在使用時回 409，不會留下壞掉的選單或流程。
 
 ### 行為追蹤與標籤
 
 - `activity_user_events` 記錄活動 `enter/start/complete/share`；start／complete 以 `play_key` 唯一索引去重，網路重送不會被算成第二次遊戲。成功邀請仍以 `activity_referrals.invitee_was_existing IS FALSE` 為準。
 - 圖文選單按鈕用 `rich_menu_taps(menu_id,tab,cell)`；LIFF 開啟／CTA 用 `member_liff_events.event_name`；follow／unfollow 使用已驗簽 webhook 的 `line_webhook_events`。
-- `/admin/tag-rules` 支援規則貼標／移除、30 天等有效期限與 reconcile。規則只會自動移除由自己貼上的標籤，不覆蓋或誤刪人工標籤；批次貼標可貼已綁定的 LINE userId。
+- `/admin/tag-rules` 支援規則貼標／移除、30 天等有效期限與 reconcile。停用或刪除規則時可選擇保留既有標籤，或只移除該規則自己建立的 membership；人工標籤不受影響。批次貼標可貼已綁定的 LINE userId。
 - Automation 流程新增「貼標籤／移除標籤」步驟；貼標可設定有效天數。
 
 ### Campaign Testing 與成效漏斗
 
 - `/admin/broadcast` 既有 Campaign Testing 支援隨機 A/B/C、任意合法比例（例如 A 10%／B 10%／Winner holdout 80%）、不同文字／圖片／CTA、互斥測試受眾與 CTR Winner 自動 release。
 - 內容版本固定同時發送，避免時間差與文案效果混在一起；要測發送時間應建立獨立、互斥且內容相同的實驗。Booking Winner 在一般 Booking 尚無 LINE identity bridge 前不可開，不能拿猜測資料選 Winner。
-- `/admin/campaign-performance` 依自訂日期顯示 Target → Sent → Delivered → Open → Click → LIFF → 活動手機登記 → Booking → Confirmed／Cancel → Attendance 與 Block，並列出 delivery/open/CTR/conversion/block rate。每列同時顯示 Audience 名稱以比較不同名單，Campaign 可逐列比較，A/B/C 區塊比較 Creative。
+- `/admin/campaign-performance` 依自訂日期顯示 Target → Sent → Delivered → Open → Click → LIFF → 活動手機登記 → Booking → Confirmed／Cancel → Attendance 與 Block，並列出 delivery/open/CTR/conversion/block rate。日期預設依 `Asia/Taipei`，不會在台灣午夜後仍顯示前一天。每列同時顯示 Audience 名稱以比較不同名單，Campaign 可逐列比較，A/B/C 區塊比較 Creative。
+- 新 LINE 一般訊息的追蹤圖片／CTA 會同時寫入 append-only event table 與 recipients 的 `opened_at`／`first_clicked_at`；成效與動態名單另以 event table 回補舊資料。LINE Flex JSON 無可靠逐人 open／click 時顯示「無資料」，不再誤顯示 0。
+- LIFF／活動／Booking 等下游指標目前是「每次發送後 7 天觀察」而非唯一歸因；同一人在重疊期間收到多個 Campaign 時，事件可能出現在多列。頁面會明確提示不可把各列直接相加。
 - LINE Messaging API 不提供逐人 delivered／open。LINE Delivered 必須顯示「無資料」；Open 只可能是追蹤圖 proxy。Email Delivered 來自 provider webhook。一般 Booking、OpenRice App Registration 與 Attendance 目前無可靠 LINE ID 對應，也必須顯示「無資料」；目前 Registration 只計活動手機登記，Booking 只計金豬食堂的 LINE 綁定訂位。
 - Reward 的「未兌換／已兌換」以 `activity_plays.is_redeemed` 判定，不可用 coupon code 已指派來代替。尚未回寫兌換狀態的哩數或外部獎項會維持未兌換，不能宣稱已領取。
 - `Dashboard` 的訂位來源可用 `booking_from`／`booking_to` 自訂日期，首尾都包含且依台灣日界線查詢。
 
 ### Schema
 
-- Migration：`supabase/migrations/20260917093000_dynamic_audiences_and_tag_lifecycle.sql`。
+- Migration：`supabase/migrations/20260917093000_dynamic_audiences_and_tag_lifecycle.sql`、`supabase/migrations/20260917143000_broadcast_engagement_recipient_fields.sql`。
 - Production 不得靠 runtime DDL；正式套 migration 前先確認 schema。Staging 使用 `crm_staging` search path 時可套同一 migration，但必須先確認 current user/schema，不可碰 `public`。
 
 ## 15. Git、部署與驗收流程

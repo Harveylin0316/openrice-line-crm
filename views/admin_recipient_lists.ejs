@@ -44,7 +44,7 @@
     <div id="new-list-modal" class="rl-modal" hidden>
       <div class="rl-modal-inner">
         <div class="rl-modal-head">
-          <h3 style="margin:0;">新增名單</h3>
+          <h3 style="margin:0;" id="nl-modal-title">新增名單</h3>
           <button type="button" class="rl-modal-close" id="new-list-close">×</button>
         </div>
         <div class="rl-grid">
@@ -58,7 +58,7 @@
           </label>
           <div class="rl-field rl-field-full">
             <span>名單類型</span>
-            <div class="aud-type-switch">
+            <div class="aud-type-switch" id="nl-type-switch">
               <label><input type="radio" name="nl-type" value="static" checked /> 靜態名單（手動加入）</label>
               <label><input type="radio" name="nl-type" value="dynamic" /> 動態受眾（條件符合就自動加入／移除）</label>
             </div>
@@ -97,6 +97,7 @@
       var allLists = [];
       var catalog = { tags:[], activities:[], menus:[], broadcasts:[] };
       var breakdowns = {}; // { [listId]: { line_sendable, email_only, unknown } }
+      var editingDynamicId = null;
 
       // 名單列表頁的「實際可發」拆解：以非同步補上，未到時顯示計算中
       function renderSendable(listId) {
@@ -146,7 +147,7 @@
       }
 
       function load() {
-        fetch('/admin/broadcast/recipient-lists')
+        return fetch('/admin/broadcast/recipient-lists')
           .then(function (r) { return r.json(); })
           .then(function (resp) {
             if (!resp.ok) {
@@ -184,6 +185,7 @@
             '<td style="font-size:12px;color:#6B6B70;">' + fmtTime(l.updated_at) + '</td>' +
             '<td>' +
               '<a href="/admin/recipient-lists/' + l.id + '" class="rl-link-btn">檢視 / 編輯</a>' +
+              (l.list_type === 'dynamic' ? '<button type="button" class="rl-link-btn rl-edit-dynamic" data-id="' + l.id + '">修改條件</button>' : '') +
               '<button type="button" class="rl-del-btn" data-id="' + l.id + '" data-name="' + esc(l.name) + '" data-total="' + (l.total || 0) + '">刪除</button>' +
             '</td>' +
           '</tr>';
@@ -206,6 +208,13 @@
               });
           });
         });
+        tbody.querySelectorAll('.rl-edit-dynamic').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var id = Number(btn.getAttribute('data-id'));
+            var item = allLists.find(function (list) { return Number(list.id) === id; });
+            if (item) openDynamicEditor(item);
+          });
+        });
       }
 
       // search
@@ -223,6 +232,11 @@
       // ---- 新增 modal ----
       var modal = $('new-list-modal');
       function openModal() {
+        editingDynamicId = null;
+        $('nl-modal-title').textContent = '新增名單';
+        $('nl-save').textContent = '建立名單';
+        $('nl-type-switch').hidden = false;
+        document.querySelectorAll('input[name="nl-type"]').forEach(function (el) { el.disabled = false; });
         $('nl-name').value = '';
         $('nl-desc').value = '';
         $('nl-uids').value = '';
@@ -234,6 +248,26 @@
         addCondition();
         modal.hidden = false;
         setTimeout(function () { $('nl-name').focus(); }, 50);
+      }
+      function openDynamicEditor(list) {
+        editingDynamicId = Number(list.id);
+        $('nl-modal-title').textContent = '修改動態名單條件';
+        $('nl-save').textContent = '儲存並立即同步';
+        $('nl-type-switch').hidden = true;
+        document.querySelector('input[name="nl-type"][value="dynamic"]').checked = true;
+        document.querySelectorAll('input[name="nl-type"]').forEach(function (el) { el.disabled = true; });
+        $('nl-name').value = list.name || '';
+        $('nl-desc').value = list.description || '';
+        $('nl-status').textContent = '';
+        switchType();
+        $('aud-operator').value = list.definition && list.definition.operator === 'or' ? 'or' : 'and';
+        $('aud-auto').checked = list.auto_refresh !== false;
+        $('aud-conditions').innerHTML = '';
+        var conditions = list.definition && Array.isArray(list.definition.conditions) ? list.definition.conditions : [];
+        conditions.forEach(function (condition) { addCondition(condition); });
+        if (!conditions.length) addCondition();
+        modal.hidden = false;
+        previewDynamicAudience();
       }
       function closeModal() { modal.hidden = true; }
       $('btn-new-list').addEventListener('click', openModal);
@@ -259,7 +293,7 @@
       var conditionLabels = {
         joined_after:'加入日期在此日之後', joined_before:'加入日期在此日之前', is_friend:'目前仍是好友',
         is_blocked:'目前已封鎖', tag:'會員標籤', rich_menu:'點過指定圖文選單', rich_menu_button:'點過指定圖文選單按鈕', liff_event:'LIFF 指定行為',
-        activity:'玩過指定活動', activity_enter:'進入指定活動', activity_start:'開始指定活動', activity_complete:'完成指定活動', activity_share:'分享指定活動', successful_invite:'指定活動成功邀請', invite_count:'成功邀請至少幾人', reward_status:'獎勵狀態',
+        activity:'玩過指定活動', activity_enter:'進入指定活動', activity_start:'開始指定活動', activity_complete:'完成指定活動', activity_share:'分享指定活動', successful_invite:'指定活動成功邀請', invite_count:'全部活動成功邀請合計至少幾人', reward_status:'獎勵狀態',
         follow_event:'曾加入好友', block_event:'曾封鎖', unblock_event:'封鎖後曾重新加入',
         line_login:'已有 LINE Login 身分', app_registration:'完成活動手機登記（非 OpenRice App 註冊）', booking_confirmed:'已確認金豬食堂訂位', booking_cancelled:'已取消／申請取消金豬食堂訂位',
         broadcast_sent:'指定群發已發送', broadcast_delivered:'指定群發已送達（Email）', broadcast_opened:'指定群發已開啟', broadcast_clicked:'指定群發已點擊', broadcast_tested:'指定群發已進測試組', broadcast_converted:'指定群發已轉換（CTA 點擊）'
@@ -288,6 +322,8 @@
         row.querySelector('.aud-type').addEventListener('change', function () { row.querySelector('.aud-value-wrap').innerHTML = valueInput(this.value, null); scheduleAudiencePreview(); });
         row.querySelector('.aud-remove').addEventListener('click', function () { row.remove(); scheduleAudiencePreview(); });
         $('aud-conditions').appendChild(row);
+        var valueEl = row.querySelector('.aud-value');
+        if (valueEl && initial.value != null) valueEl.value = String(initial.value);
         scheduleAudiencePreview();
       }
       function audienceDefinition() {
@@ -322,11 +358,14 @@
         var desc = $('nl-desc').value.trim();
         var uids = parseUids($('nl-uids').value);
         if (!name) { $('nl-status').textContent = '請填寫名稱'; return; }
-        $('nl-status').textContent = '建立中⋯';
+        $('nl-status').textContent = editingDynamicId ? '儲存並同步中⋯' : '建立中⋯';
         $('nl-save').disabled = true;
         var dynamic = typeValue() === 'dynamic';
-        fetch(dynamic ? '/admin/recipient-lists/api/dynamic' : '/admin/broadcast/recipient-lists', {
-          method: 'POST',
+        var endpoint = editingDynamicId
+          ? '/admin/recipient-lists/api/' + editingDynamicId
+          : (dynamic ? '/admin/recipient-lists/api/dynamic' : '/admin/broadcast/recipient-lists');
+        fetch(endpoint, {
+          method: editingDynamicId ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(dynamic
             ? { name:name, description:desc, definition:audienceDefinition(), auto_refresh:$('aud-auto').checked }
@@ -348,8 +387,14 @@
           });
       });
 
-      fetch('/admin/recipient-lists/api/catalog').then(function (r) { return r.json(); }).then(function (d) { if (d.ok) catalog = d; }).catch(function () {});
-      load();
+      fetch('/admin/recipient-lists/api/catalog').then(function (r) { return r.json(); }).then(function (d) { if (d.ok) catalog = d; }).catch(function () {}).then(function () {
+        return load();
+      }).then(function () {
+        var editId = Number(new URLSearchParams(location.search).get('edit'));
+        if (!editId) return;
+        var item = allLists.find(function (list) { return Number(list.id) === editId && list.list_type === 'dynamic'; });
+        if (item) openDynamicEditor(item);
+      });
     })();
     </script>
 

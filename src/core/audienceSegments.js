@@ -98,8 +98,22 @@ function compileAudience(definition) {
       case 'booking_cancelled': sql = `EXISTS (SELECT 1 FROM gold_pig_bookings gb WHERE gb.line_user_id=u.line_user_id AND gb.status IN ('cancellation_requested','cancelled'))`; break;
       case 'broadcast_sent': sql = `EXISTS (SELECT 1 FROM admin_broadcast_recipients br WHERE br.line_user_id = u.line_user_id AND br.broadcast_id = ${add(c.value)} AND br.status = 'sent')`; break;
       case 'broadcast_delivered': sql = `EXISTS (SELECT 1 FROM admin_broadcast_recipients br WHERE br.line_user_id=u.line_user_id AND br.broadcast_id=${add(c.value)} AND br.delivered_at IS NOT NULL)`; break;
-      case 'broadcast_opened': sql = `EXISTS (SELECT 1 FROM admin_broadcast_recipients br WHERE br.line_user_id=u.line_user_id AND br.broadcast_id=${add(c.value)} AND br.opened_at IS NOT NULL)`; break;
-      case 'broadcast_clicked': sql = `EXISTS (SELECT 1 FROM admin_broadcast_recipients br WHERE br.line_user_id=u.line_user_id AND br.broadcast_id=${add(c.value)} AND br.first_clicked_at IS NOT NULL)`; break;
+      case 'broadcast_opened': sql = `EXISTS (
+        SELECT 1 FROM admin_broadcast_recipients br
+        WHERE br.line_user_id=u.line_user_id AND br.broadcast_id=${add(c.value)}
+          AND (br.opened_at IS NOT NULL OR EXISTS (
+            SELECT 1 FROM admin_broadcast_views bv
+             WHERE bv.broadcast_id=br.broadcast_id AND bv.recipient_id=br.id
+          ))
+      )`; break;
+      case 'broadcast_clicked': sql = `EXISTS (
+        SELECT 1 FROM admin_broadcast_recipients br
+        WHERE br.line_user_id=u.line_user_id AND br.broadcast_id=${add(c.value)}
+          AND (br.first_clicked_at IS NOT NULL OR EXISTS (
+            SELECT 1 FROM admin_broadcast_clicks bc
+             WHERE bc.broadcast_id=br.broadcast_id AND bc.recipient_id=br.id
+          ))
+      )`; break;
       case 'broadcast_tested': sql = `EXISTS (
         SELECT 1 FROM admin_broadcast_recipients br
         JOIN admin_broadcasts b ON b.id = br.broadcast_id

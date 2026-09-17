@@ -95,6 +95,13 @@
   if (advancedJsonBlock) {
     advancedJsonBlock.addEventListener('toggle', function () {
       var open = advancedJsonBlock.open;
+      if (open && state.campaignTestEnabled) {
+        var modeWarning = $('campaign-mode-warning');
+        if (modeWarning) {
+          modeWarning.hidden = false;
+          modeWarning.textContent = '這個 Flex 素材可以繼續編輯與預覽，但 Campaign Testing 無法可靠追蹤每顆自訂 CTA，因此正式送出會被鎖定。請改用一般訊息編輯器，或先關閉 Campaign Testing。';
+        }
+      }
       state.mode = open ? 'flex_json' : 'template';
       // 黃色模板區跟 JSON 區互斥（一次只顯示一種）
       $('pane-template').hidden = open;
@@ -124,6 +131,16 @@
 
   function updateCampaignTestUI() {
     var enabled = $('campaign-test-enable').checked;
+    var modeWarning = $('campaign-mode-warning');
+    if (enabled && state.mode === 'flex_json') {
+      if (modeWarning) {
+        modeWarning.hidden = false;
+        modeWarning.textContent = '目前是進階 Flex JSON：可以預覽，但 Campaign Testing 無法可靠追蹤每顆自訂 CTA，正式送出會被鎖定。請改用一般訊息編輯器，或關閉 Campaign Testing。';
+      }
+    } else if (modeWarning) {
+      modeWarning.hidden = true;
+      modeWarning.textContent = '';
+    }
     state.campaignTestEnabled = enabled;
     state.campaignVariantCount = Number($('campaign-variant-count').value) === 3 ? 3 : 2;
     if (enabled && !$('ab-test-enable').checked) {
@@ -2279,6 +2296,13 @@
     if (!messageConfig || typeof messageConfig !== 'object') return;
     var topAltEl = document.getElementById('msg-alt-text');
     if (messageConfig.mode === 'flex_json') {
+      if (state.campaignTestEnabled) {
+        var warning = $('campaign-mode-warning');
+        if (warning) {
+          warning.hidden = false;
+          warning.textContent = '這個素材是進階 Flex JSON：可以預覽，但無法可靠追蹤每顆 CTA，因此 Campaign Testing 正式送出會被鎖定。請改用一般訊息模板，或關閉 Campaign Testing。';
+        }
+      }
       // 自動展開「進階模式」details + 切到 flex_json mode
       var advBlock = document.getElementById('advanced-json-block');
       if (advBlock && !advBlock.open) advBlock.open = true;

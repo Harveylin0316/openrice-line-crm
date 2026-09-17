@@ -703,6 +703,14 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
   // ---------- 加入名單 ----------
   async function addUserToList(listId, lineUserId, userId) {
     if (!listId || !lineUserId) return;
+    const list = await query(
+      `SELECT list_type FROM admin_recipient_lists WHERE id = $1 LIMIT 1`,
+      [listId]
+    );
+    if (!list.rows.length) throw new FlowConfigError('add_to_list_not_found');
+    if (list.rows[0].list_type === 'dynamic') {
+      throw new FlowConfigError('add_to_list_requires_static_list');
+    }
     const ins = await query(
       `INSERT INTO admin_recipient_list_members (list_id, line_user_id)
        VALUES ($1, $2) ON CONFLICT DO NOTHING
@@ -876,8 +884,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
         if (node.type === 'add_to_list') {
           const listId = node.config && Number(node.config.list_id);
           if (listId) {
-            try { await addUserToList(listId, en.line_user_id, en.user_id); }
-            catch (e) { console.error('flow add_to_list failed:', e.message); }
+            await addUserToList(listId, en.line_user_id, en.user_id);
           }
           nodeKey = node.next_key || null;
           continue;

@@ -443,6 +443,25 @@ function registerAdminFlowsRoutes(app, deps) {
     return { ok: true, name, trigger: { type: tType, config: tCfg }, steps, re_enroll: reEnroll };
   }
 
+  async function validateWritableLists(steps) {
+    const ids = [...new Set((steps || [])
+      .filter((step) => step && step.type === 'add_to_list')
+      .map((step) => Number(step.list_id))
+      .filter((id) => Number.isInteger(id) && id > 0))];
+    if (!ids.length) return { ok: true };
+    const rs = await query(
+      `SELECT id, list_type FROM admin_recipient_lists WHERE id = ANY($1::bigint[])`,
+      [ids]
+    );
+    if (rs.rows.length !== ids.length) {
+      return { ok: false, error: 'add_to_list_not_found' };
+    }
+    if (rs.rows.some((row) => row.list_type === 'dynamic')) {
+      return { ok: false, error: 'add_to_list_requires_static_list' };
+    }
+    return { ok: true };
+  }
+
   async function writeNodes(client, flowId, steps) {
     await client.query('DELETE FROM admin_flow_nodes WHERE flow_id = $1', [flowId]);
     const { nodes } = flattenSteps(steps);
@@ -471,7 +490,7 @@ function registerAdminFlowsRoutes(app, deps) {
     try {
       const [msgs, lists, acts, menus, tags] = await Promise.all([
         query(`SELECT id, name FROM admin_message_templates WHERE COALESCE(channel, 'line') = 'line' ORDER BY id DESC`),
-        query(`SELECT id, name FROM admin_recipient_lists ORDER BY id DESC`),
+        query(`SELECT id, name, list_type FROM admin_recipient_lists ORDER BY id DESC`),
         query(`SELECT id, name, slug, game_type, status, liff_id_override FROM activities ORDER BY id DESC`),
         query(`SELECT id, name, status, published_at, published_config
                FROM rich_menus WHERE status = 'published' AND published_config IS NOT NULL
@@ -500,6 +519,7 @@ function registerAdminFlowsRoutes(app, deps) {
         ok: true,
         messages: msgs.rows,
         lists: lists.rows,
+        writable_lists: lists.rows.filter((list) => list.list_type !== 'dynamic'),
         activities: acts.rows.map(a => {
           const lid = String(a.liff_id_override || gamesLiffId() || '').trim();
           return {
@@ -658,6 +678,12 @@ function registerAdminFlowsRoutes(app, deps) {
   app.post('/admin/flows/api', requireAdmin, async (req, res) => {
     const v = validateFlow(req.body || {});
     if (!v.ok) return jsonErr(res, 400, v.error);
+    const writable = await validateWritableLists(v.steps);
+    if (!writable.ok) return jsonErr(res, 400, writable.error, {
+      detail: writable.error === 'add_to_list_requires_static_list'
+        ? '自動化只能直接加入靜態名單；動態名單會依條件自動重建。'
+        : '找不到要加入的名單，請重新選擇。'
+    });
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -685,6 +711,12 @@ function registerAdminFlowsRoutes(app, deps) {
     if (!isPosInt(idStr)) return jsonErr(res, 400, 'invalid_id');
     const v = validateFlow(req.body || {});
     if (!v.ok) return jsonErr(res, 400, v.error);
+    const writable = await validateWritableLists(v.steps);
+    if (!writable.ok) return jsonErr(res, 400, writable.error, {
+      detail: writable.error === 'add_to_list_requires_static_list'
+        ? '自動化只能直接加入靜態名單；動態名單會依條件自動重建。'
+        : '找不到要加入的名單，請重新選擇。'
+    });
     const client = await pool.connect();
     try {
       await client.query('BEGIN');

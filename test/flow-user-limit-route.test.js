@@ -142,6 +142,31 @@ test('外部活動只接受 HTTPS 網址', async () => {
   assert.equal(res.body.error, 'campaign_open_needs_url');
 });
 
+test('自動化不可把人寫進動態名單，避免下次同步把成員洗掉', async () => {
+  const routes = {};
+  registerAdminFlowsRoutes(makeApp(routes), {
+    query: async (sql) => {
+      if (/SELECT id, list_type FROM admin_recipient_lists/.test(String(sql))) {
+        return { rows: [{ id: 7, list_type: 'dynamic' }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    pool: { connect: async () => { throw new Error('驗證失敗時不應寫入'); } },
+    flowEngine: {},
+    authCore: { requireAdmin: (_req, _res, next) => next() }
+  });
+  const res = await run(routes['POST /admin/flows/api'], {
+    body: {
+      name: '錯誤寫入動態名單',
+      trigger: { type: 'follow', config: {} },
+      steps: [{ type: 'add_to_list', list_id: 7 }]
+    },
+    authUser: { un: 'admin' }
+  });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error, 'add_to_list_requires_static_list');
+});
+
 test('已啟用的活動入口流程不可刪除，只能暫停以保住已發出的網址', async () => {
   const routes = {};
   let deleted = false;

@@ -3,8 +3,16 @@
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function normalizeRange(q, now = new Date()) {
-  const toDefault = now.toISOString().slice(0, 10);
-  const fromDefault = new Date(now.getTime() - 29 * 86400000).toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(now).reduce((out, part) => ({ ...out, [part.type]: part.value }), {});
+  const toDefault = `${parts.year}-${parts.month}-${parts.day}`;
+  const taipeiMidnightUtc = new Date(`${toDefault}T00:00:00+08:00`);
+  const fromDate = new Date(taipeiMidnightUtc.getTime() - 29 * 86400000);
+  const fromParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(fromDate).reduce((out, part) => ({ ...out, [part.type]: part.value }), {});
+  const fromDefault = `${fromParts.year}-${fromParts.month}-${fromParts.day}`;
   const from = String(q.from || fromDefault);
   const to = String(q.to || toDefault);
   if (!DATE_RE.test(from) || !DATE_RE.test(to) || from > to) throw new Error('日期範圍錯誤');
@@ -53,8 +61,14 @@ function registerAdminCampaignPerformanceRoutes(app, deps) {
              COUNT(*)::int AS materialized,
              COUNT(*) FILTER (WHERE r.status='sent')::int AS sent,
              COUNT(*) FILTER (WHERE r.delivered_at IS NOT NULL)::int AS delivered,
-             COUNT(*) FILTER (WHERE r.opened_at IS NOT NULL)::int AS opened,
-             COUNT(*) FILTER (WHERE r.first_clicked_at IS NOT NULL)::int AS clicked,
+             COUNT(*) FILTER (WHERE r.opened_at IS NOT NULL OR EXISTS (
+               SELECT 1 FROM admin_broadcast_views bv
+                WHERE bv.broadcast_id=r.broadcast_id AND bv.recipient_id=r.id
+             ))::int AS opened,
+             COUNT(*) FILTER (WHERE r.first_clicked_at IS NOT NULL OR EXISTS (
+               SELECT 1 FROM admin_broadcast_clicks bc
+                WHERE bc.broadcast_id=r.broadcast_id AND bc.recipient_id=r.id
+             ))::int AS clicked,
              COUNT(*) FILTER (WHERE r.status='failed')::int AS failed
            FROM admin_broadcast_recipients r JOIN selected b ON b.id=r.broadcast_id
            GROUP BY r.broadcast_id
@@ -114,25 +128,38 @@ function registerAdminCampaignPerformanceRoutes(app, deps) {
         `SELECT r.broadcast_id,r.variant,
                 COUNT(*)::int AS target,
                 COUNT(*) FILTER (WHERE r.status='sent')::int AS sent,
-                COUNT(*) FILTER (WHERE r.opened_at IS NOT NULL)::int AS opened,
-                COUNT(*) FILTER (WHERE r.first_clicked_at IS NOT NULL)::int AS clicked
+                COUNT(*) FILTER (WHERE r.opened_at IS NOT NULL OR EXISTS (
+                  SELECT 1 FROM admin_broadcast_views bv
+                   WHERE bv.broadcast_id=r.broadcast_id AND bv.recipient_id=r.id
+                ))::int AS opened,
+                COUNT(*) FILTER (WHERE r.first_clicked_at IS NOT NULL OR EXISTS (
+                  SELECT 1 FROM admin_broadcast_clicks bc
+                   WHERE bc.broadcast_id=r.broadcast_id AND bc.recipient_id=r.id
+                ))::int AS clicked
            FROM admin_broadcast_recipients r JOIN admin_broadcasts b ON b.id=r.broadcast_id
           WHERE (b.created_at AT TIME ZONE 'Asia/Taipei')::date BETWEEN $1::date AND $2::date
             AND (b.is_ab_test = true OR COALESCE((b.audience_config->'experiment'->>'enabled')::boolean, false) = true)
           GROUP BY r.broadcast_id,r.variant ORDER BY r.broadcast_id DESC,r.variant`, [range.from, range.to])).rows;
 
       return res.json({ ok: true, range,
-        campaigns: rows.map(r => ({ ...r, name: campaignName(r), audience_name: audienceName(r),
+        campaigns: rows.map(r => {
+          const lineTrackable = r.channel !== 'line' || (r.message_config && r.message_config.mode === 'template');
+          const opened = lineTrackable ? Number(r.opened) : null;
+          const clicked = lineTrackable ? Number(r.clicked) : null;
+          return ({ ...r, name: campaignName(r), audience_name: audienceName(r),
           delivered: r.channel === 'email' ? Number(r.delivered) : null,
+          opened,
+          clicked,
           attendance: null,
           delivery_rate: r.channel === 'email' && Number(r.sent) ? Number(r.delivered) / Number(r.sent) : null,
-          open_rate: Number(r.sent) ? Number(r.opened) / Number(r.sent) : null,
-          ctr: Number(r.sent) ? Number(r.clicked) / Number(r.sent) : null,
+          open_rate: opened != null && Number(r.sent) ? opened / Number(r.sent) : null,
+          ctr: clicked != null && Number(r.sent) ? clicked / Number(r.sent) : null,
           conversion_rate: Number(r.sent) ? Number(r.bookings) / Number(r.sent) : null,
           block_rate: Number(r.sent) ? Number(r.blocks) / Number(r.sent) : null
-        })), variants,
+        }); }), variants,
         definitions: {
-          window: '推播後 7 天',
+          window: '推播後 7 天觀察（非互斥歸因）',
+          attribution: '目前是「發送後觀察」而非唯一歸因：同一人在重疊期間收到多個 Campaign 時，同一個 LIFF／訂位／封鎖事件可能同時出現在多列。比較成效時請搭配追蹤連結來源，不要直接相加。',
           delivered: 'Email 以服務商 delivery webhook；LINE 不提供逐人送達資料',
           open: 'Email 開信像素／provider webhook；LINE 僅計有追蹤圖載入的開啟 proxy',
           registration: 'Registration 目前只計活動手機登記；OpenRice App Registration 尚未接入 LINE 身份橋接',

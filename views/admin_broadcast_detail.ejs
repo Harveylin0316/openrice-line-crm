@@ -131,7 +131,7 @@
           <div class="ab-winner-block">
             <div>
               <div style="font-weight:600;color:#1f2937;">保留名單：${stats.holdout} 人</div>
-              <div class="muted" style="font-size:12px;margin-top:4px;">${stats.releasedBroadcastId ? `已建立勝出版批次 #${stats.releasedBroadcastId}。` : `自動判定時間：${winnerAt}。`}</div>
+              <div class="muted" style="font-size:12px;margin-top:4px;">${stats.releasedBroadcastId ? `已建立勝出版批次 #${stats.releasedBroadcastId}。` : (stats.config.winnerAt ? `測試組全部送完後開始觀察；自動判定時間：${winnerAt}。` : '測試組尚未全部送完；全部送完後才開始計算觀察時間。')}</div>
             </div>
             ${stats.canRelease ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
               <select id="experiment-winner-choice" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">

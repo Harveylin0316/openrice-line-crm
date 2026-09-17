@@ -220,7 +220,7 @@
         var $=function(id){return document.getElementById(id);};
         function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
         function fmt(ts){if(!ts)return'';var d=new Date(ts);return isNaN(d.getTime())?'':d.toLocaleString('sv-SE',{timeZone:'Asia/Taipei'}).slice(0,16);}
-        var OPT={messages:[],lists:[],activities:[],events:[],richMenus:[],tags:[]};
+        var OPT={messages:[],lists:[],writableLists:[],activities:[],events:[],richMenus:[],tags:[]};
         var flow={name:'',re_enroll:false,trigger:{type:'follow',config:{}},steps:[]};
         var editingId=null;
         var initialSnapshot='';
@@ -240,7 +240,7 @@
 
         function loadOptions(cb){
           fetch('/admin/flows/api/options').then(function(r){return r.json();}).then(function(d){
-            if(d.ok){OPT.messages=d.messages||[];OPT.lists=d.lists||[];OPT.activities=d.activities||[];OPT.events=d.events||[];OPT.richMenus=d.rich_menus||[];OPT.tags=d.tags||[];}
+            if(d.ok){OPT.messages=d.messages||[];OPT.lists=d.lists||[];OPT.writableLists=d.writable_lists||OPT.lists.filter(function(l){return l.list_type!=='dynamic';});OPT.activities=d.activities||[];OPT.events=d.events||[];OPT.richMenus=d.rich_menus||[];OPT.tags=d.tags||[];}
             if(cb)cb();
           }).catch(function(){if(cb)cb();}); // 失敗也別卡死，下拉資料可稍後重抓
         }
@@ -559,7 +559,7 @@
         }
         function addToListStepHtml(step,path){
           return '<div class="fl-inline"><span class="fl-step-tag" style="background:#15803d;">加入名單</span>'+
-            '<select data-field="list_id" data-path="'+path+'">'+optionsHtml(OPT.lists,step.list_id,'選一個名單')+'</select>'+
+            '<select data-field="list_id" data-path="'+path+'">'+optionsHtml(OPT.writableLists,step.list_id,'選一個靜態名單')+'</select>'+
             '<button type="button" class="fl-secondary-btn" data-new-list="'+path+'">＋ 直接建名單</button></div>';
         }
         function tagStepHtml(step,path){var add=step.type==='add_tag';return '<div class="fl-inline"><span class="fl-step-tag" style="background:'+(add?'#7c3aed':'#be123c')+';">'+(add?'貼標籤':'移除標籤')+'</span><select data-field="tag_id" data-path="'+path+'">'+optionsHtml(OPT.tags,step.tag_id,'選一個標籤')+'</select>'+(add?'<input type="number" min="1" max="3650" data-field="ttl_days" data-path="'+path+'" value="'+(step.ttl_days||'')+'" placeholder="有效天數（空白＝永久）">':'')+'</div>'}
@@ -619,7 +619,7 @@
             var name=window.prompt('新名單名稱');if(!name||!name.trim())return;
             syncSteps();var path=b.getAttribute('data-new-list');
             fetch('/admin/flows/api/lists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim()})})
-              .then(function(r){return r.json();}).then(function(d){if(!d.ok){alert(d.detail||'建立失敗');return;}OPT.lists.unshift(d.list);flow.steps[Number(path)].list_id=Number(d.list.id);renderSteps();})
+              .then(function(r){return r.json();}).then(function(d){if(!d.ok){alert(d.detail||'建立失敗');return;}OPT.lists.unshift(d.list);OPT.writableLists.unshift(d.list);flow.steps[Number(path)].list_id=Number(d.list.id);renderSteps();})
               .catch(function(e){alert('建立失敗：'+e.message);});
           });});
         }
@@ -693,7 +693,7 @@
             }).catch(function(e){$('fl-save').disabled=false;$('fl-save-activate').disabled=false;$('fl-save-status').textContent='錯誤：'+e.message;});
         }
         function errMsg(code){
-          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息、加入名單或標籤）',branch_must_be_last:'條件分支必須是流程的最後一步',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',add_to_list_needs_list:'加入名單步驟請選一個名單',tag_action_needs_tag:'貼上／移除標籤步驟請選標籤',list_join_needs_list:'請選名單',rich_menu_tap_needs_menu:'請選一個已發布的圖文選單',rich_menu_tap_needs_button:'請至少勾選一顆按鈕，或改選「任一功能按鈕」',campaign_open_needs_name:'請填活動名稱',campaign_open_needs_url:'請選 CRM 活動，或填入正確的 HTTPS 活動網址',campaign_flow_use_pause:'這個流程已有對外入口網址，請改用暫停，避免舊網址失效',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',invalid_user_trigger_limit:'每人觸發次數請填 1 到 1000',flow_has_no_steps:'流程至少要有一個步驟才能啟用',follow_source_invalid:'來源代號只能用英數字、底線、減號（不能填中文或空格），最多 40 字'};
+          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息、加入名單或標籤）',branch_must_be_last:'條件分支必須是流程的最後一步',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',add_to_list_needs_list:'加入名單步驟請選一個名單',add_to_list_requires_static_list:'自動化只能加入靜態名單；動態名單會依條件自動更新',add_to_list_not_found:'找不到要加入的名單，請重新選擇',tag_action_needs_tag:'貼上／移除標籤步驟請選標籤',list_join_needs_list:'請選名單',rich_menu_tap_needs_menu:'請選一個已發布的圖文選單',rich_menu_tap_needs_button:'請至少勾選一顆按鈕，或改選「任一功能按鈕」',campaign_open_needs_name:'請填活動名稱',campaign_open_needs_url:'請選 CRM 活動，或填入正確的 HTTPS 活動網址',campaign_flow_use_pause:'這個流程已有對外入口網址，請改用暫停，避免舊網址失效',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',invalid_user_trigger_limit:'每人觸發次數請填 1 到 1000',flow_has_no_steps:'流程至少要有一個步驟才能啟用',follow_source_invalid:'來源代號只能用英數字、底線、減號（不能填中文或空格），最多 40 字'};
           return m[code]||code||'';
         }
         function isDirty(){return !$('fl-editor').hidden&&initialSnapshot!==JSON.stringify(collectFlow());}

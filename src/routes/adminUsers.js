@@ -529,8 +529,17 @@ function registerAdminUsersRoutes(app, deps) {
     try {
       const id = Number((req.body || {}).id);
       if (!id) return jsonErr(res, 400, 'bad_id');
-      await query(`DELETE FROM user_tag_rules WHERE id = $1`, [id]);
-      res.json({ ok: true });
+      const removeMembers = (req.body || {}).remove_members === true;
+      const deleted = await query(
+        `WITH removed AS (
+           DELETE FROM user_tag_members WHERE source_rule_id = $1 AND $2::boolean RETURNING 1
+         )
+         DELETE FROM user_tag_rules WHERE id = $1
+         RETURNING id, (SELECT COUNT(*)::int FROM removed) AS removed_members`,
+        [id, removeMembers]
+      );
+      if (!deleted.rows.length) return jsonErr(res, 404, 'not_found');
+      res.json({ ok: true, removed_members: Number(deleted.rows[0].removed_members || 0) });
     } catch (err) { jsonErr(res, 500, 'rule_delete_failed', { detail: err && err.message }); }
   });
 
@@ -538,10 +547,23 @@ function registerAdminUsersRoutes(app, deps) {
     try {
       const id = Number((req.body || {}).id);
       if (!id) return jsonErr(res, 400, 'bad_id');
+      const removeMembers = (req.body || {}).remove_members === true;
       const upd = await query(
-        `UPDATE user_tag_rules SET active = NOT active WHERE id = $1 RETURNING active`, [id]);
+        `WITH target AS (
+           SELECT id, active FROM user_tag_rules WHERE id = $1 FOR UPDATE
+         ), removed AS (
+           DELETE FROM user_tag_members m
+            USING target t
+            WHERE m.source_rule_id = t.id AND t.active = true AND $2::boolean
+            RETURNING 1
+         )
+         UPDATE user_tag_rules r SET active = NOT r.active
+           FROM target t WHERE r.id = t.id
+         RETURNING r.active, (SELECT COUNT(*)::int FROM removed) AS removed_members`,
+        [id, removeMembers]);
       if (!upd.rows.length) return jsonErr(res, 404, 'not_found');
-      res.json({ ok: true, active: upd.rows[0].active });
+      res.json({ ok: true, active: upd.rows[0].active,
+        removed_members: Number(upd.rows[0].removed_members || 0) });
     } catch (err) { jsonErr(res, 500, 'rule_toggle_failed', { detail: err && err.message }); }
   });
 

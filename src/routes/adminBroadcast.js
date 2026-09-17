@@ -41,6 +41,7 @@ const { recordRestaurantClick } = require('../core/restaurantLinkParse');
 const {
   activeVariants,
   normalizeCampaignExperiment,
+  startObservationWindow,
   assignExperimentVariants,
   pickCtrWinner
 } = require('../core/campaignExperiment');
@@ -171,6 +172,15 @@ function registerAdminBroadcastRoutes(app, deps) {
   function getCampaignExperiment(broadcast) {
     const config = broadcast && broadcast.audience_config && broadcast.audience_config.experiment;
     return config && config.enabled === true ? config : null;
+  }
+
+  function startExperimentObservation(broadcast, now = new Date()) {
+    const experiment = getCampaignExperiment(broadcast);
+    if (!experiment) return null;
+    return {
+      ...(broadcast.audience_config || {}),
+      experiment: startObservationWindow(experiment, now)
+    };
   }
 
   function getBroadcastVariants(broadcast) {
@@ -404,11 +414,16 @@ function registerAdminBroadcastRoutes(app, deps) {
       // view log 必須寫完才回 image：serverless 回應後凍結，沒 await 的寫入會蒸發
       try {
         await query(
-          `INSERT INTO admin_broadcast_views (broadcast_id, recipient_id, line_user_id, user_agent, variant)
-           SELECT $1, $2, m.line_user_id, $3, $4
-           FROM admin_broadcast_recipients m
-           WHERE m.id = $2 AND m.broadcast_id = $1
-           ON CONFLICT DO NOTHING`,
+          `WITH tracked AS (
+             INSERT INTO admin_broadcast_views (broadcast_id, recipient_id, line_user_id, user_agent, variant)
+             SELECT $1, $2, m.line_user_id, $3, $4
+             FROM admin_broadcast_recipients m
+             WHERE m.id = $2 AND m.broadcast_id = $1
+             ON CONFLICT DO NOTHING
+           )
+           UPDATE admin_broadcast_recipients
+              SET opened_at = COALESCE(opened_at, NOW())
+            WHERE id = $2 AND broadcast_id = $1`,
           [broadcastId, recipientId, (req.get('user-agent') || '').slice(0, 500), variant]
         );
       } catch (err) { console.error('view log (rid) failed:', err.message); }
@@ -484,11 +499,16 @@ function registerAdminBroadcastRoutes(app, deps) {
       // click log 必須寫完才 302：這筆決定 A/B 勝出與「沒點擊」重發名單
       try {
         await query(
-          `INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, line_user_id, target_url, user_agent, referer, variant)
-           SELECT $1, $2, m.line_user_id, $3, $4, $5, $6
-           FROM admin_broadcast_recipients m
-           WHERE m.id = $2 AND m.broadcast_id = $1
-           ON CONFLICT DO NOTHING`,
+          `WITH tracked AS (
+             INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, line_user_id, target_url, user_agent, referer, variant)
+             SELECT $1, $2, m.line_user_id, $3, $4, $5, $6
+             FROM admin_broadcast_recipients m
+             WHERE m.id = $2 AND m.broadcast_id = $1
+             ON CONFLICT DO NOTHING
+           )
+           UPDATE admin_broadcast_recipients
+              SET first_clicked_at = COALESCE(first_clicked_at, NOW())
+            WHERE id = $2 AND broadcast_id = $1`,
           [
             broadcastId, recipientId, targetUrl,
             (req.get('user-agent') || '').slice(0, 500),
@@ -765,8 +785,8 @@ function registerAdminBroadcastRoutes(app, deps) {
   app.get('/admin/broadcast/recipient-lists', requireAdmin, async (_req, res) => {
     try {
       const rs = await query(
-        `SELECT id, name, description, total, list_type, auto_refresh,
-                last_synced_at, last_sync_status, created_by, created_at
+        `SELECT id, name, description, total, list_type, definition, auto_refresh,
+                last_synced_at, last_sync_status, last_sync_error, created_by, created_at, updated_at
          FROM admin_recipient_lists
          ORDER BY id DESC`
       );
@@ -903,6 +923,16 @@ function registerAdminBroadcastRoutes(app, deps) {
       );
       if (refs.rowCount > 0) {
         return safeJsonError(res, 409, 'list_in_use', { detail: '此名單被自動化流程引用，請先移除引用再刪除', flows: refs.rows });
+      }
+      const richMenuRefs = await query(
+        `SELECT id, name, status FROM rich_menus WHERE audience_list_id = $1 ORDER BY id DESC`,
+        [Number(idStr)]
+      );
+      if (richMenuRefs.rowCount > 0) {
+        return safeJsonError(res, 409, 'list_in_use', {
+          detail: '此名單仍被圖文選單使用，請先到圖文選單移除名單設定再刪除',
+          richMenus: richMenuRefs.rows
+        });
       }
       const rs = await query(
         'DELETE FROM admin_recipient_lists WHERE id = $1 RETURNING id',
@@ -1191,9 +1221,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       if (experimentRequested && channel !== 'line') {
         return safeJsonError(res, 400, 'campaign_experiment_line_only');
       }
-      const normalizedExperiment = normalizeCampaignExperiment(rawExperiment, {
-        baseTime: scheduledAt || new Date()
-      });
+      const normalizedExperiment = normalizeCampaignExperiment(rawExperiment);
       if (!normalizedExperiment.ok) return safeJsonError(res, 400, normalizedExperiment.error);
       const experiment = normalizedExperiment.value;
       if (experiment && (!messageConfig || messageConfig.mode !== 'template')) {
@@ -1436,6 +1464,7 @@ function registerAdminBroadcastRoutes(app, deps) {
           experiment: experiment ? {
             metric: experiment.metric,
             winnerAt: experiment.winnerAt,
+            observationStartsAfterTestSend: true,
             allocations: variantCounts
           } : null
         });
@@ -1616,9 +1645,12 @@ function registerAdminBroadcastRoutes(app, deps) {
       if (remaining === 0) {
         const experiment = getCampaignExperiment(b);
         const nextStatus = experiment ? 'awaiting_winner' : 'done';
+        const nextAudienceConfig = experiment ? startExperimentObservation(b) : b.audience_config;
         await query(
-          `UPDATE admin_broadcasts SET status = $2, finished_at = NOW(), updated_at = NOW() WHERE id = $1`,
-          [broadcastId, nextStatus]
+          `UPDATE admin_broadcasts
+              SET status = $2, finished_at = NOW(), audience_config = $3::jsonb, updated_at = NOW()
+            WHERE id = $1`,
+          [broadcastId, nextStatus, JSON.stringify(nextAudienceConfig || {})]
         );
         done = !experiment;
       }
@@ -1830,9 +1862,12 @@ function registerAdminBroadcastRoutes(app, deps) {
         const remaining = Number(remRs.rows[0]?.n || 0);
         if (remaining === 0) {
           const experiment = getCampaignExperiment(row);
+          const nextAudienceConfig = experiment ? startExperimentObservation(row) : row.audience_config;
           await query(
-            `UPDATE admin_broadcasts SET status = $2, finished_at = NOW(), updated_at = NOW() WHERE id = $1`,
-            [bId, experiment ? 'awaiting_winner' : 'done']
+            `UPDATE admin_broadcasts
+                SET status = $2, finished_at = NOW(), audience_config = $3::jsonb, updated_at = NOW()
+              WHERE id = $1`,
+            [bId, experiment ? 'awaiting_winner' : 'done', JSON.stringify(nextAudienceConfig || {})]
           );
         }
 

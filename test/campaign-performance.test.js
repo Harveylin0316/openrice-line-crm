@@ -9,6 +9,13 @@ test('campaign performance validates date range', () => {
   assert.throws(() => normalizeRange({ from: 'x', to: '2026-09-17' }), /日期/);
 });
 
+test('campaign performance defaults use Taipei date instead of UTC date', () => {
+  assert.deepEqual(
+    normalizeRange({}, new Date('2026-09-16T16:30:00.000Z')),
+    { from: '2026-08-19', to: '2026-09-17' }
+  );
+});
+
 test('campaign name uses subject, creative title, then id', () => {
   assert.equal(campaignName({ id: 1, email_subject: 'Email A', message_config: {} }), 'Email A');
   assert.equal(campaignName({ id: 2, message_config: { template: { title: 'LINE B' } } }), 'LINE B');

@@ -21,7 +21,12 @@
         <div class="rld-stat"><div class="v" style="font-size:13px;font-variant-numeric:tabular-nums;">${new Date(list.created_at).toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }).slice(0,16)}</div><div class="k">建立時間</div></div>
       </div>
       <p class="muted" style="font-size:12px;margin-top:10px;">LINE 群發只會發給「LINE 可發送」的成員；Email 群發只會發給有 Email 的成員。</p>
-      ${list.list_type === 'dynamic' ? `<div class="rld-dynamic-note"><b>此名單依條件自動更新</b>，成員不能手動增刪。上次同步：${list.last_synced_at ? new Date(list.last_synced_at).toLocaleString('sv-SE', { timeZone:'Asia/Taipei' }).slice(0,16) : '尚未同步'} <button type="button" class="rld-primary-btn" id="btn-sync-list">立即同步</button><span id="sync-status"></span></div>` : ''}
+      ${list.list_type === 'dynamic' ? `<div class="rld-dynamic-note"><b>此名單依條件自動更新</b>，成員不能手動增刪。<br>
+        同步狀態：<strong style="color:${list.last_sync_status === 'failed' ? '#b91c1c' : '#166534'};">${list.last_sync_status === 'failed' ? '失敗' : (list.last_sync_status === 'ok' ? '正常' : '等待同步')}</strong>；上次同步：${list.last_synced_at ? new Date(list.last_synced_at).toLocaleString('sv-SE', { timeZone:'Asia/Taipei' }).slice(0,16) : '尚未同步'}
+        ${list.last_sync_error ? `<div style="margin-top:6px;padding:8px 10px;border-radius:7px;background:#fef2f2;color:#991b1b;">錯誤：${String(list.last_sync_error).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>` : ''}
+        <div style="margin-top:9px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><a class="rld-primary-btn" href="/admin/recipient-lists?edit=${list.id}" style="text-decoration:none;">修改條件</a><button type="button" class="rld-primary-btn" id="btn-sync-list">立即同步</button><span id="sync-status"></span></div>
+        <details style="margin-top:9px;"><summary style="cursor:pointer;font-weight:600;">查看目前條件</summary><pre style="white-space:pre-wrap;word-break:break-word;background:#fff;padding:10px;border-radius:7px;border:1px solid #e5e7eb;">${JSON.stringify(list.definition || {}, null, 2).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre></details>
+      </div>` : ''}
     </section>
 
     <section class="card">
