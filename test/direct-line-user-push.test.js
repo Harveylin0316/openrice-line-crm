@@ -84,5 +84,5 @@ test('群發頁明確提供不必先存名單的 LINE ID 推播入口', () => {
   assert.match(view, /另外存進名單庫/);
   assert.match(script, /lineUserIds: parseUidsFromText/);
   assert.match(script, /名單已變更，請重新預覽/);
-  assert.match(script, /data\.detail \|\| data\.error/);
+  assert.match(script, /data\.detail \|\| errorMap\(data\.error\)/);
 });
