@@ -622,6 +622,7 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 
 - `/admin/recipient-lists` 可建立靜態名單或動態受眾。動態受眾的規則存在
   `admin_recipient_lists.definition`，成員物化至既有 `admin_recipient_list_members`，因此群發與流程仍只消費同一種名單介面。
+- 建立靜態名單時可選擇「建立前，只保留符合條件的人」。試算與正式建立都以貼入的 LINE userId 為 scope，採「匯入 ID ∩ 受眾條件」；未勾選時維持原本的純手動名單。前端送 `scopeLineUserIds` 試算、`filterDefinition` 建立，後端必須重新計算，不能信任畫面顯示的人數。
 - 條件支援 Include／Exclude 與 Include 間 AND／OR。Exclude 永遠是強制排除，不會因選 OR 而意外把排除者放回名單；只有 Exclude 時語意是「全部有效會員扣掉排除條件」。
 - 可用加入日期、目前好友／封鎖狀態、Tag、指定圖文選單／按鈕、LIFF event、活動進入／開始／完成／分享、成功邀請、獎勵、LINE Login、活動手機登記、金豬訂位、群發已發／Email delivered／open／click／測試組／CTA conversion 等條件。現有 `campaign_phone_registrations` 只能證明活動手機登記，不能當作 OpenRice App Registration；後者須等正式身份橋接後才能加入。
 - 建立畫面會在條件變更後 debounce 即時計數。啟用自動同步的名單由既有 scheduled runner 每五分鐘更新；群發預覽與正式建立批次前仍會強制同步一次，避免送到排程間隔內的舊快照。

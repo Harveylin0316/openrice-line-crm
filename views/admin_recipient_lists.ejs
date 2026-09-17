@@ -69,12 +69,17 @@
             <div id="nl-counter" class="muted" style="font-size:11px;">已輸入 0 位用戶</div>
             <div class="muted" style="font-size:12px;">不知道編號？到『用戶檔案』頁點任一用戶即可複製，或切到 Email 分頁直接貼信箱。<a href="/admin/users" target="_blank" rel="noopener" style="color:#374151;text-decoration:underline;">前往用戶檔案</a></div>
           </label>
+          <div class="rl-field rl-field-full" id="static-filter-toggle">
+            <label class="aud-static-filter-label"><input type="checkbox" id="static-filter-enabled" /> 建立前，只保留符合條件的人</label>
+            <div class="muted" style="font-size:12px;">例如貼入 64 位用戶後選「目前仍是好友」，試算與建立都只會在這 64 人中篩選。</div>
+          </div>
           <div class="rl-field rl-field-full" id="dynamic-inputs" hidden>
+            <div class="aud-scope-note" id="aud-scope-note"></div>
             <div class="aud-builder-head">
               <label>條件間關係
                 <select id="aud-operator"><option value="and">全部符合（AND）</option><option value="or">任一符合（OR）</option></select>
               </label>
-              <label><input type="checkbox" id="aud-auto" checked /> 每 5 分鐘自動更新</label>
+              <label id="aud-auto-wrap"><input type="checkbox" id="aud-auto" checked /> 每 5 分鐘自動更新</label>
             </div>
             <div id="aud-conditions"></div>
             <button type="button" class="rl-secondary-btn" id="aud-add">＋ 新增條件</button>
@@ -242,6 +247,7 @@
         $('nl-uids').value = '';
         $('nl-counter').textContent = '已輸入 0 位用戶';
         $('nl-status').textContent = '';
+        $('static-filter-enabled').checked = false;
         document.querySelector('input[name="nl-type"][value="static"]').checked = true;
         switchType();
         $('aud-conditions').innerHTML = '';
@@ -277,6 +283,7 @@
       $('nl-uids').addEventListener('input', function () {
         var uids = parseUids($('nl-uids').value);
         $('nl-counter').textContent = '已輸入 ' + uids.length + ' 位用戶';
+        if ($('static-filter-enabled').checked) scheduleAudiencePreview();
       });
 
       function typeValue() {
@@ -285,10 +292,18 @@
       }
       function switchType() {
         var dynamic = typeValue() === 'dynamic';
+        var staticFilter = !dynamic && $('static-filter-enabled').checked;
         $('static-inputs').hidden = dynamic;
-        $('dynamic-inputs').hidden = !dynamic;
+        $('static-filter-toggle').hidden = dynamic;
+        $('dynamic-inputs').hidden = !(dynamic || staticFilter);
+        $('aud-auto-wrap').hidden = !dynamic;
+        $('aud-scope-note').textContent = dynamic
+          ? '試算範圍：全部 CRM 會員；名單之後會依條件自動更新。'
+          : '試算範圍：只限上方貼入的 LINE 用戶；條件只在建立當下套用一次。';
+        if (dynamic || staticFilter) scheduleAudiencePreview();
       }
       document.querySelectorAll('input[name="nl-type"]').forEach(function (el) { el.addEventListener('change', switchType); });
+      $('static-filter-enabled').addEventListener('change', switchType);
 
       var conditionLabels = {
         joined_after:'加入日期在此日之後', joined_before:'加入日期在此日之前', is_friend:'目前仍是好友',
@@ -334,13 +349,26 @@
       }
       var previewTimer = null, previewSeq = 0;
       function previewDynamicAudience() {
+        var staticScoped = typeValue() === 'static';
+        if (staticScoped && !$('static-filter-enabled').checked) {
+          $('aud-preview-result').textContent = '勾選上方篩選功能後即可試算';
+          return;
+        }
         if (!document.querySelector('.aud-condition')) { $('aud-preview-result').textContent = '請先新增條件'; return; }
+        var scopedUids = staticScoped ? parseUids($('nl-uids').value) : null;
+        if (staticScoped && !scopedUids.length) { $('aud-preview-result').textContent = '請先貼入 LINE 用戶編號'; return; }
         var seq = ++previewSeq;
         $('aud-preview-result').textContent = '試算中…';
-        fetch('/admin/recipient-lists/api/dynamic/preview', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({definition:audienceDefinition()}) })
+        fetch('/admin/recipient-lists/api/dynamic/preview', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({definition:audienceDefinition(), scopeLineUserIds:scopedUids}) })
           .then(function (r) { return r.json(); }).then(function (d) {
             if (seq !== previewSeq) return;
-            $('aud-preview-result').innerHTML = d.ok ? ('符合 <strong>' + d.total + '</strong> 人') : ('試算失敗：' + esc(d.detail || d.error));
+            if (!d.ok) {
+              $('aud-preview-result').textContent = '試算失敗：' + (d.detail || d.error);
+              return;
+            }
+            $('aud-preview-result').innerHTML = staticScoped
+              ? ('匯入 <strong>' + ((d.scope && d.scope.inputTotal) || scopedUids.length) + '</strong> 人，其中符合 <strong>' + d.total + '</strong> 人')
+              : ('符合 <strong>' + d.total + '</strong> 人');
           }).catch(function (e) { if (seq === previewSeq) $('aud-preview-result').textContent = '試算失敗：' + e.message; });
       }
       function scheduleAudiencePreview() {
@@ -369,7 +397,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(dynamic
             ? { name:name, description:desc, definition:audienceDefinition(), auto_refresh:$('aud-auto').checked }
-            : { name:name, description:desc, lineUserIds:uids })
+            : { name:name, description:desc, lineUserIds:uids,
+                filterDefinition:$('static-filter-enabled').checked ? audienceDefinition() : null })
         })
           .then(function (r) { return r.json(); })
           .then(function (d) {
@@ -404,7 +433,10 @@
       .rl-primary-btn { padding: 10px 18px; background: #FCC726; color: #1f2937; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; font-size: 14px; }
       .rl-primary-btn:hover { background: #f5b800; }
       .rl-primary-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+      #static-inputs[hidden], #static-filter-toggle[hidden], #dynamic-inputs[hidden], #aud-auto-wrap[hidden] { display: none !important; }
       .aud-type-switch,.aud-builder-head{display:flex;gap:18px;align-items:center;flex-wrap:wrap}.aud-type-switch label{font-weight:500}.aud-builder-head{justify-content:space-between;margin-bottom:10px}.aud-condition{display:grid;grid-template-columns:92px minmax(190px,1fr) minmax(170px,1fr) 36px;gap:8px;margin:8px 0}.aud-condition select,.aud-condition input,.aud-builder-head select{width:100%;padding:9px;border:1px solid #d1d5db;border-radius:8px;background:#fff}.aud-remove{border:0;background:#fff1f2;color:#be123c;border-radius:8px;font-size:20px;cursor:pointer}.aud-no-value{display:block;padding:10px}.aud-preview-result{display:inline-block;margin-left:10px;padding:8px 10px;border-radius:8px;background:#fffbeb}.aud-kind{display:inline-block;margin-top:5px;padding:2px 7px;border-radius:999px;font-size:11px;background:#f3f4f6;color:#4b5563}.aud-kind.dynamic{background:#ecfdf5;color:#047857}@media(max-width:700px){.aud-condition{grid-template-columns:1fr}.aud-remove{height:36px}}
+      .aud-static-filter-label { display: flex; align-items: center; gap: 8px; font-weight: 600; color: #374151; }
+      .aud-scope-note { padding: 9px 11px; border-radius: 8px; background: #fffbeb; color: #6b4f00; font-size: 12px; }
       .rl-secondary-btn { padding: 9px 16px; background: #fff; color: #374151; border: 1px solid #e5e7eb; border-radius: 8px; cursor: pointer; font-size: 13px; }
 
       .rl-search { padding: 6px 12px; border: 1px solid #ECECEE; border-radius: 6px; font-size: 13px; width: 240px; max-width: 100%; }

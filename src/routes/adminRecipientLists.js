@@ -63,7 +63,12 @@ function registerAdminRecipientListsRoutes(app, deps) {
   // ----- 動態受眾：即時試算 / 建立 / 同步 -----
   app.post('/admin/recipient-lists/api/dynamic/preview', requireAdmin, async (req, res) => {
     try {
-      const result = await previewAudience(query, (req.body || {}).definition, 10);
+      const body = req.body || {};
+      const result = await previewAudience(query, body.definition, 10, {
+        // 靜態名單建立時可先貼一批 LINE ID，再只在這批人裡套用條件。
+        // 沒有 scope 時仍是原本的「全體會員」動態受眾試算。
+        scopeLineUserIds: body.scopeLineUserIds == null ? null : body.scopeLineUserIds
+      });
       return res.json({ ok: true, ...result });
     } catch (err) {
       return safeJson(res, 400, 'invalid_definition', { detail: err && err.message });

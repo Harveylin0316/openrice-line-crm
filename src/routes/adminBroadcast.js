@@ -45,7 +45,7 @@ const {
   assignExperimentVariants,
   pickCtrWinner
 } = require('../core/campaignExperiment');
-const { syncDynamicList } = require('../core/audienceSegments');
+const { syncDynamicList, filterAudienceLineUserIds } = require('../core/audienceSegments');
 
 function escapeHtml(s) {
   return String(s == null ? '' : s)
@@ -859,6 +859,20 @@ function registerAdminBroadcastRoutes(app, deps) {
         });
       }
 
+      // 靜態名單可以選擇在建立當下套用一次條件。這不是動態名單：
+      // 建立後不會自動增刪，但試算與實際寫入必須使用同一個「匯入 ID ∩ 條件」結果。
+      let acceptedLineUserIds = valid;
+      if (body.filterDefinition != null) {
+        try {
+          const filtered = await filterAudienceLineUserIds(query, body.filterDefinition, valid);
+          acceptedLineUserIds = filtered.lineUserIds;
+        } catch (filterErr) {
+          return safeJsonError(res, 400, 'invalid_filter_definition', {
+            detail: filterErr && filterErr.message
+          });
+        }
+      }
+
       const createdBy = (req.authUser && (req.authUser.un || req.authUser.username)) || 'admin';
 
       const client = await pool.connect();
@@ -868,13 +882,13 @@ function registerAdminBroadcastRoutes(app, deps) {
           `INSERT INTO admin_recipient_lists (name, description, total, created_by)
            VALUES ($1, $2, $3, $4)
            RETURNING id, name, description, total, created_by, created_at`,
-          [name, description || null, valid.length, createdBy]
+          [name, description || null, acceptedLineUserIds.length, createdBy]
         );
         const listId = insListRs.rows[0].id;
         // 分批 INSERT members
         const BATCH = 500;
-        for (let i = 0; i < valid.length; i += BATCH) {
-          const slice = valid.slice(i, i + BATCH);
+        for (let i = 0; i < acceptedLineUserIds.length; i += BATCH) {
+          const slice = acceptedLineUserIds.slice(i, i + BATCH);
           const values = [];
           const params = [];
           slice.forEach((uid, idx) => {
@@ -892,7 +906,9 @@ function registerAdminBroadcastRoutes(app, deps) {
         return res.json({
           ok: true,
           list: insListRs.rows[0],
-          accepted: valid.length,
+          accepted: acceptedLineUserIds.length,
+          importedValid: valid.length,
+          filteredOut: valid.length - acceptedLineUserIds.length,
           rejectedInvalid: invalid.length,
           rejectedSample: invalid.slice(0, 5)
         });

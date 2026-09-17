@@ -1,7 +1,37 @@
 'use strict';
 
 const MAX_CONDITIONS = 30;
+const MAX_SCOPED_LINE_USER_IDS = 5000;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const LINE_USER_ID_RE = /^U[0-9a-f]{32}$/i;
+
+function cleanScopeLineUserIds(raw) {
+  if (raw == null) return null;
+  if (!Array.isArray(raw)) throw new Error('匯入名單格式錯誤');
+  const values = [];
+  const seen = new Set();
+  let invalid = 0;
+  let duplicates = 0;
+  for (const item of raw) {
+    const value = String(item || '').trim();
+    if (!value) continue;
+    if (!LINE_USER_ID_RE.test(value)) {
+      invalid++;
+      continue;
+    }
+    const key = value.toLowerCase();
+    if (seen.has(key)) {
+      duplicates++;
+      continue;
+    }
+    seen.add(key);
+    values.push(value);
+  }
+  if (values.length > MAX_SCOPED_LINE_USER_IDS) {
+    throw new Error(`一次最多可篩選 ${MAX_SCOPED_LINE_USER_IDS} 位 LINE 用戶`);
+  }
+  return { values, invalid, duplicates };
+}
 
 function cleanDefinition(raw) {
   const input = raw && typeof raw === 'object' ? raw : {};
@@ -58,7 +88,7 @@ const CONDITION_TYPES = new Set([
   'app_registration', 'broadcast_sent', 'broadcast_delivered', 'broadcast_opened', 'broadcast_clicked', 'broadcast_tested', 'broadcast_converted'
 ]);
 
-function compileAudience(definition) {
+function compileAudience(definition, options = {}) {
   const clean = cleanDefinition(definition);
   const params = [];
   const add = value => { params.push(value); return '$' + params.length; };
@@ -130,14 +160,18 @@ function compileAudience(definition) {
   const excluded = clauses.filter(c => c.mode === 'exclude').map(c => `NOT (${c.sql})`);
   const includeSql = included.length ? `(${included.join(clean.operator === 'or' ? ' OR ' : ' AND ')})` : 'TRUE';
   const allSql = [includeSql, ...excluded].join(' AND ');
+  const scope = cleanScopeLineUserIds(options.scopeLineUserIds);
+  const scopeSql = scope ? `\n             AND u.line_user_id = ANY(${add(scope.values)}::text[])` : '';
   return {
     definition: clean,
     params,
     where: allSql,
+    scope,
     sql: `SELECT u.line_user_id
             FROM users u
            WHERE u.line_user_id IS NOT NULL AND BTRIM(u.line_user_id) <> ''
              AND u.is_admin = false
+             ${scopeSql}
              AND (${allSql})`
   };
 }
@@ -155,8 +189,8 @@ function activityEventSql(name, param) {
   return `EXISTS (SELECT 1 FROM activity_user_events ae WHERE ae.line_user_id=u.line_user_id AND ae.activity_id=${param} AND ae.event_name='${name}')`;
 }
 
-async function previewAudience(query, definition, limit = 10) {
-  const compiled = compileAudience(definition);
+async function previewAudience(query, definition, limit = 10, options = {}) {
+  const compiled = compileAudience(definition, options);
   const safeLimit = Math.max(1, Math.min(50, Number(limit) || 10));
   const count = await query(`SELECT COUNT(*)::int AS n FROM (${compiled.sql}) audience`, compiled.params);
   const sample = await query(
@@ -165,7 +199,29 @@ async function previewAudience(query, definition, limit = 10) {
       ORDER BY u.created_at DESC LIMIT ${safeLimit}`,
     compiled.params
   );
-  return { total: Number(count.rows[0] && count.rows[0].n || 0), sample: sample.rows, definition: compiled.definition };
+  return {
+    total: Number(count.rows[0] && count.rows[0].n || 0),
+    sample: sample.rows,
+    definition: compiled.definition,
+    scope: compiled.scope
+      ? { inputTotal: compiled.scope.values.length, invalid: compiled.scope.invalid, duplicates: compiled.scope.duplicates }
+      : null
+  };
+}
+
+async function filterAudienceLineUserIds(query, definition, lineUserIds) {
+  const compiled = compileAudience(definition, { scopeLineUserIds: lineUserIds });
+  const result = await query(
+    `SELECT audience.line_user_id FROM (${compiled.sql}) audience ORDER BY audience.line_user_id`,
+    compiled.params
+  );
+  return {
+    lineUserIds: result.rows.map(row => row.line_user_id),
+    inputTotal: compiled.scope ? compiled.scope.values.length : 0,
+    invalid: compiled.scope ? compiled.scope.invalid : 0,
+    duplicates: compiled.scope ? compiled.scope.duplicates : 0,
+    definition: compiled.definition
+  };
 }
 
 async function syncDynamicList(pool, listId) {
@@ -197,4 +253,12 @@ async function syncDynamicList(pool, listId) {
   } finally { client.release(); }
 }
 
-module.exports = { cleanDefinition, compileAudience, previewAudience, syncDynamicList, CONDITION_TYPES };
+module.exports = {
+  cleanDefinition,
+  cleanScopeLineUserIds,
+  compileAudience,
+  previewAudience,
+  filterAudienceLineUserIds,
+  syncDynamicList,
+  CONDITION_TYPES
+};
