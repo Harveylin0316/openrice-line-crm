@@ -24,6 +24,8 @@
     heroUrl: null,
     bHeroMediaId: null,
     bHeroUrl: null,
+    cHeroMediaId: null,
+    cHeroUrl: null,
     audienceSource: 'conditions',  // 'conditions' | 'saved_list' | 'upload'（直接貼 LINE ID）
     audiencePreviewedTotal: null,
     messagePreviewed: false,
@@ -31,6 +33,8 @@
     sending: false,
     sendMode: 'immediate',  // 'immediate' | 'scheduled'
     abTestEnabled: false,
+    campaignTestEnabled: false,
+    campaignVariantCount: 2,
     themeColor: null        // 主題底色：目前被當作「深色主題」的 backgroundColor 值
   };
 
@@ -79,6 +83,8 @@
   addPersonalizationHint('tpl-subtitle', true);
   addPersonalizationHint('b-tpl-title', true);
   addPersonalizationHint('b-tpl-subtitle', true);
+  addPersonalizationHint('c-tpl-title', true);
+  addPersonalizationHint('c-tpl-subtitle', true);
 
   // ------------------------------------------------------------------
   // 1. tabs
@@ -93,6 +99,8 @@
       $('pane-template').hidden = open;
       $('pane-b-template').hidden = open;
       $('pane-b-flex-json').hidden = !open;
+      if ($('pane-c-template')) $('pane-c-template').hidden = open;
+      if ($('pane-c-flex-json')) $('pane-c-flex-json').hidden = !open;
       state.messagePreviewed = false;
       updateSendButton();
       saveDraft();
@@ -110,6 +118,47 @@
     updateSendButton();
     saveDraft();
     schedulePreview();
+  });
+
+  function updateCampaignTestUI() {
+    var enabled = $('campaign-test-enable').checked;
+    state.campaignTestEnabled = enabled;
+    state.campaignVariantCount = Number($('campaign-variant-count').value) === 3 ? 3 : 2;
+    if (enabled && !$('ab-test-enable').checked) {
+      $('ab-test-enable').checked = true;
+      $('ab-test-enable').dispatchEvent(new Event('change'));
+    }
+    $('campaign-test-pane').hidden = !enabled;
+    $('variant-c-pane').hidden = !enabled || state.campaignVariantCount !== 3;
+    $('campaign-weight-c-wrap').hidden = state.campaignVariantCount !== 3;
+    $('test-campaign-variant-wrap').hidden = !enabled;
+    var cOption = $('test-campaign-variant').querySelector('option[value="c"]');
+    if (cOption) cOption.hidden = state.campaignVariantCount !== 3;
+    if (state.campaignVariantCount !== 3 && $('test-campaign-variant').value === 'c') $('test-campaign-variant').value = 'a';
+    if (state.campaignVariantCount === 2) $('campaign-weight-c').value = 0;
+    $('variant-a-label').innerHTML = enabled
+      ? '<strong>版本 A</strong>（依 Campaign Testing 比例送出）'
+      : '<strong>版本 A</strong>（50% 收件人）';
+    updateCampaignAllocationHint();
+    state.messagePreviewed = false;
+    updateSendButton();
+    saveDraft();
+    schedulePreview();
+  }
+
+  function updateCampaignAllocationHint() {
+    var a = Number($('campaign-weight-a').value || 0);
+    var b = Number($('campaign-weight-b').value || 0);
+    var c = Number($('campaign-weight-c').value || 0);
+    var h = Number($('campaign-weight-holdout').value || 0);
+    var total = a + b + c + h;
+    $('campaign-allocation-hint').textContent = '目前合計 ' + total + '%（' + (total === 100 ? '可送出' : '須調整為 100%') + '）';
+  }
+
+  $('campaign-test-enable').addEventListener('change', updateCampaignTestUI);
+  $('campaign-variant-count').addEventListener('change', updateCampaignTestUI);
+  ['campaign-weight-a', 'campaign-weight-b', 'campaign-weight-c', 'campaign-weight-holdout'].forEach(function (id) {
+    $(id).addEventListener('input', updateCampaignAllocationHint);
   });
 
   // ------------------------------------------------------------------
@@ -145,6 +194,12 @@
     if (testEmailWrap) testEmailWrap.hidden = !emailMode;
     var testLineWrap = document.getElementById('test-line-wrap');
     if (testLineWrap) testLineWrap.hidden = emailMode;
+    var campaignBlock = $('campaign-test-block');
+    if (campaignBlock) campaignBlock.hidden = emailMode;
+    if (emailMode && state.campaignTestEnabled) {
+      $('campaign-test-enable').checked = false;
+      updateCampaignTestUI();
+    }
   }
   $$('.tab-btn[data-channel]').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -516,6 +571,11 @@
             state.bHeroMediaId = data.mediaId;
             state.bHeroUrl = data.url;
             renderBHeroStatus(false);
+          } else if (opts.variant === 'c') {
+            state.cHeroMediaId = data.mediaId;
+            state.cHeroUrl = data.url;
+            var cStatus = $('c-hero-status');
+            cStatus.innerHTML = '已上傳 <a href="' + data.url + '" target="_blank" rel="noopener">查看</a>';
           } else {
             state.heroMediaId = data.mediaId;
             state.heroUrl = data.url;
@@ -535,6 +595,9 @@
   }));
   $('btn-b-hero-upload').addEventListener('click', makeHeroUploadHandler({
     fileInputId: 'b-hero-file', statusElId: 'b-hero-status', variant: 'b'
+  }));
+  $('btn-c-hero-upload').addEventListener('click', makeHeroUploadHandler({
+    fileInputId: 'c-hero-file', statusElId: 'c-hero-status', variant: 'c'
   }));
 
   function renderBHeroStatus(isFromDraft) {
@@ -629,6 +692,36 @@
     };
   }
 
+  function collectVariantCMessageConfig() {
+    if (state.mode === 'flex_json') {
+      var raw = $('c-flex-json').value;
+      try { return { mode: 'flex_json', flex: JSON.parse(raw) }; } catch (e) {
+        return { mode: 'flex_json', flex: null, _parseError: e.message };
+      }
+    }
+    return {
+      mode: 'template',
+      template: {
+        heroMediaId: state.cHeroMediaId || null,
+        title: $('c-tpl-title').value.trim(),
+        subtitle: $('c-tpl-subtitle').value.trim(),
+        couponCode: $('c-tpl-coupon-code').value.trim(),
+        disclaimer: $('c-tpl-disclaimer').value.trim(),
+        ctaLabel: $('c-tpl-cta-label').value.trim(),
+        ctaUrl: $('c-tpl-cta-url').value.trim(),
+        altText: $('c-tpl-alt').value.trim()
+      }
+    };
+  }
+
+  function collectSelectedTestMessageConfig() {
+    if (!state.campaignTestEnabled) return collectMessageConfig();
+    var variant = $('test-campaign-variant').value;
+    if (variant === 'b') return collectVariantBMessageConfig();
+    if (variant === 'c' && state.campaignVariantCount === 3) return collectVariantCMessageConfig();
+    return collectMessageConfig();
+  }
+
   // ------------------------------------------------------------------
   // 6. message preview
   // ------------------------------------------------------------------
@@ -652,6 +745,11 @@
       statusEl.textContent = '版本 B JSON 格式錯誤：' + cfgB._parseError;
       return;
     }
+    var cfgC = state.campaignTestEnabled && state.campaignVariantCount === 3 ? collectVariantCMessageConfig() : null;
+    if (cfgC && cfgC.mode === 'flex_json' && cfgC.flex === null) {
+      statusEl.textContent = '版本 C JSON 格式錯誤：' + cfgC._parseError;
+      return;
+    }
 
     var channel = getActiveChannel();
     var emailSubject = '';
@@ -672,12 +770,21 @@
         }).then(function (r) { return r.json(); })
       );
     }
+    if (cfgC) {
+      fetches.push(
+        fetch('/admin/broadcast/preview-message', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message_config: cfgC, channel: channel, email_subject: emailSubject })
+        }).then(function (r) { return r.json(); })
+      );
+    }
     Promise.all(fetches)
       .then(function (results) {
         var dataA = results[0];
         var dataB = results[1];
-        if (!dataA.ok || (state.abTestEnabled && !dataB.ok)) {
-          var err = !dataA.ok ? dataA.error : dataB.error;
+        var dataC = results[2];
+        if (!dataA.ok || (state.abTestEnabled && !dataB.ok) || (cfgC && !dataC.ok)) {
+          var err = !dataA.ok ? dataA.error : (!dataB || !dataB.ok ? dataB.error : dataC.error);
           // 訊息還沒填夠 → 不顯示為 error，只 keep 預覽空白
           if (/請至少填|altText/.test(err || '')) {
             statusEl.textContent = '預覽會在你填內容時自動更新';
@@ -715,9 +822,11 @@
             '<div style="margin-bottom:6px;font-size:12px;font-weight:600;color:#1d4ed8;">版本 A</div>' +
             '<div class="ab-preview-card" id="ab-preview-a"></div>' +
             '<div style="margin:14px 0 6px;font-size:12px;font-weight:600;color:#1d4ed8;">版本 B</div>' +
-            '<div class="ab-preview-card" id="ab-preview-b"></div>';
+            '<div class="ab-preview-card" id="ab-preview-b"></div>' +
+            (cfgC ? '<div style="margin:14px 0 6px;font-size:12px;font-weight:600;color:#1d4ed8;">版本 C</div><div class="ab-preview-card" id="ab-preview-c"></div>' : '');
           renderFlexMock(dataA.messages[0], $('ab-preview-a'), true);
           renderFlexMock(dataB.messages[0], $('ab-preview-b'), false);
+          if (cfgC) renderFlexMock(dataC.messages[0], $('ab-preview-c'), false);
         } else {
           renderFlexMock(dataA.messages[0], previewEl);
         }
@@ -734,6 +843,8 @@
     'tpl-cta-label', 'tpl-cta-url', 'tpl-alt', 'flex-json',
     'b-tpl-title', 'b-tpl-subtitle', 'b-tpl-coupon-code', 'b-tpl-disclaimer',
     'b-tpl-cta-label', 'b-tpl-cta-url', 'b-tpl-alt', 'b-flex-json',
+    'c-tpl-title', 'c-tpl-subtitle', 'c-tpl-coupon-code', 'c-tpl-disclaimer',
+    'c-tpl-cta-label', 'c-tpl-cta-url', 'c-tpl-alt', 'c-flex-json',
     'email-subject', 'email-from-name', 'email-from-address',
     'msg-alt-text'
   ].forEach(function (id) {
@@ -1689,7 +1800,7 @@
       return;
     }
     var statusEl = $('test-push-status');
-    var cfg = collectMessageConfig();
+    var cfg = collectSelectedTestMessageConfig();
     if (cfg.mode === 'flex_json' && cfg.flex === null) {
       statusEl.textContent = 'JSON 格式錯誤：' + cfg._parseError;
       return;
@@ -1742,7 +1853,11 @@
       invalid_line_message: '訊息內容不符合 LINE 規格',
       push_failed: 'LINE push 失敗（請至 line_push_logs 查 detail）',
       label_required: '請填顯示名',
-      duplicate_line_user_id: '這個 LINE userId 已在清單'
+      duplicate_line_user_id: '這個 LINE userId 已在清單',
+      campaign_experiment_requires_tracked_template: 'Campaign Testing 請使用一般訊息編輯器，才能可靠計算 CTA 點擊率',
+      experiment_allocation_must_total_100: 'A/B/C 與保留名單的比例合計必須是 100%',
+      experiment_needs_min_recipients: '收件人太少，無法讓每個測試版本與保留名單都有人',
+      booking_conversion_not_available: '訂位轉換率尚待身分串接，請先使用 CTR'
     };
     return map[code] || code || 'unknown';
   }
@@ -1796,7 +1911,7 @@
 
   function sendTestTo(lineUid, label) {
     var statusEl = $('test-push-status');
-    var cfg = collectMessageConfig();
+    var cfg = collectSelectedTestMessageConfig();
     if (cfg.mode === 'flex_json' && cfg.flex === null) {
       statusEl.textContent = 'JSON 格式錯誤：' + cfg._parseError;
       return;
@@ -1832,7 +1947,7 @@
 
   $('btn-test-push-all').addEventListener('click', function () {
     var statusEl = $('test-push-status');
-    var cfg = collectMessageConfig();
+    var cfg = collectSelectedTestMessageConfig();
     if (cfg.mode === 'flex_json' && cfg.flex === null) {
       statusEl.textContent = 'JSON 格式錯誤：' + cfg._parseError;
       return;
@@ -2204,9 +2319,33 @@
     if (!state.messagePreviewed) {
       return { ok: false, reason: '預覽尚未產生 — 請編輯訊息或從訊息模板選一個，等預覽顯示後再送', focusEl: 'msg-preview' };
     }
+    if (state.campaignTestEnabled) {
+      if (getActiveChannel() !== 'line') return { ok: false, reason: 'Campaign Testing 目前只支援 LINE 推播' };
+      if (state.mode !== 'template') {
+        return { ok: false, reason: 'Campaign Testing 目前請使用一般訊息編輯器；進階 Flex JSON 無法可靠追蹤每顆自訂按鈕的 CTR', focusEl: 'advanced-json-block' };
+      }
+      var a = Number($('campaign-weight-a').value || 0);
+      var b = Number($('campaign-weight-b').value || 0);
+      var c = Number($('campaign-weight-c').value || 0);
+      var holdout = Number($('campaign-weight-holdout').value || 0);
+      var neededC = state.campaignVariantCount === 3;
+      if (![a, b, c, holdout].every(function (n) { return Number.isInteger(n) && n >= 0; }) ||
+          a <= 0 || b <= 0 || holdout <= 0 || (neededC && c <= 0) || (!neededC && c !== 0) ||
+          a + b + c + holdout !== 100) {
+        return { ok: false, reason: 'Campaign Testing 的 A/B/C 與保留名單比例必須都是有效整數，且合計 100%', focusEl: 'campaign-weight-a' };
+      }
+      if (state.audiencePreviewedTotal < state.campaignVariantCount + 1) {
+        return { ok: false, reason: 'Campaign Testing 至少需要 ' + (state.campaignVariantCount + 1) + ' 位收件人，才能每個測試版本與保留名單各有一位' };
+      }
+      var observation = Number($('campaign-observation-hours').value || 0);
+      if (!Number.isInteger(observation) || observation < 1 || observation > 168) {
+        return { ok: false, reason: '觀察時間請填 1 到 168 小時', focusEl: 'campaign-observation-hours' };
+      }
+    }
     if (state.mode === 'flex_json') {
       var phSource = ($('flex-json') ? $('flex-json').value : '');
       if (state.abTestEnabled && $('b-flex-json')) phSource += '\n' + $('b-flex-json').value;
+      if (state.campaignTestEnabled && state.campaignVariantCount === 3 && $('c-flex-json')) phSource += '\n' + $('c-flex-json').value;
       var phMatches = phSource.match(/REPLACE_[A-Z0-9_]+/g) || [];
       var phSeen = {};
       phMatches.forEach(function (p) { phSeen[p] = true; });
@@ -2293,6 +2432,23 @@
       createBody.ab_test = true;
       createBody.variant_b_message_config = collectVariantBMessageConfig();
     }
+    if (state.campaignTestEnabled) {
+      createBody.campaign_experiment = {
+        enabled: true,
+        variant_count: state.campaignVariantCount,
+        observation_hours: Number($('campaign-observation-hours').value),
+        metric: 'ctr',
+        allocations: {
+          a: Number($('campaign-weight-a').value),
+          b: Number($('campaign-weight-b').value),
+          c: Number($('campaign-weight-c').value),
+          holdout: Number($('campaign-weight-holdout').value)
+        }
+      };
+      if (state.campaignVariantCount === 3) {
+        createBody.variant_c_message_config = collectVariantCMessageConfig();
+      }
+    }
     fetch('/admin/broadcast/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2301,7 +2457,7 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data.ok) {
-          meta.textContent = '建立失敗：' + (data.detail || data.error || '請稍後再試');
+          meta.textContent = '建立失敗：' + (data.detail || errorMap(data.error) || '請稍後再試');
           state.sending = false;
           updateSendButton();
           return;
@@ -2349,6 +2505,13 @@
       $('sc-schedule-row').hidden = true;
     }
     $('sc-ab-row').hidden = !state.abTestEnabled;
+    if (state.campaignTestEnabled) {
+      $('sc-ab-row').querySelector('.sc-k').textContent = 'Campaign Testing';
+      $('sc-ab-row').querySelector('.sc-v').textContent = '先測試 ' + (state.campaignVariantCount === 3 ? 'A/B/C' : 'A/B') + '，觀察 CTR 後送保留名單';
+    } else {
+      $('sc-ab-row').querySelector('.sc-k').textContent = 'A/B 測試';
+      $('sc-ab-row').querySelector('.sc-v').textContent = '已啟用（A、B 版各送一半）';
+    }
     var go = $('sc-btn-go');
     if (scheduled) {
       $('sc-title').textContent = '最後確認：排程發送';
@@ -2458,6 +2621,10 @@
     'msg-alt-text', 'email-subject', 'email-from-name', 'email-from-address',
     'b-tpl-title', 'b-tpl-subtitle', 'b-tpl-coupon-code', 'b-tpl-disclaimer',
     'b-tpl-cta-label', 'b-tpl-cta-url', 'b-tpl-alt', 'b-flex-json',
+    'c-tpl-title', 'c-tpl-subtitle', 'c-tpl-coupon-code', 'c-tpl-disclaimer',
+    'c-tpl-cta-label', 'c-tpl-cta-url', 'c-tpl-alt', 'c-flex-json',
+    'campaign-test-enable', 'campaign-variant-count', 'campaign-observation-hours',
+    'campaign-weight-a', 'campaign-weight-b', 'campaign-weight-c', 'campaign-weight-holdout',
     // 活動頁行為（好康地圖／擲骰子選餐廳）
     'liff-played-days', 'liff-booking-days', 'liff-inactive-days',
     // 訂位來源
@@ -2497,6 +2664,21 @@
           ctaUrl: ($('b-tpl-cta-url') ? $('b-tpl-cta-url').value : ''),
           altText: ($('b-tpl-alt') ? $('b-tpl-alt').value : ''),
           flexJson: ($('b-flex-json') ? $('b-flex-json').value : '')
+        },
+        campaign: {
+          enabled: !!state.campaignTestEnabled,
+          variantCount: state.campaignVariantCount,
+          observationHours: ($('campaign-observation-hours') ? $('campaign-observation-hours').value : '24'),
+          a: ($('campaign-weight-a') ? $('campaign-weight-a').value : '10'),
+          b: ($('campaign-weight-b') ? $('campaign-weight-b').value : '10'),
+          c: ($('campaign-weight-c') ? $('campaign-weight-c').value : '0'),
+          holdout: ($('campaign-weight-holdout') ? $('campaign-weight-holdout').value : '80'),
+          variantC: {
+            title: ($('c-tpl-title') ? $('c-tpl-title').value : ''), subtitle: ($('c-tpl-subtitle') ? $('c-tpl-subtitle').value : ''),
+            couponCode: ($('c-tpl-coupon-code') ? $('c-tpl-coupon-code').value : ''), disclaimer: ($('c-tpl-disclaimer') ? $('c-tpl-disclaimer').value : ''),
+            ctaLabel: ($('c-tpl-cta-label') ? $('c-tpl-cta-label').value : ''), ctaUrl: ($('c-tpl-cta-url') ? $('c-tpl-cta-url').value : ''),
+            altText: ($('c-tpl-alt') ? $('c-tpl-alt').value : ''), flexJson: ($('c-flex-json') ? $('c-flex-json').value : '')
+          }
         },
         liffBehavior: {
           playedDays: ($('liff-played-days') ? $('liff-played-days').value : ''),
@@ -2551,6 +2733,21 @@
       Object.keys(vbMap).forEach(function (id) {
         if (vbMap[id] != null && $(id)) $(id).value = vbMap[id];
       });
+      var campaign = d.campaign || {};
+      var vc = campaign.variantC || {};
+      var vcMap = {
+        'c-tpl-title': vc.title, 'c-tpl-subtitle': vc.subtitle, 'c-tpl-coupon-code': vc.couponCode,
+        'c-tpl-disclaimer': vc.disclaimer, 'c-tpl-cta-label': vc.ctaLabel, 'c-tpl-cta-url': vc.ctaUrl,
+        'c-tpl-alt': vc.altText, 'c-flex-json': vc.flexJson,
+        'campaign-observation-hours': campaign.observationHours, 'campaign-weight-a': campaign.a,
+        'campaign-weight-b': campaign.b, 'campaign-weight-c': campaign.c, 'campaign-weight-holdout': campaign.holdout
+      };
+      Object.keys(vcMap).forEach(function (id) { if (vcMap[id] != null && $(id)) $(id).value = vcMap[id]; });
+      if (campaign.variantCount && $('campaign-variant-count')) $('campaign-variant-count').value = String(campaign.variantCount);
+      if (campaign.enabled && $('campaign-test-enable')) {
+        $('campaign-test-enable').checked = true;
+        updateCampaignTestUI();
+      }
       var lb = d.liffBehavior || {};
       var lbMap = {
         'liff-played-days': lb.playedDays,

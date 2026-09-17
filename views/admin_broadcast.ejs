@@ -573,6 +573,50 @@
                 </div>
               </div>
             </div>
+            <div class="campaign-test-block" id="campaign-test-block">
+              <div class="ab-test-toggle-bar" style="margin-top:16px;">
+                <label class="ab-toggle-label">
+                  <input type="checkbox" id="campaign-test-enable" />
+                  <span><strong>啟用 Campaign Testing</strong> — 先用小樣本比較版本，再把保留名單送給勝出版</span>
+                </label>
+              </div>
+              <div id="campaign-test-pane" hidden>
+                <p class="muted" style="font-size:12px;line-height:1.65;margin:8px 0 12px;">所有測試版本會在同一個發送時間送出，避免發送時間干擾文案、圖片或 CTA 的結果。系統以 CTR（不重複 CTA 點擊 ÷ 成功送達）選勝出；訂位轉換率需完成身分串接後才可使用。此版請使用上方一般訊息編輯器，才能可靠追蹤 CTA。</p>
+                <div class="broadcast-inline-field" style="align-items:end;gap:14px;flex-wrap:wrap;">
+                  <label class="broadcast-field" style="min-width:150px;">測試版本數
+                    <select id="campaign-variant-count"><option value="2">A / B</option><option value="3">A / B / C</option></select>
+                  </label>
+                  <label class="broadcast-field" style="min-width:150px;">觀察時間（小時）
+                    <input id="campaign-observation-hours" type="number" min="1" max="168" value="24" />
+                  </label>
+                  <label class="broadcast-field" style="min-width:190px;">勝出指標
+                    <select id="campaign-metric"><option value="ctr">CTR（CTA 點擊率）</option><option value="booking_conversion" disabled>訂位轉換率（待訂位身分串接）</option></select>
+                  </label>
+                </div>
+                <div class="broadcast-field-label" style="margin-top:10px;">名單比例（合計必須是 100%）</div>
+                <div class="broadcast-inline-field" style="gap:10px;flex-wrap:wrap;">
+                  <label>版本 A <input id="campaign-weight-a" type="number" min="1" max="98" value="10" style="width:70px;" />%</label>
+                  <label>版本 B <input id="campaign-weight-b" type="number" min="1" max="98" value="10" style="width:70px;" />%</label>
+                  <label id="campaign-weight-c-wrap" hidden>版本 C <input id="campaign-weight-c" type="number" min="0" max="98" value="0" style="width:70px;" />%</label>
+                  <label>保留給 Winner <input id="campaign-weight-holdout" type="number" min="1" max="98" value="80" style="width:70px;" />%</label>
+                  <span id="campaign-allocation-hint" class="muted" style="font-size:12px;"></span>
+                </div>
+                <div id="variant-c-pane" hidden style="margin-top:16px;border-top:1px solid #FDE68A;padding-top:14px;">
+                  <div class="ab-variant-label"><strong>版本 C</strong>（依上方比例送出）</div>
+                  <div class="broadcast-tab-pane" id="pane-c-template">
+                    <div class="broadcast-field"><div class="broadcast-field-label">Hero 圖（選填）</div><div class="broadcast-inline-field"><input type="file" id="c-hero-file" accept="image/png,image/jpeg" /><button type="button" class="btn" id="btn-c-hero-upload">上傳</button><span id="c-hero-status" class="muted">未上傳</span></div></div>
+                    <div class="broadcast-field"><label>標題<input type="text" id="c-tpl-title" maxlength="100" /></label></div>
+                    <div class="broadcast-field"><label>副標題<textarea id="c-tpl-subtitle" maxlength="500" rows="3"></textarea></label></div>
+                    <div class="broadcast-field"><label>優惠碼<input type="text" id="c-tpl-coupon-code" maxlength="60" /></label></div>
+                    <div class="broadcast-field"><label>注意事項<input type="text" id="c-tpl-disclaimer" maxlength="300" /></label></div>
+                    <div class="broadcast-field"><label>CTA 按鈕文字<input type="text" id="c-tpl-cta-label" maxlength="40" /></label></div>
+                    <div class="broadcast-field"><label>CTA 連結 (https://)<input type="url" id="c-tpl-cta-url" /></label></div>
+                    <div class="broadcast-field"><label>altText<input type="text" id="c-tpl-alt" maxlength="400" /></label></div>
+                  </div>
+                  <div class="broadcast-tab-pane" id="pane-c-flex-json" hidden><div class="broadcast-field"><label>版本 C 的 Flex JSON<textarea id="c-flex-json" rows="14" spellcheck="false"></textarea></label></div></div>
+                </div>
+              </div>
+            </div>
             </details>
 
             <div class="broadcast-action-row" id="msg-status-row">
@@ -593,6 +637,9 @@
               </div>
 
               <div class="broadcast-action-row" style="margin-top:10px;">
+                <label id="test-campaign-variant-wrap" hidden style="font-size:13px;font-weight:600;">要測哪一版
+                  <select id="test-campaign-variant" style="margin-left:6px;padding:7px 9px;border:1px solid #D1D5DB;border-radius:8px;"><option value="a">版本 A</option><option value="b">版本 B</option><option value="c">版本 C</option></select>
+                </label>
                 <button type="button" class="btn btn-warning" id="btn-test-push-all">發給全部測試人員</button>
                 <span id="test-push-status" class="muted" style="font-size:13px;">尚未送出</span>
               </div>

@@ -262,7 +262,7 @@ function buildEmailText(t, { ctaUrl, unsubscribeUrl } = {}) {
  * @param {string} opts.heroImageBaseUrl  hero 圖公開 URL base（line_push_media）
  * @param {number} opts.broadcastId       廣播 ID（給 CTA / open pixel tracking）
  * @param {number} [opts.recipientId]     收件人 ID（per-recipient tracking）
- * @param {string} [opts.variant]         'a' | 'b'
+ * @param {string} [opts.variant]         'a' | 'b' | 'c'
  * @param {string} opts.origin            APP_BASE_URL or request origin
  * @returns {{ ok: boolean, subject?: string, html?: string, text?: string, error?: string }}
  */
@@ -283,7 +283,7 @@ function buildEmailMessage(messageConfig, emailSubject, opts = {}) {
     origin
   } = opts;
 
-  const variantSuffix = (variant === 'a' || variant === 'b') ? `?v=${variant}` : '';
+  const variantSuffix = (variant === 'a' || variant === 'b' || variant === 'c') ? `?v=${variant}` : '';
   const rSeg = (recipientId != null && Number.isFinite(Number(recipientId)))
     ? `/${Number(recipientId)}`
     : '';

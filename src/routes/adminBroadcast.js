@@ -37,6 +37,12 @@ const {
   MAX_RECIPIENTS_PER_BROADCAST
 } = require('../core/broadcastAudience');
 const { recordRestaurantClick } = require('../core/restaurantLinkParse');
+const {
+  activeVariants,
+  normalizeCampaignExperiment,
+  assignExperimentVariants,
+  pickCtrWinner
+} = require('../core/campaignExperiment');
 
 function escapeHtml(s) {
   return String(s == null ? '' : s)
@@ -53,6 +59,10 @@ function isPositiveIntegerString(s) {
 
 function safeJsonError(res, status, error, extra = {}) {
   return res.status(status).json({ ok: false, error, ...extra });
+}
+
+function isTestVariant(value) {
+  return value === 'a' || value === 'b' || value === 'c';
 }
 
 function humanizeLineApiDetail(raw) {
@@ -142,16 +152,34 @@ function registerAdminBroadcastRoutes(app, deps) {
     return rs.rowCount === 0 ? null : rs.rows[0];
   }
 
+  function getCampaignExperiment(broadcast) {
+    const config = broadcast && broadcast.audience_config && broadcast.audience_config.experiment;
+    return config && config.enabled === true ? config : null;
+  }
+
+  function getBroadcastVariants(broadcast) {
+    const experiment = getCampaignExperiment(broadcast);
+    if (experiment) return activeVariants(Number(experiment.variantCount));
+    return broadcast && broadcast.is_ab_test ? ['a', 'b'] : ['a'];
+  }
+
+  function getVariantConfig(broadcast, variant) {
+    if (variant === 'b') return broadcast.variant_b_message_config;
+    if (variant === 'c') {
+      const experiment = getCampaignExperiment(broadcast);
+      return experiment && experiment.variantCMessageConfig;
+    }
+    return broadcast.message_config;
+  }
+
   /**
    * 對單一收件人發送（dispatch by channel）
    * @returns {Promise<{ result: 'sent'|'failed'|'skipped', error?: string, providerMessageId?: string }>}
    */
   async function sendOneRecipient(broadcast, recipient, { origin } = {}) {
-    const isAbTest = Boolean(broadcast.is_ab_test);
-    const useVariant = (isAbTest && recipient.variant === 'b') ? 'b' : 'a';
-    const cfg = (isAbTest && useVariant === 'b')
-      ? broadcast.variant_b_message_config
-      : broadcast.message_config;
+    const usesVariants = Boolean(broadcast.is_ab_test || getCampaignExperiment(broadcast));
+    const useVariant = (usesVariants && isTestVariant(recipient.variant)) ? recipient.variant : 'a';
+    const cfg = getVariantConfig(broadcast, useVariant);
     const channel = broadcast.channel === 'email' ? 'email' : 'line';
 
     if (channel === 'email') {
@@ -167,7 +195,7 @@ function registerAdminBroadcastRoutes(app, deps) {
         heroImageBaseUrl: origin,
         broadcastId: broadcast.id,
         recipientId: recipient.id,
-        variant: isAbTest ? useVariant : undefined,
+        variant: usesVariants ? useVariant : undefined,
         origin
       });
       if (!built.ok) return { result: 'failed', error: 'build_failed:' + (built.error || 'unknown') };
@@ -182,7 +210,7 @@ function registerAdminBroadcastRoutes(app, deps) {
         customMetadata: {
           broadcast_id: Number(broadcast.id),
           recipient_id: Number(recipient.id),
-          variant: isAbTest ? useVariant : null
+          variant: usesVariants ? useVariant : null
         }
       });
       return sent.ok
@@ -213,7 +241,7 @@ function registerAdminBroadcastRoutes(app, deps) {
     const built = buildLineMessages(cfg, {
       heroImageBaseUrl: origin,
       broadcastId: broadcast.id,
-      variant: isAbTest ? useVariant : undefined,
+      variant: usesVariants ? useVariant : undefined,
       recipientId: recipient.id,
       recipientName
     });
@@ -229,13 +257,131 @@ function registerAdminBroadcastRoutes(app, deps) {
       : { result: 'failed', error: 'push_failed' };
   }
 
+  /**
+   * 將已固定的保留名單交給實驗勝出版。這個動作使用 row lock，重複的 cron 或
+   * 管理員手動按鈕只會有第一個成功，不能把同一位使用者送兩次。
+   */
+  async function releaseExperimentWinner(sourceId, { winnerChoice = 'auto', adminUsername = 'scheduler' } = {}) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const sourceRs = await client.query(
+        `SELECT * FROM admin_broadcasts WHERE id = $1 FOR UPDATE`,
+        [sourceId]
+      );
+      if (sourceRs.rowCount === 0) throw new Error('broadcast_not_found');
+      const source = sourceRs.rows[0];
+      const experiment = getCampaignExperiment(source);
+      if (!experiment) throw new Error('not_campaign_experiment');
+      if (source.status === 'winner_released') {
+        await client.query('COMMIT');
+        return { alreadyReleased: true, winnerVariant: experiment.winnerVariant, broadcastId: experiment.releasedBroadcastId };
+      }
+      if (source.status !== 'awaiting_winner') throw new Error(`broadcast_status_${source.status}`);
+
+      const variants = activeVariants(Number(experiment.variantCount));
+      let winnerVariant = winnerChoice;
+      let stats = [];
+      if (winnerChoice === 'auto') {
+        const statRs = await client.query(
+          `SELECT r.variant,
+                  COUNT(*) FILTER (WHERE r.status = 'sent')::int AS sent_ok,
+                  COUNT(DISTINCT c.recipient_id) FILTER (WHERE c.recipient_id IS NOT NULL)::int AS clickers
+           FROM admin_broadcast_recipients r
+           LEFT JOIN admin_broadcast_clicks c ON c.broadcast_id = r.broadcast_id AND c.recipient_id = r.id
+           WHERE r.broadcast_id = $1 AND r.variant = ANY($2::text[])
+           GROUP BY r.variant`,
+          [sourceId, variants]
+        );
+        stats = statRs.rows;
+        if (stats.reduce((sum, row) => sum + Number(row.sent_ok || 0), 0) === 0) {
+          throw new Error('experiment_no_successful_test_deliveries');
+        }
+        winnerVariant = pickCtrWinner(stats, variants);
+      }
+      if (!variants.includes(winnerVariant)) throw new Error('winner_variant_invalid');
+      const winnerConfig = getVariantConfig(source, winnerVariant);
+      if (!winnerConfig || typeof winnerConfig !== 'object') throw new Error('winner_config_missing');
+
+      const holdoutRs = await client.query(
+        `SELECT user_id, line_user_id, email
+         FROM admin_broadcast_recipients
+         WHERE broadcast_id = $1 AND status = 'waiting_winner'
+         ORDER BY id ASC
+         FOR UPDATE`,
+        [sourceId]
+      );
+      const recipients = holdoutRs.rows;
+      if (recipients.length === 0) throw new Error('no_holdout_recipients');
+
+      const insRs = await client.query(
+        `INSERT INTO admin_broadcasts
+          (status, started_at, admin_username, audience_config, message_config,
+           variant_b_message_config, is_ab_test, recipient_total, channel)
+         VALUES ('running', NOW(), $1, $2::jsonb, $3::jsonb, NULL, false, $4, 'line')
+         RETURNING id`,
+        [
+          adminUsername,
+          JSON.stringify({ experimentWinnerOf: sourceId, winnerVariant, metric: 'ctr' }),
+          JSON.stringify(winnerConfig),
+          recipients.length
+        ]
+      );
+      const newBroadcastId = insRs.rows[0].id;
+      const BATCH = 500;
+      for (let i = 0; i < recipients.length; i += BATCH) {
+        const slice = recipients.slice(i, i + BATCH);
+        const values = [];
+        const params = [];
+        slice.forEach((recipient, idx) => {
+          const base = idx * 4;
+          values.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, 'a')`);
+          params.push(newBroadcastId, recipient.user_id, recipient.line_user_id || null, recipient.email || null);
+        });
+        await client.query(
+          `INSERT INTO admin_broadcast_recipients (broadcast_id, user_id, line_user_id, email, variant)
+           VALUES ${values.join(', ')}`,
+          params
+        );
+      }
+
+      const nextAudienceConfig = {
+        ...(source.audience_config || {}),
+        experiment: {
+          ...experiment,
+          winnerVariant,
+          releasedBroadcastId: newBroadcastId,
+          releasedAt: new Date().toISOString()
+        }
+      };
+      await client.query(
+        `UPDATE admin_broadcast_recipients SET status = 'released'
+         WHERE broadcast_id = $1 AND status = 'waiting_winner'`,
+        [sourceId]
+      );
+      await client.query(
+        `UPDATE admin_broadcasts
+         SET status = 'winner_released', audience_config = $2::jsonb, updated_at = NOW()
+         WHERE id = $1`,
+        [sourceId, JSON.stringify(nextAudienceConfig)]
+      );
+      await client.query('COMMIT');
+      return { broadcastId: newBroadcastId, winnerVariant, holdoutCount: recipients.length, stats };
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (_rollback) {}
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   // ---------- 0a-new. /v/b/:broadcastId/:recipientId/:mediaId（含 recipient 追蹤）----------
   // 新版含 recipient_id；JOIN admin_broadcast_recipients 取 line_user_id 寫入 views
   app.get('/v/b/:broadcastId(\\d+)/:recipientId(\\d+)/:mediaId([0-9a-fA-F-]{36})', async (req, res) => {
     const broadcastId = Number(req.params.broadcastId);
     const recipientId = Number(req.params.recipientId);
     const mediaId = String(req.params.mediaId).trim();
-    const variant = req.query.v === 'a' || req.query.v === 'b' ? req.query.v : null;
+    const variant = isTestVariant(req.query.v) ? req.query.v : null;
     try {
       const rs = await query('SELECT mime_type, body FROM line_push_media WHERE id = $1', [mediaId]);
       if (rs.rowCount === 0) return res.status(404).type('text/plain').send('Not found');
@@ -274,7 +420,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       return res.status(404).type('text/plain').send('Not found');
     }
     const broadcastId = Number(bIdStr);
-    const variant = req.query.v === 'a' || req.query.v === 'b' ? req.query.v : null;
+    const variant = isTestVariant(req.query.v) ? req.query.v : null;
     try {
       const rs = await query(
         'SELECT mime_type, body FROM line_push_media WHERE id = $1',
@@ -304,14 +450,14 @@ function registerAdminBroadcastRoutes(app, deps) {
   app.get('/r/b/:broadcastId(\\d+)/:recipientId(\\d+)', async (req, res) => {
     const broadcastId = Number(req.params.broadcastId);
     const recipientId = Number(req.params.recipientId);
-    const variant = req.query.v === 'a' || req.query.v === 'b' ? req.query.v : null;
+    const variant = isTestVariant(req.query.v) ? req.query.v : null;
     try {
       const rs = await query(
-        `SELECT message_config, variant_b_message_config FROM admin_broadcasts WHERE id = $1`,
+        `SELECT message_config, variant_b_message_config, audience_config FROM admin_broadcasts WHERE id = $1`,
         [broadcastId]
       );
       if (rs.rowCount === 0) return res.status(404).type('text/plain').send('Not found');
-      const cfg = (variant === 'b' ? rs.rows[0].variant_b_message_config : rs.rows[0].message_config) || {};
+      const cfg = getVariantConfig(rs.rows[0], variant || 'a') || {};
       let targetUrl = '';
       if (cfg.mode === 'template' && cfg.template && typeof cfg.template.ctaUrl === 'string') {
         targetUrl = cfg.template.ctaUrl.trim();
@@ -354,14 +500,14 @@ function registerAdminBroadcastRoutes(app, deps) {
     const idStr = String(req.params.broadcastId || '').trim();
     if (!isPositiveIntegerString(idStr)) return res.status(404).type('text/plain').send('Not found');
     const broadcastId = Number(idStr);
-    const variant = req.query.v === 'a' || req.query.v === 'b' ? req.query.v : null;
+    const variant = isTestVariant(req.query.v) ? req.query.v : null;
     try {
       const rs = await query(
-        `SELECT message_config, variant_b_message_config FROM admin_broadcasts WHERE id = $1`,
+        `SELECT message_config, variant_b_message_config, audience_config FROM admin_broadcasts WHERE id = $1`,
         [broadcastId]
       );
       if (rs.rowCount === 0) return res.status(404).type('text/plain').send('Not found');
-      const cfg = (variant === 'b' ? rs.rows[0].variant_b_message_config : rs.rows[0].message_config) || {};
+      const cfg = getVariantConfig(rs.rows[0], variant || 'a') || {};
       let targetUrl = '';
       if (cfg.mode === 'template' && cfg.template && typeof cfg.template.ctaUrl === 'string') {
         targetUrl = cfg.template.ctaUrl.trim();
@@ -1015,12 +1161,30 @@ function registerAdminBroadcastRoutes(app, deps) {
         if (!tplCheck.ok) return safeJsonError(res, 400, tplCheck.error);
       }
 
-      // A/B test：可選的 variant B
-      const isAbTest = body.ab_test === true || body.ab_test === 'true';
+      // Campaign Testing 是 A/B/C 小樣本 + 保留名單的獨立流程。舊 A/B 保持原樣。
+      const rawExperiment = body.campaign_experiment;
+      const experimentRequested = rawExperiment && rawExperiment.enabled === true;
+      if (experimentRequested && channel !== 'line') {
+        return safeJsonError(res, 400, 'campaign_experiment_line_only');
+      }
+      const normalizedExperiment = normalizeCampaignExperiment(rawExperiment, {
+        baseTime: scheduledAt || new Date()
+      });
+      if (!normalizedExperiment.ok) return safeJsonError(res, 400, normalizedExperiment.error);
+      const experiment = normalizedExperiment.value;
+      if (experiment && (!messageConfig || messageConfig.mode !== 'template')) {
+        return safeJsonError(res, 400, 'campaign_experiment_requires_tracked_template');
+      }
+
+      // A/B test：可選的 variant B。Campaign Testing 一律需要 B。
+      const isAbTest = experimentRequested || body.ab_test === true || body.ab_test === 'true';
       const variantBConfig = isAbTest ? body.variant_b_message_config : null;
       if (isAbTest) {
         if (!variantBConfig || typeof variantBConfig !== 'object') {
           return safeJsonError(res, 400, 'variant_b_message_config_required');
+        }
+        if (experiment && variantBConfig.mode !== 'template') {
+          return safeJsonError(res, 400, 'campaign_experiment_requires_tracked_template');
         }
         if (channel === 'line') {
           const builtB = buildLineMessages(variantBConfig, { heroImageBaseUrl: origin });
@@ -1040,6 +1204,28 @@ function registerAdminBroadcastRoutes(app, deps) {
           });
           if (!tplCheckB.ok) return safeJsonError(res, 400, 'variant_b_invalid:' + tplCheckB.error);
         }
+      }
+
+      let variantCConfig = null;
+      if (experiment && experiment.variantCount === 3) {
+        variantCConfig = body.variant_c_message_config;
+        if (!variantCConfig || typeof variantCConfig !== 'object') {
+          return safeJsonError(res, 400, 'variant_c_message_config_required');
+        }
+        if (variantCConfig.mode !== 'template') {
+          return safeJsonError(res, 400, 'campaign_experiment_requires_tracked_template');
+        }
+        const builtC = buildLineMessages(variantCConfig, { heroImageBaseUrl: origin });
+        if (!builtC.ok) return safeJsonError(res, 400, 'variant_c_invalid:' + builtC.error);
+        if (linePush && typeof linePush.validatePushMessages === 'function') {
+          const validC = await linePush.validatePushMessages(builtC.messages);
+          if (!validC.ok) {
+            return safeJsonError(res, 400, 'variant_c_invalid', {
+              detail: humanizeLineApiDetail(validC.detail)
+            });
+          }
+        }
+        experiment.variantCMessageConfig = variantCConfig;
       }
 
       const conditions = normalizeConditions(rawConditions);
@@ -1067,13 +1253,25 @@ function registerAdminBroadcastRoutes(app, deps) {
       if (recipients.length === 0) {
         return safeJsonError(res, 400, channel === 'email' ? 'no_email_recipients' : 'no_matching_recipients');
       }
-      if (isAbTest && recipients.length < 2) {
+      if (experiment && recipients.length < experiment.variantCount + 1) {
+        return safeJsonError(res, 400, 'experiment_needs_min_recipients');
+      }
+      if (!experiment && isAbTest && recipients.length < 2) {
         return safeJsonError(res, 400, 'ab_test_needs_min_2_recipients');
       }
 
-      // A/B test：隨機 shuffle + 對半分 variant
+      // 名單在建立批次時就隨機物化；後續不會因受眾條件或資料更新而改變。
       let assignedVariants = null;
-      if (isAbTest) {
+      let variantCounts = null;
+      if (experiment) {
+        const assignment = assignExperimentVariants(
+          recipients.length,
+          experiment.allocations,
+          experiment.variantCount
+        );
+        assignedVariants = assignment.assignments;
+        variantCounts = assignment.counts;
+      } else if (isAbTest) {
         const indices = recipients.map((_, i) => i);
         for (let i = indices.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
@@ -1084,7 +1282,11 @@ function registerAdminBroadcastRoutes(app, deps) {
         for (let k = 0; k < halfIdx; k++) {
           assignedVariants[indices[k]] = 'b';
         }
+        variantCounts = assignedVariants.reduce((acc, v) => { acc[v] = (acc[v] || 0) + 1; return acc; }, {});
       }
+
+      const audienceConfig = { conditions };
+      if (experiment) audienceConfig.experiment = experiment;
 
       const adminUsername =
         (req.authUser && (req.authUser.un || req.authUser.username)) || 'admin';
@@ -1103,7 +1305,7 @@ function registerAdminBroadcastRoutes(app, deps) {
               [
                 scheduledAt.toISOString(),
                 adminUsername,
-                JSON.stringify({ conditions }),
+                JSON.stringify(audienceConfig),
                 JSON.stringify(messageConfig || {}),
                 isAbTest ? JSON.stringify(variantBConfig) : null,
                 isAbTest,
@@ -1123,7 +1325,7 @@ function registerAdminBroadcastRoutes(app, deps) {
                RETURNING id`,
               [
                 adminUsername,
-                JSON.stringify({ conditions }),
+                JSON.stringify(audienceConfig),
                 JSON.stringify(messageConfig || {}),
                 isAbTest ? JSON.stringify(variantBConfig) : null,
                 isAbTest,
@@ -1144,18 +1346,20 @@ function registerAdminBroadcastRoutes(app, deps) {
           const params = [];
           slice.forEach((r, idx) => {
             const globalIdx = i + idx;
-            const base = idx * 5;
-            values.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
+            const base = idx * 6;
+            values.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`);
+            const variant = isAbTest ? assignedVariants[globalIdx] : 'a';
             params.push(
               broadcastId,
               r.user_id,
               r.line_user_id || null,
               r.email || null,
-              isAbTest ? assignedVariants[globalIdx] : 'a'
+              variant,
+              variant === 'holdout' ? 'waiting_winner' : 'pending'
             );
           });
           await client.query(
-            `INSERT INTO admin_broadcast_recipients (broadcast_id, user_id, line_user_id, email, variant)
+            `INSERT INTO admin_broadcast_recipients (broadcast_id, user_id, line_user_id, email, variant, status)
              VALUES ${values.join(', ')}`,
             params
           );
@@ -1168,9 +1372,12 @@ function registerAdminBroadcastRoutes(app, deps) {
           scheduled: Boolean(scheduledAt),
           scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
           isAbTest,
-          variantCounts: isAbTest
-            ? assignedVariants.reduce((acc, v) => { acc[v] = (acc[v] || 0) + 1; return acc; }, {})
-            : null
+          variantCounts,
+          experiment: experiment ? {
+            metric: experiment.metric,
+            winnerAt: experiment.winnerAt,
+            allocations: variantCounts
+          } : null
         });
       } catch (e) {
         try { await client.query('ROLLBACK'); } catch (_rb) {}
@@ -1203,7 +1410,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       if (channel === 'email' && !(emailProvider && emailProvider.isConfigured && emailProvider.isConfigured())) {
         return safeJsonError(res, 400, 'email_provider_not_configured');
       }
-      if (b.status === 'cancelled' || b.status === 'done') {
+      if (b.status === 'cancelled' || b.status === 'done' || b.status === 'awaiting_winner' || b.status === 'winner_released') {
         return res.json({ ok: true, processed: 0, ok_count: 0, fail: 0, skip: 0, remaining: 0, done: true, status: b.status });
       }
       if (b.status !== 'running') {
@@ -1245,20 +1452,25 @@ function registerAdminBroadcastRoutes(app, deps) {
       client.release();
 
       const origin = publicOriginOrEmpty(req);
-      const isAbTest = Boolean(b.is_ab_test);
+      const variants = getBroadcastVariants(b);
 
       // 預先驗證訊息設定（不帶 recipientId，用來檢查能否 build）
       let sanityErr = null;
       let sanityLineMessages = [];
       if (channel === 'line') {
-        const sa = buildLineMessages(b.message_config, { heroImageBaseUrl: origin, broadcastId, variant: isAbTest ? 'a' : undefined });
-        const sb = isAbTest ? buildLineMessages(b.variant_b_message_config, { heroImageBaseUrl: origin, broadcastId, variant: 'b' }) : null;
-        if (!sa.ok || (isAbTest && !sb.ok)) sanityErr = !sa.ok ? sa.error : sb.error;
-        else sanityLineMessages = [sa.messages, ...(isAbTest ? [sb.messages] : [])];
+        variants.forEach((variant) => {
+          const built = buildLineMessages(getVariantConfig(b, variant), {
+            heroImageBaseUrl: origin, broadcastId, variant: variants.length > 1 ? variant : undefined
+          });
+          if (!built.ok && !sanityErr) sanityErr = built.error;
+          if (built.ok) sanityLineMessages.push(built.messages);
+        });
       } else {
-        const sa = validateEmailTemplateInput({ ...(b.message_config && b.message_config.template ? b.message_config.template : {}), subject: b.email_subject });
-        const sb = isAbTest ? validateEmailTemplateInput({ ...(b.variant_b_message_config && b.variant_b_message_config.template ? b.variant_b_message_config.template : {}), subject: b.email_subject }) : { ok: true };
-        if (!sa.ok || (isAbTest && !sb.ok)) sanityErr = !sa.ok ? sa.error : sb.error;
+        variants.forEach((variant) => {
+          const cfg = getVariantConfig(b, variant) || {};
+          const valid = validateEmailTemplateInput({ ...(cfg.template || {}), subject: b.email_subject });
+          if (!valid.ok && !sanityErr) sanityErr = valid.error;
+        });
       }
       if (sanityErr) {
         if (claimed.length > 0) {
@@ -1342,11 +1554,13 @@ function registerAdminBroadcastRoutes(app, deps) {
       const remaining = Number(remainingRs.rows[0]?.n || 0);
       let done = false;
       if (remaining === 0) {
+        const experiment = getCampaignExperiment(b);
+        const nextStatus = experiment ? 'awaiting_winner' : 'done';
         await query(
-          `UPDATE admin_broadcasts SET status = 'done', finished_at = NOW(), updated_at = NOW() WHERE id = $1`,
-          [broadcastId]
+          `UPDATE admin_broadcasts SET status = $2, finished_at = NOW(), updated_at = NOW() WHERE id = $1`,
+          [broadcastId, nextStatus]
         );
-        done = true;
+        done = !experiment;
       }
 
       return res.json({
@@ -1394,6 +1608,26 @@ function registerAdminBroadcastRoutes(app, deps) {
       );
       const startedIds = dueRs.rows.map(r => r.id);
 
+      // Step 1b: 觀察期結束的 Campaign Testing 自動依 CTR 選勝出版本，
+      // 然後只對建立時就保留的名單建立新的發送批次。
+      const dueExperimentRs = await query(
+        `SELECT id FROM admin_broadcasts
+         WHERE status = 'awaiting_winner'
+           AND audience_config->'experiment'->>'winnerMode' = 'auto'
+           AND (audience_config->'experiment'->>'winnerAt')::timestamptz <= NOW()
+         ORDER BY id ASC
+         LIMIT 5`
+      );
+      const releasedExperiments = [];
+      for (const row of dueExperimentRs.rows) {
+        try {
+          releasedExperiments.push({ sourceId: row.id, ...(await releaseExperimentWinner(row.id)) });
+        } catch (releaseErr) {
+          console.error('release experiment winner failed:', row.id, releaseErr.message);
+          releasedExperiments.push({ sourceId: row.id, error: releaseErr.message });
+        }
+      }
+
       // Step 2: 撈所有 running broadcasts（含剛剛 start 的）
       // 上一輪如果在送到一半被砍（Lambda 超時），會留下 status='sending' 的殭屍列：
       // 之後永遠不會被撿（claim 只挑 pending），broadcast 也永遠結不了案。先回收。
@@ -1403,7 +1637,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       ).catch(e => console.error('reclaim stuck sending failed:', e.message));
 
       const runningRs = await query(
-        `SELECT id, message_config, variant_b_message_config, is_ab_test,
+        `SELECT id, message_config, variant_b_message_config, is_ab_test, audience_config,
                 channel, email_subject, email_from_name, email_from_address
          FROM admin_broadcasts
          WHERE status = 'running'
@@ -1420,7 +1654,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       const results = [];
       for (const row of runningRs.rows) {
         const bId = row.id;
-        const isAbTest = Boolean(row.is_ab_test);
+        const variants = getBroadcastVariants(row);
         const channel = row.channel === 'email' ? 'email' : 'line';
 
         if (channel === 'line' && !lineChannelAccessToken) {
@@ -1435,13 +1669,18 @@ function registerAdminBroadcastRoutes(app, deps) {
         // sanity check 一次（不帶 recipientId）
         let sanityErr = null;
         if (channel === 'line') {
-          const sa = buildLineMessages(row.message_config, { heroImageBaseUrl: cleanOrigin, broadcastId: bId, variant: isAbTest ? 'a' : undefined });
-          const sb = isAbTest ? buildLineMessages(row.variant_b_message_config, { heroImageBaseUrl: cleanOrigin, broadcastId: bId, variant: 'b' }) : null;
-          if (!sa.ok || (isAbTest && !sb.ok)) sanityErr = !sa.ok ? sa.error : sb.error;
+          variants.forEach((variant) => {
+            const built = buildLineMessages(getVariantConfig(row, variant), {
+              heroImageBaseUrl: cleanOrigin, broadcastId: bId, variant: variants.length > 1 ? variant : undefined
+            });
+            if (!built.ok && !sanityErr) sanityErr = built.error;
+          });
         } else {
-          const sa = validateEmailTemplateInput({ ...(row.message_config && row.message_config.template ? row.message_config.template : {}), subject: row.email_subject });
-          const sb = isAbTest ? validateEmailTemplateInput({ ...(row.variant_b_message_config && row.variant_b_message_config.template ? row.variant_b_message_config.template : {}), subject: row.email_subject }) : { ok: true };
-          if (!sa.ok || (isAbTest && !sb.ok)) sanityErr = !sa.ok ? sa.error : sb.error;
+          variants.forEach((variant) => {
+            const cfg = getVariantConfig(row, variant) || {};
+            const valid = validateEmailTemplateInput({ ...(cfg.template || {}), subject: row.email_subject });
+            if (!valid.ok && !sanityErr) sanityErr = valid.error;
+          });
         }
         if (sanityErr) {
           results.push({ broadcastId: bId, skipped: 'message_invalid', detail: sanityErr });
@@ -1530,9 +1769,10 @@ function registerAdminBroadcastRoutes(app, deps) {
         );
         const remaining = Number(remRs.rows[0]?.n || 0);
         if (remaining === 0) {
+          const experiment = getCampaignExperiment(row);
           await query(
-            `UPDATE admin_broadcasts SET status = 'done', finished_at = NOW(), updated_at = NOW() WHERE id = $1`,
-            [bId]
+            `UPDATE admin_broadcasts SET status = $2, finished_at = NOW(), updated_at = NOW() WHERE id = $1`,
+            [bId, experiment ? 'awaiting_winner' : 'done']
           );
         }
 
@@ -1540,7 +1780,7 @@ function registerAdminBroadcastRoutes(app, deps) {
         if (cutoff) break; // 時間預算用完，剩下的 broadcasts 下一輪處理
       }
 
-      return res.json({ ok: true, startedFromScheduled: startedIds, results });
+      return res.json({ ok: true, startedFromScheduled: startedIds, releasedExperiments, results });
     } catch (err) {
       console.error('run-scheduled error:', err && (err.stack || err.message));
       return res.status(500).json({ ok: false, error: 'run_scheduled_failed', detail: err && err.message });
@@ -1666,9 +1906,44 @@ function registerAdminBroadcastRoutes(app, deps) {
         [broadcastId]
       );
 
-      // A/B 對比統計（is_ab_test=true 時才有意義）
+      // A/B 對比統計（舊流程）；Campaign Testing 另計 CTR 與保留名單。
       let abStat = null;
-      if (b.is_ab_test) {
+      const experiment = getCampaignExperiment(b);
+      let experimentStat = null;
+      if (experiment) {
+        const variants = activeVariants(Number(experiment.variantCount));
+        const expRs = await query(
+          `SELECT r.variant,
+                  COUNT(*)::int AS sent_total,
+                  COUNT(*) FILTER (WHERE r.status = 'sent')::int AS sent_ok,
+                  COUNT(*) FILTER (WHERE r.status = 'failed')::int AS sent_fail,
+                  COUNT(DISTINCT c.recipient_id) FILTER (WHERE c.recipient_id IS NOT NULL)::int AS clickers
+           FROM admin_broadcast_recipients r
+           LEFT JOIN admin_broadcast_clicks c ON c.broadcast_id = r.broadcast_id AND c.recipient_id = r.id
+           WHERE r.broadcast_id = $1 AND r.variant = ANY($2::text[])
+           GROUP BY r.variant
+           ORDER BY r.variant`,
+          [broadcastId, variants]
+        );
+        const holdoutRs = await query(
+          `SELECT COUNT(*)::int AS n FROM admin_broadcast_recipients
+           WHERE broadcast_id = $1 AND variant = 'holdout'`,
+          [broadcastId]
+        );
+        const byVariant = new Map(expRs.rows.map((row) => [row.variant, row]));
+        const rows = variants.map((variant) => byVariant.get(variant) || {
+          variant, sent_total: 0, sent_ok: 0, sent_fail: 0, clickers: 0
+        });
+        const holdout = Number(holdoutRs.rows[0]?.n || 0);
+        experimentStat = {
+          config: experiment,
+          rows,
+          holdout,
+          selectedWinner: experiment.winnerVariant || pickCtrWinner(rows, variants),
+          canRelease: b.status === 'awaiting_winner',
+          releasedBroadcastId: experiment.releasedBroadcastId || null
+        };
+      } else if (b.is_ab_test) {
         const abRs = await query(
           `SELECT
             variant,
@@ -1727,7 +2002,8 @@ function registerAdminBroadcastRoutes(app, deps) {
         clickStat: clickStatRs.rows[0] || { clicks: 0, unique_ua: 0 },
         clickRecent: clickRecentRs.rows,
         viewStat: viewStatRs.rows[0] || { views: 0, first_view: null, last_view: null },
-        abStat
+        abStat,
+        experimentStat
       });
     } catch (err) {
       next(err);
@@ -1774,6 +2050,25 @@ function registerAdminBroadcastRoutes(app, deps) {
     }
   });
 
+  // Campaign Testing：觀察期後可手動選勝出版，或維持「依 CTR 自動選」。
+  // 正式 cron 同樣走 releaseExperimentWinner，因此兩條路共用相同的去重鎖。
+  app.post('/admin/broadcast/:id(\\d+)/release-experiment-winner', requireAdmin, async (req, res) => {
+    if (!lineChannelAccessToken) return safeJsonError(res, 400, 'no_line_channel_access_token');
+    const sourceId = Number(req.params.id);
+    const requested = String((req.body && req.body.winner_variant) || 'auto').toLowerCase();
+    if (requested !== 'auto' && !isTestVariant(requested)) {
+      return safeJsonError(res, 400, 'winner_variant_invalid');
+    }
+    try {
+      const adminUsername = (req.authUser && (req.authUser.un || req.authUser.username)) || 'admin';
+      const released = await releaseExperimentWinner(sourceId, { winnerChoice: requested, adminUsername });
+      return res.json({ ok: true, sourceBroadcastId: sourceId, ...released });
+    } catch (err) {
+      console.error('release-experiment-winner error:', err.message);
+      return safeJsonError(res, 400, err.message || 'release_experiment_winner_failed');
+    }
+  });
+
   // ---------- 6e. A/B：以勝出版重發給「未點擊」的人 ----------
   // 受眾鎖定該批已送達但沒點 CTA 的人；訊息用點擊數較高那版（平手用 A）。
   // 直接建立一個新的 running broadcast（非 A/B），複用既有 chunk loop 送出。
@@ -1786,6 +2081,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       const b = await loadBroadcast(sourceId);
       if (!b) return safeJsonError(res, 404, 'broadcast_not_found');
       if (!b.is_ab_test) return safeJsonError(res, 400, 'not_ab_test');
+      if (getCampaignExperiment(b)) return safeJsonError(res, 400, 'campaign_experiment_uses_reserved_audience');
       // 個人化／勝出版重發目前只支援 LINE 通道（email A/B 重發另議）
       if (b.channel === 'email') return safeJsonError(res, 400, 'email_ab_resend_not_supported');
 
@@ -1908,7 +2204,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       const upd = await query(
         `UPDATE admin_broadcasts
          SET status = 'cancelled', finished_at = NOW(), updated_at = NOW()
-         WHERE id = $1 AND status IN ('running', 'scheduled', 'queued')
+         WHERE id = $1 AND status IN ('running', 'scheduled', 'queued', 'awaiting_winner')
          RETURNING id`,
         [broadcastId]
       );
@@ -1918,7 +2214,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       await query(
         `UPDATE admin_broadcast_recipients
          SET status = 'cancelled', error = COALESCE(error, 'cancelled_by_admin')
-         WHERE broadcast_id = $1 AND status IN ('pending', 'sending')`,
+         WHERE broadcast_id = $1 AND status IN ('pending', 'sending', 'waiting_winner')`,
         [broadcastId]
       );
       return res.json({ ok: true });

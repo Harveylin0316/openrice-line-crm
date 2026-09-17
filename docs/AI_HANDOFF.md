@@ -167,6 +167,27 @@ CSV，再預覽人數、編輯文字／圖片／影片／Flex 卡片，最後立
 `src/routes/adminBroadcast.js` 的預覽／建立批次、`views/admin_broadcast.ejs` 與
 `public/admin-broadcast.js`。
 
+#### Campaign Testing／A/B/C 小樣本測試（2026-09-17）
+
+`/admin/broadcast` 的 A/B 進階區可再啟用 Campaign Testing。管理員可選 A/B 或 A/B/C、
+自訂各測試版與 Winner 保留名單比例（例如 10%／10%／80%）、設定 1–168 小時觀察期，
+並分別編輯與測試各版文字、Hero 圖及 CTA。所有測試版同時送出，避免發送時間成為干擾；
+第一版只以 CTR（不重複 CTA 點擊者 ÷ 成功送達）自動選 Winner。Booking Conversion 選項
+在 LINE 身分與訂位紀錄有可信串接前保持停用，不得以猜測資料選 Winner。
+
+建立批次時會一次抓取受眾、隨機分組並物化到 `admin_broadcast_recipients`。測試組狀態為
+`pending`，保留名單為 `waiting_winner`；後續不重算受眾，所以各組互斥且不會重複發送。
+測試組送完後母批次進入 `awaiting_winner`。排程 runner 到達 `winnerAt` 後依 CTR 建立一個
+一般 LINE 勝出版批次，將原保留名單標為 `released`，母批次改為 `winner_released`。
+釋放時會鎖定母批次，cron 與管理員手動按鈕同時操作也只會成功一次；若所有測試版皆無
+成功送達，不會自動發送保留名單。管理員也能在母批次詳情手動指定版本，或取消保留名單。
+
+實驗設定與 C 版內容儲存在既有 `admin_broadcasts.audience_config.experiment` JSONB，沒有新增
+公開資料表。CTR 依帶 `recipient_id` 的追蹤網址計算，因此 Campaign Testing 限用一般訊息
+編輯器；進階 Flex JSON 的任意按鈕尚不能保證都經過 CTR 追蹤。核心純邏輯在
+`src/core/campaignExperiment.js`，route／runner 在 `src/routes/adminBroadcast.js`，回歸測試在
+`test/campaign-experiment.test.js`。
+
 #### 群發加入好友日期篩選（2026-09-11）
 
 `/admin/broadcast` 的「條件篩選」除了最近 1／7／30／90 天，也可選「自訂日期範圍」。
