@@ -384,6 +384,26 @@
               </details>
             </div>
 
+            <div class="recipient-selection-card">
+              <div class="broadcast-field-label">本次要發多少人</div>
+              <div class="recipient-selection-controls">
+                <label>
+                  發送方式
+                  <select id="recipient-selection-mode">
+                    <option value="all">全部符合條件的人</option>
+                    <option value="random">隨機抽指定人數</option>
+                  </select>
+                </label>
+                <label id="recipient-selection-count-wrap" hidden>
+                  精確人數
+                  <input type="number" id="recipient-selection-count" min="1" max="${maxRecipients}" step="1" inputmode="numeric" placeholder="例如：423" />
+                </label>
+              </div>
+              <div class="muted" id="recipient-selection-hint" style="font-size:12px;line-height:1.55;margin-top:7px;">
+                預覽後會使用全部符合條件的人；單一批次最多 ${Number(maxRecipients || 5000).toLocaleString()} 人。
+              </div>
+            </div>
+
             <div class="broadcast-action-row" style="margin-top:14px;border-top:1px solid #fde68a;padding-top:12px;">
               <button type="button" class="btn btn-warning" id="btn-preview-audience">預覽收件人</button>
               <div id="audience-status" class="audience-status muted">尚未預覽</div>
@@ -967,6 +987,40 @@
         width: auto !important;
         margin-top: 0 !important;
       }
+      .recipient-selection-card {
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px solid #fcd34d;
+        border-radius: 10px;
+        background: #fff8dc;
+      }
+      .recipient-selection-controls {
+        display: flex;
+        align-items: flex-end;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .recipient-selection-controls label {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        min-width: 220px;
+        font-size: 13px;
+        color: #374151;
+      }
+      .recipient-selection-controls select,
+      .recipient-selection-controls input {
+        min-height: 38px;
+        padding: 8px 10px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        background: #fff;
+        color: #1f2937;
+        font: inherit;
+        box-sizing: border-box;
+      }
+      .recipient-selection-controls input { width: 180px; }
+      #recipient-selection-count-wrap[hidden] { display: none; }
       .joined-custom-range {
         display: flex;
         align-items: flex-end;
@@ -993,6 +1047,9 @@
       }
       .joined-date-separator { padding-bottom: 9px; color: #6b7280; }
       @media (max-width: 520px) {
+        .recipient-selection-controls label { min-width: 100%; }
+        .recipient-selection-controls select,
+        .recipient-selection-controls input { width: 100%; }
         .joined-custom-range { align-items: stretch; }
         .joined-custom-range label { flex: 1 1 140px; }
         .joined-custom-range input[type="date"] { width: 100%; box-sizing: border-box; }
@@ -2055,6 +2112,7 @@
         <div class="sc-rows">
           <div class="sc-row"><span class="sc-k">發送管道</span><span class="sc-v" id="sc-channel">—</span></div>
           <div class="sc-row"><span class="sc-k">收件人數</span><span class="sc-v sc-big" id="sc-total">—</span></div>
+          <div class="sc-row"><span class="sc-k">名單方式</span><span class="sc-v" id="sc-selection">—</span></div>
           <div class="sc-row"><span class="sc-k" id="sc-titlek">通知文字</span><span class="sc-v" id="sc-msgtitle">—</span></div>
           <div class="sc-row" id="sc-schedule-row" hidden><span class="sc-k">排程時間</span><span class="sc-v" id="sc-schedule">—</span></div>
           <div class="sc-row" id="sc-ab-row" hidden><span class="sc-k">A/B 測試</span><span class="sc-v">已啟用（A、B 版各送一半）</span></div>

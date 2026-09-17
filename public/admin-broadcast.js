@@ -28,6 +28,7 @@
     cHeroUrl: null,
     audienceSource: 'conditions',  // 'conditions' | 'saved_list' | 'upload'（直接貼 LINE ID）
     audiencePreviewedTotal: null,
+    audienceEligibleTotal: null,
     messagePreviewed: false,
     currentBroadcastId: null,
     sending: false,
@@ -352,6 +353,58 @@
     };
   }
 
+  function collectRecipientSelection() {
+    var mode = $('recipient-selection-mode') && $('recipient-selection-mode').value === 'random'
+      ? 'random'
+      : 'all';
+    if (mode === 'all') return { mode: 'all' };
+    return {
+      mode: 'random',
+      count: Number(($('recipient-selection-count') && $('recipient-selection-count').value) || 0)
+    };
+  }
+
+  function validateRecipientSelection() {
+    var selection = collectRecipientSelection();
+    if (selection.mode === 'all') return null;
+    var max = Number(INIT.maxRecipients || 5000);
+    if (!Number.isInteger(selection.count) || selection.count < 1 || selection.count > max) {
+      return '指定發送人數請填 1 到 ' + max.toLocaleString() + ' 的整數。';
+    }
+    return null;
+  }
+
+  (function wireRecipientSelection() {
+    var mode = $('recipient-selection-mode');
+    var count = $('recipient-selection-count');
+    var wrap = $('recipient-selection-count-wrap');
+    var hint = $('recipient-selection-hint');
+    if (!mode || !count || !wrap || !hint) return;
+
+    function invalidatePreview() {
+      state.audiencePreviewedTotal = null;
+      state.audienceEligibleTotal = null;
+      var st = $('audience-status'); if (st) st.textContent = '名單人數設定已變更，請重新預覽';
+      var sample = $('audience-sample'); if (sample) sample.hidden = true;
+      updateSendButton();
+    }
+
+    function refresh(shouldInvalidate) {
+      var random = mode.value === 'random';
+      wrap.hidden = !random;
+      count.disabled = !random;
+      hint.textContent = random
+        ? '系統會從完整符合條件的名單中隨機抽出精確人數；建立批次後立即凍結，不會中途換人。'
+        : '預覽後會使用全部符合條件的人；單一批次最多 ' + Number(INIT.maxRecipients || 5000).toLocaleString() + ' 人。';
+      if (shouldInvalidate) invalidatePreview();
+    }
+
+    mode.addEventListener('change', function () { refresh(true); });
+    count.addEventListener('input', invalidatePreview);
+    count.addEventListener('change', invalidatePreview);
+    refresh(false);
+  })();
+
   // 全部會員 toggle：勾選時把行為條件變灰、重置預覽
   (function wireAllMembers() {
     var amEl = $('all-members');
@@ -494,6 +547,14 @@
       updateSendButton();
       return;
     }
+    var recipientSelectionError = validateRecipientSelection();
+    if (recipientSelectionError) {
+      statusEl.textContent = recipientSelectionError;
+      state.audiencePreviewedTotal = null;
+      state.audienceEligibleTotal = null;
+      updateSendButton();
+      return;
+    }
     var directParsed = state.audienceSource === 'upload'
       ? parseUidsFromText($('upload-list-uids').value)
       : null;
@@ -506,7 +567,11 @@
     fetch('/admin/broadcast/audience/preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conditions: collectConditions(), channel: getActiveChannel() })
+      body: JSON.stringify({
+        conditions: collectConditions(),
+        channel: getActiveChannel(),
+        recipient_selection: collectRecipientSelection()
+      })
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -514,11 +579,20 @@
         if (data.error) {
           statusEl.textContent = data.error;
           state.audiencePreviewedTotal = null;
+          state.audienceEligibleTotal = null;
           updateSendButton();
           return;
         }
-        state.audiencePreviewedTotal = data.total;
-        statusEl.innerHTML = '預計送 <strong>' + data.total + '</strong> 人';
+        state.audienceEligibleTotal = Number(data.eligibleTotal == null ? data.total : data.eligibleTotal);
+        state.audiencePreviewedTotal = Number(data.sendTotal == null ? data.total : data.sendTotal);
+        var recipientSelection = data.recipientSelection || collectRecipientSelection();
+        if (recipientSelection.mode === 'random') {
+          statusEl.innerHTML = '符合條件 <strong>' + state.audienceEligibleTotal.toLocaleString() +
+            '</strong> 人；本次隨機發送 <strong>' + state.audiencePreviewedTotal.toLocaleString() + '</strong> 人';
+        } else {
+          statusEl.innerHTML = '符合條件 <strong>' + state.audienceEligibleTotal.toLocaleString() +
+            '</strong> 人；本次發送 <strong>' + state.audiencePreviewedTotal.toLocaleString() + '</strong> 人';
+        }
         if (directParsed) {
           var notes = [];
           if (directParsed.duplicates > 0) notes.push('去除 ' + directParsed.duplicates + ' 個重複');
@@ -527,8 +601,8 @@
           if (excluded > 0) notes.push('排除 ' + excluded + ' 個已知封鎖／舊帳號');
           if (notes.length > 0) statusEl.innerHTML += ' <span class="muted">（' + notes.join('、') + '）</span>';
         }
-        if (data.total > (INIT.maxRecipients || 5000)) {
-          statusEl.innerHTML += ' <span style="color:#b45309">（將自動 cap 至 ' + INIT.maxRecipients + ' 人）</span>';
+        if (recipientSelection.mode !== 'random' && state.audienceEligibleTotal > (INIT.maxRecipients || 5000)) {
+          statusEl.innerHTML += ' <span style="color:#b45309">（單批上限 ' + INIT.maxRecipients + ' 人）</span>';
         }
         if (data.sample && data.sample.length > 0) {
           var isEmailCh = getActiveChannel() === 'email';
@@ -538,7 +612,10 @@
             return '<tr><td>' + s.id + '</td><td>' + nameCell +
               '</td><td><code style="font-size:11px">' + idCell + '</code></td></tr>';
           }).join('');
-          sampleEl.innerHTML = '<div style="margin-bottom:4px;font-weight:500;">前 ' + data.sample.length + ' 筆樣本</div>' +
+          var sampleTitle = recipientSelection.mode === 'random'
+            ? '符合條件的樣本（正式建立時才隨機抽選並凍結）'
+            : '前 ' + data.sample.length + ' 筆樣本';
+          sampleEl.innerHTML = '<div style="margin-bottom:4px;font-weight:500;">' + sampleTitle + '</div>' +
             '<table><thead><tr><th>ID</th><th>顯示名</th><th>' + (isEmailCh ? 'Email' : 'LINE 編號') + '</th></tr></thead><tbody>' + rows + '</tbody></table>';
           sampleEl.hidden = false;
         }
@@ -1854,6 +1931,8 @@
       push_failed: 'LINE push 失敗（請至 line_push_logs 查 detail）',
       label_required: '請填顯示名',
       duplicate_line_user_id: '這個 LINE userId 已在清單',
+      invalid_recipient_selection: '指定發送人數不正確',
+      audience_changed_repreview: '收件名單在預覽後有變動，請重新預覽',
       campaign_experiment_requires_tracked_template: 'Campaign Testing 請使用一般訊息編輯器，才能可靠計算 CTA 點擊率',
       experiment_allocation_must_total_100: 'A/B/C 與保留名單的比例合計必須是 100%',
       experiment_needs_min_recipients: '收件人太少，無法讓每個測試版本與保留名單都有人',
@@ -2316,6 +2395,10 @@
     if (state.audiencePreviewedTotal === 0) {
       return { ok: false, reason: '收件人為 0，請調整條件或選不同名單', focusEl: 'btn-preview-audience' };
     }
+    var recipientSelectionError = validateRecipientSelection();
+    if (recipientSelectionError) {
+      return { ok: false, reason: recipientSelectionError, focusEl: 'recipient-selection-count' };
+    }
     if (!state.messagePreviewed) {
       return { ok: false, reason: '預覽尚未產生 — 請編輯訊息或從訊息模板選一個，等預覽顯示後再送', focusEl: 'msg-preview' };
     }
@@ -2417,6 +2500,7 @@
     var createBody = {
       channel: getActiveChannel(),
       conditions: collectConditions(),
+      recipient_selection: collectRecipientSelection(),
       message_config: collectMessageConfig(),
       send_mode: state.sendMode
     };
@@ -2490,9 +2574,16 @@
     if (!overlay) { executeSend(); return; } // modal 不存在時退回直接送（仍有就緒檢查把關）
     var channel = getActiveChannel();
     var total = Number(state.audiencePreviewedTotal || 0);
+    var eligibleTotal = Number(state.audienceEligibleTotal || total);
+    var recipientSelection = collectRecipientSelection();
     var scheduled = state.sendMode === 'scheduled';
     $('sc-channel').textContent = channel === 'email' ? 'Email' : 'LINE';
     $('sc-total').textContent = total.toLocaleString() + ' 人';
+    $('sc-selection').textContent = recipientSelection.mode === 'random'
+      ? '從 ' + eligibleTotal.toLocaleString() + ' 位符合者中，隨機抽 ' + total.toLocaleString() + ' 位並凍結'
+      : (eligibleTotal > total
+        ? '符合 ' + eligibleTotal.toLocaleString() + ' 位；依單批上限發送 ' + total.toLocaleString() + ' 位'
+        : '全部符合條件的人');
     $('sc-titlek').textContent = channel === 'email' ? '郵件主旨' : '通知文字';
     var ttl = channel === 'email'
       ? (($('email-subject') && $('email-subject').value || '').trim() || '（未填主旨）')

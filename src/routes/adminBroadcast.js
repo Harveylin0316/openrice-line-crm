@@ -34,6 +34,7 @@ const {
   hasAnyCondition,
   previewAudience,
   fetchAudienceRecipients,
+  resolveRecipientSelection,
   MAX_RECIPIENTS_PER_BROADCAST
 } = require('../core/broadcastAudience');
 const { recordRestaurantClick } = require('../core/restaurantLinkParse');
@@ -598,13 +599,19 @@ function registerAdminBroadcastRoutes(app, deps) {
       const conditions = req.body && req.body.conditions;
       const channel = (req.body && req.body.channel === 'email') ? 'email' : 'line';
       const result = await previewAudience(query, conditions, { channel });
+      const selection = result.error
+        ? { ok: false, value: null, error: result.error }
+        : resolveRecipientSelection(req.body && req.body.recipient_selection, result.total);
       return res.json({
         ok: true,
         total: result.total,
+        eligibleTotal: result.total,
+        sendTotal: selection.ok ? selection.value.sendTotal : 0,
+        recipientSelection: selection.ok ? selection.value : null,
         sample: result.sample,
         conditions: result.conditions,
         channel,
-        error: result.error || null,
+        error: result.error || selection.error || null,
         inputStats: result.inputStats || null
       });
     } catch (err) {
@@ -1243,13 +1250,39 @@ function registerAdminBroadcastRoutes(app, deps) {
         return safeJsonError(res, 400, 'no_conditions_selected');
       }
 
-      // 直接貼 ID 時要保留原始輸入做「超過 5,000 人」檢查；若先只傳正規化後
-      // 的 conditions，超額資料已被截短，會變成悄悄只送前 5,000 人。
-      const audienceResult = await fetchAudienceRecipients(query, rawConditions, { channel });
+      // 後端重新計算完整符合人數，不能相信前端預覽數字。指定抽樣超過現有人數時
+      // 整批擋下；不會偷偷改成「有幾人就發幾人」。
+      const eligibleAudience = await previewAudience(query, rawConditions, { channel });
+      if (eligibleAudience.error) {
+        return safeJsonError(res, 400, 'invalid_audience', { detail: eligibleAudience.error });
+      }
+      const recipientSelectionResult = resolveRecipientSelection(
+        body.recipient_selection,
+        eligibleAudience.total
+      );
+      if (!recipientSelectionResult.ok) {
+        return safeJsonError(res, 400, 'invalid_recipient_selection', {
+          detail: recipientSelectionResult.error
+        });
+      }
+      const recipientSelection = recipientSelectionResult.value;
+
+      // 直接貼 ID 時仍保留原始輸入做「超過 5,000 人」檢查；條件／已存名單則可
+      // 從完整符合母體隨機抽出精確人數。查出後再核對一次，防止預覽與建立之間資料改變。
+      const audienceResult = await fetchAudienceRecipients(query, rawConditions, {
+        channel,
+        limit: recipientSelection.sendTotal,
+        randomize: recipientSelection.mode === 'random'
+      });
       if (audienceResult.error) {
         return safeJsonError(res, 400, 'invalid_audience', { detail: audienceResult.error });
       }
       const recipients = audienceResult.rows;
+      if (recipients.length !== recipientSelection.sendTotal) {
+        return safeJsonError(res, 409, 'audience_changed_repreview', {
+          detail: '收件名單在預覽後有變動，沒有建立或發送任何批次。請重新預覽後再送出。'
+        });
+      }
       if (recipients.length === 0) {
         return safeJsonError(res, 400, channel === 'email' ? 'no_email_recipients' : 'no_matching_recipients');
       }
@@ -1285,7 +1318,15 @@ function registerAdminBroadcastRoutes(app, deps) {
         variantCounts = assignedVariants.reduce((acc, v) => { acc[v] = (acc[v] || 0) + 1; return acc; }, {});
       }
 
-      const audienceConfig = { conditions };
+      const audienceConfig = {
+        conditions,
+        recipientSelection: {
+          mode: recipientSelection.mode,
+          count: recipientSelection.count,
+          eligibleTotal: recipientSelection.eligibleTotal,
+          sendTotal: recipientSelection.sendTotal
+        }
+      };
       if (experiment) audienceConfig.experiment = experiment;
 
       const adminUsername =
