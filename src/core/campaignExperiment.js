@@ -16,7 +16,7 @@ function activeVariants(variantCount) {
   return variantCount === 3 ? ['a', 'b', 'c'] : ['a', 'b'];
 }
 
-function normalizeCampaignExperiment(raw, { baseTime = new Date() } = {}) {
+function normalizeCampaignExperiment(raw) {
   if (!raw || raw.enabled !== true) return { ok: true, value: null };
   const variantCount = integerInRange(raw.variant_count, 2, 3);
   if (!variantCount) return { ok: false, error: 'experiment_variant_count_invalid' };
@@ -50,8 +50,6 @@ function normalizeCampaignExperiment(raw, { baseTime = new Date() } = {}) {
     return { ok: false, error: 'experiment_allocation_must_total_100' };
   }
 
-  const start = baseTime instanceof Date ? baseTime : new Date(baseTime);
-  if (Number.isNaN(start.getTime())) return { ok: false, error: 'experiment_start_invalid' };
   return {
     ok: true,
     value: {
@@ -60,11 +58,27 @@ function normalizeCampaignExperiment(raw, { baseTime = new Date() } = {}) {
       metric: 'ctr',
       observationHours,
       allocations,
-      winnerAt: new Date(start.getTime() + observationHours * 60 * 60 * 1000).toISOString(),
+      // 真正的觀察期要等最後一位測試收件人送完才開始。建立／排程時間不能先吃掉觀察時數。
+      observationStartedAt: null,
+      winnerAt: null,
       winnerMode: 'auto',
       winnerVariant: null,
       releasedBroadcastId: null
     }
+  };
+}
+
+function startObservationWindow(experiment, now = new Date()) {
+  if (!experiment || experiment.enabled !== true) return experiment || null;
+  // 已開始的實驗不可因重試、排程重跑而把截止時間往後延。
+  if (experiment.winnerAt) return experiment;
+  const observationHours = integerInRange(experiment.observationHours, 1, 168);
+  if (!observationHours) throw new Error('experiment_observation_hours_invalid');
+  const startedAt = now.toISOString();
+  return {
+    ...experiment,
+    observationStartedAt: startedAt,
+    winnerAt: new Date(now.getTime() + observationHours * 60 * 60 * 1000).toISOString()
   };
 }
 
@@ -131,6 +145,7 @@ function pickCtrWinner(rows, variants) {
 module.exports = {
   activeVariants,
   normalizeCampaignExperiment,
+  startObservationWindow,
   allocationCounts,
   assignExperimentVariants,
   pickCtrWinner

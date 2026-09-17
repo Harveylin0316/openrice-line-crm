@@ -95,6 +95,13 @@
   if (advancedJsonBlock) {
     advancedJsonBlock.addEventListener('toggle', function () {
       var open = advancedJsonBlock.open;
+      if (open && state.campaignTestEnabled) {
+        var modeWarning = $('campaign-mode-warning');
+        if (modeWarning) {
+          modeWarning.hidden = false;
+          modeWarning.textContent = '這個 Flex 素材可以繼續編輯與預覽，但 Campaign Testing 無法可靠追蹤每顆自訂 CTA，因此正式送出會被鎖定。請改用一般訊息編輯器，或先關閉 Campaign Testing。';
+        }
+      }
       state.mode = open ? 'flex_json' : 'template';
       // 黃色模板區跟 JSON 區互斥（一次只顯示一種）
       $('pane-template').hidden = open;
@@ -115,6 +122,7 @@
     state.abTestEnabled = $('ab-test-enable').checked;
     $('variant-b-pane').hidden = !state.abTestEnabled;
     $('variant-a-label').hidden = !state.abTestEnabled;
+    if (state.abTestEnabled) seedBlankExperimentVariants(collectMessageConfig());
     state.messagePreviewed = false;
     updateSendButton();
     saveDraft();
@@ -123,6 +131,16 @@
 
   function updateCampaignTestUI() {
     var enabled = $('campaign-test-enable').checked;
+    var modeWarning = $('campaign-mode-warning');
+    if (enabled && state.mode === 'flex_json') {
+      if (modeWarning) {
+        modeWarning.hidden = false;
+        modeWarning.textContent = '目前是進階 Flex JSON：可以預覽，但 Campaign Testing 無法可靠追蹤每顆自訂 CTA，正式送出會被鎖定。請改用一般訊息編輯器，或關閉 Campaign Testing。';
+      }
+    } else if (modeWarning) {
+      modeWarning.hidden = true;
+      modeWarning.textContent = '';
+    }
     state.campaignTestEnabled = enabled;
     state.campaignVariantCount = Number($('campaign-variant-count').value) === 3 ? 3 : 2;
     if (enabled && !$('ab-test-enable').checked) {
@@ -137,6 +155,7 @@
     if (cOption) cOption.hidden = state.campaignVariantCount !== 3;
     if (state.campaignVariantCount !== 3 && $('test-campaign-variant').value === 'c') $('test-campaign-variant').value = 'a';
     if (state.campaignVariantCount === 2) $('campaign-weight-c').value = 0;
+    if (enabled) seedBlankExperimentVariants(collectMessageConfig());
     $('variant-a-label').innerHTML = enabled
       ? '<strong>版本 A</strong>（依 Campaign Testing 比例送出）'
       : '<strong>版本 A</strong>（50% 收件人）';
@@ -791,6 +810,61 @@
     };
   }
 
+  function messageConfigHasContent(config) {
+    if (!config || typeof config !== 'object') return false;
+    if (config.mode === 'flex_json') return !!(config.flex && typeof config.flex === 'object');
+    var t = config.template || {};
+    return !!(t.heroMediaId || t.title || t.subtitle || t.couponCode);
+  }
+
+  function variantIsBlank(variant) {
+    if (state.mode === 'flex_json') {
+      var flexEl = $(variant === 'b' ? 'b-flex-json' : 'c-flex-json');
+      return !flexEl || !String(flexEl.value || '').trim();
+    }
+    var prefix = variant === 'b' ? 'b-' : 'c-';
+    var fieldIds = ['tpl-title', 'tpl-subtitle', 'tpl-coupon-code', 'tpl-disclaimer', 'tpl-cta-label', 'tpl-cta-url', 'tpl-alt'];
+    var hasText = fieldIds.some(function (id) {
+      var el = $(prefix + id);
+      return el && String(el.value || '').trim();
+    });
+    var hasHero = variant === 'b' ? state.bHeroMediaId : state.cHeroMediaId;
+    return !hasText && !hasHero;
+  }
+
+  function copyMessageConfigToVariant(config, variant) {
+    if (!config || !variantIsBlank(variant)) return;
+    var prefix = variant === 'b' ? 'b-' : 'c-';
+    if (config.mode === 'flex_json') {
+      var flexEl = $(prefix + 'flex-json');
+      if (flexEl && config.flex) flexEl.value = JSON.stringify(config.flex, null, 2);
+      return;
+    }
+    var t = config.template || {};
+    var valueMap = {
+      'tpl-title': t.title || '',
+      'tpl-subtitle': t.subtitle || '',
+      'tpl-coupon-code': t.couponCode || '',
+      'tpl-disclaimer': t.disclaimer || '',
+      'tpl-cta-label': t.ctaLabel || '',
+      'tpl-cta-url': t.ctaUrl || '',
+      'tpl-alt': t.altText || ''
+    };
+    Object.keys(valueMap).forEach(function (id) {
+      var el = $(prefix + id);
+      if (el) el.value = valueMap[id];
+    });
+    if (variant === 'b') state.bHeroMediaId = t.heroMediaId || null;
+    if (variant === 'c') state.cHeroMediaId = t.heroMediaId || null;
+  }
+
+  // 開啟 A/B/C 時，空白版本先複製 A，讓預覽立即可用；已編輯過的版本絕不覆蓋。
+  function seedBlankExperimentVariants(config) {
+    if (!messageConfigHasContent(config)) return;
+    if (state.abTestEnabled) copyMessageConfigToVariant(config, 'b');
+    if (state.campaignTestEnabled && state.campaignVariantCount === 3) copyMessageConfigToVariant(config, 'c');
+  }
+
   function collectSelectedTestMessageConfig() {
     if (!state.campaignTestEnabled) return collectMessageConfig();
     var variant = $('test-campaign-variant').value;
@@ -813,55 +887,35 @@
     var statusEl = $('msg-status');
     var previewEl = $('msg-preview');
     var cfg = collectMessageConfig();
-    if (cfg.mode === 'flex_json' && cfg.flex === null) {
-      statusEl.textContent = 'JSON 格式錯誤：' + cfg._parseError;
-      return;
-    }
     var cfgB = state.abTestEnabled ? collectVariantBMessageConfig() : null;
-    if (state.abTestEnabled && cfgB.mode === 'flex_json' && cfgB.flex === null) {
-      statusEl.textContent = '版本 B JSON 格式錯誤：' + cfgB._parseError;
-      return;
-    }
     var cfgC = state.campaignTestEnabled && state.campaignVariantCount === 3 ? collectVariantCMessageConfig() : null;
-    if (cfgC && cfgC.mode === 'flex_json' && cfgC.flex === null) {
-      statusEl.textContent = '版本 C JSON 格式錯誤：' + cfgC._parseError;
-      return;
-    }
 
     var channel = getActiveChannel();
     var emailSubject = '';
     if (channel === 'email') {
       emailSubject = ($('email-subject') && $('email-subject').value || '').trim();
     }
-    var fetches = [
-      fetch('/admin/broadcast/preview-message', {
+    var variants = [{ key: 'a', label: 'A', config: cfg }];
+    if (state.abTestEnabled) variants.push({ key: 'b', label: 'B', config: cfgB });
+    if (cfgC) variants.push({ key: 'c', label: 'C', config: cfgC });
+
+    var fetches = variants.map(function (variant) {
+      var config = variant.config;
+      if (config && config.mode === 'flex_json' && config.flex === null) {
+        return Promise.resolve({ ok: false, error: 'JSON 格式錯誤：' + (config._parseError || '無法解析') });
+      }
+      return fetch('/admin/broadcast/preview-message', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message_config: cfg, channel: channel, email_subject: emailSubject })
-      }).then(function (r) { return r.json(); })
-    ];
-    if (state.abTestEnabled) {
-      fetches.push(
-        fetch('/admin/broadcast/preview-message', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message_config: cfgB, channel: channel, email_subject: emailSubject })
-        }).then(function (r) { return r.json(); })
-      );
-    }
-    if (cfgC) {
-      fetches.push(
-        fetch('/admin/broadcast/preview-message', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message_config: cfgC, channel: channel, email_subject: emailSubject })
-        }).then(function (r) { return r.json(); })
-      );
-    }
+        body: JSON.stringify({ message_config: config, channel: channel, email_subject: emailSubject })
+      }).then(function (r) { return r.json(); });
+    });
     Promise.all(fetches)
       .then(function (results) {
         var dataA = results[0];
-        var dataB = results[1];
-        var dataC = results[2];
-        if (!dataA.ok || (state.abTestEnabled && !dataB.ok) || (cfgC && !dataC.ok)) {
-          var err = !dataA.ok ? dataA.error : (!dataB || !dataB.ok ? dataB.error : dataC.error);
+        var failed = variants.filter(function (_variant, idx) { return !results[idx] || !results[idx].ok; });
+        var successful = variants.filter(function (_variant, idx) { return results[idx] && results[idx].ok; });
+        if (successful.length === 0) {
+          var err = dataA && dataA.error ? dataA.error : '無法建立預覽';
           // 訊息還沒填夠 → 不顯示為 error，只 keep 預覽空白
           if (/請至少填|altText/.test(err || '')) {
             statusEl.textContent = '預覽會在你填內容時自動更新';
@@ -876,39 +930,55 @@
           updateSendButton();
           return;
         }
-        if (dataA.channel === 'email') {
+        if (channel === 'email') {
           // Email preview：用 iframe 顯示 HTML
           previewEl.classList.remove('empty');
-          if (state.abTestEnabled) {
-            previewEl.innerHTML =
-              '<div style="margin-bottom:6px;font-size:12px;font-weight:600;color:#1d4ed8;">版本 A · 主旨：' + escapeHtml(dataA.subject || '') + '</div>' +
-              '<iframe id="email-preview-a" style="width:100%;height:520px;border:1px solid #e5e7eb;border-radius:10px;background:#F9FAFB;"></iframe>' +
-              '<div style="margin:14px 0 6px;font-size:12px;font-weight:600;color:#1d4ed8;">版本 B · 主旨：' + escapeHtml((dataB && dataB.subject) || '') + '</div>' +
-              '<iframe id="email-preview-b" style="width:100%;height:520px;border:1px solid #e5e7eb;border-radius:10px;background:#F9FAFB;"></iframe>';
-            try { $('email-preview-a').contentDocument.write(dataA.html || ''); $('email-preview-a').contentDocument.close(); } catch (_) {}
-            if (dataB) { try { $('email-preview-b').contentDocument.write(dataB.html || ''); $('email-preview-b').contentDocument.close(); } catch (_) {} }
+          if (variants.length > 1) {
+            previewEl.innerHTML = variants.map(function (variant, idx) {
+              var data = results[idx];
+              var margin = idx === 0 ? '0' : '14px';
+              var subject = data && data.ok ? (' · 主旨：' + escapeHtml(data.subject || '')) : '';
+              var body = data && data.ok
+                ? '<iframe id="email-preview-' + variant.key + '" style="width:100%;height:520px;border:1px solid #e5e7eb;border-radius:10px;background:#F9FAFB;"></iframe>'
+                : '<div style="padding:18px 12px;color:#92400e;background:#fffbeb;border:1px dashed #f59e0b;border-radius:10px;">版本 ' + variant.label + ' 尚未完成：' + escapeHtml((data && data.error) || '無法建立預覽') + '</div>';
+              return '<div style="margin:' + margin + ' 0 6px;font-size:12px;font-weight:600;color:#1d4ed8;">版本 ' + variant.label + subject + '</div>' + body;
+            }).join('');
+            variants.forEach(function (variant, idx) {
+              var data = results[idx];
+              var iframe = $('email-preview-' + variant.key);
+              if (!iframe || !data || !data.ok) return;
+              try { iframe.contentDocument.write(data.html || ''); iframe.contentDocument.close(); } catch (_) {}
+            });
           } else {
             previewEl.innerHTML =
               '<div style="margin-bottom:6px;font-size:12px;color:#6B7280;">主旨：<strong style="color:#1F2937;">' + escapeHtml(dataA.subject || '') + '</strong></div>' +
               '<iframe id="email-preview" style="width:100%;height:600px;border:1px solid #e5e7eb;border-radius:10px;background:#F9FAFB;"></iframe>';
             try { $('email-preview').contentDocument.write(dataA.html || ''); $('email-preview').contentDocument.close(); } catch (_) {}
           }
-        } else if (state.abTestEnabled) {
+        } else if (variants.length > 1) {
           previewEl.classList.remove('empty');
-          previewEl.innerHTML =
-            '<div style="margin-bottom:6px;font-size:12px;font-weight:600;color:#1d4ed8;">版本 A</div>' +
-            '<div class="ab-preview-card" id="ab-preview-a"></div>' +
-            '<div style="margin:14px 0 6px;font-size:12px;font-weight:600;color:#1d4ed8;">版本 B</div>' +
-            '<div class="ab-preview-card" id="ab-preview-b"></div>' +
-            (cfgC ? '<div style="margin:14px 0 6px;font-size:12px;font-weight:600;color:#1d4ed8;">版本 C</div><div class="ab-preview-card" id="ab-preview-c"></div>' : '');
-          renderFlexMock(dataA.messages[0], $('ab-preview-a'), true);
-          renderFlexMock(dataB.messages[0], $('ab-preview-b'), false);
-          if (cfgC) renderFlexMock(dataC.messages[0], $('ab-preview-c'), false);
+          previewEl.innerHTML = variants.map(function (variant, idx) {
+            var margin = idx === 0 ? '0' : '14px';
+            return '<div style="margin:' + margin + ' 0 6px;font-size:12px;font-weight:600;color:#1d4ed8;">版本 ' + variant.label + '</div>' +
+              '<div class="ab-preview-card" id="ab-preview-' + variant.key + '"></div>';
+          }).join('');
+          variants.forEach(function (variant, idx) {
+            var target = $('ab-preview-' + variant.key);
+            var data = results[idx];
+            if (data && data.ok) {
+              renderFlexMock(data.messages[0], target, variant.key === 'a');
+            } else {
+              target.classList.add('empty');
+              target.innerHTML = '<div style="padding:18px 12px;color:#92400e;background:#fffbeb;border:1px dashed #f59e0b;border-radius:10px;">版本 ' + variant.label + ' 尚未完成：' + escapeHtml((data && data.error) || '無法建立預覽') + '</div>';
+            }
+          });
         } else {
           renderFlexMock(dataA.messages[0], previewEl);
         }
-        state.messagePreviewed = true;
-        statusEl.textContent = '預覽已更新（' + new Date().toLocaleTimeString('zh-TW') + '）';
+        state.messagePreviewed = failed.length === 0;
+        statusEl.textContent = failed.length === 0
+          ? '預覽已更新（' + new Date().toLocaleTimeString('zh-TW') + '）'
+          : '已顯示可預覽版本；請完成版本 ' + failed.map(function (v) { return v.label; }).join('、') + ' 後再送出';
         updateSendButton();
       })
       .catch(function (e) { statusEl.textContent = '網路錯誤：' + e.message; });
@@ -2226,6 +2296,13 @@
     if (!messageConfig || typeof messageConfig !== 'object') return;
     var topAltEl = document.getElementById('msg-alt-text');
     if (messageConfig.mode === 'flex_json') {
+      if (state.campaignTestEnabled) {
+        var warning = $('campaign-mode-warning');
+        if (warning) {
+          warning.hidden = false;
+          warning.textContent = '這個素材是進階 Flex JSON：可以預覽，但無法可靠追蹤每顆 CTA，因此 Campaign Testing 正式送出會被鎖定。請改用一般訊息模板，或關閉 Campaign Testing。';
+        }
+      }
       // 自動展開「進階模式」details + 切到 flex_json mode
       var advBlock = document.getElementById('advanced-json-block');
       if (advBlock && !advBlock.open) advBlock.open = true;
@@ -2241,6 +2318,7 @@
       var imgList = $('json-image-list');
       if (urlList) urlList.innerHTML = '';
       if (imgList) imgList.innerHTML = '';
+      seedBlankExperimentVariants(messageConfig);
       // 觸發圖片+URL 助手 scan + 預覽
       setTimeout(function () {
         scanJsonImagesAndUrls();
@@ -2272,6 +2350,7 @@
       state.heroUrl = null;
     }
     renderHeroStatus(false);
+    seedBlankExperimentVariants(messageConfig);
     schedulePreview();
   }
 

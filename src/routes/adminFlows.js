@@ -238,6 +238,9 @@ function registerAdminFlowsRoutes(app, deps) {
           node.config = { amount: Number(step.amount) || 0, unit: step.unit || 'days' };
         } else if (step.type === 'add_to_list') {
           node.config = { list_id: Number(step.list_id) || null };
+        } else if (step.type === 'add_tag' || step.type === 'remove_tag') {
+          node.config = { tag_id: Number(step.tag_id) || null,
+            ttl_days: step.type === 'add_tag' && Number(step.ttl_days) > 0 ? Math.min(3650, Number(step.ttl_days)) : null };
         } else if (step.type === 'branch') {
           node.config = { condition: step.condition || {} };
         } else {
@@ -282,6 +285,9 @@ function registerAdminFlowsRoutes(app, deps) {
           key = n.next_key;
         } else if (n.type === 'add_to_list') {
           steps.push({ type: 'add_to_list', list_id: n.config && n.config.list_id });
+          key = n.next_key;
+        } else if (n.type === 'add_tag' || n.type === 'remove_tag') {
+          steps.push({ type: n.type, tag_id: n.config && n.config.tag_id, ttl_days: n.config && n.config.ttl_days });
           key = n.next_key;
         } else if (n.type === 'branch') {
           steps.push({
@@ -398,7 +404,7 @@ function registerAdminFlowsRoutes(app, deps) {
     if (steps.length === 0) return { ok: false, error: 'need_at_least_one_step' };
     // 至少要有一個動作（發訊息 或 加入名單）
     function hasAction(list) {
-      return (list || []).some(s => s.type === 'send' || s.type === 'add_to_list' || (s.type === 'branch' && (hasAction(s.yes) || hasAction(s.no))));
+      return (list || []).some(s => ['send','add_to_list','add_tag','remove_tag'].includes(s.type) || (s.type === 'branch' && (hasAction(s.yes) || hasAction(s.no))));
     }
     if (!hasAction(steps)) return { ok: false, error: 'need_at_least_one_action' };
     // branch 只能是主序列最後一步（flattenSteps 遇 branch 會 break，後面的步驟會被丟棄）
@@ -425,6 +431,9 @@ function registerAdminFlowsRoutes(app, deps) {
     if (steps.some(s => s && s.type === 'add_to_list' && !(Number(s.list_id) > 0))) {
       return { ok: false, error: 'add_to_list_needs_list' };
     }
+    if (steps.some(s => s && (s.type === 'add_tag' || s.type === 'remove_tag') && !(Number(s.tag_id) > 0))) {
+      return { ok: false, error: 'tag_action_needs_tag' };
+    }
     // 有設定週期上限，或上限大於一次時，必須允許前一輪結束後再進入；
     // 真正的次數仍由 flowEngine 的 user_limit 擋住。
     const userLimit = tCfg.user_limit;
@@ -432,6 +441,25 @@ function registerAdminFlowsRoutes(app, deps) {
       ? (userLimit.window !== 'lifetime' || userLimit.max > 1)
       : !!body.re_enroll;
     return { ok: true, name, trigger: { type: tType, config: tCfg }, steps, re_enroll: reEnroll };
+  }
+
+  async function validateWritableLists(steps) {
+    const ids = [...new Set((steps || [])
+      .filter((step) => step && step.type === 'add_to_list')
+      .map((step) => Number(step.list_id))
+      .filter((id) => Number.isInteger(id) && id > 0))];
+    if (!ids.length) return { ok: true };
+    const rs = await query(
+      `SELECT id, list_type FROM admin_recipient_lists WHERE id = ANY($1::bigint[])`,
+      [ids]
+    );
+    if (rs.rows.length !== ids.length) {
+      return { ok: false, error: 'add_to_list_not_found' };
+    }
+    if (rs.rows.some((row) => row.list_type === 'dynamic')) {
+      return { ok: false, error: 'add_to_list_requires_static_list' };
+    }
+    return { ok: true };
   }
 
   async function writeNodes(client, flowId, steps) {
@@ -460,13 +488,14 @@ function registerAdminFlowsRoutes(app, deps) {
   // ---------- options（下拉資料） ----------
   app.get('/admin/flows/api/options', requireAdmin, async (_req, res) => {
     try {
-      const [msgs, lists, acts, menus] = await Promise.all([
+      const [msgs, lists, acts, menus, tags] = await Promise.all([
         query(`SELECT id, name FROM admin_message_templates WHERE COALESCE(channel, 'line') = 'line' ORDER BY id DESC`),
-        query(`SELECT id, name FROM admin_recipient_lists ORDER BY id DESC`),
+        query(`SELECT id, name, list_type FROM admin_recipient_lists ORDER BY id DESC`),
         query(`SELECT id, name, slug, game_type, status, liff_id_override FROM activities ORDER BY id DESC`),
         query(`SELECT id, name, status, published_at, published_config
                FROM rich_menus WHERE status = 'published' AND published_config IS NOT NULL
-               ORDER BY is_default DESC, published_at DESC NULLS LAST, id DESC`)
+               ORDER BY is_default DESC, published_at DESC NULLS LAST, id DESC`),
+        query(`SELECT id, name, color FROM user_tags ORDER BY name`)
       ]);
       const richMenus = menus.rows.map(m => ({
         id: m.id,
@@ -490,6 +519,7 @@ function registerAdminFlowsRoutes(app, deps) {
         ok: true,
         messages: msgs.rows,
         lists: lists.rows,
+        writable_lists: lists.rows.filter((list) => list.list_type !== 'dynamic'),
         activities: acts.rows.map(a => {
           const lid = String(a.liff_id_override || gamesLiffId() || '').trim();
           return {
@@ -500,12 +530,26 @@ function registerAdminFlowsRoutes(app, deps) {
           };
         }),
         rich_menus: richMenus,
+        tags: tags.rows,
         events: KNOWN_EVENTS,
         tracking_liff_id: gamesLiffId()
       });
     } catch (err) {
       return jsonErr(res, 500, 'options_failed', { detail: err && err.message });
     }
+  });
+
+  // 在流程編輯器內直接建立空白靜態名單，避免為了一個步驟來回切頁。
+  app.post('/admin/flows/api/lists', requireAdmin, async (req, res) => {
+    try {
+      const name = String((req.body || {}).name || '').trim().slice(0, 200);
+      if (!name) return jsonErr(res, 400, 'name_required', { detail: '請填名單名稱' });
+      const by = (req.authUser && (req.authUser.un || req.authUser.username)) || 'admin';
+      const rs = await query(
+        `INSERT INTO admin_recipient_lists (name, description, total, created_by, list_type)
+         VALUES ($1, '從自動化流程內建立', 0, $2, 'static') RETURNING id, name`, [name, by]);
+      return res.json({ ok: true, list: rs.rows[0] });
+    } catch (err) { return jsonErr(res, 500, 'list_create_failed', { detail: err && err.message }); }
   });
 
   // ---------- 列表 ----------
@@ -528,7 +572,7 @@ function registerAdminFlowsRoutes(app, deps) {
   const STUCK_OVERDUE_MINUTES = 30;
   // node.type → 人話（讓 GM 看得懂卡在哪一步，不用懂 node_key）
   function nodeTypeLabel(type) {
-    return ({ send: '發訊息', wait: '等待', branch: '條件分支', add_to_list: '加入名單', end: '結束' })[type] || (type || '未知步驟');
+    return ({ send: '發訊息', wait: '等待', branch: '條件分支', add_to_list: '加入名單', add_tag: '貼標籤', remove_tag: '移除標籤', end: '結束' })[type] || (type || '未知步驟');
   }
   app.get('/admin/flows/api/health', requireAdmin, async (_req, res) => {
     try {
@@ -634,6 +678,12 @@ function registerAdminFlowsRoutes(app, deps) {
   app.post('/admin/flows/api', requireAdmin, async (req, res) => {
     const v = validateFlow(req.body || {});
     if (!v.ok) return jsonErr(res, 400, v.error);
+    const writable = await validateWritableLists(v.steps);
+    if (!writable.ok) return jsonErr(res, 400, writable.error, {
+      detail: writable.error === 'add_to_list_requires_static_list'
+        ? '自動化只能直接加入靜態名單；動態名單會依條件自動重建。'
+        : '找不到要加入的名單，請重新選擇。'
+    });
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -661,6 +711,12 @@ function registerAdminFlowsRoutes(app, deps) {
     if (!isPosInt(idStr)) return jsonErr(res, 400, 'invalid_id');
     const v = validateFlow(req.body || {});
     if (!v.ok) return jsonErr(res, 400, v.error);
+    const writable = await validateWritableLists(v.steps);
+    if (!writable.ok) return jsonErr(res, 400, writable.error, {
+      detail: writable.error === 'add_to_list_requires_static_list'
+        ? '自動化只能直接加入靜態名單；動態名單會依條件自動重建。'
+        : '找不到要加入的名單，請重新選擇。'
+    });
     const client = await pool.connect();
     try {
       await client.query('BEGIN');

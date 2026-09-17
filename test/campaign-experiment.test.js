@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   normalizeCampaignExperiment,
+  startObservationWindow,
   assignExperimentVariants,
   pickCtrWinner
 } = require('../src/core/campaignExperiment');
@@ -19,11 +20,28 @@ function validExperiment(overrides = {}) {
   };
 }
 
-test('Campaign Testing validates a real 10/10/80 CTR experiment and fixes winner time', () => {
-  const result = normalizeCampaignExperiment(validExperiment(), { baseTime: new Date('2026-09-17T00:00:00.000Z') });
+test('Campaign Testing validates a real 10/10/80 CTR experiment and waits to start observation', () => {
+  const result = normalizeCampaignExperiment(validExperiment());
   assert.equal(result.ok, true);
-  assert.equal(result.value.winnerAt, '2026-09-18T00:00:00.000Z');
+  assert.equal(result.value.observationStartedAt, null);
+  assert.equal(result.value.winnerAt, null);
   assert.equal(result.value.metric, 'ctr');
+});
+
+test('觀察期只在測試名單送完後開始，重試不延後截止時間', () => {
+  const experiment = {
+    enabled: true,
+    observationHours: 24,
+    observationStartedAt: null,
+    winnerAt: null
+  };
+  const started = startObservationWindow(experiment, new Date('2026-09-17T02:00:00.000Z'));
+  assert.equal(started.observationStartedAt, '2026-09-17T02:00:00.000Z');
+  assert.equal(started.winnerAt, '2026-09-18T02:00:00.000Z');
+  assert.deepEqual(
+    startObservationWindow(started, new Date('2026-09-17T03:00:00.000Z')),
+    started
+  );
 });
 
 test('Campaign Testing refuses invalid allocation totals and unavailable booking conversion', () => {

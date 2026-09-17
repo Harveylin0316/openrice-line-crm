@@ -48,7 +48,7 @@ function registerAdminUsersRoutes(app, deps) {
       // 搜尋條件：$1 = like pattern（有搜尋才用）
       const tagId = Number(req.query.tag_id) || null;
       const baseWhere = `line_user_id IS NOT NULL AND BTRIM(line_user_id) <> '' AND is_admin = false` +
-        (tagId ? ` AND line_user_id IN (SELECT line_user_id FROM user_tag_members WHERE tag_id = ${tagId})` : '');
+        (tagId ? ` AND line_user_id IN (SELECT line_user_id FROM user_tag_members WHERE tag_id = ${tagId} AND (expires_at IS NULL OR expires_at > now()))` : '');
       const searchWhere = searchRaw
         ? ` AND (LOWER(line_user_id) LIKE $1 ESCAPE '\\' OR LOWER(COALESCE(line_display_name,'')) LIKE $1 ESCAPE '\\' OR LOWER(COALESCE(username,'')) LIKE $1 ESCAPE '\\')`
         : '';
@@ -74,7 +74,8 @@ function registerAdminUsersRoutes(app, deps) {
     try {
       const { rows } = await query(
         `SELECT t.id, t.name, t.color,
-                (SELECT COUNT(*)::int FROM user_tag_members m WHERE m.tag_id = t.id) AS members
+                (SELECT COUNT(*)::int FROM user_tag_members m WHERE m.tag_id = t.id
+                  AND (m.expires_at IS NULL OR m.expires_at > now())) AS members
            FROM user_tags t ORDER BY t.name`);
       res.json({ ok: true, tags: rows });
     } catch (err) { jsonErr(res, 500, 'tags_failed', { detail: err && err.message }); }
@@ -105,7 +106,7 @@ function registerAdminUsersRoutes(app, deps) {
   });
 
   // ── 自動貼標籤規則 ────────────────────────────────────────
-  // 規則＝「做過某件事滿 N 次 → 自動貼某標籤」。只會貼、不會自動撕（要撕手動）。
+  // 規則＝「做過某件事滿 N 次 → 自動貼上／移除標籤」。自動貼上的標籤可隨條件失效而撤回。
   // ── 自動貼標籤：事件目錄 ────────────────────────────────────────
   // 一條規則 ＝ 做過哪件事 ＋（可選）指定哪一個 ＋ 滿幾次 ＋（可選）只算最近幾天 → 貼哪個標籤
   //
@@ -293,8 +294,11 @@ function registerAdminUsersRoutes(app, deps) {
              AND x.uid NOT IN (SELECT line_user_id FROM admin_test_recipients)`;
 
   async function runTagRules() {
+    // 到期標籤先清掉；所有查詢才會看到一致的有效成員數。
+    await query(`DELETE FROM user_tag_members WHERE expires_at IS NOT NULL AND expires_at <= now()`);
     const { rows: rules } = await query(
-      `SELECT r.id, r.tag_id, r.rule_kind, r.threshold, r.target, r.window_days, t.name AS tag_name
+      `SELECT r.id, r.tag_id, r.rule_kind, r.threshold, r.target, r.window_days,
+              r.action, r.member_ttl_days, r.reconcile, t.name AS tag_name
          FROM user_tag_rules r JOIN user_tags t ON t.id = r.tag_id
         WHERE r.active = true ORDER BY r.id`);
     const results = [];
@@ -302,15 +306,45 @@ function registerAdminUsersRoutes(app, deps) {
       const def = RULE_CATALOG[r.rule_kind];
       if (!def) continue;
       try {
-        const ins = await query(
-          `INSERT INTO user_tag_members (tag_id, line_user_id, added_by)
-           SELECT $1, x.uid, '自動規則' FROM (` + def.sql + `) x
-           WHERE ` + EXCLUDE + `
-           ON CONFLICT DO NOTHING RETURNING line_user_id`,
-          [r.tag_id, ...ruleParams(r)]);
-        await query(`UPDATE user_tag_rules SET last_run_at = now(), last_added = $2 WHERE id = $1`,
-          [r.id, ins.rows.length]);
-        results.push({ id: r.id, tag: r.tag_name, added: ins.rows.length });
+        const matchedSql = `SELECT x.uid FROM (` + def.sql + `) x WHERE ` + EXCLUDE;
+        let added = 0, removed = 0;
+        if (r.action === 'remove') {
+          const del = await query(
+            `DELETE FROM user_tag_members tm WHERE tm.tag_id = $1
+             AND tm.line_user_id IN (` + matchedSql + `) RETURNING tm.line_user_id`,
+            [r.tag_id, ...ruleParams(r)]);
+          removed = del.rows.length;
+        } else {
+          const ins = await query(
+            `INSERT INTO user_tag_members (tag_id, line_user_id, added_by, expires_at, source_rule_id)
+             SELECT $1, matched.uid, '自動規則',
+                    CASE WHEN $5::int IS NULL THEN NULL ELSE now() + make_interval(days => $5::int) END,
+                    $6
+               FROM (` + matchedSql + `) matched
+             ON CONFLICT DO NOTHING
+             RETURNING line_user_id`,
+            [r.tag_id, ...ruleParams(r), r.member_ttl_days || null, r.id]);
+          added = ins.rows.length;
+          // 已由同一規則貼上的成員仍符合時要延長期限；手動標籤或其他規則的標籤不覆蓋。
+          await query(
+            `UPDATE user_tag_members tm
+                SET expires_at = CASE WHEN $5::int IS NULL THEN NULL ELSE now() + make_interval(days => $5::int) END
+              WHERE tm.tag_id = $1 AND tm.source_rule_id = $6
+                AND tm.line_user_id IN (` + matchedSql + `)`,
+            [r.tag_id, ...ruleParams(r), r.member_ttl_days || null, r.id]);
+          if (r.reconcile !== false) {
+            const stale = await query(
+              `DELETE FROM user_tag_members tm
+                WHERE tm.tag_id = $1 AND tm.source_rule_id = $5
+                  AND NOT EXISTS (SELECT 1 FROM (` + matchedSql + `) matched WHERE matched.uid = tm.line_user_id)
+                RETURNING tm.line_user_id`,
+              [r.tag_id, ...ruleParams(r), r.id]);
+            removed = stale.rows.length;
+          }
+        }
+        await query(`UPDATE user_tag_rules SET last_run_at = now(), last_added = $2, last_removed = $3 WHERE id = $1`,
+          [r.id, added, removed]);
+        results.push({ id: r.id, tag: r.tag_name, action: r.action || 'add', added, removed });
       } catch (e) {
         console.error('tag rule failed:', r.id, e.message);
         results.push({ id: r.id, tag: r.tag_name, error: true });
@@ -352,7 +386,7 @@ function registerAdminUsersRoutes(app, deps) {
     try {
       const { rows } = await query(
         `SELECT r.id, r.tag_id, r.rule_kind, r.threshold, r.target, r.target_label, r.window_days,
-                r.active, r.last_run_at, r.last_added,
+                r.action, r.member_ttl_days, r.reconcile, r.active, r.last_run_at, r.last_added, r.last_removed,
                 t.name AS tag_name, t.color AS tag_color
            FROM user_tag_rules r JOIN user_tags t ON t.id = r.tag_id ORDER BY r.id`);
       // 事件目錄（後台用來畫挑選器）＋可以挑的對象清單
@@ -480,10 +514,13 @@ function registerAdminUsersRoutes(app, deps) {
       const targetLabel = target ? (String(body.target_label || '').trim().slice(0, 120) || target) : null;
       const win = Number(body.window_days) ? Math.max(1, Math.min(3650, Number(body.window_days))) : null;
       const by = (req.authUser && req.authUser.un) || 'admin';
+      const action = body.action === 'remove' ? 'remove' : 'add';
+      const ttl = Number(body.member_ttl_days) ? Math.max(1, Math.min(3650, Number(body.member_ttl_days))) : null;
       const ins = await query(
-        `INSERT INTO user_tag_rules (tag_id, rule_kind, threshold, target, target_label, window_days, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-        [tagId, kind, threshold, target, targetLabel, win, by]);
+        `INSERT INTO user_tag_rules
+           (tag_id, rule_kind, threshold, target, target_label, window_days, action, member_ttl_days, reconcile, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+        [tagId, kind, threshold, target, targetLabel, win, action, ttl, body.reconcile !== false, by]);
       res.json({ ok: true, id: ins.rows[0].id });
     } catch (err) { jsonErr(res, 500, 'rule_create_failed', { detail: err && err.message }); }
   });
@@ -492,8 +529,17 @@ function registerAdminUsersRoutes(app, deps) {
     try {
       const id = Number((req.body || {}).id);
       if (!id) return jsonErr(res, 400, 'bad_id');
-      await query(`DELETE FROM user_tag_rules WHERE id = $1`, [id]);
-      res.json({ ok: true });
+      const removeMembers = (req.body || {}).remove_members === true;
+      const deleted = await query(
+        `WITH removed AS (
+           DELETE FROM user_tag_members WHERE source_rule_id = $1 AND $2::boolean RETURNING 1
+         )
+         DELETE FROM user_tag_rules WHERE id = $1
+         RETURNING id, (SELECT COUNT(*)::int FROM removed) AS removed_members`,
+        [id, removeMembers]
+      );
+      if (!deleted.rows.length) return jsonErr(res, 404, 'not_found');
+      res.json({ ok: true, removed_members: Number(deleted.rows[0].removed_members || 0) });
     } catch (err) { jsonErr(res, 500, 'rule_delete_failed', { detail: err && err.message }); }
   });
 
@@ -501,10 +547,23 @@ function registerAdminUsersRoutes(app, deps) {
     try {
       const id = Number((req.body || {}).id);
       if (!id) return jsonErr(res, 400, 'bad_id');
+      const removeMembers = (req.body || {}).remove_members === true;
       const upd = await query(
-        `UPDATE user_tag_rules SET active = NOT active WHERE id = $1 RETURNING active`, [id]);
+        `WITH target AS (
+           SELECT id, active FROM user_tag_rules WHERE id = $1 FOR UPDATE
+         ), removed AS (
+           DELETE FROM user_tag_members m
+            USING target t
+            WHERE m.source_rule_id = t.id AND t.active = true AND $2::boolean
+            RETURNING 1
+         )
+         UPDATE user_tag_rules r SET active = NOT r.active
+           FROM target t WHERE r.id = t.id
+         RETURNING r.active, (SELECT COUNT(*)::int FROM removed) AS removed_members`,
+        [id, removeMembers]);
       if (!upd.rows.length) return jsonErr(res, 404, 'not_found');
-      res.json({ ok: true, active: upd.rows[0].active });
+      res.json({ ok: true, active: upd.rows[0].active,
+        removed_members: Number(upd.rows[0].removed_members || 0) });
     } catch (err) { jsonErr(res, 500, 'rule_toggle_failed', { detail: err && err.message }); }
   });
 
@@ -534,12 +593,40 @@ function registerAdminUsersRoutes(app, deps) {
       if (body.on === false) {
         await query(`DELETE FROM user_tag_members WHERE tag_id = $1 AND line_user_id = $2`, [tagId, luid]);
       } else {
+        const ttlDays = Number(body.ttl_days) ? Math.max(1, Math.min(3650, Number(body.ttl_days))) : null;
         await query(
-          `INSERT INTO user_tag_members (tag_id, line_user_id, added_by) VALUES ($1, $2, $3)
-           ON CONFLICT DO NOTHING`, [tagId, luid, by]);
+          `INSERT INTO user_tag_members (tag_id, line_user_id, added_by, expires_at, source_rule_id)
+           VALUES ($1, $2, $3, CASE WHEN $4::int IS NULL THEN NULL ELSE now() + make_interval(days => $4::int) END, NULL)
+           ON CONFLICT (tag_id, line_user_id) DO UPDATE
+             SET added_by = EXCLUDED.added_by, expires_at = EXCLUDED.expires_at, source_rule_id = NULL`,
+          [tagId, luid, by, ttlDays]);
       }
       res.json({ ok: true });
     } catch (err) { jsonErr(res, 500, 'tag_failed', { detail: err && err.message }); }
+  });
+
+  // 批次匯入已綁定的 LINE userId 並貼標；未知或格式錯誤的 ID 不建立幽靈會員。
+  app.post('/admin/users/api/tags/batch', requireAdmin, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const tagId = Number(body.tag_id);
+      const raw = Array.isArray(body.line_user_ids) ? body.line_user_ids : String(body.line_user_ids || '').split(/[\s,;]+/);
+      const ids = [...new Set(raw.map(x => String(x || '').trim()).filter(x => /^U[0-9a-f]{32}$/i.test(x)))];
+      if (!tagId || !ids.length) return jsonErr(res, 400, 'bad_input', { detail: '請選標籤並貼上至少一個合法 LINE userId' });
+      if (ids.length > 10000) return jsonErr(res, 400, 'too_many', { detail: '單次最多 10,000 筆' });
+      const existing = await query(`SELECT line_user_id FROM users WHERE line_user_id = ANY($1::text[])`, [ids]);
+      const accepted = existing.rows.map(x => x.line_user_id);
+      const ttl = Number(body.ttl_days) ? Math.max(1, Math.min(3650, Number(body.ttl_days))) : null;
+      const by = (req.authUser && req.authUser.un) || 'admin';
+      const ins = await query(
+        `INSERT INTO user_tag_members (tag_id, line_user_id, added_by, expires_at, source_rule_id)
+         SELECT $1, x, $2, CASE WHEN $3::int IS NULL THEN NULL ELSE now() + make_interval(days => $3::int) END, NULL
+           FROM unnest($4::text[]) x
+         ON CONFLICT (tag_id, line_user_id) DO UPDATE
+           SET added_by = EXCLUDED.added_by, expires_at = EXCLUDED.expires_at, source_rule_id = NULL
+         RETURNING line_user_id`, [tagId, by, ttl, accepted]);
+      return res.json({ ok: true, accepted: ins.rowCount, unknown: ids.length - accepted.length });
+    } catch (err) { return jsonErr(res, 500, 'batch_failed', { detail: err && err.message }); }
   });
 
   // 把標籤成員存成名單（接群發／圖文選單名單專屬）
@@ -550,7 +637,8 @@ function registerAdminUsersRoutes(app, deps) {
       const { rows: t } = await query(`SELECT name FROM user_tags WHERE id = $1`, [tagId]);
       if (!t.length) return jsonErr(res, 404, 'not_found');
       const { rows: ms } = await query(
-        `SELECT line_user_id FROM user_tag_members WHERE tag_id = $1 LIMIT 20000`, [tagId]);
+        `SELECT line_user_id FROM user_tag_members WHERE tag_id = $1
+          AND (expires_at IS NULL OR expires_at > now()) LIMIT 20000`, [tagId]);
       const uids = ms.map(x => String(x.line_user_id || '').trim()).filter(u => /^U[0-9a-f]{32}$/i.test(u));
       if (!uids.length) return jsonErr(res, 400, 'empty', { detail: '這個標籤還沒有人' });
       const by = (req.authUser && req.authUser.un) || 'admin';
@@ -649,9 +737,9 @@ function registerAdminUsersRoutes(app, deps) {
 
       // 標籤
       const tags = (await query(
-        `SELECT t.id, t.name, t.color FROM user_tag_members m
+        `SELECT t.id, t.name, t.color, m.expires_at, m.added_by FROM user_tag_members m
          JOIN user_tags t ON t.id = m.tag_id
-         WHERE m.line_user_id = $1 ORDER BY t.name`,
+         WHERE m.line_user_id = $1 AND (m.expires_at IS NULL OR m.expires_at > now()) ORDER BY t.name`,
         [luid]
       )).rows;
 

@@ -20,6 +20,7 @@ function registerAdminDashboardRoutes(app, deps) {
 
   app.get('/admin/api/dashboard', requireAdmin, async (req, res) => {
     try {
+      const bookingRange = parseDateRange(req.query || {});
       const rs = await query(`
         SELECT
           -- archived_at IS NULL：只算現行 OA 的好友。已封存＝舊 OA 的歷史會員，
@@ -60,9 +61,12 @@ function registerAdminDashboardRoutes(app, deps) {
         broadcasts_failed: Number(a.broadcasts_failed || 0)
       };
       const liff = await loadLiffStats(query);
-      const booking = await loadBookingSource(query);
+      const booking = await loadBookingSource(query, bookingRange);
       return res.json({ ok: true, stats: rs.rows[0], lastBroadcast: lastRs.rows[0] || null, alerts, liff, booking });
     } catch (err) {
+      if (err && err.code === 'bad_booking_range') {
+        return res.status(400).json({ ok: false, error: 'bad_booking_range', detail: err.message });
+      }
       return res.status(500).json({ ok: false, error: 'dashboard_failed', detail: err && err.message });
     }
   });
@@ -129,21 +133,28 @@ async function loadLiffStats(query) {
  *
  * 這段刻意獨立 try/catch：訂位來源是加值資訊，讀不到也不該讓整個首頁掛掉。
  */
-async function loadBookingSource(query) {
+async function loadBookingSource(query, range = null) {
   try {
+    const params = range ? [range.from, range.to] : [];
+    const sourceSql = range
+      ? `(SELECT DISTINCT ON (line_user_id) line_user_id, source_label, answered_at
+            FROM booking_source_answers
+           WHERE (answered_at AT TIME ZONE 'Asia/Taipei')::date BETWEEN $1::date AND $2::date
+           ORDER BY line_user_id, answered_at DESC) b`
+      : `member_booking_source b`;
     const rs = await query(`
       SELECT
         b.source_label AS label,
         COUNT(*)::int AS total,
         COUNT(u.id)::int AS current_members
-      FROM member_booking_source b
+      FROM ${sourceSql}
       LEFT JOIN users u
         ON u.line_user_id = b.line_user_id
        AND u.archived_at IS NULL
        AND u.is_admin = false
       GROUP BY b.source_label
       ORDER BY COUNT(*) DESC, b.source_label ASC
-    `);
+    `, params);
     const items = (rs.rows || []).map((r) => ({
       label: String(r.label == null ? '' : r.label).trim() || '沒寫來源',
       total: Number(r.total || 0),
@@ -152,7 +163,8 @@ async function loadBookingSource(query) {
     return {
       items,
       total: items.reduce((sum, it) => sum + it.total, 0),
-      current: items.reduce((sum, it) => sum + it.current, 0)
+      current: items.reduce((sum, it) => sum + it.current, 0),
+      range
     };
   } catch (err) {
     console.error('dashboard booking source failed:', err && err.message);
@@ -160,4 +172,16 @@ async function loadBookingSource(query) {
   }
 }
 
-module.exports = { registerAdminDashboardRoutes };
+function parseDateRange(q) {
+  const from = String(q.booking_from || '').trim();
+  const to = String(q.booking_to || '').trim();
+  if (!from && !to) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+    const err = new Error('訂位來源日期範圍錯誤');
+    err.code = 'bad_booking_range';
+    throw err;
+  }
+  return { from, to };
+}
+
+module.exports = { registerAdminDashboardRoutes, parseDateRange, loadBookingSource };

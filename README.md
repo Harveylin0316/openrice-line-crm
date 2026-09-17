@@ -8,7 +8,7 @@ OpenRice Taiwan 的 LINE 官方帳號 CRM 與 LIFF 活動平台。系統把會�
 - GitHub：<https://github.com/Harveylin0316/openrice-line-crm>
 - 部署：Netlify Functions
 - 主資料庫：PostgreSQL（Supabase，以 `pg` 直連）
-- 本文件狀態：2026-09-10，依最新 `main` 整理
+- 本文件狀態：2026-09-17，依最新程式整理
 
 ## 交接閱讀順序
 
@@ -25,6 +25,9 @@ OpenRice Taiwan 的 LINE 官方帳號 CRM 與 LIFF 活動平台。系統把會�
 - LINE 與 Email（SureNotify／Brevo 群發；Mac 本機 SMTP 訂位客回訪）訊息
 - Netlify Scheduled Functions 執行群發、流程、活動、標籤與圖文選單排程
 - 測試使用 Node test runner 與 JSDOM
+- 名單庫支援靜態／動態受眾、Include／Exclude、AND／OR、即時計數與送出前同步
+- 會員標籤支援手動／批次／自動化貼標、移除、有效期限與行為規則
+- 群發成效漏斗提供日期範圍、Campaign／A/B/C Creative 比較與可驗證的 LINE／Email 指標
 
 ## 本機啟動
 

@@ -1611,6 +1611,7 @@
             pickerAvailable = true;
             var res = await liff.shareTargetPicker([buildInviteFlexMessage()]);
             if (res) {
+              fetch('/api/games/wheel/'+encodeURIComponent(slug)+'/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({line_user_id:profile.userId,id_token:idToken,event_name:'share'})}).catch(function(){});
               // 分享成功（不一定代表對方點開，只代表用戶選擇了對象）
               var needShare = Number(activityMeta.referral_invites_per_bonus || 1);
               flashStatus(needShare > 1
@@ -1625,7 +1626,7 @@
           if (pickerAvailable) {
             try {
               var fallbackRes = await liff.shareTargetPicker([{ type: 'text', text: msg + '\n' + inviteUrl }]);
-              if (fallbackRes) flashStatus('已分享！朋友加入官方帳號後會自動計算');
+              if (fallbackRes) { fetch('/api/games/wheel/'+encodeURIComponent(slug)+'/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({line_user_id:profile.userId,id_token:idToken,event_name:'share'})}).catch(function(){}); flashStatus('已分享！朋友加入官方帳號後會自動計算'); }
               return;
             } catch (fallbackError) {
               console.warn('Text shareTargetPicker failed:', fallbackError);
@@ -1635,7 +1636,7 @@
         // fallback: 複製連結
         try {
           await navigator.clipboard.writeText(inviteUrl);
-          flashStatus('連結已複製，傳給朋友吧');
+          fetch('/api/games/wheel/'+encodeURIComponent(slug)+'/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({line_user_id:profile.userId,id_token:idToken,event_name:'share'})}).catch(function(){}); flashStatus('連結已複製，傳給朋友吧');
         } catch (e) {
           prompt('複製這個連結傳給朋友：', inviteUrl);
         }
