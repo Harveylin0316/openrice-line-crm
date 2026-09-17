@@ -47,7 +47,8 @@ test('supports required behavior and reward dimensions', () => {
   assert.match(out.sql, /rt\.cell=/);
   assert.match(out.sql, /activity_user_events/);
   assert.match(out.sql, /activity_referrals/);
-  assert.match(out.sql, /coupon_codes/);
+  assert.match(out.sql, /ap\.is_redeemed/);
+  assert.doesNotMatch(out.sql, /coupon_codes/);
   assert.match(out.sql, /line_webhook_events/);
   assert.match(out.sql, /campaign_phone_registrations/);
   assert.match(out.sql, /gold_pig_bookings/);

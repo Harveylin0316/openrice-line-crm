@@ -621,7 +621,7 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 - `/admin/recipient-lists` 可建立靜態名單或動態受眾。動態受眾的規則存在
   `admin_recipient_lists.definition`，成員物化至既有 `admin_recipient_list_members`，因此群發與流程仍只消費同一種名單介面。
 - 條件支援 Include／Exclude 與 Include 間 AND／OR。Exclude 永遠是強制排除，不會因選 OR 而意外把排除者放回名單；只有 Exclude 時語意是「全部有效會員扣掉排除條件」。
-- 可用加入日期、目前好友／封鎖狀態、Tag、指定圖文選單／按鈕、LIFF event、活動進入／開始／完成／分享、成功邀請、獎勵、LINE Login、App Registration、金豬訂位、群發已發／Email delivered／open／click／測試組／CTA conversion 等條件。
+- 可用加入日期、目前好友／封鎖狀態、Tag、指定圖文選單／按鈕、LIFF event、活動進入／開始／完成／分享、成功邀請、獎勵、LINE Login、活動手機登記、金豬訂位、群發已發／Email delivered／open／click／測試組／CTA conversion 等條件。現有 `campaign_phone_registrations` 只能證明活動手機登記，不能當作 OpenRice App Registration；後者須等正式身份橋接後才能加入。
 - 建立畫面會在條件變更後 debounce 即時計數。啟用自動同步的名單由既有 scheduled runner 每五分鐘更新；群發預覽與正式建立批次前仍會強制同步一次，避免送到排程間隔內的舊快照。
 - 流程編輯器的「加入名單」步驟可直接建立空白靜態名單，不必離開編輯畫面。
 
@@ -636,8 +636,9 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 
 - `/admin/broadcast` 既有 Campaign Testing 支援隨機 A/B/C、任意合法比例（例如 A 10%／B 10%／Winner holdout 80%）、不同文字／圖片／CTA、互斥測試受眾與 CTR Winner 自動 release。
 - 內容版本固定同時發送，避免時間差與文案效果混在一起；要測發送時間應建立獨立、互斥且內容相同的實驗。Booking Winner 在一般 Booking 尚無 LINE identity bridge 前不可開，不能拿猜測資料選 Winner。
-- `/admin/campaign-performance` 依自訂日期顯示 Target → Sent → Delivered → Open → Click → LIFF → Registration → Booking → Confirmed／Cancel → Attendance 與 Block，並列出 delivery/open/CTR/conversion/block rate 及 A/B/C Creative 比較。
-- LINE Messaging API 不提供逐人 delivered／open。LINE Delivered 必須顯示「無資料」；Open 只可能是追蹤圖 proxy。Email Delivered 來自 provider webhook。一般 Booking 與 Attendance 目前無可靠 LINE ID 對應，也必須顯示「無資料」；目前 Booking 只計金豬食堂的 LINE 綁定訂位。
+- `/admin/campaign-performance` 依自訂日期顯示 Target → Sent → Delivered → Open → Click → LIFF → 活動手機登記 → Booking → Confirmed／Cancel → Attendance 與 Block，並列出 delivery/open/CTR/conversion/block rate 及 A/B/C Creative 比較。
+- LINE Messaging API 不提供逐人 delivered／open。LINE Delivered 必須顯示「無資料」；Open 只可能是追蹤圖 proxy。Email Delivered 來自 provider webhook。一般 Booking、OpenRice App Registration 與 Attendance 目前無可靠 LINE ID 對應，也必須顯示「無資料」；目前 Registration 只計活動手機登記，Booking 只計金豬食堂的 LINE 綁定訂位。
+- Reward 的「未兌換／已兌換」以 `activity_plays.is_redeemed` 判定，不可用 coupon code 已指派來代替。尚未回寫兌換狀態的哩數或外部獎項會維持未兌換，不能宣稱已領取。
 - `Dashboard` 的訂位來源可用 `booking_from`／`booking_to` 自訂日期，首尾都包含且依台灣日界線查詢。
 
 ### Schema

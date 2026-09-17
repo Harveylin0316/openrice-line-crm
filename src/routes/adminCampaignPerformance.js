@@ -121,6 +121,7 @@ function registerAdminCampaignPerformanceRoutes(app, deps) {
           window: '推播後 7 天',
           delivered: 'Email 以服務商 delivery webhook；LINE 不提供逐人送達資料',
           open: 'Email 開信像素／provider webhook；LINE 僅計有追蹤圖載入的開啟 proxy',
+          registration: 'Registration 目前只計活動手機登記；OpenRice App Registration 尚未接入 LINE 身份橋接',
           booking: '目前只計已綁 LINE ID 的金豬食堂訂位；一般 Booking 尚未建立身份橋接',
           booking_status: 'Booking 包含之後取消者；Confirmed 與 Cancel 另列，方便檢查名單品質',
           attendance: '目前沒有可與 LINE ID 對應的到店資料，因此不顯示假數字'

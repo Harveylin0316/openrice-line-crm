@@ -130,9 +130,10 @@ function compileAudience(definition) {
 
 function rewardSql(status) {
   const got = `EXISTS (SELECT 1 FROM activity_plays ap WHERE ap.line_user_id = u.line_user_id AND COALESCE(ap.prize_snapshot->>'prize_type','none') <> 'none')`;
-  const claimed = `EXISTS (SELECT 1 FROM coupon_codes cc WHERE cc.claimed_line_user_id = u.line_user_id)`;
+  const claimed = `EXISTS (SELECT 1 FROM activity_plays ap WHERE ap.line_user_id = u.line_user_id AND COALESCE(ap.prize_snapshot->>'prize_type','none') <> 'none' AND ap.is_redeemed IS TRUE)`;
+  const unclaimed = `EXISTS (SELECT 1 FROM activity_plays ap WHERE ap.line_user_id = u.line_user_id AND COALESCE(ap.prize_snapshot->>'prize_type','none') <> 'none' AND COALESCE(ap.is_redeemed,false) IS FALSE)`;
   if (status === 'claimed') return claimed;
-  if (status === 'unclaimed') return `${got} AND NOT (${claimed})`;
+  if (status === 'unclaimed') return unclaimed;
   return got;
 }
 
