@@ -17,6 +17,15 @@ function campaignName(row) {
   return String(row.email_subject || template.title || template.altText || `群發 #${row.id}`).slice(0, 100);
 }
 
+function audienceName(row) {
+  if (row.audience_list_name) return String(row.audience_list_name).slice(0, 100);
+  const conditions = row.audience_config && row.audience_config.conditions || {};
+  if (conditions.savedListId) return `已存名單 #${conditions.savedListId}`;
+  if (Array.isArray(conditions.directUserIds) && conditions.directUserIds.length) return '直接 LINE User ID';
+  if (conditions.allMembers) return '全部會員';
+  return '條件篩選';
+}
+
 function registerAdminCampaignPerformanceRoutes(app, deps) {
   const { query, authCore } = deps;
   const { requireAdmin } = authCore;
@@ -85,6 +94,7 @@ function registerAdminCampaignPerformanceRoutes(app, deps) {
          )
          SELECT b.id,b.created_at,b.status,b.channel,b.recipient_total,b.audience_config,b.message_config,
                 b.email_subject,b.is_ab_test,
+                al.name AS audience_list_name,
                 COALESCE(s.materialized,0)::int AS materialized,COALESCE(s.sent,0)::int AS sent,
                 COALESCE(s.delivered,0)::int AS delivered,COALESCE(s.opened,0)::int AS opened,
                 COALESCE(s.clicked,0)::int AS clicked,COALESCE(s.failed,0)::int AS failed,
@@ -94,7 +104,11 @@ function registerAdminCampaignPerformanceRoutes(app, deps) {
                 COALESCE(d.booking_cancelled,0)::int AS booking_cancelled,
                 COALESCE(d.blocks,0)::int AS blocks
            FROM selected b LEFT JOIN recipient_stats s ON s.broadcast_id=b.id
-           LEFT JOIN downstream d ON d.broadcast_id=b.id ORDER BY b.id DESC`, [range.from, range.to])).rows;
+           LEFT JOIN downstream d ON d.broadcast_id=b.id
+           LEFT JOIN admin_recipient_lists al ON al.id = CASE
+             WHEN COALESCE(b.audience_config->'conditions'->>'savedListId','') ~ '^[0-9]+$'
+             THEN (b.audience_config->'conditions'->>'savedListId')::int ELSE NULL END
+          ORDER BY b.id DESC`, [range.from, range.to])).rows;
 
       const variants = (await query(
         `SELECT r.broadcast_id,r.variant,
@@ -108,7 +122,7 @@ function registerAdminCampaignPerformanceRoutes(app, deps) {
           GROUP BY r.broadcast_id,r.variant ORDER BY r.broadcast_id DESC,r.variant`, [range.from, range.to])).rows;
 
       return res.json({ ok: true, range,
-        campaigns: rows.map(r => ({ ...r, name: campaignName(r),
+        campaigns: rows.map(r => ({ ...r, name: campaignName(r), audience_name: audienceName(r),
           delivered: r.channel === 'email' ? Number(r.delivered) : null,
           attendance: null,
           delivery_rate: r.channel === 'email' && Number(r.sent) ? Number(r.delivered) / Number(r.sent) : null,
@@ -134,4 +148,4 @@ function registerAdminCampaignPerformanceRoutes(app, deps) {
   });
 }
 
-module.exports = { registerAdminCampaignPerformanceRoutes, normalizeRange, campaignName };
+module.exports = { registerAdminCampaignPerformanceRoutes, normalizeRange, campaignName, audienceName };

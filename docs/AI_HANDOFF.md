@@ -636,7 +636,7 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 
 - `/admin/broadcast` 既有 Campaign Testing 支援隨機 A/B/C、任意合法比例（例如 A 10%／B 10%／Winner holdout 80%）、不同文字／圖片／CTA、互斥測試受眾與 CTR Winner 自動 release。
 - 內容版本固定同時發送，避免時間差與文案效果混在一起；要測發送時間應建立獨立、互斥且內容相同的實驗。Booking Winner 在一般 Booking 尚無 LINE identity bridge 前不可開，不能拿猜測資料選 Winner。
-- `/admin/campaign-performance` 依自訂日期顯示 Target → Sent → Delivered → Open → Click → LIFF → 活動手機登記 → Booking → Confirmed／Cancel → Attendance 與 Block，並列出 delivery/open/CTR/conversion/block rate 及 A/B/C Creative 比較。
+- `/admin/campaign-performance` 依自訂日期顯示 Target → Sent → Delivered → Open → Click → LIFF → 活動手機登記 → Booking → Confirmed／Cancel → Attendance 與 Block，並列出 delivery/open/CTR/conversion/block rate。每列同時顯示 Audience 名稱以比較不同名單，Campaign 可逐列比較，A/B/C 區塊比較 Creative。
 - LINE Messaging API 不提供逐人 delivered／open。LINE Delivered 必須顯示「無資料」；Open 只可能是追蹤圖 proxy。Email Delivered 來自 provider webhook。一般 Booking、OpenRice App Registration 與 Attendance 目前無可靠 LINE ID 對應，也必須顯示「無資料」；目前 Registration 只計活動手機登記，Booking 只計金豬食堂的 LINE 綁定訂位。
 - Reward 的「未兌換／已兌換」以 `activity_plays.is_redeemed` 判定，不可用 coupon code 已指派來代替。尚未回寫兌換狀態的哩數或外部獎項會維持未兌換，不能宣稱已領取。
 - `Dashboard` 的訂位來源可用 `booking_from`／`booking_to` 自訂日期，首尾都包含且依台灣日界線查詢。
