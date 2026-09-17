@@ -20,6 +20,19 @@ function messageConfig() {
   };
 }
 
+function trackedTemplateConfig(title) {
+  return {
+    mode: 'template',
+    template: {
+      title: title || '測試卡片',
+      subtitle: '內容',
+      ctaLabel: '立即查看',
+      ctaUrl: 'https://example.com/campaign',
+      altText: title || '測試卡片'
+    }
+  };
+}
+
 function makeResponse() {
   const res = { statusCode: 200, body: null };
   res.status = (code) => { res.statusCode = code; return res; };
@@ -179,5 +192,51 @@ test('直接貼超過 5000 個 LINE User ID 會擋下，不會建立只含前 50
   assert.equal(res.statusCode, 400);
   assert.equal(res.body.error, 'invalid_audience');
   assert.match(res.body.detail, /最多可推播 5000/);
+  assert.equal(ctx.calls.query.length, 0);
+});
+
+test('Campaign Testing 只接受可逐人追蹤 CTR 的一般訊息，不讓 Flex JSON 靜默選錯 Winner', async () => {
+  const ctx = build();
+  const res = await run(ctx.routes['POST /admin/broadcast/create'], {
+    send_mode: 'immediate',
+    conditions: { all: true },
+    message_config: messageConfig(),
+    variant_b_message_config: messageConfig(),
+    campaign_experiment: {
+      enabled: true,
+      variant_count: 2,
+      observation_hours: 24,
+      metric: 'ctr',
+      allocations: { a: 10, b: 10, c: 0, holdout: 80 }
+    }
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error, 'campaign_experiment_requires_tracked_template');
+  assert.equal(ctx.calls.query.length, 0);
+});
+
+test('Campaign Testing A/B/C 會在抓正式名單前先驗證三個版本', async () => {
+  const ctx = build({ validation: [
+    { ok: true }, { ok: true }, { ok: false, detail: '{"message":"variant C invalid"}' }
+  ] });
+  const res = await run(ctx.routes['POST /admin/broadcast/create'], {
+    send_mode: 'immediate',
+    conditions: { all: true },
+    message_config: trackedTemplateConfig('A'),
+    variant_b_message_config: trackedTemplateConfig('B'),
+    variant_c_message_config: trackedTemplateConfig('C'),
+    campaign_experiment: {
+      enabled: true,
+      variant_count: 3,
+      observation_hours: 24,
+      metric: 'ctr',
+      allocations: { a: 10, b: 10, c: 10, holdout: 70 }
+    }
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error, 'variant_c_invalid');
+  assert.equal(ctx.calls.validate.length, 3);
   assert.equal(ctx.calls.query.length, 0);
 });

@@ -66,6 +66,7 @@ async function ensureAppServerRlsPolicies(query) {
 DO $$
 DECLARE
   t text;
+  app_schema text := current_schema();
   role_list text;
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
@@ -78,13 +79,14 @@ BEGIN
   LOOP
     IF EXISTS (
       SELECT 1 FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name = t
+      WHERE table_schema = app_schema AND table_name = t
     ) AND NOT EXISTS (
       SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = t AND policyname = 'app_server_full_access'
+      WHERE schemaname = app_schema AND tablename = t AND policyname = 'app_server_full_access'
     ) THEN
       EXECUTE format(
-        'CREATE POLICY app_server_full_access ON public.%I FOR ALL TO %s USING (true) WITH CHECK (true)',
+        'CREATE POLICY app_server_full_access ON %I.%I FOR ALL TO %s USING (true) WITH CHECK (true)',
+        app_schema,
         t,
         role_list
       );
@@ -467,14 +469,16 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
     updated_at TIMESTAMPTZ DEFAULT now()
   )`);
 
-  // Supabase exposes public schema via PostgREST by default.
-  // Enable RLS on app tables to prevent direct external reads/writes.
+  // Supabase exposes public schema via PostgREST by default；staging 則使用獨立 schema。
+  // 永遠只處理目前 connection search_path 指向的 schema，避免預覽環境誤動正式 public 表。
   // 名單只維護 APP_PUBLIC_TABLES_WITH_RLS 一份；不存在的表跳過（有些表在別的模組建）。
   for (const t of APP_PUBLIC_TABLES_WITH_RLS) {
     await query(`
-      DO $$ BEGIN
-        IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename='${t}') THEN
-          EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', '${t}');
+      DO $$
+      DECLARE app_schema text := current_schema();
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname=app_schema AND tablename='${t}') THEN
+          EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', app_schema, '${t}');
         END IF;
       END $$;`);
   }

@@ -279,7 +279,7 @@ function buildYellowFlexFromTemplate(t, { heroImageUrl, heroIsBrandBar } = {}) {
  * heroImageBaseUrl: 用來組 hero 圖的 https 公開網址（line_push_media）
  * broadcastId: 若提供且 template 模式有 CTA，會把 CTA URL 包成 /r/b/<id> 中介 redirect
  *              （給點擊追蹤用）。flex_json 模式不包，由 user 自行用 utm 追蹤。
- * variant: 'a' | 'b' | undefined — A/B test 時帶入；URL 會加 ?v=<variant> 標記，
+ * variant: 'a' | 'b' | 'c' | undefined — Campaign Testing 時帶入；URL 會加 ?v=<variant> 標記，
  *          給 redirect / view endpoint 寫進對應的 variant 欄位。
  */
 /**
@@ -414,7 +414,7 @@ function stripEmptyTexts(node) {
 }
 
 function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, variant, recipientId, recipientName } = {}) {
-  const variantSuffix = variant === 'a' || variant === 'b' ? `?v=${variant}` : '';
+  const variantSuffix = variant === 'a' || variant === 'b' || variant === 'c' ? `?v=${variant}` : '';
   // recipient id segment：有提供就嵌入 URL，後續 track endpoint 可寫入 line_user_id 對應
   const rSeg = (recipientId != null && Number.isFinite(Number(recipientId))) ? `/${Number(recipientId)}` : '';
   if (!messageConfig || typeof messageConfig !== 'object') {

@@ -16,7 +16,7 @@
           </p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button type="button" class="btn btn-export-list" id="btn-resend-nonclick">重發給沒點擊的人</button>
+          ${experimentStat ? '' : '<button type="button" class="btn btn-export-list" id="btn-resend-nonclick">重發給沒點擊的人</button>'}
           <button type="button" class="btn btn-export-list" id="btn-export-list">匯出到名單庫</button>
           <a href="/admin/broadcast/history" class="btn">回歷史列表</a>
           <a href="/admin/broadcast" class="btn">回主頁</a>
@@ -102,6 +102,48 @@
           </div>
         </div>
       `;
+      })() : ''}
+
+      ${experimentStat ? (() => {
+        const stats = experimentStat;
+        const winner = String(stats.selectedWinner || 'a').toUpperCase();
+        const winnerAt = stats.config.winnerAt
+          ? new Date(stats.config.winnerAt).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+          : '—';
+        return `
+          <h2 style="margin-top:24px;">Campaign Testing</h2>
+          <p class="muted" style="font-size:13px;line-height:1.6;">先把收件人隨機分到 A/B${stats.rows.length === 3 ? '/C' : ''} 測試組與保留名單。測試組在相同時間送出；觀察結束後，系統依 <strong>CTR（不重複 CTA 點擊 ÷ 成功送達）</strong> 選出勝出版，再送保留名單。平手依 A → B → C。</p>
+          <div class="ab-grid">
+            ${stats.rows.map(v => {
+              const sent = Number(v.sent_ok || 0);
+              const clickers = Number(v.clickers || 0);
+              const ctr = sent > 0 ? ((clickers / sent) * 100).toFixed(1) : '0.0';
+              const isWin = String(v.variant || '').toUpperCase() === winner;
+              return `<div class="ab-cell${isWin ? ' ab-cell--winner' : ''}">
+                <div class="ab-cell-head">版本 ${String(v.variant || '?').toUpperCase()}${isWin ? ' <span class="ab-win-tag">目前勝出</span>' : ''}</div>
+                <div class="ab-cell-row"><span class="ab-cell-label">測試名單</span><span class="ab-cell-val">${v.sent_total || 0}</span></div>
+                <div class="ab-cell-row"><span class="ab-cell-label">成功送達</span><span class="ab-cell-val">${sent}</span></div>
+                <div class="ab-cell-row ab-cell-row--highlight"><span class="ab-cell-label">不重複點擊</span><span class="ab-cell-val">${clickers}</span></div>
+                <div class="ab-cell-row ab-cell-row--highlight"><span class="ab-cell-label">CTR</span><span class="ab-cell-val">${ctr}%</span></div>
+              </div>`;
+            }).join('')}
+          </div>
+          <div class="ab-winner-block">
+            <div>
+              <div style="font-weight:600;color:#1f2937;">保留名單：${stats.holdout} 人</div>
+              <div class="muted" style="font-size:12px;margin-top:4px;">${stats.releasedBroadcastId ? `已建立勝出版批次 #${stats.releasedBroadcastId}。` : `自動判定時間：${winnerAt}。`}</div>
+            </div>
+            ${stats.canRelease ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+              <select id="experiment-winner-choice" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
+                <option value="auto">依 CTR 自動選（目前 ${winner}）</option>
+                ${stats.rows.map(v => `<option value="${v.variant}">改用版本 ${String(v.variant).toUpperCase()}</option>`).join('')}
+              </select>
+              <button type="button" class="btn btn-resend-winner" id="btn-release-experiment-winner">送出保留名單</button>
+              <button type="button" class="btn" id="btn-cancel-experiment">取消保留名單</button>
+              <span id="experiment-release-status" class="muted" style="font-size:12px;"></span>
+            </div>` : ''}
+          </div>
+        `;
       })() : ''}
 
       ${broadcast.recipient_fail > 0 && broadcast.status !== 'running' ? `
@@ -403,6 +445,53 @@
             .catch(function (e) {
               statusEl.textContent = '網路錯誤：' + e.message;
               btn.disabled = false;
+            });
+        });
+      })();
+    </script>
+
+    <script>
+      // Campaign Testing：只把一開始保留的名單交給勝出版，不重新算受眾。
+      (function () {
+        var btn = document.getElementById('btn-release-experiment-winner');
+        if (!btn) return;
+        var statusEl = document.getElementById('experiment-release-status');
+        btn.addEventListener('click', function () {
+          var selected = document.getElementById('experiment-winner-choice').value;
+          if (!confirm('將把保留名單送給勝出版。這個動作不能復原，確認？')) return;
+          btn.disabled = true;
+          statusEl.textContent = '建立勝出版批次中…';
+          fetch('/admin/broadcast/${broadcast.id}/release-experiment-winner', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ winner_variant: selected })
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (!data.ok) throw new Error(data.detail || data.error || '未知錯誤');
+              statusEl.innerHTML = '已建立勝出版批次 #' + data.broadcastId + '（' + data.holdoutCount + ' 人）。 ' +
+                '<a href="/admin/broadcast/' + data.broadcastId + '" style="color:#2563eb;font-weight:600;">查看新批次</a>';
+            })
+            .catch(function (err) {
+              statusEl.textContent = '失敗：' + err.message;
+              btn.disabled = false;
+            });
+        });
+        var cancelBtn = document.getElementById('btn-cancel-experiment');
+        if (cancelBtn) cancelBtn.addEventListener('click', function () {
+          if (!confirm('確定取消保留名單？測試組已送出的訊息不會收回，但 Winner 不會再送給保留名單。')) return;
+          cancelBtn.disabled = true;
+          statusEl.textContent = '取消中…';
+          fetch('/admin/broadcast/${broadcast.id}/cancel', { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (!data.ok) throw new Error(data.error || '未知錯誤');
+              statusEl.textContent = '保留名單已取消，不會再自動送出。';
+              btn.disabled = true;
+            })
+            .catch(function (err) {
+              statusEl.textContent = '取消失敗：' + err.message;
+              cancelBtn.disabled = false;
             });
         });
       })();

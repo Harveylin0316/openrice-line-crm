@@ -1,3 +1,5 @@
+> 日常測試站修改可直接 push `staging`，不需 PR。這份樣板主要用於已驗證的 `staging -> main` 正式上線申請。
+
 ## 這次要做什麼
 
 請用一至三句白話說明用戶問題與預期結果。
@@ -20,7 +22,7 @@
 - [ ] `npm ci --include=dev`
 - [ ] `npm test`
 - [ ] `git diff --check origin/main...HEAD`
-- [ ] 已在 Netlify Deploy Preview 實際走過受影響用戶路徑
+- [ ] 已在固定 Staging 站實際走過受影響用戶路徑
 - [ ] UI 改動已驗證桌機與 390px 手機畫面、console 無錯誤
 
 測試結果：
@@ -31,7 +33,7 @@
 
 ## 畫面證據
 
-若有 UI 改動，請放改前／改後截圖或 Deploy Preview 網址。
+若有 UI 改動，請放改前／改後截圖或固定 Staging 網址。
 
 ## 如何回滾
 
@@ -39,4 +41,4 @@
 
 ## Hen 核准
 
-- [ ] Hen 已確認 Deploy Preview 與上述風險
+- [ ] Hen 已確認固定 Staging 與上述風險

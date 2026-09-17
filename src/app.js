@@ -61,6 +61,9 @@ const isProduction =
   process.env.NODE_ENV === 'production' ||
   process.env.NETLIFY === 'true' ||
   !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+const isSafePreview =
+  process.env.SAFE_PREVIEW_MODE === '1' ||
+  String(process.env.APP_ENV || '').trim().toLowerCase() === 'staging';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || (isProduction ? '' : 'LocalAdmin1234');
 const JWT_SECRET =
@@ -391,6 +394,8 @@ app.get('/healthz', (req, res) => {
       nodeEnv: process.env.NODE_ENV || '(unset)'
     },
     env: {
+      appEnv: process.env.APP_ENV || (isSafePreview ? 'staging' : 'production'),
+      safePreviewMode: isSafePreview,
       DATABASE_URL_set: !!DATABASE_URL,
       DATABASE_URL_host: dbHost,
       DATABASE_URL_port: dbPort,
@@ -506,6 +511,12 @@ app.use('/login', authLimiter);
 app.use('/register', authLimiter);
 app.use('/liff/auth', authLimiter);
 app.use(authCore.authMiddleware);
+
+// PR / branch preview 永遠要讓操作者清楚知道：這是隔離測試環境，不會真的推播或寄信。
+app.use((_req, res, next) => {
+  res.locals.isSafePreview = isSafePreview;
+  next();
+});
 
 app.use(async (_req, _res, next) => {
   try {

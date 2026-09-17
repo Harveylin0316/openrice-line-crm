@@ -5,7 +5,7 @@
 ## Source of truth
 
 1. 目前任務的使用者指示。
-2. `origin/main` 的實際程式與測試。
+2. 測試站日常改動以 `origin/staging` 的實際程式與測試為準；`origin/main` 是正式站基準。
 3. 正式 PostgreSQL／Supabase schema 與活動資料。
 4. `docs/AI_HANDOFF.md` 的說明。
 5. 舊交接文件與程式註解只作輔助；若與程式不一致，以已驗證的現場為準並更新文件。
@@ -13,18 +13,21 @@
 ## 開工前
 
 - 確認 repo root：`git rev-parse --show-toplevel`。
-- 執行 `git fetch origin`，檢查 `main...origin/main` 左右差異。
+- 執行 `git fetch origin`、`git switch staging`、`git pull --ff-only origin staging`。
 - 檢查工作樹；不得覆蓋其他人或其他 AI 未提交的修改。
-- 從最新 `origin/main` 建立 `codex/` 前綴分支。
+- 一般測試站改動可直接在 `staging` 作業；若工作樹不乾淨或有多人同時修改，先用暫時功能分支處理，再安全整合回 `staging`。
 - 涉及正式資料前，先做唯讀查詢確認活動 ID、slug、狀態與欄位。
 
 ## 交接與上線權限
 
-- AI 與接手者只能在功能分支作業並建立 Pull Request；不得自行 merge `main`。
+- AI 與接手者可在測試、檢查完成後直接 push `staging`；更新測試站不需 Pull Request 或 Hen 核准。
+- push 前必須先 `git pull --rebase origin staging`，不得 force-push 或刪除 `staging`。
+- 固定測試站為 `https://staging--openrice-line-crm.netlify.app`，更新後必須等待部署完成並實測；若沒有黃色 `STAGING 測試環境` 橫幅，立刻停止。
+- AI 與接手者不得自行 push、merge 或發布 `main`。要上正式站時，才建立 `staging -> main` Pull Request 交由 Hen 核准。
 - 只有 Hen 能核准合併、發布 production、修改 Netlify／Supabase／LINE／Exchange 正式憑證。
 - 不得用 Netlify CLI、API 或其他方式繞過 GitHub `main` 直接發布 production。
-- 每個 PR 必須完成 repo 的 PR 樣板，列出影響範圍、驗證、資料庫影響、截圖與 rollback 方式。
-- 涉及 migration、正式資料寫入、抽獎、邀請、群發、webhook、排程或權限時，在改動前先向 Hen 確認。
+- 正式上線 PR 必須完成 repo 的 PR 樣板，列出影響範圍、驗證、資料庫影響、截圖與 rollback 方式。
+- 可在隔離 Staging 以虛構資料開發與測試 migration、抽獎、邀請、群發、webhook、排程或權限；但任何正式 schema／資料寫入、真人發送或 production 設定變更，都必須先向 Hen 確認。
 - 完整交接與復原流程見 [`docs/HANDOFF_GUARDRAILS.md`](docs/HANDOFF_GUARDRAILS.md)。
 
 ## 不可破壞的核心邊界
@@ -58,7 +61,8 @@ npm test
 
 - Netlify build 可能因 production install 移除 `jsdom`；部署後要再測試時，先重裝 dev dependencies。
 - UI 變更至少驗證桌機後台、390px 手機活動頁、console error 與水平溢出。
-- 上線前再次確認 `origin/main` 沒有新提交；以可追溯 commit 合併後再部署。
+- 更新測試站前再次同步 `origin/staging`；不得以 force push 蓋掉同事變更。
+- 正式上線前再次確認 `origin/main` 沒有新提交；以 `staging -> main` Pull Request 合併後再部署。
 - Production deploy 後檢查 `/healthz`、`/healthz/db`、受影響頁面與靜態資源。
 - 不以 HTTP 200 取代功能驗收；抽獎、邀請、群發等高風險功能要跑相應回歸測試。
 
