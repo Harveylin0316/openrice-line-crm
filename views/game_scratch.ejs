@@ -963,10 +963,10 @@
         try {
           if (liff.isApiAvailable && liff.isApiAvailable('shareTargetPicker')) {
             var res = await liff.shareTargetPicker([{ type: 'text', text: msg + '\n' + inviteUrl }]);
-            if (res) { flashStatus('已分享！'); return; }
+            if (res) { fetch('/api/games/scratch/'+encodeURIComponent(slug)+'/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({line_user_id:profile.userId,id_token:idToken,event_name:'share'})}).catch(function(){}); flashStatus('已分享！'); return; }
           }
         } catch (e) {}
-        try { await navigator.clipboard.writeText(inviteUrl); flashStatus('連結已複製'); }
+        try { await navigator.clipboard.writeText(inviteUrl); fetch('/api/games/scratch/'+encodeURIComponent(slug)+'/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({line_user_id:profile.userId,id_token:idToken,event_name:'share'})}).catch(function(){}); flashStatus('連結已複製'); }
         catch (e) { prompt('複製此連結：', inviteUrl); }
       }
       function flashStatus(msg) {

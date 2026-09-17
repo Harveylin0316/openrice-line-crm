@@ -8,6 +8,7 @@
       <div class="rld-head">
         <a href="/admin/recipient-lists" class="rld-back">← 回名單庫</a>
         <h1 id="rld-name">${list.name.replace(/</g,'&lt;')}</h1>
+        <span class="aud-kind ${list.list_type === 'dynamic' ? 'dynamic' : ''}">${list.list_type === 'dynamic' ? '動態名單' : '靜態名單'}</span>
         <button type="button" class="rld-edit-btn" id="btn-edit-meta">編輯名稱 / 描述</button>
       </div>
       <p class="muted" id="rld-desc" style="font-size:13px;margin-top:6px;">${(list.description || '').replace(/</g,'&lt;')}</p>
@@ -20,6 +21,7 @@
         <div class="rld-stat"><div class="v" style="font-size:13px;font-variant-numeric:tabular-nums;">${new Date(list.created_at).toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }).slice(0,16)}</div><div class="k">建立時間</div></div>
       </div>
       <p class="muted" style="font-size:12px;margin-top:10px;">LINE 群發只會發給「LINE 可發送」的成員；Email 群發只會發給有 Email 的成員。</p>
+      ${list.list_type === 'dynamic' ? `<div class="rld-dynamic-note"><b>此名單依條件自動更新</b>，成員不能手動增刪。上次同步：${list.last_synced_at ? new Date(list.last_synced_at).toLocaleString('sv-SE', { timeZone:'Asia/Taipei' }).slice(0,16) : '尚未同步'} <button type="button" class="rld-primary-btn" id="btn-sync-list">立即同步</button><span id="sync-status"></span></div>` : ''}
     </section>
 
     <section class="card">
@@ -27,7 +29,7 @@
         <h2 style="margin:0;">成員清單</h2>
         <div style="display:flex;gap:8px;">
           <input type="search" id="rld-search" placeholder="搜尋名稱或 UID..." class="rld-search" />
-          <button type="button" class="rld-primary-btn" id="btn-add-members">＋ 加入成員</button>
+          <button type="button" class="rld-primary-btn" id="btn-add-members" ${list.list_type === 'dynamic' ? 'hidden' : ''}>＋ 加入成員</button>
         </div>
       </div>
       <div class="table-wrap" style="margin-top:10px;">
@@ -49,7 +51,7 @@
     </section>
 
     <!-- 自動加入規則 -->
-    <section class="card">
+    <section class="card" ${list.list_type === 'dynamic' ? 'hidden' : ''}>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px;">
         <div>
           <h2 style="margin:0;">自動加入規則</h2>
@@ -127,7 +129,8 @@
     (function () {
       var $ = function (id) { return document.getElementById(id); };
       var listId = ${list.id};
-      var currentList = ${JSON.stringify({ id: list.id, name: list.name, description: list.description }).replace(/</g,'\\u003c')};
+      var currentList = ${JSON.stringify({ id: list.id, name: list.name, description: list.description, list_type: list.list_type }).replace(/</g,'\\u003c')};
+      var isDynamic = currentList.list_type === 'dynamic';
       var pageSize = 100;
       var currentOffset = 0;
       var totalMembers = ${list.total || 0};
@@ -218,7 +221,7 @@
               '</div>' +
             '</td>' +
             '<td style="font-size:12px;color:#6B6B70;">' + fmtTime(m.created_at) + '</td>' +
-            '<td><button type="button" class="rld-del" data-id="' + m.id + '">移除</button></td>' +
+            '<td>' + (isDynamic ? '' : '<button type="button" class="rld-del" data-id="' + m.id + '">移除</button>') + '</td>' +
           '</tr>';
         }).join('');
 
@@ -313,7 +316,7 @@
       document.querySelectorAll('.rl-tab-btn').forEach(function (btn) {
         btn.addEventListener('click', function () { switchAddTab(btn.getAttribute('data-add-type')); });
       });
-      $('btn-add-members').addEventListener('click', function () {
+      if ($('btn-add-members')) $('btn-add-members').addEventListener('click', function () {
         $('add-uids').value = '';
         $('add-emails').value = '';
         $('add-counter').textContent = '已輸入 0 個 UID';
@@ -323,6 +326,10 @@
         switchAddTab('line');
         addModal.hidden = false;
         setTimeout(function () { $('add-uids').focus(); }, 50);
+      });
+      if ($('btn-sync-list')) $('btn-sync-list').addEventListener('click', function(){
+        var btn=this;btn.disabled=true;$('sync-status').textContent=' 同步中…';
+        fetch('/admin/recipient-lists/api/'+listId+'/sync',{method:'POST'}).then(function(r){return r.json()}).then(function(d){btn.disabled=false;$('sync-status').textContent=d.ok?(' 已更新為 '+d.total+' 人'):(' 失敗：'+(d.detail||d.error));if(d.ok)loadMembers()}).catch(function(e){btn.disabled=false;$('sync-status').textContent=' 失敗：'+e.message});
       });
       $('add-close').addEventListener('click', function () { addModal.hidden = true; });
       $('add-cancel').addEventListener('click', function () { addModal.hidden = true; });
@@ -448,6 +455,7 @@
       .rld-back:hover { color: #1f2937; }
       .rld-edit-btn { padding: 6px 12px; background: #fff; border: 1px solid #ECECEE; border-radius: 6px; font-size: 12px; cursor: pointer; color: #374151; }
       .rld-edit-btn:hover { background: #FFFBEB; border-color: #FCC726; }
+      .aud-kind{padding:3px 9px;border-radius:999px;background:#f3f4f6;font-size:12px}.aud-kind.dynamic{background:#ecfdf5;color:#047857}.rld-dynamic-note{margin-top:12px;padding:11px 13px;border:1px solid #a7f3d0;background:#ecfdf5;border-radius:9px;font-size:13px}.rld-dynamic-note button{margin-left:10px}
 
       .rld-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 14px; }
       .rld-stat { padding: 12px; border: 1px solid #ECECEE; border-radius: 10px; background: #FAFAFA; }

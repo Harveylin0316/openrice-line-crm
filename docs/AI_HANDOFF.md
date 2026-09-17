@@ -614,7 +614,38 @@ npm test
 
 Netlify production install 可能移除 dev dependency `jsdom`。若 build 後要重跑測試，先再次執行 `npm ci --include=dev`。
 
-## 14. Git、部署與驗收流程
+## 14. 受眾、行為、標籤與 Campaign 成效（2026-09-17）
+
+### 名單庫
+
+- `/admin/recipient-lists` 可建立靜態名單或動態受眾。動態受眾的規則存在
+  `admin_recipient_lists.definition`，成員物化至既有 `admin_recipient_list_members`，因此群發與流程仍只消費同一種名單介面。
+- 條件支援 Include／Exclude 與 Include 間 AND／OR。Exclude 永遠是強制排除，不會因選 OR 而意外把排除者放回名單；只有 Exclude 時語意是「全部有效會員扣掉排除條件」。
+- 可用加入日期、目前好友／封鎖狀態、Tag、指定圖文選單／按鈕、LIFF event、活動進入／開始／完成／分享、成功邀請、獎勵、LINE Login、App Registration、金豬訂位、群發已發／Email delivered／open／click／測試組／CTA conversion 等條件。
+- 建立畫面會在條件變更後 debounce 即時計數。啟用自動同步的名單由既有 scheduled runner 每五分鐘更新；群發預覽與正式建立批次前仍會強制同步一次，避免送到排程間隔內的舊快照。
+- 流程編輯器的「加入名單」步驟可直接建立空白靜態名單，不必離開編輯畫面。
+
+### 行為追蹤與標籤
+
+- `activity_user_events` 記錄活動 `enter/start/complete/share`；start／complete 以 `play_key` 唯一索引去重，網路重送不會被算成第二次遊戲。成功邀請仍以 `activity_referrals.invitee_was_existing IS FALSE` 為準。
+- 圖文選單按鈕用 `rich_menu_taps(menu_id,tab,cell)`；LIFF 開啟／CTA 用 `member_liff_events.event_name`；follow／unfollow 使用已驗簽 webhook 的 `line_webhook_events`。
+- `/admin/tag-rules` 支援規則貼標／移除、30 天等有效期限與 reconcile。規則只會自動移除由自己貼上的標籤，不覆蓋或誤刪人工標籤；批次貼標可貼已綁定的 LINE userId。
+- Automation 流程新增「貼標籤／移除標籤」步驟；貼標可設定有效天數。
+
+### Campaign Testing 與成效漏斗
+
+- `/admin/broadcast` 既有 Campaign Testing 支援隨機 A/B/C、任意合法比例（例如 A 10%／B 10%／Winner holdout 80%）、不同文字／圖片／CTA、互斥測試受眾與 CTR Winner 自動 release。
+- 內容版本固定同時發送，避免時間差與文案效果混在一起；要測發送時間應建立獨立、互斥且內容相同的實驗。Booking Winner 在一般 Booking 尚無 LINE identity bridge 前不可開，不能拿猜測資料選 Winner。
+- `/admin/campaign-performance` 依自訂日期顯示 Target → Sent → Delivered → Open → Click → LIFF → Registration → Booking → Confirmed／Cancel → Attendance 與 Block，並列出 delivery/open/CTR/conversion/block rate 及 A/B/C Creative 比較。
+- LINE Messaging API 不提供逐人 delivered／open。LINE Delivered 必須顯示「無資料」；Open 只可能是追蹤圖 proxy。Email Delivered 來自 provider webhook。一般 Booking 與 Attendance 目前無可靠 LINE ID 對應，也必須顯示「無資料」；目前 Booking 只計金豬食堂的 LINE 綁定訂位。
+- `Dashboard` 的訂位來源可用 `booking_from`／`booking_to` 自訂日期，首尾都包含且依台灣日界線查詢。
+
+### Schema
+
+- Migration：`supabase/migrations/20260917093000_dynamic_audiences_and_tag_lifecycle.sql`。
+- Production 不得靠 runtime DDL；正式套 migration 前先確認 schema。Staging 使用 `crm_staging` search path 時可套同一 migration，但必須先確認 current user/schema，不可碰 `public`。
+
+## 15. Git、部署與驗收流程
 
 ```bash
 git fetch origin
@@ -642,7 +673,7 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 因為瀏覽器可能忽略 LINE 不支援的欄位。測試收件人失敗時，後台應顯示 LINE 回傳的實際
 欄位或原因，正式批次不可在驗證失敗時建立或繼續處理。
 
-## 15. 常見需求要改哪裡
+## 16. 常見需求要改哪裡
 
 | 需求 | 優先查看 |
 |---|---|
@@ -653,10 +684,12 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 | 修改群發 | `src/routes/adminBroadcast.js`、provider service、scheduled function |
 | 修改 LINE 收訊 | `src/routes/lineWebhook.js` 或 `line2Webhook.js`，保留 raw body |
 | 修改 Rich Menu／Flow | 對應 admin route、runner 與排程 function |
+| 修改動態受眾 | `src/core/audienceSegments.js`、`src/routes/adminRecipientLists.js`、`views/admin_recipient_lists.ejs` |
+| 修改 Campaign 漏斗 | `src/routes/adminCampaignPerformance.js`、`views/admin_campaign_performance.ejs` |
 | 修改資料表 | 先補 migration，再改 query／route／test／文件 |
 | 新增公開圖片 | `public/`；同時確認 LINE 可抓到的 HTTPS URL 與檔案大小 |
 
-## 16. 已知技術債與風險
+## 17. 已知技術債與風險
 
 1. **Migration 不完整**：目前最大可攜性風險，新環境無法只靠 repo 重建。
 2. **Legacy 與新版並存**：名稱相似但資料表與規則不同，容易改錯系統。
@@ -672,7 +705,7 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 
 不要在處理其他需求時順手大規模重構這些問題；應各自建立可回滾、可驗證的任務。
 
-## 17. 給下一個 AI 的標準接手清單
+## 18. 給下一個 AI 的標準接手清單
 
 每次任務開始：
 

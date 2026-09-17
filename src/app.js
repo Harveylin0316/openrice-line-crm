@@ -39,6 +39,7 @@ const { registerGamesRoutes } = require('./routes/games');
 const { registerMgmMilesRoutes } = require('./routes/mgmMiles');
 const { createMgmMilesEngine } = require('./core/mgmMilesEngine');
 const { registerAdminRecipientListsRoutes } = require('./routes/adminRecipientLists');
+const { registerAdminCampaignPerformanceRoutes } = require('./routes/adminCampaignPerformance');
 const { registerAdminAccountsRoutes } = require('./routes/adminAccounts');
 const { buildLiffPermanentUrl } = require('./core/liffPermalink');
 const { buildPushImageBaseCandidates } = require('./core/linePushImageResolve');
@@ -597,6 +598,7 @@ registerAdminBookingRegRoutes(app, { query, authCore });
 registerAdminHubRoutes(app, { query, authCore });
 
 registerAdminDashboardRoutes(app, { query, authCore });
+registerAdminCampaignPerformanceRoutes(app, { query, authCore });
 
 registerAdminEmailDomainRoutes(app, { authCore });
 

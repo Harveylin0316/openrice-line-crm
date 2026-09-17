@@ -158,6 +158,9 @@ function registerGameType(app, deps, opts) {
             })
         : Promise.resolve();
       const [quota] = await Promise.all([quotaTask, campaignTask]);
+      if (verifiedUid) {
+        await query(`INSERT INTO activity_user_events (activity_id,line_user_id,event_name) VALUES ($1,$2,'enter')`, [a.id, verifiedUid]).catch(e => console.error('activity enter track failed:', e.message));
+      }
       res.json({ ok: true, activity: a, prizes, quota });
     } catch (err) {
       console.error(gameType + ' meta error:', err && err.message);
@@ -171,6 +174,9 @@ function registerGameType(app, deps, opts) {
     const lineUserId = String((req.body || {}).line_user_id || '').trim();
     const lineDisplayName = String((req.body || {}).line_display_name || '').trim() || null;
     const idToken = String((req.body || {}).id_token || '').trim();
+    // 防重複扣次數的鑰匙也用來去重行為事件：網路斷線重送不能被算成玩了兩次。
+    const rawKey = String((req.body || {}).play_key || '').trim();
+    const playKey = /^[A-Za-z0-9_-]{8,64}$/.test(rawKey) ? rawKey : null;
     // 一次查活動旗標，再把「token 驗證」「加好友驗證」兩個 LINE API 並行跑（不要一個等一個 → 加速「準備中」）
     let actRow = null;
     try { actRow = (await query(`SELECT require_follow_oa, liff_id_override FROM activities WHERE slug = $1 AND game_type = $2 LIMIT 1`, [slug, gameType])).rows[0] || null; } catch (e) { /* ignore */ }
@@ -181,9 +187,12 @@ function registerGameType(app, deps, opts) {
     ]);
     if (!idCheck.pass) return res.status(idCheck.reject.status).json({ ok: false, error: idCheck.reject.code, detail: idCheck.reject.detail });
     if (followerOk === false) return res.status(403).json({ ok: false, error: 'must_follow_oa', detail: '請先加入官方帳號好友才能參加。' });
-    // 防重複扣次數的鑰匙：前端每一次「想抽」產一把；網路斷掉重送會帶同一把
-    const rawKey = String((req.body || {}).play_key || '').trim();
-    const playKey = /^[A-Za-z0-9_-]{8,64}$/.test(rawKey) ? rawKey : null;
+    const trackedActivity = await query(`SELECT id FROM activities WHERE slug=$1 AND game_type=$2 LIMIT 1`, [slug, gameType]);
+    const trackedActivityId = trackedActivity.rows[0] && trackedActivity.rows[0].id;
+    if (trackedActivityId) await query(
+      `INSERT INTO activity_user_events (activity_id,line_user_id,event_name,metadata)
+       VALUES ($1,$2,'start',CASE WHEN $3::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('play_key',$3::text) END)
+       ON CONFLICT DO NOTHING`, [trackedActivityId,lineUserId,playKey]).catch(() => {});
     const result = await selectPrizeAndRecord({
       pool, activitySlug: slug, gameType, lineUserId, lineDisplayName, req, playKey
     });
@@ -194,11 +203,28 @@ function registerGameType(app, deps, opts) {
       });
     }
     // coupon_code / coupon_out_of_stock 已含在 result（engine 回傳頂層 + prize 物件內），直接透傳
+    if (trackedActivityId) await query(
+      `INSERT INTO activity_user_events (activity_id,line_user_id,event_name,metadata)
+       VALUES ($1,$2,'complete',CASE WHEN $3::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('play_key',$3::text) END)
+       ON CONFLICT DO NOTHING`, [trackedActivityId,lineUserId,playKey]).catch(() => {});
     res.json(result);
   };
   // 給每個 game 一個 alias path（wheel 為了向後相容也保留 /spin）
   app.post('/api/games/' + gameType + '/:slug/play', handlePlay);
   if (gameType === 'wheel') app.post('/api/games/wheel/:slug/spin', handlePlay);
+
+  app.post('/api/games/' + gameType + '/:slug/event', async (req, res) => {
+    const slug = String(req.params.slug || '').trim();
+    const uid = String((req.body || {}).line_user_id || '').trim();
+    const eventName = String((req.body || {}).event_name || '');
+    if (eventName !== 'share') return res.status(400).json({ ok:false,error:'bad_event' });
+    const idCheck = await verifyGameIdentity('event', slug, uid, String((req.body || {}).id_token || '').trim());
+    if (!idCheck.pass) return res.status(idCheck.reject.status).json({ ok:false,error:idCheck.reject.code });
+    const act = await query(`SELECT id FROM activities WHERE slug=$1 AND game_type=$2 LIMIT 1`, [slug,gameType]);
+    if (!act.rows.length) return res.status(404).json({ ok:false,error:'not_found' });
+    await query(`INSERT INTO activity_user_events (activity_id,line_user_id,event_name) VALUES ($1,$2,'share')`, [act.rows[0].id,uid]);
+    return res.json({ ok:true });
+  });
 
   // ----- referral API -----
   // 每一次邀請嘗試不論成敗都留一筆：用戶抱怨「我邀了朋友沒拿到次數」時，

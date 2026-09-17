@@ -8,8 +8,8 @@
       <div>
         <h1>自動貼標籤</h1>
         <p class="muted" style="margin-top:6px;line-height:1.7;">
-          設定「做過某件事的人，自動貼上某個標籤」。系統每五分鐘檢查一次，新符合的人會自動貼上。<br>
-          標籤貼上去之後只會留著，不會自動撕掉；測試人員清單裡的帳號永遠不會被貼。
+          設定「做過某件事的人，自動貼上或移除某個標籤」。系統每五分鐘重新核對；不再符合的人可自動移除。<br>
+          也能設定標籤有效期限；測試人員清單裡的帳號永遠不會被自動貼標。
         </p>
       </div>
     </section>
@@ -32,8 +32,10 @@
           <option value="90">最近 90 天內</option>
           <option value="180">最近半年內</option>
         </select>
-        <span class="tr-word">就貼上</span>
+        <span class="tr-word">就</span>
+        <select id="tr-action" class="tr-sel"><option value="add">貼上</option><option value="remove">移除</option></select>
         <select id="tr-tag" class="tr-sel"></select>
+        <label class="tr-word" id="tr-ttl-wrap">有效 <input type="number" id="tr-ttl" class="tr-input" min="1" max="3650" placeholder="永久" style="width:74px;"> 天</label>
       </div>
       <p class="muted tr-hint" id="tr-hint"></p>
       <div class="tr-actions">
@@ -42,6 +44,17 @@
         <span id="tr-note" class="muted" style="font-size:13px;"></span>
       </div>
       <div id="tr-preview-box" hidden class="tr-preview"></div>
+    </section>
+
+    <section class="card">
+      <h2 class="tr-h2">批次貼標</h2>
+      <p class="muted">貼上已經與 OpenRice 綁定的 LINE userId；找不到的編號不會建立假會員。</p>
+      <div class="tr-builder">
+        <select id="batch-tag" class="tr-sel"></select>
+        <input type="number" id="batch-ttl" class="tr-input" min="1" max="3650" placeholder="有效天數（空白＝永久）" style="width:180px;">
+      </div>
+      <textarea id="batch-uids" rows="6" class="tr-input" style="display:block;width:100%;max-width:none;margin-top:10px;font-family:monospace;" placeholder="一行一個 LINE userId"></textarea>
+      <div class="tr-actions"><button type="button" class="tr-btn1" id="batch-submit">批次貼標</button><span id="batch-note" class="muted"></span></div>
     </section>
 
     <section class="card">
@@ -156,9 +169,11 @@
         if(!DATA.rules.length){ box.innerHTML='<p class="muted">還沒有規則。上面設一條，之後就會自動貼。</p>'; return; }
         box.innerHTML=DATA.rules.map(function(r){
           var when=r.last_run_at?new Date(r.last_run_at).toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'還沒跑過';
+          var action=r.action==='remove'?'移除':'貼上';
+          var ttl=r.member_ttl_days?('（有效 '+r.member_ttl_days+' 天）'):'';
           return '<div class="tr-row'+(r.active?'':' tr-off')+'">'+
-            '<div class="tr-cond">'+condText(r)+' → <span class="tr-chip" style="background:'+esc(r.tag_color||'#8E8E93')+';">'+esc(r.tag_name)+'</span></div>'+
-            '<span class="tr-meta">'+(r.active?('上次 '+when+' 貼了 '+(r.last_added==null?'—':r.last_added)+' 人'):'已停用')+'</span>'+
+            '<div class="tr-cond">'+condText(r)+' → '+action+' <span class="tr-chip" style="background:'+esc(r.tag_color||'#8E8E93')+';">'+esc(r.tag_name)+'</span>'+ttl+'</div>'+
+            '<span class="tr-meta">'+(r.active?('上次 '+when+'：新增 '+(r.last_added==null?'—':r.last_added)+'／移除 '+(r.last_removed==null?'—':r.last_removed)):'已停用')+'</span>'+
             '<button type="button" class="tr-mini tr-toggle" data-id="'+r.id+'">'+(r.active?'停用':'啟用')+'</button>'+
             '<button type="button" class="tr-mini tr-del" data-id="'+r.id+'" style="color:#b91c1c;">刪除</button>'+
           '</div>';
@@ -185,6 +200,9 @@
         return { rule_kind:d.kind, threshold:Number($('tr-n').value)||1,
                  target:target||null, target_label:label||null,
                  window_days:Number($('tr-window').value)||null,
+                 action:$('tr-action').value,
+                 member_ttl_days:Number($('tr-ttl').value)||null,
+                 reconcile:true,
                  tag_id:Number($('tr-tag').value)||null };
       }
 
@@ -196,6 +214,7 @@
           $('tr-tag').innerHTML=(d.tags||[]).map(function(t){
             return '<option value="'+t.id+'">'+esc(t.name)+'</option>';
           }).join('')||'<option value="">還沒有標籤</option>';
+          $('batch-tag').innerHTML=$('tr-tag').innerHTML;
           syncBuilder();
           renderList();
           countAll();
@@ -220,6 +239,7 @@
       }
 
       $('tr-kind').addEventListener('change',syncBuilder);
+      $('tr-action').addEventListener('change',function(){ $('tr-ttl-wrap').hidden=this.value==='remove'; });
       ['tr-target','tr-target-text','tr-n','tr-window'].forEach(function(id){
         $(id).addEventListener('change',function(){$('tr-preview-box').hidden=true;});
       });
@@ -259,6 +279,15 @@
           $('tr-note').textContent='跑完了，這次新貼了 '+total+' 人。';
           load();
         },function(){ btn.disabled=false; btn.textContent='立刻跑一次'; });
+      });
+
+      $('batch-submit').addEventListener('click',function(){
+        var btn=this, ids=$('batch-uids').value.trim();
+        if(!ids){$('batch-note').textContent='請貼上 LINE userId';return;}
+        btn.disabled=true;$('batch-note').textContent='處理中…';
+        post('/admin/users/api/tags/batch',{tag_id:Number($('batch-tag').value),line_user_ids:ids,ttl_days:Number($('batch-ttl').value)||null},function(d){
+          btn.disabled=false;$('batch-note').textContent='完成：貼標 '+d.accepted+' 人；找不到 '+d.unknown+' 人。';
+        },function(){btn.disabled=false;});
       });
 
       load();

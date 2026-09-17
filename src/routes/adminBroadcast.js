@@ -44,6 +44,7 @@ const {
   assignExperimentVariants,
   pickCtrWinner
 } = require('../core/campaignExperiment');
+const { syncDynamicList } = require('../core/audienceSegments');
 
 function escapeHtml(s) {
   return String(s == null ? '' : s)
@@ -98,6 +99,20 @@ function registerAdminBroadcastRoutes(app, deps) {
   } = deps;
 
   const { requireAdmin } = authCore;
+
+  // 動態名單在預覽與建立批次前都強制同步一次。排程只是備援，不能讓管理員
+  // 因為剛好在兩次排程之間送出，就拿到五分鐘前的舊名單。
+  async function refreshSavedDynamicList(rawConditions) {
+    const listId = Number(rawConditions && rawConditions.savedListId);
+    if (!Number.isInteger(listId) || listId < 1) return null;
+    const rs = await query(
+      `SELECT list_type FROM admin_recipient_lists WHERE id = $1 LIMIT 1`,
+      [listId]
+    );
+    if (!rs.rows[0] || rs.rows[0].list_type !== 'dynamic') return null;
+    if (!pool || typeof pool.connect !== 'function') throw new Error('動態名單同步服務尚未設定');
+    return syncDynamicList(pool, listId);
+  }
 
   const uploadHero = multer({
     storage: multer.memoryStorage(),
@@ -598,6 +613,7 @@ function registerAdminBroadcastRoutes(app, deps) {
     try {
       const conditions = req.body && req.body.conditions;
       const channel = (req.body && req.body.channel === 'email') ? 'email' : 'line';
+      await refreshSavedDynamicList(conditions);
       const result = await previewAudience(query, conditions, { channel });
       const selection = result.error
         ? { ok: false, value: null, error: result.error }
@@ -749,7 +765,8 @@ function registerAdminBroadcastRoutes(app, deps) {
   app.get('/admin/broadcast/recipient-lists', requireAdmin, async (_req, res) => {
     try {
       const rs = await query(
-        `SELECT id, name, description, total, created_by, created_at
+        `SELECT id, name, description, total, list_type, auto_refresh,
+                last_synced_at, last_sync_status, created_by, created_at
          FROM admin_recipient_lists
          ORDER BY id DESC`
       );
@@ -1249,6 +1266,8 @@ function registerAdminBroadcastRoutes(app, deps) {
       if (channel === 'line' && !hasAnyCondition(conditions)) {
         return safeJsonError(res, 400, 'no_conditions_selected');
       }
+
+      await refreshSavedDynamicList(rawConditions);
 
       // 後端重新計算完整符合人數，不能相信前端預覽數字。指定抽樣超過現有人數時
       // 整批擋下；不會偷偷改成「有幾人就發幾人」。
@@ -2561,7 +2580,8 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
             await query(
               `UPDATE admin_broadcast_recipients
                SET status = CASE WHEN status IN ('sent','pending','sending') THEN 'sent' ELSE status END,
-                   provider_message_id = COALESCE(provider_message_id, $2)
+                   provider_message_id = COALESCE(provider_message_id, $2),
+                   delivered_at = COALESCE(delivered_at, NOW())
                WHERE id = $1`,
               [recipientId, messageId || null]
             );
@@ -2693,7 +2713,8 @@ button{width:100%;margin-top:16px;padding:14px;background:#FCC726;color:#1F2937;
             await query(
               `UPDATE admin_broadcast_recipients
                SET status = CASE WHEN status IN ('sent','pending','sending') THEN 'sent' ELSE status END,
-                   provider_message_id = COALESCE(provider_message_id, $2)
+                   provider_message_id = COALESCE(provider_message_id, $2),
+                   delivered_at = COALESCE(delivered_at, NOW())
                WHERE id = $1`,
               [recipientId, messageId || null]
             );

@@ -1,5 +1,5 @@
 /**
- * Netlify Scheduled Function：每 5 分鐘跑一次的三件事
+ * Netlify Scheduled Function：每 5 分鐘跑一次的四件事
  *   1. 圖文選單上下架（到點設為所有人看到的／換成替補選單）
  *   2. 自動貼標籤（新達標的人貼上標籤）
  *   3. 活動上下架（到開始時間自動變進行中、過結束時間自動變已結束）
@@ -23,7 +23,8 @@ exports.handler = async () => {
     const menu = await call('/admin/richmenu/run-schedule');   // 圖文選單上下架
     const tags = await call('/admin/users/run-tag-rules');     // 自動貼標籤
     const acts = await call('/admin/activities/run-schedule'); // 活動上下架
-    return { statusCode: 200, body: JSON.stringify({ menu, tags, acts }) };
+    const audiences = await call('/admin/recipient-lists/run-dynamic'); // 動態名單加入／移除
+    return { statusCode: 200, body: JSON.stringify({ menu, tags, acts, audiences }) };
   } catch (e) {
     return { statusCode: 500, body: JSON.stringify({ error: String(e.message || e) }) };
   }

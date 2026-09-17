@@ -53,7 +53,8 @@ const APP_PUBLIC_TABLES_WITH_RLS = [
   'oa_contacts',
   'line_follow_sources',
   'campaign_phone_registrations',
-  'campaign_draw_winners'
+  'campaign_draw_winners',
+  'activity_user_events'
 ];
 
 /**
@@ -298,7 +299,14 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
   await query(`ALTER TABLE user_tag_rules
     ADD COLUMN IF NOT EXISTS target TEXT,
     ADD COLUMN IF NOT EXISTS target_label TEXT,
-    ADD COLUMN IF NOT EXISTS window_days INTEGER`);
+    ADD COLUMN IF NOT EXISTS window_days INTEGER,
+    ADD COLUMN IF NOT EXISTS action TEXT NOT NULL DEFAULT 'add',
+    ADD COLUMN IF NOT EXISTS member_ttl_days INTEGER,
+    ADD COLUMN IF NOT EXISTS reconcile BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS last_removed INTEGER`);
+  await query(`ALTER TABLE user_tag_members
+    ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS source_rule_id BIGINT REFERENCES user_tag_rules(id) ON DELETE SET NULL`);
   // 群發追蹤去重：同一封信同一收件人只算一次開信／一次點擊
   // （Email 的一次開信會同時觸發自家追蹤圖與服務商通知，不擋會變兩三倍）
   await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_broadcast_views_recipient
@@ -318,6 +326,19 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
   )`);
   await query(`CREATE INDEX IF NOT EXISTS idx_message_taps_user ON message_taps (line_user_id, created_at DESC)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_message_taps_ref ON message_taps (source, ref_id, created_at DESC)`);
+  await query(`CREATE TABLE IF NOT EXISTS activity_user_events (
+    id BIGSERIAL PRIMARY KEY,
+    activity_id BIGINT NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+    line_user_id TEXT NOT NULL,
+    event_name TEXT NOT NULL CHECK (event_name IN ('enter','start','complete','share')),
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS activity_user_events_lookup_idx
+    ON activity_user_events (activity_id, event_name, line_user_id, created_at DESC)`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS activity_user_events_play_key_unique
+    ON activity_user_events (activity_id, line_user_id, event_name, (metadata->>'play_key'))
+    WHERE metadata ? 'play_key'`);
   await query(`CREATE TABLE IF NOT EXISTS rich_menu_taps (
     id BIGSERIAL PRIMARY KEY,
     menu_id BIGINT NOT NULL,
@@ -409,6 +430,13 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
+  await query(`ALTER TABLE admin_recipient_lists
+    ADD COLUMN IF NOT EXISTS list_type TEXT NOT NULL DEFAULT 'static',
+    ADD COLUMN IF NOT EXISTS definition JSONB,
+    ADD COLUMN IF NOT EXISTS auto_refresh BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS last_sync_status TEXT,
+    ADD COLUMN IF NOT EXISTS last_sync_error TEXT`);
 
   await query(`CREATE TABLE IF NOT EXISTS admin_recipient_list_members (
     id BIGSERIAL PRIMARY KEY,
@@ -523,6 +551,7 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
   await query('ALTER TABLE admin_broadcasts ADD COLUMN IF NOT EXISTS is_ab_test BOOLEAN NOT NULL DEFAULT false');
   await query('ALTER TABLE admin_broadcasts ADD COLUMN IF NOT EXISTS variant_b_message_config JSONB');
   await query("ALTER TABLE admin_broadcast_recipients ADD COLUMN IF NOT EXISTS variant TEXT NOT NULL DEFAULT 'a'");
+  await query('ALTER TABLE admin_broadcast_recipients ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ');
   await query('ALTER TABLE admin_broadcast_clicks ADD COLUMN IF NOT EXISTS variant TEXT');
   await query('ALTER TABLE admin_broadcast_views ADD COLUMN IF NOT EXISTS variant TEXT');
   await query(

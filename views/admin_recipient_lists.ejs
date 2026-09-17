@@ -56,12 +56,32 @@
             <span>描述（可選）</span>
             <input type="text" id="nl-desc" placeholder="用途備註" maxlength="500" />
           </label>
-          <label class="rl-field rl-field-full">
+          <div class="rl-field rl-field-full">
+            <span>名單類型</span>
+            <div class="aud-type-switch">
+              <label><input type="radio" name="nl-type" value="static" checked /> 靜態名單（手動加入）</label>
+              <label><input type="radio" name="nl-type" value="dynamic" /> 動態受眾（條件符合就自動加入／移除）</label>
+            </div>
+          </div>
+          <label class="rl-field rl-field-full" id="static-inputs">
             <span>LINE 用戶編號（每位好友的專屬編號）（可選，建立後也能再加入成員，一行一個 / 逗號 / 空格 都行）</span>
             <textarea id="nl-uids" rows="8" placeholder="U3eca22d67d352c4db1428decf3ebcf14&#10;U4eca22d67d352c4db1428decf3ebcf15&#10;..." style="font-family:ui-monospace,Menlo,monospace;font-size:12px;"></textarea>
             <div id="nl-counter" class="muted" style="font-size:11px;">已輸入 0 位用戶</div>
             <div class="muted" style="font-size:12px;">不知道編號？到『用戶檔案』頁點任一用戶即可複製，或切到 Email 分頁直接貼信箱。<a href="/admin/users" target="_blank" rel="noopener" style="color:#374151;text-decoration:underline;">前往用戶檔案</a></div>
           </label>
+          <div class="rl-field rl-field-full" id="dynamic-inputs" hidden>
+            <div class="aud-builder-head">
+              <label>條件間關係
+                <select id="aud-operator"><option value="and">全部符合（AND）</option><option value="or">任一符合（OR）</option></select>
+              </label>
+              <label><input type="checkbox" id="aud-auto" checked /> 每 5 分鐘自動更新</label>
+            </div>
+            <div id="aud-conditions"></div>
+            <button type="button" class="rl-secondary-btn" id="aud-add">＋ 新增條件</button>
+            <button type="button" class="rl-secondary-btn" id="aud-preview">試算人數</button>
+            <div id="aud-preview-result" class="aud-preview-result">請先新增條件</div>
+            <p class="muted" style="font-size:12px;">排除已發送／測試／轉換可指定既有群發。轉換目前以可驗證的 CTA 點擊為準；一般訂位尚未能與 LINE ID 完整串接時，不會假算。</p>
+          </div>
         </div>
         <div class="rl-modal-actions">
           <button type="button" class="rl-primary-btn" id="nl-save">建立名單</button>
@@ -75,6 +95,7 @@
     (function () {
       var $ = function (id) { return document.getElementById(id); };
       var allLists = [];
+      var catalog = { tags:[], activities:[], menus:[], broadcasts:[] };
       var breakdowns = {}; // { [listId]: { line_sendable, email_only, unknown } }
 
       // 名單列表頁的「實際可發」拆解：以非同步補上，未到時顯示計算中
@@ -151,6 +172,7 @@
           return '<tr data-id="' + l.id + '">' +
             '<td>' +
               '<div class="rl-name">' + esc(l.name) + '</div>' +
+              '<span class="aud-kind ' + (l.list_type === 'dynamic' ? 'dynamic' : '') + '">' + (l.list_type === 'dynamic' ? '動態' : '靜態') + '</span>' +
               (l.description ? '<div class="rl-desc">' + esc(l.description) + '</div>' : '') +
             '</td>' +
             '<td style="text-align:right;font-variant-numeric:tabular-nums;">' +
@@ -206,6 +228,10 @@
         $('nl-uids').value = '';
         $('nl-counter').textContent = '已輸入 0 位用戶';
         $('nl-status').textContent = '';
+        document.querySelector('input[name="nl-type"][value="static"]').checked = true;
+        switchType();
+        $('aud-conditions').innerHTML = '';
+        addCondition();
         modal.hidden = false;
         setTimeout(function () { $('nl-name').focus(); }, 50);
       }
@@ -219,6 +245,78 @@
         $('nl-counter').textContent = '已輸入 ' + uids.length + ' 位用戶';
       });
 
+      function typeValue() {
+        var checked = document.querySelector('input[name="nl-type"]:checked');
+        return checked ? checked.value : 'static';
+      }
+      function switchType() {
+        var dynamic = typeValue() === 'dynamic';
+        $('static-inputs').hidden = dynamic;
+        $('dynamic-inputs').hidden = !dynamic;
+      }
+      document.querySelectorAll('input[name="nl-type"]').forEach(function (el) { el.addEventListener('change', switchType); });
+
+      var conditionLabels = {
+        joined_after:'加入日期在此日之後', joined_before:'加入日期在此日之前', is_friend:'目前仍是好友',
+        is_blocked:'目前已封鎖', tag:'會員標籤', rich_menu:'點過指定圖文選單', rich_menu_button:'點過指定圖文選單按鈕', liff_event:'LIFF 指定行為',
+        activity:'玩過指定活動', activity_enter:'進入指定活動', activity_start:'開始指定活動', activity_complete:'完成指定活動', activity_share:'分享指定活動', successful_invite:'指定活動成功邀請', invite_count:'成功邀請至少幾人', reward_status:'獎勵狀態',
+        follow_event:'曾加入好友', block_event:'曾封鎖', unblock_event:'封鎖後曾重新加入',
+        line_login:'已有 LINE Login 身分', app_registration:'完成 App Registration', booking_confirmed:'已確認金豬食堂訂位', booking_cancelled:'已取消／申請取消金豬食堂訂位',
+        broadcast_sent:'指定群發已發送', broadcast_delivered:'指定群發已送達（Email）', broadcast_opened:'指定群發已開啟', broadcast_clicked:'指定群發已點擊', broadcast_tested:'指定群發已進測試組', broadcast_converted:'指定群發已轉換（CTA 點擊）'
+      };
+      function options(items) { return (items || []).map(function (x) { return '<option value="' + x.id + '">' + esc(x.name || ('#' + x.id)) + '</option>'; }).join(''); }
+      function valueInput(type, value) {
+        if (type === 'is_friend' || type === 'is_blocked' || type === 'line_login' || type === 'app_registration' || type === 'follow_event' || type === 'block_event' || type === 'unblock_event' || type === 'booking_confirmed' || type === 'booking_cancelled') return '<span class="muted aud-no-value">不需設定</span>';
+        if (type === 'joined_after' || type === 'joined_before') return '<input class="aud-value" type="date" value="' + esc(value || '') + '" />';
+        if (type === 'tag') return '<select class="aud-value">' + options(catalog.tags) + '</select>';
+        if (type === 'activity' || type.indexOf('activity_') === 0 || type === 'successful_invite') return '<select class="aud-value">' + options(catalog.activities) + '</select>';
+        if (type === 'rich_menu') return '<select class="aud-value">' + options(catalog.menus) + '</select>';
+        if (type === 'rich_menu_button') return '<input class="aud-value" type="text" maxlength="40" placeholder="選單編號:分頁:格子，例如 3:0:2" value="' + esc(value || '') + '" />';
+        if (type.indexOf('broadcast_') === 0) return '<select class="aud-value">' + options(catalog.broadcasts) + '</select>';
+        if (type === 'reward_status') return '<select class="aud-value"><option value="obtained">獲得過</option><option value="unclaimed">尚未領取</option><option value="claimed">已領取</option></select>';
+        if (type === 'invite_count') return '<input class="aud-value" type="number" min="1" max="10000" value="' + esc(value || '1') + '" />';
+        return '<input class="aud-value" type="text" maxlength="80" placeholder="例：app_open 或 map_booking_click" value="' + esc(value || '') + '" />';
+      }
+      function addCondition(initial) {
+        initial = initial || { mode:'include', type:'is_friend', value:null };
+        var row = document.createElement('div'); row.className = 'aud-condition';
+        var typeOpts = Object.keys(conditionLabels).map(function (k) { return '<option value="' + k + '"' + (k === initial.type ? ' selected' : '') + '>' + conditionLabels[k] + '</option>'; }).join('');
+        row.innerHTML = '<select class="aud-mode"><option value="include">包含</option><option value="exclude">排除</option></select>' +
+          '<select class="aud-type">' + typeOpts + '</select><span class="aud-value-wrap">' + valueInput(initial.type, initial.value) + '</span>' +
+          '<button type="button" class="aud-remove" aria-label="移除條件">×</button>';
+        row.querySelector('.aud-mode').value = initial.mode || 'include';
+        row.querySelector('.aud-type').addEventListener('change', function () { row.querySelector('.aud-value-wrap').innerHTML = valueInput(this.value, null); scheduleAudiencePreview(); });
+        row.querySelector('.aud-remove').addEventListener('click', function () { row.remove(); scheduleAudiencePreview(); });
+        $('aud-conditions').appendChild(row);
+        scheduleAudiencePreview();
+      }
+      function audienceDefinition() {
+        return { operator:$('aud-operator').value, conditions:Array.from(document.querySelectorAll('.aud-condition')).map(function (row) {
+          var input = row.querySelector('.aud-value');
+          return { mode:row.querySelector('.aud-mode').value, type:row.querySelector('.aud-type').value, value:input ? input.value : null };
+        }) };
+      }
+      var previewTimer = null, previewSeq = 0;
+      function previewDynamicAudience() {
+        if (!document.querySelector('.aud-condition')) { $('aud-preview-result').textContent = '請先新增條件'; return; }
+        var seq = ++previewSeq;
+        $('aud-preview-result').textContent = '試算中…';
+        fetch('/admin/recipient-lists/api/dynamic/preview', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({definition:audienceDefinition()}) })
+          .then(function (r) { return r.json(); }).then(function (d) {
+            if (seq !== previewSeq) return;
+            $('aud-preview-result').innerHTML = d.ok ? ('符合 <strong>' + d.total + '</strong> 人') : ('試算失敗：' + esc(d.detail || d.error));
+          }).catch(function (e) { if (seq === previewSeq) $('aud-preview-result').textContent = '試算失敗：' + e.message; });
+      }
+      function scheduleAudiencePreview() {
+        clearTimeout(previewTimer);
+        previewTimer = setTimeout(previewDynamicAudience, 350);
+      }
+      $('aud-add').addEventListener('click', function () { addCondition(); });
+      $('aud-preview').addEventListener('click', previewDynamicAudience);
+      $('aud-operator').addEventListener('change', scheduleAudiencePreview);
+      $('aud-conditions').addEventListener('change', scheduleAudiencePreview);
+      $('aud-conditions').addEventListener('input', scheduleAudiencePreview);
+
       $('nl-save').addEventListener('click', function () {
         var name = $('nl-name').value.trim();
         var desc = $('nl-desc').value.trim();
@@ -226,10 +324,13 @@
         if (!name) { $('nl-status').textContent = '請填寫名稱'; return; }
         $('nl-status').textContent = '建立中⋯';
         $('nl-save').disabled = true;
-        fetch('/admin/broadcast/recipient-lists', {
+        var dynamic = typeValue() === 'dynamic';
+        fetch(dynamic ? '/admin/recipient-lists/api/dynamic' : '/admin/broadcast/recipient-lists', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name, description: desc, lineUserIds: uids })
+          body: JSON.stringify(dynamic
+            ? { name:name, description:desc, definition:audienceDefinition(), auto_refresh:$('aud-auto').checked }
+            : { name:name, description:desc, lineUserIds:uids })
         })
           .then(function (r) { return r.json(); })
           .then(function (d) {
@@ -247,6 +348,7 @@
           });
       });
 
+      fetch('/admin/recipient-lists/api/catalog').then(function (r) { return r.json(); }).then(function (d) { if (d.ok) catalog = d; }).catch(function () {});
       load();
     })();
     </script>
@@ -257,6 +359,7 @@
       .rl-primary-btn { padding: 10px 18px; background: #FCC726; color: #1f2937; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; font-size: 14px; }
       .rl-primary-btn:hover { background: #f5b800; }
       .rl-primary-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+      .aud-type-switch,.aud-builder-head{display:flex;gap:18px;align-items:center;flex-wrap:wrap}.aud-type-switch label{font-weight:500}.aud-builder-head{justify-content:space-between;margin-bottom:10px}.aud-condition{display:grid;grid-template-columns:92px minmax(190px,1fr) minmax(170px,1fr) 36px;gap:8px;margin:8px 0}.aud-condition select,.aud-condition input,.aud-builder-head select{width:100%;padding:9px;border:1px solid #d1d5db;border-radius:8px;background:#fff}.aud-remove{border:0;background:#fff1f2;color:#be123c;border-radius:8px;font-size:20px;cursor:pointer}.aud-no-value{display:block;padding:10px}.aud-preview-result{display:inline-block;margin-left:10px;padding:8px 10px;border-radius:8px;background:#fffbeb}.aud-kind{display:inline-block;margin-top:5px;padding:2px 7px;border-radius:999px;font-size:11px;background:#f3f4f6;color:#4b5563}.aud-kind.dynamic{background:#ecfdf5;color:#047857}@media(max-width:700px){.aud-condition{grid-template-columns:1fr}.aud-remove{height:36px}}
       .rl-secondary-btn { padding: 9px 16px; background: #fff; color: #374151; border: 1px solid #e5e7eb; border-radius: 8px; cursor: pointer; font-size: 13px; }
 
       .rl-search { padding: 6px 12px; border: 1px solid #ECECEE; border-radius: 6px; font-size: 13px; width: 240px; max-width: 100%; }

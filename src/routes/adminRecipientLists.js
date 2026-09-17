@@ -16,6 +16,8 @@
  *   PUT  /admin/recipient-lists/api/:id           更新名單名稱/描述
  */
 
+const { cleanDefinition, previewAudience, syncDynamicList } = require('../core/audienceSegments');
+
 function registerAdminRecipientListsRoutes(app, deps) {
   const { query, pool, authCore, flowEngine = null } = deps;
   const { requireAdmin } = authCore;
@@ -39,7 +41,9 @@ function registerAdminRecipientListsRoutes(app, deps) {
     try {
       const id = Number(req.params.id);
       const { rows } = await query(
-        `SELECT id, name, description, total, created_by, created_at, updated_at
+        `SELECT id, name, description, total, list_type, definition, auto_refresh,
+                last_synced_at, last_sync_status, last_sync_error,
+                created_by, created_at, updated_at
          FROM admin_recipient_lists WHERE id = $1`,
         [id]
       );
@@ -53,6 +57,90 @@ function registerAdminRecipientListsRoutes(app, deps) {
       });
     } catch (err) {
       next(err);
+    }
+  });
+
+  // ----- 動態受眾：即時試算 / 建立 / 同步 -----
+  app.post('/admin/recipient-lists/api/dynamic/preview', requireAdmin, async (req, res) => {
+    try {
+      const result = await previewAudience(query, (req.body || {}).definition, 10);
+      return res.json({ ok: true, ...result });
+    } catch (err) {
+      return safeJson(res, 400, 'invalid_definition', { detail: err && err.message });
+    }
+  });
+
+  app.get('/admin/recipient-lists/api/catalog', requireAdmin, async (_req, res) => {
+    try {
+      const [tags, activities, menus, broadcasts] = await Promise.all([
+        query(`SELECT id, name FROM user_tags ORDER BY name`),
+        query(`SELECT id, name FROM activities ORDER BY id DESC LIMIT 100`),
+        query(`SELECT id, name FROM rich_menus ORDER BY id DESC LIMIT 100`),
+        query(`SELECT id, COALESCE(message_config->>'name', '群發 #' || id::text) AS name,
+                      created_at FROM admin_broadcasts ORDER BY id DESC LIMIT 100`)
+      ]);
+      return res.json({ ok: true, tags: tags.rows, activities: activities.rows,
+        menus: menus.rows, broadcasts: broadcasts.rows });
+    } catch (err) {
+      return safeJson(res, 500, 'catalog_failed', { detail: err && err.message });
+    }
+  });
+
+  app.post('/admin/recipient-lists/api/dynamic', requireAdmin, async (req, res) => {
+    const body = req.body || {};
+    const name = String(body.name || '').trim().slice(0, 200);
+    const description = String(body.description || '').trim().slice(0, 500);
+    if (!name) return safeJson(res, 400, 'name_required', { detail: '請填名單名稱' });
+    let definition;
+    try { definition = cleanDefinition(body.definition); }
+    catch (err) { return safeJson(res, 400, 'invalid_definition', { detail: err.message }); }
+    const by = (req.authUser && (req.authUser.un || req.authUser.username)) || 'admin';
+    try {
+      const rs = await query(
+        `INSERT INTO admin_recipient_lists
+           (name, description, total, created_by, list_type, definition, auto_refresh, last_sync_status)
+         VALUES ($1, $2, 0, $3, 'dynamic', $4::jsonb, $5, 'pending')
+         RETURNING id, name, list_type, definition, auto_refresh`,
+        [name, description || null, by, JSON.stringify(definition), body.auto_refresh !== false]
+      );
+      try {
+        const synced = await syncDynamicList(pool, rs.rows[0].id);
+        return res.json({ ok: true, list: { ...rs.rows[0], total: synced.total } });
+      } catch (syncErr) {
+        await query('DELETE FROM admin_recipient_lists WHERE id = $1', [rs.rows[0].id]).catch(() => {});
+        throw syncErr;
+      }
+    } catch (err) {
+      console.error('create dynamic audience error:', err && err.message);
+      return safeJson(res, 500, 'create_failed', { detail: err && err.message });
+    }
+  });
+
+  app.post('/admin/recipient-lists/api/:id(\\d+)/sync', requireAdmin, async (req, res) => {
+    try {
+      const result = await syncDynamicList(pool, Number(req.params.id));
+      return res.json({ ok: true, ...result });
+    } catch (err) {
+      return safeJson(res, 400, 'sync_failed', { detail: err && err.message });
+    }
+  });
+
+  // Scheduler endpoint: materialises add/remove changes so all senders consume the same snapshot.
+  app.post('/admin/recipient-lists/run-dynamic', async (req, res) => {
+    const secret = process.env.SCHEDULED_RUNNER_SECRET || '';
+    if (!secret || req.get('X-Scheduler-Secret') !== secret) return safeJson(res, 403, 'forbidden');
+    try {
+      const lists = await query(
+        `SELECT id FROM admin_recipient_lists
+          WHERE list_type = 'dynamic' AND auto_refresh = true ORDER BY id ASC LIMIT 100`);
+      const results = [];
+      for (const row of lists.rows) {
+        try { results.push({ id: row.id, ok: true, ...(await syncDynamicList(pool, row.id)) }); }
+        catch (err) { results.push({ id: row.id, ok: false, error: String(err.message || err) }); }
+      }
+      return res.json({ ok: true, results });
+    } catch (err) {
+      return safeJson(res, 500, 'sync_failed', { detail: err && err.message });
     }
   });
 
@@ -200,6 +288,9 @@ function registerAdminRecipientListsRoutes(app, deps) {
   app.post('/admin/recipient-lists/api/:id(\\d+)/members', requireAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
+      const listType = await query(`SELECT list_type FROM admin_recipient_lists WHERE id=$1`, [id]);
+      if (!listType.rows.length) return safeJson(res, 404, 'not_found');
+      if (listType.rows[0].list_type === 'dynamic') return safeJson(res, 409, 'dynamic_list_read_only', { detail: '動態名單的成員由條件管理，不能手動新增' });
       const body = req.body || {};
       const rawIds = Array.isArray(body.lineUserIds) ? body.lineUserIds : [];
       const rawEmails = Array.isArray(body.emails) ? body.emails : [];
@@ -379,6 +470,9 @@ function registerAdminRecipientListsRoutes(app, deps) {
   app.delete('/admin/recipient-lists/api/members/:memberId(\\d+)', requireAdmin, async (req, res) => {
     try {
       const memberId = Number(req.params.memberId);
+      const typeRs = await query(
+        `SELECT l.list_type FROM admin_recipient_list_members m JOIN admin_recipient_lists l ON l.id=m.list_id WHERE m.id=$1`, [memberId]);
+      if (typeRs.rows[0] && typeRs.rows[0].list_type === 'dynamic') return safeJson(res, 409, 'dynamic_list_read_only', { detail: '動態名單的成員由條件管理，不能手動移除' });
       const { rows } = await query(
         'DELETE FROM admin_recipient_list_members WHERE id = $1 RETURNING list_id',
         [memberId]

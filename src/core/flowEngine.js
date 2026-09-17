@@ -882,6 +882,23 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
           nodeKey = node.next_key || null;
           continue;
         }
+        if (node.type === 'add_tag' || node.type === 'remove_tag') {
+          const tagId = node.config && Number(node.config.tag_id);
+          if (tagId) {
+            if (node.type === 'remove_tag') {
+              await query(`DELETE FROM user_tag_members WHERE tag_id=$1 AND line_user_id=$2`, [tagId, en.line_user_id]);
+            } else {
+              const ttl = Number(node.config.ttl_days) > 0 ? Math.min(3650, Number(node.config.ttl_days)) : null;
+              await query(
+                `INSERT INTO user_tag_members (tag_id,line_user_id,added_by,expires_at,source_rule_id)
+                 VALUES ($1,$2,'自動化流程',CASE WHEN $3::int IS NULL THEN NULL ELSE now()+make_interval(days=>$3::int) END,NULL)
+                 ON CONFLICT (tag_id,line_user_id) DO UPDATE SET added_by=EXCLUDED.added_by,
+                   expires_at=EXCLUDED.expires_at,source_rule_id=NULL`, [tagId,en.line_user_id,ttl]);
+            }
+          }
+          nodeKey = node.next_key || null;
+          continue;
+        }
         if (node.type === 'wait') {
           const nextAt = new Date(Date.now() + waitMs(node.config));
           await query(
@@ -1079,6 +1096,14 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
         nodeKey = node.next_key || null;
         continue;
       }
+      if (node.type === 'add_tag' || node.type === 'remove_tag') {
+        const tagId = node.config && Number(node.config.tag_id);
+        const tr = tagId ? await query(`SELECT name FROM user_tags WHERE id=$1`, [tagId]) : { rows: [] };
+        const name = tr.rows[0] && tr.rows[0].name || '（未指定標籤）';
+        push(node.type, '（正式運行會' + (node.type === 'add_tag' ? '貼上' : '移除') + '標籤：' + name + '；乾跑不會修改。）');
+        nodeKey = node.next_key || null;
+        continue;
+      }
       if (node.type === 'branch') {
         // 條件無法對測試者真評估 → 預設走「符合」分支並註明
         push('branch', '（這是條件分支。乾跑測試無法判斷你是否符合條件，預設走「符合」這條路給你看。正式運行會依用戶實際行為決定走哪邊。）');
@@ -1097,7 +1122,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
 
   // node.type → 人話（給乾跑報告用）
   function nodeTypeLabel(type) {
-    return ({ send: '發訊息', wait: '等待', branch: '條件分支', add_to_list: '加入名單', end: '結束' })[type] || (type || '未知步驟');
+    return ({ send: '發訊息', wait: '等待', branch: '條件分支', add_to_list: '加入名單', add_tag: '貼標籤', remove_tag: '移除標籤', end: '結束' })[type] || (type || '未知步驟');
   }
 
   // ---------- cron 主入口 ----------
