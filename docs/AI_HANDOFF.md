@@ -1,6 +1,6 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
-本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-16；正式資料與部署狀態仍應在接手時重新確認。
+本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-17；正式資料與部署狀態仍應在接手時重新確認。
 
 - Repo：<https://github.com/Harveylin0316/openrice-line-crm>
 - 正式站：<https://openrice-line-crm.netlify.app>
@@ -166,6 +166,25 @@ CSV，再預覽人數、編輯文字／圖片／影片／Flex 卡片，最後立
 主要程式入口：`src/core/broadcastAudience.js` 的 `lineUserIds` 受眾、
 `src/routes/adminBroadcast.js` 的預覽／建立批次、`views/admin_broadcast.ejs` 與
 `public/admin-broadcast.js`。
+
+#### 精確控制本次發送人數（2026-09-17）
+
+`/admin/broadcast` 的所有受眾來源（條件篩選、已儲存名單、直接貼 LINE User ID，以及
+Email 已儲存名單）都可選「全部符合條件的人」或「隨機抽指定人數」。例如完整符合者有
+2,000 人，輸入 423 後，預覽會同時顯示「符合 2,000 人／本次隨機發送 423 人」。單批仍
+最多 5,000 人；指定值不是 1–5,000 整數，或大於目前符合人數時，後端整批拒絕，不會
+自動改成較少人或全部發送。
+
+前端預覽數字不是安全依據。建立批次時 route 會重新計算完整母體，再用 PostgreSQL
+`ORDER BY RANDOM()` 取精確人數；查回筆數若與指定值不同，代表期間名單已變動，批次不會
+建立，管理員必須重新預覽。成功建立後，抽中的人會立即物化進
+`admin_broadcast_recipients`，因此立即發送、排程及 Campaign Testing 都使用同一份凍結
+名單，不會中途換人。抽樣設定與當時完整符合人數存入既有
+`admin_broadcasts.audience_config.recipientSelection`，不需要 schema migration。
+
+核心檢核與取樣在 `src/core/broadcastAudience.js`，API 防線在
+`src/routes/adminBroadcast.js`，前端控制在 `views/admin_broadcast.ejs`／
+`public/admin-broadcast.js`，回歸測試在 `test/broadcast-recipient-selection.test.js`。
 
 #### Campaign Testing／A/B/C 小樣本測試（2026-09-17）
 

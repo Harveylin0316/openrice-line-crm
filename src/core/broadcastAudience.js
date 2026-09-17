@@ -35,6 +35,51 @@ const PREVIEW_SAMPLE_LIMIT = 10;
 const LINE_USER_ID_RE = /^U[0-9a-f]{32}$/i;
 
 /**
+ * 正規化「這次實際要發幾人」。
+ * - all：沿用既有行為，最多 MAX_RECIPIENTS_PER_BROADCAST
+ * - random：從完整符合名單中隨機抽出精確人數
+ */
+function normalizeRecipientSelection(raw) {
+  const safe = raw && typeof raw === 'object' ? raw : {};
+  if (safe.mode !== 'random') {
+    return { ok: true, value: { mode: 'all', count: null }, error: null };
+  }
+  const count = Number(safe.count);
+  if (!Number.isInteger(count) || count < 1 || count > MAX_RECIPIENTS_PER_BROADCAST) {
+    return {
+      ok: false,
+      value: null,
+      error: '指定發送人數請填 1 到 ' + MAX_RECIPIENTS_PER_BROADCAST + ' 的整數。'
+    };
+  }
+  return { ok: true, value: { mode: 'random', count }, error: null };
+}
+
+function resolveRecipientSelection(raw, eligibleTotal) {
+  const normalized = normalizeRecipientSelection(raw);
+  if (!normalized.ok) return normalized;
+  const total = Math.max(0, Number(eligibleTotal) || 0);
+  if (normalized.value.mode === 'random' && normalized.value.count > total) {
+    return {
+      ok: false,
+      value: null,
+      error: '目前只有 ' + total + ' 位符合條件，不能指定發送給 ' + normalized.value.count + ' 人。'
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      ...normalized.value,
+      eligibleTotal: total,
+      sendTotal: normalized.value.mode === 'random'
+        ? normalized.value.count
+        : Math.min(total, MAX_RECIPIENTS_PER_BROADCAST)
+    },
+    error: null
+  };
+}
+
+/**
  * 管理員直接貼上的 LINE user ID。接受陣列或以空白／逗號／分號分隔的文字，
  * 格式錯誤的值不進入發送；大小寫視為同一個 ID，保留第一筆原字串。
  */
@@ -599,7 +644,11 @@ async function previewAudience(query, rawConditions, { channel = 'line' } = {}) 
   };
 }
 
-async function fetchAudienceRecipients(query, rawConditions, { limit = MAX_RECIPIENTS_PER_BROADCAST, channel = 'line' } = {}) {
+async function fetchAudienceRecipients(query, rawConditions, {
+  limit = MAX_RECIPIENTS_PER_BROADCAST,
+  channel = 'line',
+  randomize = false
+} = {}) {
   const directInput = parseExplicitLineUserIds(rawConditions && rawConditions.lineUserIds);
   const conds = normalizeConditions(rawConditions);
   const cappedLimit = Math.min(Math.max(1, Number(limit) || MAX_RECIPIENTS_PER_BROADCAST), MAX_RECIPIENTS_PER_BROADCAST);
@@ -612,7 +661,7 @@ async function fetchAudienceRecipients(query, rawConditions, { limit = MAX_RECIP
        LEFT JOIN users u ON u.line_user_id = m.line_user_id
        WHERE m.list_id = $1 AND m.email IS NOT NULL AND BTRIM(m.email) <> ''
          AND NOT EXISTS (SELECT 1 FROM admin_email_unsubscribes ue WHERE LOWER(ue.email) = LOWER(BTRIM(m.email)))
-       ORDER BY m.id ASC
+       ORDER BY ${randomize ? 'RANDOM(), m.id ASC' : 'm.id ASC'}
        LIMIT $2`,
       [conds.savedListId, cappedLimit]
     );
@@ -641,7 +690,7 @@ async function fetchAudienceRecipients(query, rawConditions, { limit = MAX_RECIP
          ORDER BY id DESC LIMIT 1
        ) u ON true
        WHERE u.id IS NULL OR (u.blocked_at IS NULL AND u.archived_at IS NULL)
-       ORDER BY i.ord ASC
+       ORDER BY ${randomize ? 'RANDOM(), i.ord ASC' : 'i.ord ASC'}
        LIMIT $2`,
       [conds.lineUserIds, cappedLimit]
     );
@@ -657,7 +706,7 @@ async function fetchAudienceRecipients(query, rawConditions, { limit = MAX_RECIP
        WHERE m.list_id = $1 AND m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id) <> ''
          AND (u.blocked_at IS NULL OR u.id IS NULL)
          AND (u.archived_at IS NULL OR u.id IS NULL)
-       ORDER BY m.id ASC
+       ORDER BY ${randomize ? 'RANDOM(), m.id ASC' : 'm.id ASC'}
        LIMIT $2`,
       [conds.savedListId, cappedLimit]
     );
@@ -670,7 +719,7 @@ async function fetchAudienceRecipients(query, rawConditions, { limit = MAX_RECIP
     SELECT u.id AS user_id, u.line_user_id
     FROM users u
     WHERE ${whereSql}
-    ORDER BY u.id ASC
+    ORDER BY ${randomize ? 'RANDOM(), u.id ASC' : 'u.id ASC'}
     LIMIT $${params.length}
   `;
   const rs = await query(sql, params);
@@ -680,6 +729,8 @@ async function fetchAudienceRecipients(query, rawConditions, { limit = MAX_RECIP
 module.exports = {
   MAX_RECIPIENTS_PER_BROADCAST,
   PREVIEW_SAMPLE_LIMIT,
+  normalizeRecipientSelection,
+  resolveRecipientSelection,
   LIFECYCLE_STAGES,
   LIFECYCLE_NEW_DAYS,
   LIFECYCLE_ACTIVE_DAYS,
