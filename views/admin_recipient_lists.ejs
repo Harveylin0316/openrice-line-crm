@@ -47,9 +47,15 @@
           <h3 style="margin:0;" id="nl-modal-title">新增名單</h3>
           <button type="button" class="rl-modal-close" id="new-list-close">×</button>
         </div>
-        <div class="rl-grid">
+        <div class="rl-wizard-progress" aria-label="建立名單步驟">
+          <button type="button" data-nl-step="1" class="active"><b>1</b><span>基本資料</span></button>
+          <button type="button" data-nl-step="2" disabled><b>2</b><span>加入對象</span></button>
+          <button type="button" data-nl-step="3" disabled><b>3</b><span>確認建立</span></button>
+        </div>
+        <div class="rl-grid rl-wizard-step" data-nl-panel="1">
+          <div class="rl-question"><strong>這份名單要叫什麼？</strong><span>名稱只給後台同仁看，建議寫清楚用途。</span></div>
           <label class="rl-field rl-field-full">
-            <span>名稱 *</span>
+            <span>名單名稱 *</span>
             <input type="text" id="nl-name" placeholder="例：5月中過 $100 Rice Dollar 名單" maxlength="200" />
           </label>
           <label class="rl-field rl-field-full">
@@ -57,12 +63,15 @@
             <input type="text" id="nl-desc" placeholder="用途備註" maxlength="500" />
           </label>
           <div class="rl-field rl-field-full">
-            <span>名單類型</span>
+            <span>人員要怎麼加入？</span>
             <div class="aud-type-switch" id="nl-type-switch">
-              <label><input type="radio" name="nl-type" value="static" checked /> 靜態名單（手動加入）</label>
-              <label><input type="radio" name="nl-type" value="dynamic" /> 動態受眾（條件符合就自動加入／移除）</label>
+              <label class="rl-choice"><input type="radio" name="nl-type" value="static" checked /><span><b>我已經有人員名單</b><small>貼 LINE User ID，之後也能再加人</small></span></label>
+              <label class="rl-choice"><input type="radio" name="nl-type" value="dynamic" /><span><b>請系統自動找人</b><small>符合條件就自動加入，不符合就移除</small></span></label>
             </div>
           </div>
+        </div>
+        <div class="rl-grid rl-wizard-step" data-nl-panel="2" hidden>
+          <div class="rl-question" id="nl-audience-question"><strong>把人加進來</strong><span>每行貼一個 LINE User ID，也可以用逗號或空格分隔。</span></div>
           <label class="rl-field rl-field-full" id="static-inputs">
             <span>LINE 用戶編號（每位好友的專屬編號）（可選，建立後也能再加入成員，一行一個 / 逗號 / 空格 都行）</span>
             <textarea id="nl-uids" rows="8" placeholder="U3eca22d67d352c4db1428decf3ebcf14&#10;U4eca22d67d352c4db1428decf3ebcf15&#10;..." style="font-family:ui-monospace,Menlo,monospace;font-size:12px;"></textarea>
@@ -88,9 +97,15 @@
             <p class="muted" style="font-size:12px;">排除已發送／測試／轉換可指定既有群發。轉換目前以可驗證的 CTA 點擊為準；一般訂位尚未能與 LINE ID 完整串接時，不會假算。</p>
           </div>
         </div>
+        <div class="rl-grid rl-wizard-step" data-nl-panel="3" hidden>
+          <div class="rl-question"><strong>建立前再看一次</strong><span>確認名稱與加入方式，避免之後不知道這份名單是做什麼的。</span></div>
+          <div class="rl-review" id="nl-review"></div>
+        </div>
         <div class="rl-modal-actions">
-          <button type="button" class="rl-primary-btn" id="nl-save">建立名單</button>
+          <button type="button" class="rl-secondary-btn" id="nl-back" hidden>上一步</button>
           <button type="button" class="rl-secondary-btn" id="nl-cancel">取消</button>
+          <button type="button" class="rl-primary-btn" id="nl-next">下一步</button>
+          <button type="button" class="rl-primary-btn" id="nl-save" hidden>建立名單</button>
         </div>
         <div id="nl-status" class="muted" style="font-size:12px;min-height:18px;margin-top:8px;"></div>
       </div>
@@ -103,6 +118,48 @@
       var catalog = { tags:[], activities:[], menus:[], broadcasts:[] };
       var breakdowns = {}; // { [listId]: { line_sendable, email_only, unknown } }
       var editingDynamicId = null;
+      var newListStep = 1;
+
+      function updateReview() {
+        var dynamic = typeValue() === 'dynamic';
+        var uids = parseUids($('nl-uids').value);
+        var conditions = document.querySelectorAll('.aud-condition').length;
+        var rows = [
+          ['名稱', $('nl-name').value.trim() || '尚未填寫'],
+          ['加入方式', dynamic ? '系統依條件自動更新' : '手動加入固定人員'],
+          ['目前設定', dynamic ? (conditions + ' 個條件，' + ($('aud-operator').value === 'or' ? '符合任一條件' : '必須全部符合')) : (uids.length + ' 位 LINE 用戶')]
+        ];
+        if (!dynamic && $('static-filter-enabled').checked) rows.push(['建立前篩選', $('aud-preview-result').textContent || '已啟用']);
+        if (dynamic) rows.push(['自動更新', $('aud-auto').checked ? '每 5 分鐘更新' : '目前不自動更新']);
+        $('nl-review').innerHTML = rows.map(function (row) {
+          return '<div><span>' + esc(row[0]) + '</span><strong>' + esc(row[1]) + '</strong></div>';
+        }).join('');
+      }
+
+      function setNewListStep(step) {
+        newListStep = Math.max(1, Math.min(3, Number(step) || 1));
+        document.querySelectorAll('[data-nl-panel]').forEach(function (panel) {
+          panel.hidden = Number(panel.getAttribute('data-nl-panel')) !== newListStep;
+        });
+        document.querySelectorAll('[data-nl-step]').forEach(function (button) {
+          var no = Number(button.getAttribute('data-nl-step'));
+          button.disabled = no > newListStep;
+          button.classList.toggle('active', no === newListStep);
+          button.classList.toggle('done', no < newListStep);
+        });
+        $('nl-back').hidden = newListStep === 1;
+        $('nl-next').hidden = newListStep === 3;
+        $('nl-save').hidden = newListStep !== 3;
+        $('nl-status').textContent = '';
+        if (newListStep === 2) {
+          var dynamic = typeValue() === 'dynamic';
+          $('nl-audience-question').innerHTML = dynamic
+            ? '<strong>告訴系統要找誰</strong><span>用包含／排除條件描述對象，系統會顯示符合人數。</span>'
+            : '<strong>把人加進來</strong><span>每行貼一個 LINE User ID，也可以用逗號或空格分隔。</span>';
+          switchType();
+        }
+        if (newListStep === 3) updateReview();
+      }
 
       // 名單列表頁的「實際可發」拆解：以非同步補上，未到時顯示計算中
       function renderSendable(listId) {
@@ -253,6 +310,7 @@
         $('aud-conditions').innerHTML = '';
         addCondition();
         modal.hidden = false;
+        setNewListStep(1);
         setTimeout(function () { $('nl-name').focus(); }, 50);
       }
       function openDynamicEditor(list) {
@@ -273,12 +331,28 @@
         conditions.forEach(function (condition) { addCondition(condition); });
         if (!conditions.length) addCondition();
         modal.hidden = false;
+        setNewListStep(1);
         previewDynamicAudience();
       }
       function closeModal() { modal.hidden = true; }
       $('btn-new-list').addEventListener('click', openModal);
       $('new-list-close').addEventListener('click', closeModal);
       $('nl-cancel').addEventListener('click', closeModal);
+      $('nl-back').addEventListener('click', function () { setNewListStep(newListStep - 1); });
+      $('nl-next').addEventListener('click', function () {
+        if (newListStep === 1 && !$('nl-name').value.trim()) {
+          $('nl-status').textContent = '先替這份名單取一個名稱';
+          $('nl-name').focus();
+          return;
+        }
+        setNewListStep(newListStep + 1);
+      });
+      document.querySelectorAll('[data-nl-step]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          var target = Number(button.getAttribute('data-nl-step'));
+          if (!button.disabled && target <= newListStep) setNewListStep(target);
+        });
+      });
 
       $('nl-uids').addEventListener('input', function () {
         var uids = parseUids($('nl-uids').value);
@@ -539,11 +613,37 @@
       .rl-modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
       .rl-modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #6b7280; line-height: 1; }
       .rl-grid { display: flex; flex-direction: column; gap: 12px; }
+      .rl-wizard-step[hidden] { display:none !important; }
+      .rl-wizard-progress { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin:0 0 18px; }
+      .rl-wizard-progress button { border:1px solid #e5e7eb; border-radius:9px; background:#fff; padding:9px 8px; color:#6b7280; font:inherit; font-size:12px; cursor:pointer; }
+      .rl-wizard-progress button:disabled { cursor:not-allowed; opacity:.5; }
+      .rl-wizard-progress button.active { border-color:#FCC726; background:#fffbeb; color:#1f2937; font-weight:700; }
+      .rl-wizard-progress button.done { border-color:#bbf7d0; color:#166534; }
+      .rl-wizard-progress b { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; margin-right:4px; border-radius:999px; background:#f3f4f6; }
+      .rl-wizard-progress button.active b { background:#FCC726; }
+      .rl-question { padding:13px 14px; border-left:4px solid #FCC726; border-radius:8px; background:#f9fafb; }
+      .rl-question strong, .rl-question span { display:block; }
+      .rl-question strong { font-size:16px; color:#1f2937; }
+      .rl-question span { margin-top:4px; color:#6b7280; font-size:12px; line-height:1.5; }
+      .aud-type-switch { display:grid !important; grid-template-columns:1fr 1fr; gap:10px !important; }
+      .rl-choice { display:flex; gap:9px; align-items:flex-start; border:1px solid #e5e7eb; border-radius:9px; padding:12px; cursor:pointer; }
+      .rl-choice:has(input:checked) { border-color:#FCC726; background:#fffbeb; }
+      .rl-choice input { margin-top:3px; }
+      .rl-choice span, .rl-choice b, .rl-choice small { display:block; }
+      .rl-choice b { color:#1f2937; font-size:13px; }
+      .rl-choice small { color:#6b7280; font-size:11px; margin-top:4px; line-height:1.45; }
+      .rl-review { border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; }
+      .rl-review div { display:flex; justify-content:space-between; gap:16px; padding:12px 14px; border-bottom:1px solid #f3f4f6; }
+      .rl-review div:last-child { border-bottom:0; }
+      .rl-review span { color:#6b7280; font-size:12px; }
+      .rl-review strong { color:#1f2937; font-size:13px; text-align:right; }
       .rl-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
       .rl-field span { color: #6B6B70; font-size: 12px; }
       .rl-field input, .rl-field textarea { padding: 8px 10px; border: 1px solid #ECECEE; border-radius: 6px; font-size: 13px; font-family: inherit; }
       .rl-field-full { width: 100%; }
-      .rl-modal-actions { margin-top: 14px; display: flex; gap: 8px; }
+      .rl-modal-actions { margin-top: 18px; display: flex; gap: 8px; align-items:center; }
+      #nl-next, #nl-save { margin-left:auto; }
+      @media(max-width:600px){.aud-type-switch{grid-template-columns:1fr}.rl-wizard-progress span{display:none}.rl-modal-inner{padding:16px}.rl-review div{display:block}.rl-review strong{display:block;text-align:left;margin-top:4px}}
     </style>
     `
   })

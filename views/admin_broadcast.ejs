@@ -104,9 +104,19 @@
           : ''
       }
       <div class="broadcast-page-head">
-        <h1>群發訊息</h1>
-        <p class="page-subtitle">四步驟 · ① 選通道 · ② 選收件人 · ③ 編訊息（含預覽即時更新 / 點文字直接編輯） · ④ 先測試再正式送</p>
+        <div>
+          <h1>傳訊息給顧客</h1>
+          <p class="page-subtitle">跟著四步完成；畫面一次只顯示目前要處理的事情。</p>
+        </div>
+        ${!(typeof msgLibMode !== 'undefined' && msgLibMode) ? '<button type="button" class="bc-full-mode-btn" id="bc-full-mode">顯示完整設定</button>' : ''}
       </div>
+
+      ${!(typeof msgLibMode !== 'undefined' && msgLibMode) ? `<nav class="bc-task-progress" id="bc-task-progress" aria-label="傳訊息步驟">
+        <button type="button" data-bc-step="1" class="active"><b>1</b><span>選管道</span><small id="bc-progress-channel">LINE</small></button>
+        <button type="button" data-bc-step="2"><b>2</b><span>選收件人</span><small id="bc-progress-audience">尚未確認</small></button>
+        <button type="button" data-bc-step="3"><b>3</b><span>做訊息</span><small id="bc-progress-message">尚未完成</small></button>
+        <button type="button" data-bc-step="4"><b>4</b><span>測試與送出</span><small>最後檢查</small></button>
+      </nav>` : ''}
 
       ${
         !hasLineToken
@@ -119,8 +129,8 @@
           <fieldset class="broadcast-step" id="bc-channel-step">
             <legend><span class="step-pill">1</span> 通道</legend>
             <div class="broadcast-tabs channel-tabs">
-              <button type="button" class="tab-btn active" data-channel="line">LINE 推播</button>
-              <button type="button" class="tab-btn" data-channel="email">Email 信件</button>
+              <button type="button" class="tab-btn active" data-channel="line"><strong>LINE 推播</strong><small>傳到好友的 LINE 聊天室</small></button>
+              <button type="button" class="tab-btn" data-channel="email"><strong>Email 信件</strong><small>傳給名單中有 Email 的顧客</small></button>
             </div>
             <div class="muted" style="font-size:12px;margin-top:6px;">
               <span class="channel-hint-line">送到使用者的 LINE 聊天視窗。每月免費額度由 LINE OA 方案決定。</span>
@@ -132,9 +142,9 @@
             <legend><span class="step-pill">2</span> 收件人</legend>
 
             <div class="broadcast-tabs audience-tabs">
-              <button type="button" class="tab-btn active" data-audience="conditions">條件篩選</button>
-              <button type="button" class="tab-btn" data-audience="saved_list">已儲存名單</button>
-              <button type="button" class="tab-btn" data-audience="upload">貼 LINE User ID</button>
+              <button type="button" class="tab-btn active" data-audience="conditions"><strong>請系統幫我挑人</strong><small>依加入時間、活動或行為篩選</small></button>
+              <button type="button" class="tab-btn" data-audience="saved_list"><strong>使用存好的名單</strong><small>從名單庫直接選一份</small></button>
+              <button type="button" class="tab-btn" data-audience="upload"><strong>貼 LINE User ID</strong><small>直接貼入這次要傳的人</small></button>
             </div>
 
             <div class="audience-pane" id="audience-pane-conditions">
@@ -211,6 +221,8 @@
               <div class="muted" id="activity-participation-help" style="font-size:12px;margin-top:6px;">先選包含或排除，再選活動。例如：選「排除玩過的人」＋「分享超有哩」，即可排除玩過分享超有哩的人。若活動選「任一活動」，排除代表只保留從未玩過任何活動的人。只開啟頁面但沒有開始玩，仍視為未參加。</div>
             </div>
 
+            <details class="bc-more-audience" id="bc-more-audience">
+              <summary>更多篩選條件 <span>活躍度、獎品、邀請、活動頁與訂位來源</span></summary>
             <div class="broadcast-field" id="behavior-conditions">
               <div class="broadcast-field-label">活躍程度（生命週期階段，可多選）</div>
               <div class="lifecycle-checkbox-list">
@@ -333,6 +345,7 @@
               </label>
               <div class="muted" style="font-size:12px;margin:2px 0 0;">選「還沒回答過的人」，就可以再問一次沒回答的人，把資料補起來。</div>
             </div>
+            </details>
 
             </div><!-- /audience-pane-conditions -->
 
@@ -411,7 +424,7 @@
             <div id="audience-sample" class="audience-sample" hidden></div>
           </fieldset>
 
-          <fieldset class="broadcast-step">
+          <fieldset class="broadcast-step" id="bc-message-step">
             <legend><span class="step-pill">3</span> 訊息內容</legend>
 
             <!-- Email 專屬：主旨 + 寄件人欄位（channel='email' 時顯示）-->
@@ -862,7 +875,7 @@
       </style>
     </section>
 
-    <section class="card">
+    <section class="card recent-batches-card">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
         <h2 style="margin:0;">近期批次（最新 10 筆）</h2>
         <a href="/admin/broadcast/history" class="btn">查看完整歷史</a>
@@ -905,13 +918,47 @@
 
     <style>
       .broadcast-card { padding-bottom: 12px; }
-      .broadcast-page-head { margin-bottom: 14px; }
+      .broadcast-page-head { margin-bottom: 14px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
       .broadcast-page-head h1 { margin: 0; }
       .page-subtitle {
         color: #6b7280;
         font-size: 13px;
         margin: 6px 0 0;
       }
+      .bc-full-mode-btn { border:1px solid #d1d5db; background:#fff; color:#374151; border-radius:8px; padding:8px 12px; font:inherit; font-size:12px; cursor:pointer; white-space:nowrap; }
+      .bc-full-mode-btn:hover { border-color:#9ca3af; background:#f9fafb; }
+      .bc-task-progress { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:18px 0 22px; }
+      .bc-task-progress button { appearance:none; text-align:left; border:1px solid #e5e7eb; background:#fff; border-radius:10px; padding:11px 12px; color:#6b7280; cursor:pointer; font:inherit; min-width:0; }
+      .bc-task-progress button:disabled { cursor:not-allowed; opacity:.5; }
+      .bc-task-progress button.active { border-color:#FCC726; background:#fffbeb; color:#1f2937; box-shadow:0 0 0 2px rgba(252,199,38,.16); }
+      .bc-task-progress button.done { border-color:#bbf7d0; color:#166534; }
+      .bc-task-progress b { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin-right:5px; border-radius:999px; background:#f3f4f6; font-size:12px; }
+      .bc-task-progress button.active b { background:#FCC726; }
+      .bc-task-progress button.done b { background:#dcfce7; }
+      .bc-task-progress span { font-size:13px; font-weight:700; }
+      .bc-task-progress small { display:block; margin:5px 0 0 29px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:inherit; }
+      .bc-step-intro { margin:0 0 16px; padding:13px 14px; border-radius:9px; background:#f9fafb; border-left:4px solid #FCC726; }
+      .bc-step-intro strong { display:block; color:#1f2937; font-size:16px; }
+      .bc-step-intro span { display:block; margin-top:4px; color:#6b7280; font-size:12px; line-height:1.55; }
+      .bc-wizard-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:18px; padding-top:14px; border-top:1px solid #e5e7eb; }
+      .bc-wizard-actions .bc-next { margin-left:auto; }
+      .bc-wizard-hint { color:#b45309; font-size:12px; line-height:1.4; min-height:17px; text-align:right; }
+      .bc-guided-mode .broadcast-step[hidden], .bc-guided-mode .broadcast-preview-side[hidden] { display:none !important; }
+      .bc-guided-mode .broadcast-step { margin-bottom:0; background:#fff; border-color:#e5e7eb; }
+      .bc-guided-mode .broadcast-grid.no-preview { grid-template-columns:minmax(0,760px); justify-content:center; }
+      .bc-guided-mode .channel-tabs, .bc-guided-mode .audience-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+      .bc-guided-mode .channel-tabs { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .bc-guided-mode .channel-tabs .tab-btn, .bc-guided-mode .audience-tabs .tab-btn { border-radius:10px; padding:14px; text-align:left; min-height:76px; }
+      .bc-guided-mode .tab-btn.active { background:#fffbeb; border:2px solid #FCC726; box-shadow:none; }
+      .bc-more-audience { margin:14px 0; border:1px solid #e5e7eb; border-radius:10px; background:#fff; }
+      .bc-more-audience > summary { cursor:pointer; padding:12px 14px; color:#374151; font-size:13px; font-weight:700; }
+      .bc-more-audience > summary span { display:block; margin-top:3px; color:#6b7280; font-size:11px; font-weight:400; }
+      .bc-more-audience[open] { padding:0 14px 12px; }
+      .bc-more-audience[open] > summary { margin:0 -14px 12px; border-bottom:1px solid #e5e7eb; }
+      .bc-full-mode .bc-task-progress { display:none; }
+      .bc-full-mode .bc-step-intro, .bc-full-mode .bc-wizard-actions { display:none; }
+      .broadcast-card.bc-guided-mode ~ .system-tools-card,
+      .broadcast-card.bc-guided-mode ~ .recent-batches-card { display:none; }
       .broadcast-grid {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
@@ -920,6 +967,14 @@
       }
       @media (max-width: 900px) {
         .broadcast-grid { grid-template-columns: 1fr; }
+        .bc-task-progress { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      }
+      @media (max-width: 520px) {
+        .broadcast-page-head { display:block; }
+        .bc-full-mode-btn { margin-top:10px; }
+        .bc-task-progress { display:flex; overflow-x:auto; padding-bottom:3px; }
+        .bc-task-progress button { min-width:145px; }
+        .bc-guided-mode .channel-tabs, .bc-guided-mode .audience-tabs { grid-template-columns:1fr; }
       }
       .broadcast-step {
         border: 1px solid #fde68a;
@@ -1521,6 +1576,9 @@
         font-size: 13px;
         color: #374151;
       }
+      .tab-btn strong, .tab-btn small { display:block; }
+      .tab-btn strong { font-size:13px; }
+      .tab-btn small { margin-top:4px; color:#6b7280; font-size:11px; font-weight:400; line-height:1.4; }
       .tab-btn.active {
         background: #FCC726;
         border-color: #d97706;
