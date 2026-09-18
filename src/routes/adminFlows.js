@@ -26,6 +26,19 @@ const { normalizeTabs } = require('../core/lineRichMenu');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 
 const CAMPAIGN_SOURCES = ['richmenu', 'broadcast', 'welcome', 'other'];
+const FLOW_TRIGGER_TYPES = Object.freeze([
+  'follow',
+  'list_join',
+  'event',
+  'schedule',
+  'game_play',
+  'broadcast_click',
+  'restaurant_click',
+  'inactivity',
+  'streak_risk',
+  'rich_menu_tap',
+  'campaign_open'
+]);
 
 // 「流程觸發事件」下拉：使用者在好康地圖活動頁做的動作。
 // 同時用在兩個地方 —— 觸發條件「活動頁互動」的事件選單，以及條件分支裡的「做了某動作」選單。
@@ -311,7 +324,7 @@ function registerAdminFlowsRoutes(app, deps) {
     if (!name) return { ok: false, error: 'name_required' };
     const trigger = body.trigger || {};
     const tType = trigger.type;
-    if (!['follow', 'list_join', 'event', 'schedule', 'game_play', 'broadcast_click', 'restaurant_click', 'inactivity', 'streak_risk', 'rich_menu_tap', 'campaign_open'].includes(tType)) return { ok: false, error: 'invalid_trigger_type' };
+    if (!FLOW_TRIGGER_TYPES.includes(tType)) return { ok: false, error: 'invalid_trigger_type' };
     const tCfg = trigger.config || {};
     const rawUserLimit = tCfg.user_limit;
     if (rawUserLimit && typeof rawUserLimit === 'object' && rawUserLimit.max !== '' && rawUserLimit.max != null) {
@@ -824,4 +837,4 @@ function registerAdminFlowsRoutes(app, deps) {
   }
 }
 
-module.exports = { registerAdminFlowsRoutes };
+module.exports = { registerAdminFlowsRoutes, FLOW_TRIGGER_TYPES };
