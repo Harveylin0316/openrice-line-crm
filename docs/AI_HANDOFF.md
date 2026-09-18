@@ -215,7 +215,9 @@ Email 已儲存名單）都可選「全部符合條件的人」或「隨機抽�
 （CTA URL）」直接列出按鈕名稱與目前網址；已經是正式網址的按鈕也要顯示，不能只顯示
 `REPLACE_*` 佔位符。A／B／C 各版有自己的欄位，套用時依 JSON path 只改指定按鈕，避免
 兩顆共用舊網址時被一起誤改。訊息庫模式不得載入或改寫群發草稿，也不得因上次群發開過
-A/B/C 而出現多版本預覽。前端與回歸測試在 `public/admin-broadcast.js`、
+A/B/C 而出現多版本預覽。歷史素材可能只有帶底色、圓角與置中文字的「按鈕外觀」，但沒有
+LINE `action`；編輯器也會把這種區塊列成「尚未設定」，填入 URL 後自動建立
+`action: { type: "uri", label, uri }`，否則用戶雖看得到按鈕卻無法點擊。前端與回歸測試在 `public/admin-broadcast.js`、
 `views/admin_broadcast.ejs`、`test/broadcast-preview-ui.test.js`。
 
 #### 群發加入好友日期篩選（2026-09-11）

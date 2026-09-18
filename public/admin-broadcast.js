@@ -3291,7 +3291,29 @@
     return { textarea: 'flex-json', helper: 'json-url-helper', list: 'json-url-list' };
   }
 
-  // 收集 Flex 裡所有「開啟網址」按鈕，不只 REPLACE_* placeholder。
+  function directButtonText(node) {
+    if (!node || !Array.isArray(node.contents)) return '';
+    for (var i = 0; i < node.contents.length; i++) {
+      var item = node.contents[i];
+      if (item && item.type === 'text' && typeof item.text === 'string' && item.text.trim()) {
+        return item.text.trim();
+      }
+    }
+    return '';
+  }
+
+  // 舊素材有些只畫出「按鈕外觀」，卻沒有 LINE action，因此看得到按鈕但完全不能點。
+  // 條件刻意保守：有底色、圓角，且含置中的直接文字，才視為待補 CTA 的按鈕盒。
+  function looksLikeCtaBox(node) {
+    if (!node || node.type !== 'box' || node.action || !Array.isArray(node.contents)) return false;
+    if (!node.backgroundColor || !node.cornerRadius) return false;
+    return node.contents.some(function (item) {
+      return item && item.type === 'text' && item.align === 'center' &&
+        typeof item.text === 'string' && item.text.trim();
+    });
+  }
+
+  // 收集 Flex 裡所有「開啟網址」按鈕，以及只有按鈕外觀、尚未建立 action 的 CTA。
   // path 讓每一顆按鈕能各自修改；即使兩顆原本共用同一 URL，也不會一起被誤改。
   function collectUriActions(node, path, out) {
     if (!node || typeof node !== 'object') return;
@@ -3301,7 +3323,15 @@
       out.push({
         path: path.concat(['action', 'uri']),
         uri: node.action.uri,
-        label: extractActionLabel(node) || ('按鈕 ' + (out.length + 1))
+        label: extractActionLabel(node) || ('按鈕 ' + (out.length + 1)),
+        createAction: false
+      });
+    } else if (looksLikeCtaBox(node)) {
+      out.push({
+        path: path,
+        uri: '',
+        label: directButtonText(node) || ('按鈕 ' + (out.length + 1)),
+        createAction: true
       });
     }
     Object.keys(node).forEach(function (key) {
@@ -3346,9 +3376,9 @@
     }
     helper.hidden = false;
     list.innerHTML = actions.map(function (action, i) {
-      var unresolved = ANY_REPLACE_RE.test(action.uri);
+      var unresolved = !String(action.uri || '').trim() || ANY_REPLACE_RE.test(action.uri);
       var status = unresolved ? '尚未設定' : (/^https?:\/\//i.test(action.uri) ? '已設定' : '網址格式需確認');
-      return '<div class="json-url-row" data-path="' + encodeURIComponent(JSON.stringify(action.path)) + '">' +
+      return '<div class="json-url-row" data-path="' + encodeURIComponent(JSON.stringify(action.path)) + '" data-create-action="' + (action.createAction ? '1' : '0') + '">' +
         '<div class="jur-label">按鈕 ' + (i + 1) + '：<span class="jur-context">「' + escapeHtml(action.label) + '」</span></div>' +
         '<input type="url" class="jur-input" aria-label="' + escapeHtml((variant || 'a').toUpperCase() + ' 版本「' + action.label + '」CTA URL') + '" placeholder="https://..." value="' + escapeHtml(unresolved ? '' : action.uri) + '" />' +
         '<button type="button" class="btn jur-apply">套用</button>' +
@@ -3382,7 +3412,23 @@
     try {
       var parsed = JSON.parse(textarea.value);
       var path = JSON.parse(decodeURIComponent(row.getAttribute('data-path') || ''));
-      setJsonAtPath(parsed, path, url);
+      if (row.getAttribute('data-create-action') === '1') {
+        var target = parsed;
+        for (var i = 0; i < path.length; i++) {
+          if (target == null) throw new Error('找不到這顆按鈕');
+          target = target[path[i]];
+        }
+        if (!target || typeof target !== 'object') throw new Error('找不到這顆按鈕');
+        target.action = {
+          type: 'uri',
+          label: directButtonText(target) || '開啟連結',
+          uri: url
+        };
+        row.setAttribute('data-create-action', '0');
+        row.setAttribute('data-path', encodeURIComponent(JSON.stringify(path.concat(['action', 'uri']))));
+      } else {
+        setJsonAtPath(parsed, path, url);
+      }
       textarea.value = JSON.stringify(parsed, null, 2);
       statusEl.textContent = '已設定';
       statusEl.classList.add('ok');
