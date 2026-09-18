@@ -7,7 +7,8 @@ const {
   registerAdminLiffTrackingRoutes,
   cleanHttpsUrl,
   cleanSourceKey,
-  reportDays
+  reportDays,
+  normalizeTrackingDateRange
 } = require('../src/routes/adminLiffTracking');
 
 function appStub(routes) {
@@ -65,6 +66,18 @@ test('追蹤輸入只接受安全網址、來源代號與合理期間', () => {
   assert.equal(reportDays('90'), 90);
   assert.equal(reportDays('9999'), 365);
   assert.equal(reportDays('bad'), 30);
+  assert.deepEqual(
+    normalizeTrackingDateRange({ from: '2026-09-01', to: '2026-09-18' }, Date.parse('2026-09-18T12:00:00+08:00')),
+    { from: '2026-09-01', to: '2026-09-18', days: 18, timezone: 'Asia/Taipei' }
+  );
+  assert.deepEqual(
+    normalizeTrackingDateRange({ days: '7' }, Date.parse('2026-09-18T12:00:00+08:00')),
+    { from: '2026-09-12', to: '2026-09-18', days: 7, timezone: 'Asia/Taipei' }
+  );
+  assert.throws(() => normalizeTrackingDateRange({ from: '2026-09-01' }), /同時選擇/);
+  assert.throws(() => normalizeTrackingDateRange({ from: '2026-02-30', to: '2026-03-01' }), /格式不正確/);
+  assert.throws(() => normalizeTrackingDateRange({ from: '2026-09-18', to: '2026-09-01' }), /不能晚於/);
+  assert.throws(() => normalizeTrackingDateRange({ from: '2025-08-01', to: '2026-09-18' }), /397 天/);
 });
 
 test('後台頁面完整呈現設定、成效與手機版介面', async () => {
@@ -77,6 +90,11 @@ test('後台頁面完整呈現設定、成效與手機版介面', async () => {
   assert.match(html, /不重複用戶/);
   assert.match(html, /來源比較/);
   assert.match(html, /下載 CSV/);
+  assert.match(html, /id="lt-from" type="date"/);
+  assert.match(html, /id="lt-to" type="date"/);
+  assert.match(html, /自訂日期/);
+  assert.match(html, /from='\+encodeURIComponent\(from\).*to='\+encodeURIComponent\(to\)/);
+  assert.match(html, /liff-source-'\+rangeName/);
   assert.match(html, /text\/csv;charset=utf-8/);
   assert.match(html, /同一人同一分鐘重複載入只算一次/);
   assert.match(html, /\.topbar\.topbar--admin \.topbar-nav \{ display: none;/);
@@ -156,7 +174,7 @@ test('公開網址以 LIFF 驗證身分、同分鐘去重，而且暫停不擋�
   if (oldOa == null) delete process.env.LINE_OFFICIAL_ADD_FRIEND_URL; else process.env.LINE_OFFICIAL_ADD_FRIEND_URL = oldOa;
 });
 
-test('成效 API 同步套用期間並計算開啟、來源與轉換率', async () => {
+test('成效 API 同步套用自訂起訖日並計算開啟、來源與轉換率', async () => {
   const oldLiff = process.env.GAMES_LIFF_ID;
   process.env.GAMES_LIFF_ID = '2000000000-test';
   const routes = {};
@@ -179,14 +197,37 @@ test('成效 API 同步套用期間並計算開啟、來源與轉換率', async 
     return { rows: [], rowCount: 0 };
   };
   registerAdminLiffTrackingRoutes(appStub(routes), { query, authCore: { requireAdmin: pass } });
-  const res = await run(routes, 'GET /admin/liff-tracking/api/data', { query: { days: '90' } });
+  const res = await run(routes, 'GET /admin/liff-tracking/api/data', {
+    query: { from: '2026-09-01', to: '2026-09-18' }
+  });
   assert.equal(res.body.ok, true);
-  assert.equal(res.body.days, 90);
+  assert.equal(res.body.days, 18);
+  assert.deepEqual(res.body.range, {
+    from: '2026-09-01', to: '2026-09-18', days: 18, timezone: 'Asia/Taipei'
+  });
   assert.deepEqual(res.body.summary, { opens: 3, unique_users: 2, active_links: 1, conversions: 1 });
   assert.equal(res.body.links[0].conversion_rate_pct, 50);
   assert.equal(res.body.links[0].conversion_label, '玩過「分享超有哩」');
-  assert.ok(calls.filter(call => call.params && call.params[0] === '90').length >= 6);
+  assert.ok(calls.filter(call => call.params && call.params[0] === '2026-09-01T00:00:00+08:00' &&
+    call.params[1] === '2026-09-19T00:00:00+08:00').length >= 6);
+  assert.ok(calls.some(call => /opened_at >= \$1::timestamptz AND .*opened_at < \$2::timestamptz/s.test(call.sql)));
   if (oldLiff == null) delete process.env.GAMES_LIFF_ID; else process.env.GAMES_LIFF_ID = oldLiff;
+});
+
+test('成效 API 在日期不完整時回傳 400，且不查詢資料庫', async () => {
+  const routes = {};
+  let queryCount = 0;
+  registerAdminLiffTrackingRoutes(appStub(routes), {
+    query: async () => { queryCount += 1; return { rows: [], rowCount: 0 }; },
+    authCore: { requireAdmin: pass }
+  });
+  const res = await run(routes, 'GET /admin/liff-tracking/api/data', {
+    query: { from: '2026-09-01' }
+  });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error, 'range_invalid');
+  assert.match(res.body.detail, /同時選擇/);
+  assert.equal(queryCount, 0);
 });
 
 test('暫停追蹤只更新狀態，不刪除網址或歷史', async () => {
