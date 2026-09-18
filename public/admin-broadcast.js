@@ -571,6 +571,7 @@
     if (state.audienceSource === 'conditions' && joinedDateError) {
       statusEl.textContent = joinedDateError;
       state.audiencePreviewedTotal = null;
+      guidedAudienceAdvancePending = false;
       updateSendButton();
       return;
     }
@@ -579,6 +580,7 @@
       statusEl.textContent = recipientSelectionError;
       state.audiencePreviewedTotal = null;
       state.audienceEligibleTotal = null;
+      guidedAudienceAdvancePending = false;
       updateSendButton();
       return;
     }
@@ -588,6 +590,7 @@
     if (directParsed && directParsed.valid.length === 0) {
       statusEl.textContent = '請先貼上至少一個有效的 LINE User ID';
       state.audiencePreviewedTotal = null;
+      guidedAudienceAdvancePending = false;
       updateSendButton();
       return;
     }
@@ -602,11 +605,17 @@
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (!data.ok) { statusEl.textContent = '查詢失敗：' + (data.error || ''); return; }
+        if (!data.ok) {
+          statusEl.textContent = '查詢失敗：' + (data.error || '');
+          guidedAudienceAdvancePending = false;
+          refreshGuidedFlow();
+          return;
+        }
         if (data.error) {
           statusEl.textContent = data.error;
           state.audiencePreviewedTotal = null;
           state.audienceEligibleTotal = null;
+          guidedAudienceAdvancePending = false;
           updateSendButton();
           return;
         }
@@ -648,7 +657,11 @@
         }
         updateSendButton();
       })
-      .catch(function (e) { statusEl.textContent = '網路錯誤：' + e.message; });
+      .catch(function (e) {
+        statusEl.textContent = '網路錯誤：' + e.message;
+        guidedAudienceAdvancePending = false;
+        refreshGuidedFlow();
+      });
   });
 
   // ------------------------------------------------------------------
@@ -2591,6 +2604,7 @@
       btn.classList.add('btn-needs-prep');
       btn.title = '需先完成步驟 1（預覽收件人）與步驟 2（預覽訊息）';
     }
+    refreshGuidedFlow();
   }
 
   function checkSendReadiness() {
@@ -3758,6 +3772,136 @@
   }
   // 草稿載入或 template 套用後 JSON 已就位 → scan
   setTimeout(scanJsonImagesAndUrls, 500);
+
+  // ------------------------------------------------------------------
+  // 任務引導模式：一次只處理一件事。完整設定仍保留給熟手使用。
+  // ------------------------------------------------------------------
+  var guidedCurrentStep = 1;
+  var guidedFullMode = false;
+  var guidedAudienceAdvancePending = false;
+  var guidedInitialized = false;
+
+  function refreshGuidedFlow() {
+    if (!guidedInitialized || INIT.msgLibMode) return;
+    var root = document.querySelector('.broadcast-card');
+    var grid = document.querySelector('.broadcast-grid');
+    var preview = document.querySelector('.broadcast-preview-side');
+    var steps = [null, $('bc-channel-step'), $('bc-audience-step'), $('bc-message-step'), $('bc-send-step')];
+    var channel = getActiveChannel() === 'email' ? 'Email' : 'LINE';
+    var channelStatus = $('bc-progress-channel');
+    var audienceStatus = $('bc-progress-audience');
+    var messageStatus = $('bc-progress-message');
+    if (channelStatus) channelStatus.textContent = channel;
+    if (audienceStatus) audienceStatus.textContent = state.audiencePreviewedTotal === null
+      ? '尚未確認'
+      : (state.audiencePreviewedTotal.toLocaleString() + ' 人');
+    if (messageStatus) messageStatus.textContent = state.messagePreviewed ? '預覽完成' : '尚未完成';
+
+    if (guidedFullMode) {
+      root.classList.remove('bc-guided-mode');
+      root.classList.add('bc-full-mode');
+      steps.slice(1).forEach(function (step) { if (step) step.hidden = false; });
+      if (preview) preview.hidden = false;
+      if (grid) grid.classList.remove('no-preview');
+    } else {
+      root.classList.add('bc-guided-mode');
+      root.classList.remove('bc-full-mode');
+      steps.slice(1).forEach(function (step, idx) { if (step) step.hidden = (idx + 1) !== guidedCurrentStep; });
+      if (preview) preview.hidden = guidedCurrentStep < 3;
+      if (grid) grid.classList.toggle('no-preview', guidedCurrentStep < 3);
+    }
+
+    $$('[data-bc-step]').forEach(function (button) {
+      var stepNo = Number(button.getAttribute('data-bc-step'));
+      var unlocked = stepNo === 1 || stepNo <= guidedCurrentStep ||
+        (stepNo === 2) ||
+        (stepNo === 3 && state.audiencePreviewedTotal !== null && state.audiencePreviewedTotal > 0) ||
+        (stepNo === 4 && state.messagePreviewed && state.audiencePreviewedTotal !== null && state.audiencePreviewedTotal > 0);
+      button.disabled = !unlocked;
+      button.classList.toggle('active', stepNo === guidedCurrentStep);
+      button.classList.toggle('done',
+        (stepNo === 1 && guidedCurrentStep > 1) ||
+        (stepNo === 2 && state.audiencePreviewedTotal !== null && state.audiencePreviewedTotal > 0) ||
+        (stepNo === 3 && state.messagePreviewed));
+    });
+
+    if (guidedAudienceAdvancePending && state.audiencePreviewedTotal !== null) {
+      guidedAudienceAdvancePending = false;
+      if (state.audiencePreviewedTotal > 0) showGuidedStep(3);
+    }
+  }
+
+  function showGuidedStep(stepNo) {
+    guidedCurrentStep = Math.max(1, Math.min(4, Number(stepNo) || 1));
+    refreshGuidedFlow();
+    var target = $('bc-' + (guidedCurrentStep === 1 ? 'channel' : guidedCurrentStep === 2 ? 'audience' : guidedCurrentStep === 3 ? 'message' : 'send') + '-step');
+    if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function addGuidedControls(stepNo, title, help) {
+    var ids = ['channel', 'audience', 'message', 'send'];
+    var fieldset = $('bc-' + ids[stepNo - 1] + '-step');
+    if (!fieldset) return;
+    var intro = document.createElement('div');
+    intro.className = 'bc-step-intro';
+    intro.innerHTML = '<strong>' + title + '</strong><span>' + help + '</span>';
+    var legend = fieldset.querySelector('legend');
+    if (legend) legend.insertAdjacentElement('afterend', intro);
+    else fieldset.insertBefore(intro, fieldset.firstChild);
+    var actions = document.createElement('div');
+    actions.className = 'bc-wizard-actions';
+    if (stepNo > 1) actions.innerHTML += '<button type="button" class="btn bc-back">上一步</button>';
+    actions.innerHTML += '<span class="bc-wizard-hint" aria-live="polite"></span>';
+    if (stepNo < 4) actions.innerHTML += '<button type="button" class="btn btn-warning bc-next">' + (stepNo === 2 ? '確認人數並繼續' : '下一步') + '</button>';
+    fieldset.appendChild(actions);
+    var back = actions.querySelector('.bc-back');
+    var next = actions.querySelector('.bc-next');
+    var hint = actions.querySelector('.bc-wizard-hint');
+    if (back) back.addEventListener('click', function () { hint.textContent = ''; showGuidedStep(stepNo - 1); });
+    if (next) next.addEventListener('click', function () {
+      hint.textContent = '';
+      if (stepNo === 1) return showGuidedStep(2);
+      if (stepNo === 2) {
+        if (state.audiencePreviewedTotal !== null && state.audiencePreviewedTotal > 0) return showGuidedStep(3);
+        guidedAudienceAdvancePending = true;
+        hint.textContent = '正在確認可發送人數…';
+        $('btn-preview-audience').click();
+        return;
+      }
+      if (stepNo === 3) {
+        if (state.audiencePreviewedTotal === null || state.audiencePreviewedTotal <= 0) {
+          hint.textContent = '收件人條件已變更，請回上一步重新確認人數。';
+          return;
+        }
+        if (state.messagePreviewed) return showGuidedStep(4);
+        hint.textContent = '請先挑一則訊息或完成內容，看到右側預覽後再繼續。';
+        var template = $('template-select');
+        if (template) template.focus();
+      }
+    });
+  }
+
+  function initGuidedFlow() {
+    if (INIT.msgLibMode || !$('bc-task-progress')) return;
+    addGuidedControls(1, '這次要從哪裡聯絡顧客？', '一般活動通知選 LINE；只有手上名單有 Email 時才選 Email。');
+    addGuidedControls(2, '這次要傳給誰？', '選條件、既有名單或直接貼 LINE User ID，系統會先算出實際人數。');
+    addGuidedControls(3, '顧客會看到什麼？', '先挑訊息庫素材，或在這裡修改。右側出現正確預覽才算完成。');
+    addGuidedControls(4, '先測試，再決定何時送出', '先發給測試人員確認文字、圖片與連結；正式送出前還會再確認一次。');
+    guidedInitialized = true;
+    $$('[data-bc-step]').forEach(function (button) {
+      button.addEventListener('click', function () { if (!button.disabled) showGuidedStep(button.getAttribute('data-bc-step')); });
+    });
+    var fullBtn = $('bc-full-mode');
+    if (fullBtn) fullBtn.addEventListener('click', function () {
+      guidedFullMode = !guidedFullMode;
+      fullBtn.textContent = guidedFullMode ? '回到一步一步模式' : '顯示完整設定';
+      var moreAudience = $('bc-more-audience');
+      if (moreAudience) moreAudience.open = guidedFullMode;
+      refreshGuidedFlow();
+    });
+    refreshGuidedFlow();
+  }
+  initGuidedFlow();
 
   // ------------------------------------------------------------------
   // 訊息庫模式（?msglib=1）：複用本編輯器，存到訊息庫而非送出
