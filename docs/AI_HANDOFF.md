@@ -209,6 +209,15 @@ Email 已儲存名單）都可選「全部符合條件的人」或「隨機抽�
 `src/core/campaignExperiment.js`，route／runner 在 `src/routes/adminBroadcast.js`，回歸測試在
 `test/campaign-experiment.test.js`。
 
+#### Flex 卡片 CTA 網址編輯（2026-09-18）
+
+訊息庫與群發編輯器的進階 Flex 模式會走訪卡片內所有 `action.type="uri"`，在「按鈕連結
+（CTA URL）」直接列出按鈕名稱與目前網址；已經是正式網址的按鈕也要顯示，不能只顯示
+`REPLACE_*` 佔位符。A／B／C 各版有自己的欄位，套用時依 JSON path 只改指定按鈕，避免
+兩顆共用舊網址時被一起誤改。訊息庫模式不得載入或改寫群發草稿，也不得因上次群發開過
+A/B/C 而出現多版本預覽。前端與回歸測試在 `public/admin-broadcast.js`、
+`views/admin_broadcast.ejs`、`test/broadcast-preview-ui.test.js`。
+
 #### 群發加入好友日期篩選（2026-09-11）
 
 `/admin/broadcast` 的「條件篩選」除了最近 1／7／30／90 天，也可選「自訂日期範圍」。

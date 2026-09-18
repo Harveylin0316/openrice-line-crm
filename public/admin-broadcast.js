@@ -837,7 +837,10 @@
     var prefix = variant === 'b' ? 'b-' : 'c-';
     if (config.mode === 'flex_json') {
       var flexEl = $(prefix + 'flex-json');
-      if (flexEl && config.flex) flexEl.value = JSON.stringify(config.flex, null, 2);
+      if (flexEl && config.flex) {
+        flexEl.value = JSON.stringify(config.flex, null, 2);
+        setTimeout(function () { scanJsonUrls(variant); }, 0);
+      }
       return;
     }
     var t = config.template || {};
@@ -2803,6 +2806,7 @@
   var draftSaveTimer = null;
 
   function saveDraft() {
+    if (INIT.msgLibMode) return;
     try {
       var d = {
         mode: state.mode,
@@ -3166,7 +3170,6 @@
   var JSON_IMAGE_URL_RE =
     /(?:p\/line-media|v\/b\/[^/'"\\s]+)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|REPLACE_[A-Z0-9_]+)/gi;
   // 純 placeholder（給 URL form 用）
-  var JSON_URL_PLACEHOLDER_RE = /\b(REPLACE_[A-Z0-9_]+)\b/g;
   var ANY_REPLACE_RE = /REPLACE_[A-Z0-9_]+/;
   var MEDIA_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -3282,126 +3285,116 @@
     renderJsonImageRows(list, ctx.image);
   }
 
-  // URL scan：rebuild URL list 只列尚未套用的 REPLACE_* placeholder
-  // 已套用的 row 由 DOM 保持（不會被這個函式刪除）— 套用 handler 自行 update row
-  function scanJsonUrls() {
-    var raw = $('flex-json').value || '';
-    var imgSet = {};
-    JSON_IMAGE_URL_RE.lastIndex = 0;
-    var m;
-    while ((m = JSON_IMAGE_URL_RE.exec(raw)) !== null) imgSet[m[1]] = true;
-    var allSet = {};
-    var newPlaceholders = [];
-    JSON_URL_PLACEHOLDER_RE.lastIndex = 0;
-    while ((m = JSON_URL_PLACEHOLDER_RE.exec(raw)) !== null) {
-      if (!allSet[m[1]] && !imgSet[m[1]]) {
-        allSet[m[1]] = true;
-        newPlaceholders.push(m[1]);
-      }
+  function jsonVariantIds(variant) {
+    if (variant === 'b') return { textarea: 'b-flex-json', helper: 'b-json-url-helper', list: 'b-json-url-list' };
+    if (variant === 'c') return { textarea: 'c-flex-json', helper: 'c-json-url-helper', list: 'c-json-url-list' };
+    return { textarea: 'flex-json', helper: 'json-url-helper', list: 'json-url-list' };
+  }
+
+  // 收集 Flex 裡所有「開啟網址」按鈕，不只 REPLACE_* placeholder。
+  // path 讓每一顆按鈕能各自修改；即使兩顆原本共用同一 URL，也不會一起被誤改。
+  function collectUriActions(node, path, out) {
+    if (!node || typeof node !== 'object') return;
+    path = path || [];
+    out = out || [];
+    if (node.action && node.action.type === 'uri' && typeof node.action.uri === 'string') {
+      out.push({
+        path: path.concat(['action', 'uri']),
+        uri: node.action.uri,
+        label: extractActionLabel(node) || ('按鈕 ' + (out.length + 1))
+      });
     }
-    // 比對 DOM 現有 URL row（含已套用的）
-    var existing = {};
-    $$('.json-url-row').forEach(function (r) {
-      existing[r.getAttribute('data-id')] = r;
+    Object.keys(node).forEach(function (key) {
+      if (key === 'action') return;
+      var value = node[key];
+      if (Array.isArray(value)) {
+        value.forEach(function (item, index) { collectUriActions(item, path.concat([key, index]), out); });
+      } else if (value && typeof value === 'object') {
+        collectUriActions(value, path.concat([key]), out);
+      }
     });
-    var combined = [];
-    Object.keys(existing).forEach(function (k) { combined.push(k); });
-    newPlaceholders.forEach(function (p) {
-      if (!existing[p]) combined.push(p);
-    });
-    var ctx = scanJsonContext();
-    renderJsonUrlRows(combined, existing, ctx.url);
+    return out;
+  }
+
+  function scanJsonUrls(variant) {
+    var ids = jsonVariantIds(variant);
+    var textarea = $(ids.textarea);
+    var actions = [];
+    if (textarea && String(textarea.value || '').trim()) {
+      try { actions = collectUriActions(JSON.parse(textarea.value), [], []); } catch (e) { actions = []; }
+    }
+    renderJsonUrlRows(actions, variant);
   }
 
   // 同時 scan image + URL（給 tab 切換 / 模板載入 / 手動掃描用）
   function scanJsonImagesAndUrls() {
     scanJsonImages();
-    scanJsonUrls();
+    scanJsonUrls('a');
+    scanJsonUrls('b');
+    scanJsonUrls('c');
   }
 
-  function renderJsonUrlRows(rowAnchors, preservedRows, contextMap) {
-    var helper = $('json-url-helper');
-    var list = $('json-url-list');
-    if (rowAnchors.length === 0) {
+  function renderJsonUrlRows(actions, variant) {
+    var ids = jsonVariantIds(variant);
+    var helper = $(ids.helper);
+    var list = $(ids.list);
+    if (!helper || !list) return;
+    if (actions.length === 0) {
       helper.hidden = true;
       list.innerHTML = '';
       return;
     }
     helper.hidden = false;
-    list.innerHTML = rowAnchors.map(function (anchor, i) {
-      var existing = preservedRows && preservedRows[anchor];
-      var inputVal = '';
-      var statusHtml = '未套用';
-      var labelHtml;
-      var isApplied = existing && existing.getAttribute('data-applied') === '1';
-      // 取 context label — 已套用 row 取自 data-context；未套用 row 取自當前 ctx
-      var ctxLabel = '';
-      if (isApplied && existing) {
-        ctxLabel = existing.getAttribute('data-context') || '';
-      } else if (contextMap && contextMap[anchor]) {
-        ctxLabel = contextMap[anchor].label || '';
-      }
-      var contextHtml = ctxLabel
-        ? '<span class="jur-context">「' + escapeHtml(ctxLabel) + '」</span>'
-        : '';
-      if (isApplied) {
-        inputVal = anchor;
-        statusHtml = '<span style="color:#065f46;">已套用</span>';
-        labelHtml = 'URL ' + (i + 1) + '：' + contextHtml + '<span class="muted" style="font-size:11px;">（已綁定）</span>';
-      } else {
-        labelHtml = 'URL ' + (i + 1) + '：' + contextHtml + '<span class="jur-ph">' + anchor + '</span>';
-      }
-      return '<div class="json-url-row" data-id="' + anchor + '"' +
-        (isApplied ? ' data-applied="1"' : '') +
-        (ctxLabel ? ' data-context="' + escapeHtml(ctxLabel) + '"' : '') + '>' +
-        '<div class="jur-label">' + labelHtml + '</div>' +
-        '<input type="url" class="jur-input" placeholder="https://..." value="' + inputVal.replace(/"/g, '&quot;') + '" />' +
-        '<button type="button" class="btn jur-apply">' + (isApplied ? '再套用' : '套用') + '</button>' +
-        '<span class="jur-status">' + statusHtml + '</span>' +
+    list.innerHTML = actions.map(function (action, i) {
+      var unresolved = ANY_REPLACE_RE.test(action.uri);
+      var status = unresolved ? '尚未設定' : (/^https?:\/\//i.test(action.uri) ? '已設定' : '網址格式需確認');
+      return '<div class="json-url-row" data-path="' + encodeURIComponent(JSON.stringify(action.path)) + '">' +
+        '<div class="jur-label">按鈕 ' + (i + 1) + '：<span class="jur-context">「' + escapeHtml(action.label) + '」</span></div>' +
+        '<input type="url" class="jur-input" aria-label="' + escapeHtml((variant || 'a').toUpperCase() + ' 版本「' + action.label + '」CTA URL') + '" placeholder="https://..." value="' + escapeHtml(unresolved ? '' : action.uri) + '" />' +
+        '<button type="button" class="btn jur-apply">套用</button>' +
+        '<span class="jur-status' + (!unresolved && /^https?:\/\//i.test(action.uri) ? ' ok' : '') + '">' + status + '</span>' +
         '</div>';
     }).join('');
     $$('.jur-apply', list).forEach(function (btn) {
       btn.addEventListener('click', function () {
         var row = btn.closest('.json-url-row');
-        applyJsonUrl(row);
+        applyJsonUrl(row, variant);
+      });
+    });
+    $$('.jur-input', list).forEach(function (input) {
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          applyJsonUrl(input.closest('.json-url-row'), variant);
+        }
       });
     });
   }
 
-  function applyJsonUrl(row) {
-    var anchor = row.getAttribute('data-id');
+  function applyJsonUrl(row, variant) {
     var input = row.querySelector('.jur-input');
     var statusEl = row.querySelector('.jur-status');
     var url = String(input.value || '').trim();
     if (!url) { statusEl.textContent = '請填 URL'; return; }
     if (!/^https?:\/\//i.test(url)) { statusEl.textContent = '需 http(s):// 開頭'; return; }
-    var textarea = $('flex-json');
-    // 整段取代：把「含此 placeholder 的整個 JSON 字串值」換成使用者填的完整網址。
-    // 避免模板若是 "https://tw.openrice.com/REPLACE_TARGET" 這種「前綴 + 佔位」時，
-    // 只換掉 token 會變成 https://tw.openrice.com/https://...（雙網址、連結失效）。
-    var escAnchor = anchor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    var valRe = new RegExp('"[^"]*' + escAnchor + '[^"]*"', 'g');
-    if (valRe.test(textarea.value)) {
-      textarea.value = textarea.value.replace(valRe, JSON.stringify(url));
-    } else {
-      textarea.value = textarea.value.split(anchor).join(url); // 後備：非字串值情境
+    var ids = jsonVariantIds(variant);
+    var textarea = $(ids.textarea);
+    try {
+      var parsed = JSON.parse(textarea.value);
+      var path = JSON.parse(decodeURIComponent(row.getAttribute('data-path') || ''));
+      setJsonAtPath(parsed, path, url);
+      textarea.value = JSON.stringify(parsed, null, 2);
+      statusEl.textContent = '已設定';
+      statusEl.classList.add('ok');
+      state.messagePreviewed = false;
+      updateSendButton();
+      saveDraft();
+      if (variant === 'a' || !variant) scanJsonImages();
+      schedulePreview();
+    } catch (e) {
+      statusEl.textContent = '套用失敗：' + (e && e.message || 'JSON 格式錯誤');
+      statusEl.classList.remove('ok');
     }
-    row.setAttribute('data-id', url);
-    row.setAttribute('data-applied', '1');
-    var labelEl = row.querySelector('.jur-label');
-    if (labelEl) {
-      var idxText = labelEl.textContent.split('：')[0] || 'URL';
-      labelEl.innerHTML = idxText + '：<span class="muted" style="font-size:11px;">（已綁定）</span>';
-    }
-    statusEl.innerHTML = '<span style="color:#065f46;">已套用</span>';
-    var btn = row.querySelector('.jur-apply');
-    if (btn) btn.textContent = '再套用';
-    state.messagePreviewed = false;
-    updateSendButton();
-    saveDraft();
-    // 不 re-scan URL，row 維持
-    scanJsonImages();
-    schedulePreview();
   }
 
   // 判斷 ID 是 mediaId UUID 還是 placeholder
@@ -3537,15 +3530,19 @@
       .catch(function (e) { statusEl.textContent = '錯誤：' + e.message; });
   }
 
-  // 觸發 scan：
-  //   textarea input → 只 scan image（不影響 URL 已套用 row）
-  //   tab 切換 / 載入模板 / 重新掃描按鈕 → 全 scan（含 URL list rebuild）
-  var scanTimer = null;
-  function scheduleScanImages() {
-    if (scanTimer) clearTimeout(scanTimer);
-    scanTimer = setTimeout(scanJsonImages, 300);
+  // 觸發 scan：A/B/C 任一 JSON 改動後，都重新列出該版本的按鈕連結。
+  var scanTimers = {};
+  function scheduleScanForVariant(variant) {
+    if (scanTimers[variant]) clearTimeout(scanTimers[variant]);
+    scanTimers[variant] = setTimeout(function () {
+      if (variant === 'a') scanJsonImages();
+      scanJsonUrls(variant);
+    }, 300);
   }
-  $('flex-json').addEventListener('input', scheduleScanImages);
+  [['flex-json', 'a'], ['b-flex-json', 'b'], ['c-flex-json', 'c']].forEach(function (pair) {
+    var textarea = $(pair[0]);
+    if (textarea) textarea.addEventListener('input', function () { scheduleScanForVariant(pair[1]); });
+  });
   $('btn-scan-json-images').addEventListener('click', scanJsonImagesAndUrls);
   // tab 切換 → 也 scan 一次
   $$('.tab-btn[data-mode]').forEach(function (btn) {
@@ -3556,8 +3553,20 @@
     });
   });
 
-  // 啟動：嘗試 restore 上次的草稿
-  loadDraft();
+  // 啟動：群發頁才讀群發草稿。訊息庫必須是單一素材編輯器，不能被上次的
+  // A/B/C 群發草稿污染成多版本預覽，也不能誤存隱藏版本設定。
+  if (INIT.msgLibMode) {
+    state.abTestEnabled = false;
+    state.campaignTestEnabled = false;
+    state.campaignVariantCount = 2;
+    if ($('ab-test-enable')) $('ab-test-enable').checked = false;
+    if ($('campaign-test-enable')) $('campaign-test-enable').checked = false;
+    if ($('variant-b-pane')) $('variant-b-pane').hidden = true;
+    if ($('variant-c-pane')) $('variant-c-pane').hidden = true;
+    if ($('variant-a-label')) $('variant-a-label').hidden = true;
+  } else {
+    loadDraft();
+  }
   // 草稿載入或 template 套用後 JSON 已就位 → scan
   setTimeout(scanJsonImagesAndUrls, 500);
 
