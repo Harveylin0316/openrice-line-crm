@@ -18,6 +18,7 @@ const SOURCE_PRESETS = [
   ['other', '其他']
 ];
 const CONVERSION_TYPES = new Set(['none', 'activity_play', 'user_event']);
+const MAX_EXACT_RANGE_DAYS = 397;
 const EVENT_LABELS = {
   app_open: '開啟活動頁', map_booking_click: '按下訂位', map_restaurant_view: '查看餐廳',
   map_share_click: '分享內容', map_favorite_toggle: '收藏餐廳', map_decide_click: '使用幫我決定',
@@ -46,6 +47,48 @@ function reportDays(raw) {
   const value = Number.parseInt(raw, 10);
   if (!Number.isFinite(value)) return 30;
   return Math.max(1, Math.min(365, value));
+}
+
+function calendarDate(now, utcOffsetHours) {
+  return new Date(Number(now) + utcOffsetHours * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function addDaysIso(iso, delta) {
+  const date = new Date(iso + 'T00:00:00.000Z');
+  date.setUTCDate(date.getUTCDate() + delta);
+  return date.toISOString().slice(0, 10);
+}
+
+function isIsoDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  try {
+    return new Date(value + 'T00:00:00.000Z').toISOString().slice(0, 10) === value;
+  } catch (_) {
+    return false;
+  }
+}
+
+function daysInclusive(from, to) {
+  return Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000) + 1;
+}
+
+function normalizeTrackingDateRange(input, now = Date.now()) {
+  const today = calendarDate(now, 8);
+  const rawFrom = String(input.from || '').trim();
+  const rawTo = String(input.to || '').trim();
+  if (rawFrom || rawTo) {
+    if (!rawFrom || !rawTo) throw new Error('請同時選擇開始日與結束日。');
+    if (!isIsoDate(rawFrom) || !isIsoDate(rawTo)) throw new Error('日期格式不正確，請重新選擇。');
+    if (rawFrom > rawTo) throw new Error('開始日不能晚於結束日。');
+    if (rawTo > today) throw new Error('結束日不能晚於今天。');
+    const days = daysInclusive(rawFrom, rawTo);
+    if (days > MAX_EXACT_RANGE_DAYS) throw new Error('一次最多查詢 397 天，請縮短日期範圍。');
+    return { from: rawFrom, to: rawTo, days, timezone: 'Asia/Taipei' };
+  }
+
+  const days = reportDays(input.days);
+  if (days == null) return { from: null, to: null, days: null, timezone: 'Asia/Taipei' };
+  return { from: addDaysIso(today, -(days - 1)), to: today, days, timezone: 'Asia/Taipei' };
 }
 
 function conversionLabel(row, activities, events) {
@@ -147,10 +190,21 @@ function registerAdminLiffTrackingRoutes(app, deps) {
 
   app.get('/admin/liff-tracking/api/data', requireAdmin, async (req, res) => {
     try {
-      const days = reportDays(req.query.days);
-      const params = days == null ? [] : [String(days)];
-      const eventRange = days == null ? '' : ` AND e.opened_at >= now() - ($1::text || ' days')::interval`;
-      const openRange = days == null ? '' : ` WHERE opened_at >= now() - ($1::text || ' days')::interval`;
+      let range;
+      try {
+        range = normalizeTrackingDateRange(req.query || {});
+      } catch (rangeErr) {
+        return jsonErr(res, 400, 'range_invalid', rangeErr.message);
+      }
+      const params = range.from == null
+        ? []
+        : [range.from + 'T00:00:00+08:00', addDaysIso(range.to, 1) + 'T00:00:00+08:00'];
+      const eventRange = range.from == null
+        ? ''
+        : ` AND e.opened_at >= $1::timestamptz AND e.opened_at < $2::timestamptz`;
+      const openRange = range.from == null
+        ? ''
+        : ` WHERE opened_at >= $1::timestamptz AND opened_at < $2::timestamptz`;
 
       const [linksResult, activitiesResult, eventsResult, summaryResult, sourceResult, dailyResult] = await Promise.all([
         query(`SELECT l.id, l.name, l.campaign_name, l.source_key, l.source_label, l.target_url,
@@ -182,7 +236,9 @@ function registerAdminLiffTrackingRoutes(app, deps) {
       ]);
 
       const conversionParams = params;
-      const firstOpenRange = days == null ? '' : ` WHERE e.opened_at >= now() - ($1::text || ' days')::interval`;
+      const firstOpenRange = range.from == null
+        ? ''
+        : ` WHERE e.opened_at >= $1::timestamptz AND e.opened_at < $2::timestamptz`;
       const [activityConversionResult, eventConversionResult] = await Promise.all([
         query(`WITH first_open AS (
                  SELECT e.tracking_link_id, e.line_user_id, MIN(e.opened_at) AS first_opened_at
@@ -251,7 +307,8 @@ function registerAdminLiffTrackingRoutes(app, deps) {
       const summary = summaryResult.rows[0] || {};
       res.json({
         ok: true,
-        days,
+        days: range.days,
+        range,
         timezone: 'Asia/Taipei',
         tracking_available: !!trackingLiffId(),
         summary: {
@@ -412,5 +469,7 @@ module.exports = {
   cleanHttpsUrl,
   cleanSourceKey,
   reportDays,
+  normalizeTrackingDateRange,
+  addDaysIso,
   SOURCE_PRESETS
 };
