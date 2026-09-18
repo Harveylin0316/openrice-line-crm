@@ -13,8 +13,19 @@
     </section>
 
     <section class="card">
-      <h1 style="margin-bottom:4px;">歡迎回來</h1>
-      <p class="muted" style="line-height:1.7;">這裡是 OpenRice LINE CRM 後台。想發訊息給會員，照下面三步驟走就對了。</p>
+      <div class="db-home-head">
+        <div><h1 style="margin-bottom:4px;">工作台</h1><p class="muted" style="line-height:1.7;">先選今天要完成的事情；不需要先記住功能藏在哪個選單。</p></div>
+        <a href="/admin/guide">第一次接手？先看操作指南</a>
+      </div>
+      <div class="db-task-grid">
+        <a href="/admin/broadcast"><strong>發一則訊息</strong><span>選收件人、套用內容、測試並發送</span></a>
+        <a href="/admin/messages"><strong>準備訊息素材</strong><span>建立文字、圖片、影片或 LINE 卡片</span></a>
+        <a href="/admin/flows"><strong>設定自動追發</strong><span>加好友、點擊或開活動後自動傳訊</span></a>
+        <a href="/admin/recipient-lists"><strong>整理受眾名單</strong><span>建立固定名單或自動更新條件</span></a>
+        <a href="/admin/activities"><strong>管理抽獎活動</strong><span>活動、獎項、遊玩次數與前台畫面</span></a>
+        <a href="/admin/insight"><strong>查看整體成效</strong><span>好友、互動、圖文選單與活動數據</span></a>
+      </div>
+      <h2 class="db-overview-title">目前概況</h2>
       <div class="db-stats" id="db-stats">
         <div class="db-stat"><div class="v" id="st-friends">—</div><div class="k">可發送好友</div></div>
         <div class="db-stat"><div class="v" id="st-friends7">—</div><div class="k">近 7 天新好友</div></div>
@@ -127,6 +138,7 @@
       .db-alert-item .t b{color:#E11D27;font-variant-numeric:tabular-nums;}
       .db-alert-item a{font-size:13px;font-weight:600;color:#1f2937;background:#FFFBEB;border:1px solid #FCC726;border-radius:999px;padding:5px 12px;text-decoration:none;white-space:nowrap;}
       .db-alert-item a:hover{background:#fff7d6;text-decoration:none;}
+      .db-home-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.db-home-head>a{margin-top:3px;color:#6f4a00;font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap}.db-home-head>a:hover{text-decoration:underline}.db-task-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0 22px}.db-task-grid a{display:flex;flex-direction:column;gap:4px;min-height:92px;padding:15px;border:1px solid #e7e2df;border-radius:11px;background:#fff;color:#302522;text-decoration:none;transition:border-color .15s,box-shadow .15s}.db-task-grid a:hover{border-color:#dfb316;box-shadow:0 5px 14px rgba(50,35,20,.06);text-decoration:none}.db-task-grid strong{font-size:14px}.db-task-grid span{color:#7c706b;font-size:12px;line-height:1.5}.db-overview-title{margin:0;font-size:15px;color:#5a4c47}
       .db-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:16px;}
       .db-stat{border:1px solid #ECECEE;border-radius:10px;padding:14px;background:#FAFAFA;}
       .db-stat .v{font-size:26px;font-weight:700;color:#1f2937;font-variant-numeric:tabular-nums;letter-spacing:-0.02em;}
@@ -165,6 +177,8 @@
       .db-links a{display:flex;flex-direction:column;gap:3px;border:1px solid #ECECEE;border-radius:10px;padding:12px 14px;text-decoration:none;color:#1f2937;font-size:14px;font-weight:600;background:#fff;transition:border-color .15s;}
       .db-links a:hover{border-color:#1f2937;text-decoration:none;}
       .db-links a span{font-size:12px;color:#9ca3af;font-weight:400;}
+      @media(max-width:760px){.db-task-grid{grid-template-columns:1fr 1fr}.db-home-head{flex-direction:column}.db-home-head>a{white-space:normal}}
+      @media(max-width:520px){.db-task-grid{grid-template-columns:1fr}.db-task-grid a{min-height:0}}
     </style>
 
     <script>
