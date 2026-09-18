@@ -4,6 +4,7 @@ const path = require('node:path');
 const ejs = require('ejs');
 
 const { registerAdminBroadcastRoutes } = require('../src/routes/adminBroadcast');
+const { buildBroadcastMessageSnapshots } = require('../src/core/broadcastMessageSnapshot');
 
 const REPO = path.join(__dirname, '..');
 
@@ -22,7 +23,8 @@ function renderDetail(abComparison) {
       { variant: 'b', sent_total: 646, sent_ok: 646, sent_fail: 0, views: 0, clicks: 0 }
     ],
     abComparison,
-    experimentStat: null
+    experimentStat: null,
+    messageSnapshots: buildBroadcastMessageSnapshots({})
   }, { views: [path.join(REPO, 'views')] });
 }
 

@@ -1,0 +1,63 @@
+<div class="message-snapshot-body<%= compact ? ' message-snapshot-body--compact' : '' %>">
+  <% if (summary.images && summary.images.length) { %>
+    <div class="message-snapshot-images">
+      <% summary.images.forEach(function (url, index) { %>
+        <a href="<%= url %>" target="_blank" rel="noopener" class="message-snapshot-image-link" title="開啟原圖">
+          <img src="<%= url %>" alt="訊息圖片 <%= index + 1 %>" loading="lazy" />
+        </a>
+      <% }) %>
+    </div>
+  <% } %>
+
+  <% if (summary.title) { %>
+    <div class="message-snapshot-title"><%= summary.title %></div>
+  <% } %>
+
+  <% if (summary.texts && summary.texts.length) { %>
+    <div class="message-snapshot-texts">
+      <% summary.texts.forEach(function (value) { %>
+        <div class="message-snapshot-text"><%= value %></div>
+      <% }) %>
+    </div>
+  <% } %>
+
+  <% if (summary.couponCode) { %>
+    <div class="message-snapshot-coupon">
+      <span>優惠碼</span><strong><%= summary.couponCode %></strong>
+    </div>
+  <% } %>
+
+  <% if (summary.actions && summary.actions.length) { %>
+    <div class="message-snapshot-actions">
+      <% summary.actions.forEach(function (action) { %>
+        <% if ((action.type === 'uri' || action.type === 'media') && action.url) { %>
+          <a href="<%= action.url %>" target="_blank" rel="noopener" class="message-snapshot-action">
+            <span><%= action.label || '開啟連結' %></span>
+            <small><%= action.url %></small>
+          </a>
+        <% } else { %>
+          <div class="message-snapshot-action message-snapshot-action--plain">
+            <span><%= action.label || '互動按鈕' %></span>
+            <% if (action.value) { %><small><%= action.value %></small><% } %>
+            <% if (action.invalidUrl) { %><small class="message-snapshot-invalid">這筆快照沒有有效網址</small><% } %>
+          </div>
+        <% } %>
+      <% }) %>
+    </div>
+  <% } %>
+
+  <% if (summary.segments && summary.segments.length) { %>
+    <div class="message-snapshot-segments">
+      <% summary.segments.forEach(function (segment) { %>
+        <div class="message-snapshot-segment">
+          <div class="message-snapshot-segment-label">第 <%= segment.index %> 段 · <%= segment.typeLabel %></div>
+          <%- include('broadcast_message_summary', { summary: segment.summary, compact: true }) %>
+        </div>
+      <% }) %>
+    </div>
+  <% } %>
+
+  <% if (!(summary.images && summary.images.length) && !summary.title && !(summary.texts && summary.texts.length) && !summary.couponCode && !(summary.actions && summary.actions.length) && !(summary.segments && summary.segments.length)) { %>
+    <p class="muted" style="margin:0;font-size:13px;">這筆舊紀錄沒有可顯示的訊息內容。</p>
+  <% } %>
+</div>

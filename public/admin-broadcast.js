@@ -2715,6 +2715,14 @@
       message_config: collectMessageConfig(),
       send_mode: state.sendMode
     };
+    var selectedMessageTemplate = $('template-select');
+    if (selectedMessageTemplate && selectedMessageTemplate.value) {
+      var selectedOption = selectedMessageTemplate.options[selectedMessageTemplate.selectedIndex];
+      createBody.message_source = {
+        id: Number(selectedMessageTemplate.value),
+        name: selectedOption ? String(selectedOption.text || '').trim() : ''
+      };
+    }
     if (createBody.channel === 'email') {
       createBody.email_subject = ($('email-subject') && $('email-subject').value || '').trim();
       createBody.email_from_name = ($('email-from-name') && $('email-from-name').value || '').trim();
