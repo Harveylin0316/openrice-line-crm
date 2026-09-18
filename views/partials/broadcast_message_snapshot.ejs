@@ -1,0 +1,99 @@
+<%
+  const snapshot = messageSnapshots && !Array.isArray(messageSnapshots) && typeof messageSnapshots === 'object'
+    ? messageSnapshots
+    : { channelLabel: 'LINE 推播', channel: 'line', variants: [] };
+  const snapshotVariants = Array.isArray(snapshot.variants) ? snapshot.variants : [];
+%>
+<section class="card message-snapshot-card">
+  <div class="message-snapshot-heading">
+    <div>
+      <h2 style="margin:0;">這次發送的訊息</h2>
+      <p class="muted" style="margin:6px 0 0;font-size:13px;line-height:1.6;">
+        顯示建立批次當下保存的內容快照；日後修改訊息庫，不會改變這裡的紀錄。
+      </p>
+    </div>
+    <span class="message-snapshot-channel"><%= snapshot.channelLabel || 'LINE 推播' %></span>
+  </div>
+
+  <% if (snapshot.sourceName || snapshot.subject || snapshot.fromName || snapshot.fromAddress) { %>
+    <dl class="message-snapshot-meta">
+      <% if (snapshot.sourceName) { %>
+        <div><dt>來源訊息庫</dt><dd><%= snapshot.sourceName %><% if (snapshot.sourceId) { %>（#<%= snapshot.sourceId %>）<% } %></dd></div>
+      <% } %>
+      <% if (snapshot.subject) { %><div><dt>Email 主旨</dt><dd><%= snapshot.subject %></dd></div><% } %>
+      <% if (snapshot.fromName || snapshot.fromAddress) { %>
+        <div><dt>寄件人</dt><dd><%= [snapshot.fromName, snapshot.fromAddress].filter(Boolean).join(' · ') %></dd></div>
+      <% } %>
+    </dl>
+  <% } %>
+
+  <div class="message-snapshot-grid message-snapshot-grid--<%= snapshotVariants.length %>">
+    <% snapshotVariants.forEach(function (variant) { %>
+      <article class="message-snapshot-variant">
+        <div class="message-snapshot-variant-head">
+          <strong><%= variant.label %></strong>
+          <span><%= variant.summary.modeLabel %></span>
+        </div>
+        <% if (variant.summary.notificationText) { %>
+          <div class="message-snapshot-notification">
+            <span>LINE 通知文字</span>
+            <strong><%= variant.summary.notificationText %></strong>
+          </div>
+        <% } %>
+        <%- include('broadcast_message_summary', { summary: variant.summary, compact: false }) %>
+        <details class="message-snapshot-raw">
+          <summary>查看完整設定 JSON</summary>
+          <pre><%= JSON.stringify(variant.config || {}, null, 2) %></pre>
+        </details>
+      </article>
+    <% }) %>
+    <% if (!snapshotVariants.length) { %>
+      <p class="muted" style="margin:0;font-size:13px;">這筆舊紀錄沒有可顯示的訊息設定。</p>
+    <% } %>
+  </div>
+</section>
+
+<style>
+  .message-snapshot-heading { display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap; }
+  .message-snapshot-channel { display:inline-flex;padding:5px 10px;border-radius:999px;background:#FFFBEB;border:1px solid #FDE68A;color:#92400e;font-size:12px;font-weight:700; }
+  .message-snapshot-meta { display:grid;gap:8px;margin:16px 0 0;padding:13px 15px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px; }
+  .message-snapshot-meta div { display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px; }
+  .message-snapshot-meta dt { color:#6b7280;font-size:12px; }
+  .message-snapshot-meta dd { margin:0;color:#1f2937;font-size:13px;font-weight:600;word-break:break-word; }
+  .message-snapshot-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:16px; }
+  .message-snapshot-variant { min-width:0;border:1px solid #dbe3ee;border-radius:12px;background:#fff;overflow:hidden; }
+  .message-snapshot-variant-head { display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;background:#f8fafc;border-bottom:1px solid #e5e7eb; }
+  .message-snapshot-variant-head strong { color:#1f2937;font-size:14px; }
+  .message-snapshot-variant-head span { color:#6b7280;font-size:11px; }
+  .message-snapshot-notification { margin:12px 14px 0;padding:10px 12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px; }
+  .message-snapshot-notification span { display:block;color:#92400e;font-size:11px;margin-bottom:4px; }
+  .message-snapshot-notification strong { display:block;color:#1f2937;font-size:13px;line-height:1.5;word-break:break-word; }
+  .message-snapshot-body { padding:14px; }
+  .message-snapshot-body--compact { padding:10px 0 0; }
+  .message-snapshot-images { display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:12px; }
+  .message-snapshot-image-link { display:block;overflow:hidden;border-radius:8px;background:#f3f4f6;border:1px solid #e5e7eb; }
+  .message-snapshot-image-link img { display:block;width:100%;max-height:230px;object-fit:contain;background:#fff; }
+  .message-snapshot-title { font-size:18px;line-height:1.45;font-weight:700;color:#1f2937;white-space:pre-wrap;word-break:break-word;margin-bottom:10px; }
+  .message-snapshot-texts { display:grid;gap:8px; }
+  .message-snapshot-text { color:#4b5563;font-size:13px;line-height:1.65;white-space:pre-wrap;word-break:break-word; }
+  .message-snapshot-coupon { display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding:10px 12px;border-radius:8px;background:#FFFBEB;border:1px solid #FCC726; }
+  .message-snapshot-coupon span { color:#92400e;font-size:11px; }
+  .message-snapshot-coupon strong { color:#1f2937;word-break:break-word; }
+  .message-snapshot-actions { display:grid;gap:8px;margin-top:12px; }
+  .message-snapshot-action { display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:8px;background:#FCC726;color:#1f2937;text-decoration:none;min-width:0; }
+  .message-snapshot-action:hover { background:#f5b800; }
+  .message-snapshot-action span { font-size:13px;font-weight:700; }
+  .message-snapshot-action small { color:#4b5563;font-size:10px;line-height:1.4;word-break:break-all; }
+  .message-snapshot-action--plain { background:#f3f4f6; }
+  .message-snapshot-invalid { color:#991b1b !important; }
+  .message-snapshot-segments { display:grid;gap:10px; }
+  .message-snapshot-segment { padding:10px 12px;border:1px solid #e5e7eb;border-radius:9px;background:#fafafa; }
+  .message-snapshot-segment-label { color:#6b7280;font-size:11px;font-weight:700; }
+  .message-snapshot-raw { margin:0 14px 14px;border-top:1px solid #e5e7eb;padding-top:10px; }
+  .message-snapshot-raw summary { cursor:pointer;color:#6b7280;font-size:12px; }
+  .message-snapshot-raw pre { max-height:320px;overflow:auto;margin:10px 0 0;padding:12px;background:#111827;color:#e5e7eb;border-radius:8px;font-size:10px;line-height:1.5;white-space:pre-wrap;word-break:break-word; }
+  @media (max-width:640px) {
+    .message-snapshot-meta div { grid-template-columns:1fr;gap:3px; }
+    .message-snapshot-grid { grid-template-columns:1fr; }
+  }
+</style>

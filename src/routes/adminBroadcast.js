@@ -39,6 +39,10 @@ const {
 } = require('../core/broadcastAudience');
 const { recordRestaurantClick } = require('../core/restaurantLinkParse');
 const {
+  buildBroadcastMessageSnapshots,
+  getBroadcastMessageIdentity
+} = require('../core/broadcastMessageSnapshot');
+const {
   activeVariants,
   normalizeCampaignExperiment,
   startObservationWindow,
@@ -1391,6 +1395,18 @@ function registerAdminBroadcastRoutes(app, deps) {
           sendTotal: recipientSelection.sendTotal
         }
       };
+      const rawMessageSource = body.message_source && typeof body.message_source === 'object'
+        ? body.message_source
+        : null;
+      if (rawMessageSource) {
+        const sourceId = Number(rawMessageSource.id);
+        const sourceName = String(rawMessageSource.name || '').trim().slice(0, 200);
+        if (Number.isInteger(sourceId) && sourceId > 0 && sourceName) {
+          // 只做辨識用。真正送出的內容仍以 message_config 快照為準，日後訊息庫改名或改內容
+          // 都不會回頭污染這筆歷史紀錄。
+          audienceConfig.messageSource = { id: sourceId, name: sourceName };
+        }
+      }
       if (experiment) audienceConfig.experiment = experiment;
 
       const adminUsername =
@@ -1913,7 +1929,8 @@ function registerAdminBroadcastRoutes(app, deps) {
       const listRs = await query(
         `SELECT b.id, b.created_at, b.status, b.admin_username, b.scheduled_at,
                 b.recipient_total, b.recipient_ok, b.recipient_fail, b.recipient_skip,
-                b.started_at, b.finished_at,
+                b.started_at, b.finished_at, b.channel, b.email_subject,
+                b.message_config, b.variant_b_message_config, b.is_ab_test, b.audience_config,
                 -- 算「幾個人點過」，跟詳情頁同一套口徑（沒有逐人紀錄的舊資料退回用瀏覽器指紋粗估）
                 (SELECT COALESCE(NULLIF(COUNT(DISTINCT line_user_id), 0), COUNT(DISTINCT user_agent))
                    FROM admin_broadcast_clicks WHERE broadcast_id = b.id)::int AS click_count
@@ -1925,19 +1942,30 @@ function registerAdminBroadcastRoutes(app, deps) {
 
       // 撈所有未發出的排程（不限 page，獨立區塊顯示）
       const scheduledRs = await query(
-        `SELECT b.id, b.created_at, b.scheduled_at, b.admin_username, b.recipient_total
+        `SELECT b.id, b.created_at, b.scheduled_at, b.admin_username, b.recipient_total,
+                b.channel, b.email_subject, b.message_config, b.variant_b_message_config,
+                b.is_ab_test, b.audience_config
          FROM admin_broadcasts b
          WHERE b.status = 'scheduled'
-         ORDER BY b.scheduled_at ASC NULLS LAST, b.id DESC`
+        ORDER BY b.scheduled_at ASC NULLS LAST, b.id DESC`
       );
+
+      const batches = listRs.rows.map((row) => ({
+        ...row,
+        message_identity: getBroadcastMessageIdentity(row)
+      }));
+      const scheduled = scheduledRs.rows.map((row) => ({
+        ...row,
+        message_identity: getBroadcastMessageIdentity(row)
+      }));
 
       return res.render('admin_broadcast_history', {
         title: '群發歷史',
         bodyClass: 'admin-shell broadcast-history-shell',
         user: (req.authUser && req.authUser.un) || '',
         isAdmin: true,
-        batches: listRs.rows,
-        scheduled: scheduledRs.rows,
+        batches,
+        scheduled,
         page: pageNum,
         totalPages,
         total
@@ -2128,7 +2156,8 @@ function registerAdminBroadcastRoutes(app, deps) {
         viewStat: viewStatRs.rows[0] || { views: 0, first_view: null, last_view: null },
         abStat,
         abComparison,
-        experimentStat
+        experimentStat,
+        messageSnapshots: buildBroadcastMessageSnapshots(b, { origin: publicOriginOrEmpty(req) })
       });
     } catch (err) {
       next(err);

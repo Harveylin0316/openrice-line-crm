@@ -16,6 +16,7 @@
               <thead>
                 <tr>
                   <th>ID</th>
+                  <th>訊息</th>
                   <th>預定發送時間</th>
                   <th>距離</th>
                   <th>建立者</th>
@@ -47,6 +48,11 @@
                   }
                   return `<tr data-id="${r.id}">
                     <td><a href="/admin/broadcast/${r.id}" style="font-weight:600;">#${r.id}</a></td>
+                    <td style="min-width:220px;max-width:360px;">
+                      <a href="/admin/broadcast/${r.id}" style="display:block;font-weight:600;color:#1f2937;text-decoration:none;">${String(r.message_identity && r.message_identity.title || '（沒有可辨識文字）').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</a>
+                      ${r.message_identity && r.message_identity.preview ? `<div class="muted" style="font-size:11px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${String(r.message_identity.preview).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>` : ''}
+                      <div class="muted" style="font-size:10px;margin-top:3px;">${r.message_identity && r.message_identity.channelLabel || 'LINE 推播'}${r.message_identity && r.message_identity.variantCount > 1 ? ` · ${r.message_identity.variantCount} 個版本` : ''}</div>
+                    </td>
                     <td style="font-variant-numeric:tabular-nums;">${schedStr}</td>
                     <td>${etaStr}</td>
                     <td>${(r.admin_username || '').replace(/</g,'&lt;')}</td>
@@ -74,6 +80,7 @@
               <thead>
                 <tr>
                   <th>ID</th>
+                  <th>訊息</th>
                   <th>建立時間</th>
                   <th>建立者</th>
                   <th>狀態</th>
@@ -106,6 +113,11 @@
                     : 0;
                   return `<tr>
                     <td><a href="/admin/broadcast/${r.id}" style="font-weight:600;">#${r.id}</a></td>
+                    <td style="min-width:220px;max-width:360px;">
+                      <a href="/admin/broadcast/${r.id}" style="display:block;font-weight:600;color:#1f2937;text-decoration:none;">${String(r.message_identity && r.message_identity.title || '（沒有可辨識文字）').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</a>
+                      ${r.message_identity && r.message_identity.preview ? `<div class="muted" style="font-size:11px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${String(r.message_identity.preview).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>` : ''}
+                      <div class="muted" style="font-size:10px;margin-top:3px;">${r.message_identity && r.message_identity.channelLabel || 'LINE 推播'}${r.message_identity && r.message_identity.variantCount > 1 ? ` · ${r.message_identity.variantCount} 個版本` : ''}</div>
+                    </td>
                     <td>${ts}</td>
                     <td>${(r.admin_username || '').replace(/</g,'&lt;')}</td>
                     <td><span class="status-pill status-${r.status}">${r.status}</span></td>
