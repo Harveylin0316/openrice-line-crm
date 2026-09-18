@@ -18,6 +18,25 @@
 
 const { cleanDefinition, previewAudience, syncDynamicList } = require('../core/audienceSegments');
 
+function buildRichMenuCatalog(rows) {
+  return (rows || []).map(row => {
+    const cfg = row.published_config || row.config || {};
+    const rawTabs = Array.isArray(cfg.tabs) && cfg.tabs.length ? cfg.tabs : [cfg];
+    const tabs = rawTabs.map((tab, tabIndex) => ({
+      index: tabIndex,
+      label: String((tab && tab.label) || (rawTabs.length > 1 ? `分頁 ${tabIndex + 1}` : '主選單')),
+      buttons: (Array.isArray(tab && tab.buttons) ? tab.buttons : []).map((button, buttonIndex) => {
+        const action = button && button.action || {};
+        return {
+          index: buttonIndex,
+          label: String((button && button.label) || action.label || action.text || `按鈕 ${buttonIndex + 1}`)
+        };
+      })
+    }));
+    return { id: row.id, name: row.name, status: row.status, tabs };
+  });
+}
+
 function registerAdminRecipientListsRoutes(app, deps) {
   const { query, pool, authCore, flowEngine = null } = deps;
   const { requireAdmin } = authCore;
@@ -80,12 +99,13 @@ function registerAdminRecipientListsRoutes(app, deps) {
       const [tags, activities, menus, broadcasts] = await Promise.all([
         query(`SELECT id, name FROM user_tags ORDER BY name`),
         query(`SELECT id, name FROM activities ORDER BY id DESC LIMIT 100`),
-        query(`SELECT id, name FROM rich_menus ORDER BY id DESC LIMIT 100`),
+        query(`SELECT id, name, status, published_config, config
+                 FROM rich_menus ORDER BY id DESC LIMIT 100`),
         query(`SELECT id, COALESCE(message_config->>'name', '群發 #' || id::text) AS name,
                       created_at FROM admin_broadcasts ORDER BY id DESC LIMIT 100`)
       ]);
       return res.json({ ok: true, tags: tags.rows, activities: activities.rows,
-        menus: menus.rows, broadcasts: broadcasts.rows });
+        menus: buildRichMenuCatalog(menus.rows), broadcasts: broadcasts.rows });
     } catch (err) {
       return safeJson(res, 500, 'catalog_failed', { detail: err && err.message });
     }
@@ -571,4 +591,4 @@ function registerAdminRecipientListsRoutes(app, deps) {
   });
 }
 
-module.exports = { registerAdminRecipientListsRoutes };
+module.exports = { registerAdminRecipientListsRoutes, buildRichMenuCatalog };
