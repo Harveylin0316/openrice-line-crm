@@ -52,6 +52,8 @@ test('多段訊息可選既有測試人員，並把指定 LINE User ID 傳給測
   const select = document.getElementById('msq-test-recipient');
   const button = document.getElementById('msq-test');
 
+  assert.doesNotMatch(document.body.textContent, /發給我自己測試/);
+  assert.match(document.body.textContent, /選擇測試人員發送確認/);
   assert.equal(select.disabled, false);
   assert.deepEqual(Array.from(select.options).map(option => option.textContent), ['Hen', 'Ice']);
   assert.equal(button.disabled, false);
