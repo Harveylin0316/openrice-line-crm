@@ -636,6 +636,7 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 - 建立靜態名單時可選擇「建立前，只保留符合條件的人」。試算與正式建立都以貼入的 LINE userId 為 scope，採「匯入 ID ∩ 受眾條件」；未勾選時維持原本的純手動名單。前端送 `scopeLineUserIds` 試算、`filterDefinition` 建立，後端必須重新計算，不能信任畫面顯示的人數。
 - 條件支援 Include／Exclude 與 Include 間 AND／OR。Exclude 永遠是強制排除，不會因選 OR 而意外把排除者放回名單；只有 Exclude 時語意是「全部有效會員扣掉排除條件」。
 - 可用加入日期、目前好友／封鎖狀態、Tag、指定圖文選單／按鈕、LIFF event、活動進入／開始／完成／分享、成功邀請、獎勵、LINE Login、活動手機登記、金豬訂位、群發已發／Email delivered／open／click／測試組／CTA conversion 等條件。現有 `campaign_phone_registrations` 只能證明活動手機登記，不能當作 OpenRice App Registration；後者須等正式身份橋接後才能加入。
+- 「點過指定圖文選單按鈕」必須用三段名稱選擇器（圖文選單 → 分頁 → 按鈕），不可要求使用者手填 `menu_id:tab:cell`。畫面顯示人話名稱，儲存時仍轉成既有底層格式，讓舊名單與 `rich_menu_taps` 查詢維持相容。
 - 建立畫面會在條件變更後 debounce 即時計數。啟用自動同步的名單由既有 scheduled runner 每五分鐘更新；群發預覽與正式建立批次前仍會強制同步一次，避免送到排程間隔內的舊快照。
 - 已建立的動態名單可在列表或詳情頁查看、修改條件並立即同步；同步失敗會顯示最後錯誤。排程每輪以 `last_synced_at NULLS FIRST` 處理最久未同步的 25 筆，避免名單超過上限後永遠只更新較小 id。
 - 流程編輯器的「加入名單」步驟可直接建立空白靜態名單，不必離開編輯畫面。這個動作只允許靜態名單；前端、儲存 API 與執行引擎都有防線，避免流程加入的成員被下一次動態重算洗掉。
