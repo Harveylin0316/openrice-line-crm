@@ -875,7 +875,7 @@
       </style>
     </section>
 
-    <section class="card">
+    <section class="card recent-batches-card">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
         <h2 style="margin:0;">近期批次（最新 10 筆）</h2>
         <a href="/admin/broadcast/history" class="btn">查看完整歷史</a>
@@ -957,6 +957,8 @@
       .bc-more-audience[open] > summary { margin:0 -14px 12px; border-bottom:1px solid #e5e7eb; }
       .bc-full-mode .bc-task-progress { display:none; }
       .bc-full-mode .bc-step-intro, .bc-full-mode .bc-wizard-actions { display:none; }
+      .broadcast-card.bc-guided-mode ~ .system-tools-card,
+      .broadcast-card.bc-guided-mode ~ .recent-batches-card { display:none; }
       .broadcast-grid {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
