@@ -20,6 +20,8 @@
   // form state
   var state = {
     mode: 'template',
+    sequenceConfig: null,
+    suppressAdvancedToggle: false,
     heroMediaId: null,
     heroUrl: null,
     bHeroMediaId: null,
@@ -94,6 +96,7 @@
   var advancedJsonBlock = document.getElementById('advanced-json-block');
   if (advancedJsonBlock) {
     advancedJsonBlock.addEventListener('toggle', function () {
+      if (state.suppressAdvancedToggle) return;
       var open = advancedJsonBlock.open;
       if (open && state.campaignTestEnabled) {
         var modeWarning = $('campaign-mode-warning');
@@ -220,10 +223,15 @@
       $('campaign-test-enable').checked = false;
       updateCampaignTestUI();
     }
+    if (state.mode === 'sequence' && $('msg-alt-text-block')) $('msg-alt-text-block').hidden = true;
   }
   $$('.tab-btn[data-channel]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var ch = btn.getAttribute('data-channel');
+      if (ch === 'email' && state.mode === 'sequence') {
+        alert('這份文字／圖片／卡片組合是 LINE 訊息，請使用 LINE 推播。');
+        return;
+      }
       $$('.tab-btn[data-channel]').forEach(function (b) {
         b.classList.toggle('active', b === btn);
       });
@@ -735,6 +743,9 @@
   }
   function collectMessageConfig() {
     var topAlt = getTopAltText();
+    if (state.mode === 'sequence' && state.sequenceConfig) {
+      return JSON.parse(JSON.stringify(state.sequenceConfig));
+    }
     if (state.mode === 'flex_json') {
       var raw = $('flex-json').value;
       try {
@@ -812,6 +823,7 @@
 
   function messageConfigHasContent(config) {
     if (!config || typeof config !== 'object') return false;
+    if (config.mode === 'sequence') return Array.isArray(config.items) && config.items.length > 0;
     if (config.mode === 'flex_json') return !!(config.flex && typeof config.flex === 'object');
     var t = config.template || {};
     return !!(t.heroMediaId || t.title || t.subtitle || t.couponCode);
@@ -969,14 +981,14 @@
             var target = $('ab-preview-' + variant.key);
             var data = results[idx];
             if (data && data.ok) {
-              renderFlexMock(data.messages[0], target, variant.key === 'a');
+              renderLineMessagesMock(data.messages, target, variant.key === 'a' && state.mode !== 'sequence');
             } else {
               target.classList.add('empty');
               target.innerHTML = '<div style="padding:18px 12px;color:#92400e;background:#fffbeb;border:1px dashed #f59e0b;border-radius:10px;">版本 ' + variant.label + ' 尚未完成：' + escapeHtml((data && data.error) || '無法建立預覽') + '</div>';
             }
           });
         } else {
-          renderFlexMock(dataA.messages[0], previewEl);
+          renderLineMessagesMock(dataA.messages, previewEl, state.mode !== 'sequence');
         }
         state.messagePreviewed = failed.length === 0;
         statusEl.textContent = failed.length === 0
@@ -1017,6 +1029,59 @@
   // ------------------------------------------------------------------
   // 7. render Flex mock (支援 bubble 跟 carousel，含 header/hero/body/footer)
   // ------------------------------------------------------------------
+  function renderLineMessagesMock(messages, container, editable) {
+    var list = Array.isArray(messages) ? messages : [];
+    if (list.length === 1 && list[0] && list[0].type === 'flex') {
+      renderFlexMock(list[0], container, editable);
+      return;
+    }
+    container.classList.remove('empty');
+    container.innerHTML = '';
+    if (!list.length) {
+      container.classList.add('empty');
+      container.textContent = '沒有可預覽的訊息內容';
+      return;
+    }
+    list.forEach(function (message, index) {
+      var section = document.createElement('div');
+      section.style.marginBottom = index === list.length - 1 ? '0' : '12px';
+      var label = document.createElement('div');
+      label.style.cssText = 'font-size:11px;color:#6b7280;margin:0 0 5px 3px;';
+      label.textContent = '第 ' + (index + 1) + ' 段';
+      section.appendChild(label);
+      var body = document.createElement('div');
+      if (message && message.type === 'text') {
+        body.style.cssText = 'background:#fff;border-radius:14px;padding:11px 13px;white-space:pre-wrap;word-break:break-word;line-height:1.5;box-shadow:0 1px 3px rgba(0,0,0,.12);';
+        body.textContent = String(message.text || '');
+      } else if (message && message.type === 'image') {
+        body.style.cssText = 'background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.12);';
+        var image = document.createElement('img');
+        image.src = message.previewImageUrl || message.originalContentUrl || '';
+        image.alt = '';
+        image.style.cssText = 'display:block;width:100%;height:auto;';
+        body.appendChild(image);
+      } else if (message && message.type === 'video') {
+        body.style.cssText = 'position:relative;background:#111;border-radius:14px;overflow:hidden;aspect-ratio:16/9;box-shadow:0 1px 3px rgba(0,0,0,.12);';
+        var poster = document.createElement('img');
+        poster.src = message.previewImageUrl || '';
+        poster.alt = '';
+        poster.style.cssText = 'display:block;width:100%;height:100%;object-fit:cover;opacity:.78;';
+        body.appendChild(poster);
+        var play = document.createElement('div');
+        play.textContent = '▶';
+        play.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:34px;';
+        body.appendChild(play);
+      } else if (message && message.type === 'flex') {
+        renderFlexMock(message, body, editable);
+      } else {
+        body.style.cssText = 'padding:12px;background:#fff;border-radius:12px;color:#92400e;';
+        body.textContent = '這一段暫時無法預覽';
+      }
+      section.appendChild(body);
+      container.appendChild(section);
+    });
+  }
+
   // 渲染預覽時是否啟用 WYSIWYG 編輯。A/B 的版本 B 卡設 false，
   // 否則點 B 卡編輯會把改動寫進版本 A 的 #flex-json（靜默損壞 A）。
   var renderingEditable = true;
@@ -2295,9 +2360,73 @@
       });
   }
 
-  function applyMessageConfigToForm(messageConfig) {
+  function setSequencePane(active, messageConfig, templateMeta) {
+    var sequencePane = $('pane-sequence');
+    var altBlock = $('msg-alt-text-block');
+    var advancedBlock = $('advanced-json-block');
+    var testingSettings = $('message-testing-settings');
+    if (sequencePane) sequencePane.hidden = !active;
+    if (altBlock) altBlock.hidden = active || getActiveChannel() === 'email';
+    if (advancedBlock) advancedBlock.hidden = active;
+    if (testingSettings) testingSettings.hidden = active;
+    if (!active) return;
+
+    var nameEl = $('sequence-template-name');
+    var summaryEl = $('sequence-template-summary');
+    var editLink = $('sequence-template-edit');
+    if (nameEl) nameEl.textContent = templateMeta && templateMeta.name
+      ? '已選擇「' + templateMeta.name + '」'
+      : '已選擇文字／圖片／卡片組合';
+    var items = messageConfig && Array.isArray(messageConfig.items) ? messageConfig.items : [];
+    var typeNames = { text: '文字', image: '圖片', video: '影片', card: '卡片' };
+    if (summaryEl) {
+      summaryEl.textContent = items.map(function (item, index) {
+        var detail = '';
+        if (item && item.type === 'text') {
+          var excerpt = String(item.text || '').replace(/\s+/g, ' ').trim();
+          if (excerpt) detail = '：' + excerpt.slice(0, 45) + (excerpt.length > 45 ? '…' : '');
+        }
+        return '第 ' + (index + 1) + ' 段 ' + (typeNames[item && item.type] || '訊息') + detail;
+      }).join('　→　');
+    }
+    if (editLink) {
+      editLink.href = templateMeta && templateMeta.id
+        ? '/admin/messages/sequence?mid=' + encodeURIComponent(templateMeta.id)
+        : '/admin/messages';
+    }
+  }
+
+  function applyMessageConfigToForm(messageConfig, templateMeta) {
     if (!messageConfig || typeof messageConfig !== 'object') return;
     var topAltEl = document.getElementById('msg-alt-text');
+    if (messageConfig.mode === 'sequence') {
+      var lineTab = document.querySelector('.tab-btn[data-channel="line"]');
+      if (lineTab && !lineTab.classList.contains('active')) lineTab.click();
+      state.mode = 'sequence';
+      state.sequenceConfig = JSON.parse(JSON.stringify(messageConfig));
+      if ($('campaign-test-enable') && $('campaign-test-enable').checked) {
+        $('campaign-test-enable').checked = false;
+        updateCampaignTestUI();
+      }
+      if ($('ab-test-enable') && $('ab-test-enable').checked) {
+        $('ab-test-enable').checked = false;
+        $('ab-test-enable').dispatchEvent(new Event('change'));
+      }
+      var sequenceAdvancedBlock = $('advanced-json-block');
+      if (sequenceAdvancedBlock && sequenceAdvancedBlock.open) {
+        state.suppressAdvancedToggle = true;
+        sequenceAdvancedBlock.open = false;
+        setTimeout(function () { state.suppressAdvancedToggle = false; }, 0);
+      }
+      $('pane-template').hidden = true;
+      setSequencePane(true, messageConfig, templateMeta || null);
+      state.messagePreviewed = false;
+      updateSendButton();
+      schedulePreview();
+      return;
+    }
+    state.sequenceConfig = null;
+    setSequencePane(false);
     if (messageConfig.mode === 'flex_json') {
       if (state.campaignTestEnabled) {
         var warning = $('campaign-mode-warning');
@@ -2368,7 +2497,7 @@
           alert('載入失敗：' + (data.error || ''));
           return;
         }
-        applyMessageConfigToForm(data.template.message_config);
+        applyMessageConfigToForm(data.template.message_config, data.template);
         state.messagePreviewed = false;
         updateSendButton();
         saveDraft();
@@ -2810,6 +2939,9 @@
     try {
       var d = {
         mode: state.mode,
+        sequenceConfig: state.mode === 'sequence' && state.sequenceConfig
+          ? JSON.parse(JSON.stringify(state.sequenceConfig))
+          : null,
         hero: { mediaId: state.heroMediaId || null, url: state.heroUrl || null },
         template: {
           title: $('tpl-title').value,
@@ -2948,7 +3080,9 @@
         state.heroUrl = d.hero.url || null;
         renderHeroStatus(true);
       }
-      if (d.mode === 'flex_json') {
+      if (d.mode === 'sequence' && d.sequenceConfig) {
+        applyMessageConfigToForm(d.sequenceConfig);
+      } else if (d.mode === 'flex_json') {
         // 展開進階 JSON 區塊會觸發其 toggle handler，把 state.mode 設成 flex_json
         var advBlock = document.getElementById('advanced-json-block');
         if (advBlock && !advBlock.open) advBlock.open = true;
@@ -2972,6 +3106,7 @@
       var el = $(id);
       if (el) el.value = '';
     });
+    if (state.mode === 'sequence') applyMessageConfigToForm(BLANK_TEMPLATE_CONFIG);
     state.heroMediaId = null;
     state.heroUrl = null;
     var fi = $('hero-file');

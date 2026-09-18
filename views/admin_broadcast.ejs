@@ -458,12 +458,21 @@
             </div>
 
             <!-- 通知預覽文字（altText）— 兩種 mode 共用，模板載入時也會帶過來，可隨時改 -->
-            <div class="broadcast-field channel-line-only" style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 12px;margin-bottom:14px;">
+            <div class="broadcast-field channel-line-only" id="msg-alt-text-block" style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 12px;margin-bottom:14px;">
               <label style="display:block;">
                 <span style="font-size:12px;font-weight:600;color:#92400E;">LINE 通知預覽文字（用戶在通知列看到的那行字）</span>
                 <input type="text" id="msg-alt-text" maxlength="400" placeholder="留空自動用標題；改這裡馬上同步到要送的訊息" style="margin-top:6px;width:100%;padding:8px 10px;border:1px solid #FDE68A;border-radius:6px;font-size:14px;box-sizing:border-box;" />
                 <span class="muted" style="font-size:11px;margin-top:4px;display:block;">這是用戶在 LINE 通知列和聊天列表看到的文字。Flex JSON 模式也會覆蓋 JSON 內的 altText。</span>
               </label>
+            </div>
+
+            <div class="broadcast-tab-pane" id="pane-sequence" hidden>
+              <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:13px 14px;margin-bottom:14px;">
+                <strong id="sequence-template-name">已選擇文字／圖片／卡片組合</strong>
+                <div id="sequence-template-summary" class="muted" style="font-size:12px;line-height:1.7;margin-top:6px;"></div>
+                <div style="font-size:12px;margin-top:8px;">這則訊息會按照原本順序一起群發。若要修改內容，請先回訊息庫編輯。</div>
+                <a id="sequence-template-edit" href="/admin/messages" style="display:inline-block;margin-top:8px;font-size:12px;">回訊息庫編輯</a>
+              </div>
             </div>
 
             <div class="broadcast-tab-pane" id="pane-template">
@@ -556,7 +565,7 @@
               </div>
             </details>
 
-            <details class="advanced-settings-block">
+            <details class="advanced-settings-block" id="message-testing-settings">
               <summary>進階設定：A/B test 分組發送</summary>
               <div class="ab-test-toggle-bar">
                 <label class="ab-toggle-label">

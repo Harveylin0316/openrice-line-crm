@@ -133,6 +133,79 @@ test('某個測試版本無效時，正常版本仍可預覽並明確標示未�
   assert.match(source, /state\.messagePreviewed = failed\.length === 0/);
 });
 
+test('訊息庫的文字加卡片組合可直接帶入群發，並依原順序完整預覽', async () => {
+  const html = await ejs.renderFile(path.join(REPO, 'views', 'admin_broadcast.ejs'), {
+    title: '群發訊息', bodyClass: 'admin-shell broadcast-shell', user: 'admin', isAdmin: true,
+    prizes: [], activities: [], recent: [], scheduled: [], running: [], hasLineToken: true,
+    maxRecipients: 5000, chunkSize: 50, fieldLimits: {}, msgLibMode: false,
+    msgLibId: null, msgLibDup: false
+  }, { views: [path.join(REPO, 'views')] });
+  const source = fs.readFileSync(path.join(REPO, 'public', 'admin-broadcast.js'), 'utf8');
+  const sequence = {
+    mode: 'sequence',
+    items: [
+      { type: 'text', text: '先發這段文字' },
+      { type: 'card', source_message_id: 9, message_config: { mode: 'flex_json', flex: flexCard('再發這張圖文卡片') } }
+    ]
+  };
+  const previewBodies = [];
+  const alerts = [];
+  const dom = new JSDOM(html, {
+    runScripts: 'outside-only',
+    url: 'https://crm.example/admin/broadcast?tpl=42',
+    pretendToBeVisual: true
+  });
+  const { window } = dom;
+  window.alert = message => alerts.push(message);
+  window.confirm = () => true;
+  window.HTMLElement.prototype.scrollIntoView = () => {};
+  window.fetch = async (url, options = {}) => {
+    if (url === '/admin/broadcast/test-recipients') return { json: async () => ({ ok: true, recipients: [] }) };
+    if (url === '/admin/broadcast/templates') {
+      return { json: async () => ({ ok: true, templates: [{ id: 42, name: '文字＋圖文訊息', description: '先文字再卡片' }] }) };
+    }
+    if (url === '/admin/broadcast/templates/42') {
+      return { json: async () => ({ ok: true, template: { id: 42, name: '文字＋圖文訊息', message_config: sequence } }) };
+    }
+    if (url === '/admin/broadcast/preview-message') {
+      const body = JSON.parse(options.body || '{}');
+      previewBodies.push(body.message_config);
+      return { json: async () => ({ ok: true, channel: 'line', messages: [
+        { type: 'text', text: '先發這段文字' },
+        flexCard('再發這張圖文卡片')
+      ] }) };
+    }
+    return { json: async () => ({ ok: true }) };
+  };
+
+  window.eval(source);
+  await wait(900);
+
+  assert.equal(window.document.getElementById('pane-sequence').hidden, false);
+  assert.equal(window.document.getElementById('pane-template').hidden, true);
+  assert.equal(window.document.getElementById('advanced-json-block').hidden, true);
+  assert.equal(window.document.getElementById('message-testing-settings').hidden, true);
+  assert.match(window.document.getElementById('sequence-template-name').textContent, /文字＋圖文訊息/);
+  assert.match(window.document.getElementById('sequence-template-summary').textContent, /第 1 段 文字/);
+  assert.match(window.document.getElementById('sequence-template-summary').textContent, /第 2 段 卡片/);
+  assert.equal(previewBodies.at(-1).mode, 'sequence');
+  assert.equal(previewBodies.at(-1).items.length, 2);
+  assert.match(window.document.getElementById('msg-preview').textContent, /先發這段文字/);
+  assert.match(window.document.getElementById('msg-preview').textContent, /再發這張圖文卡片/);
+  assert.match(window.document.getElementById('msg-status').textContent, /預覽已更新/);
+
+  window.document.querySelector('.tab-btn[data-channel="email"]').click();
+  assert.match(alerts.at(-1), /LINE 訊息/);
+  assert.equal(window.document.querySelector('.tab-btn[data-channel="line"]').classList.contains('active'), true);
+  dom.window.close();
+});
+
+test('訊息庫所有素材包含多段訊息，都提供直接拿去群發的入口', () => {
+  const source = fs.readFileSync(path.join(REPO, 'views', 'admin_messages.ejs'), 'utf8');
+  assert.match(source, /href="\/admin\/broadcast\?tpl='\+m\.id\+'">用這則去群發/);
+  assert.doesNotMatch(source, /isSeq\?'<a class="msg-go-broadcast" href="\/admin\/flows">用於自動化/);
+});
+
 test('訊息庫的既有 CTA 會顯示可編輯 URL，套用後同步 JSON 與預覽且不受群發 A/B 草稿污染', async () => {
   const html = await ejs.renderFile(path.join(REPO, 'views', 'admin_broadcast.ejs'), {
     title: '編輯訊息', bodyClass: 'admin-shell broadcast-shell msglib-mode', user: 'admin', isAdmin: true,
