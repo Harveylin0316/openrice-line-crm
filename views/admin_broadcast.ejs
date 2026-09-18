@@ -539,8 +539,9 @@
               </div>
               <div id="json-url-helper" class="json-url-helper" hidden>
                 <div class="json-url-helper-head">
-                  <span>URL 填寫助手（自動偵測 JSON 內 <code>REPLACE_*</code> 連結位置）</span>
+                  <span>按鈕連結（CTA URL）</span>
                 </div>
+                <div class="muted json-url-helper-hint">卡片裡每一顆「開啟網址」按鈕都會列在這裡，不需要修改 Flex JSON。</div>
                 <div id="json-url-list"></div>
               </div>
               <details class="json-textarea-block">
@@ -587,6 +588,11 @@
                 <div class="broadcast-field"><label>altText<input type="text" id="b-tpl-alt" maxlength="400" /></label></div>
               </div>
               <div class="broadcast-tab-pane" id="pane-b-flex-json" hidden>
+                <div id="b-json-url-helper" class="json-url-helper" hidden>
+                  <div class="json-url-helper-head"><span>版本 B 按鈕連結（CTA URL）</span></div>
+                  <div class="muted json-url-helper-hint">可與版本 A 使用不同目的地；每顆按鈕都能個別設定。</div>
+                  <div id="b-json-url-list"></div>
+                </div>
                 <div class="broadcast-field">
                   <label>版本 B 的 Flex JSON
                     <textarea id="b-flex-json" rows="14" spellcheck="false"></textarea>
@@ -635,7 +641,14 @@
                     <div class="broadcast-field"><label>CTA 連結 (https://)<input type="url" id="c-tpl-cta-url" /></label></div>
                     <div class="broadcast-field"><label>altText<input type="text" id="c-tpl-alt" maxlength="400" /></label></div>
                   </div>
-                  <div class="broadcast-tab-pane" id="pane-c-flex-json" hidden><div class="broadcast-field"><label>版本 C 的 Flex JSON<textarea id="c-flex-json" rows="14" spellcheck="false"></textarea></label></div></div>
+                  <div class="broadcast-tab-pane" id="pane-c-flex-json" hidden>
+                    <div id="c-json-url-helper" class="json-url-helper" hidden>
+                      <div class="json-url-helper-head"><span>版本 C 按鈕連結（CTA URL）</span></div>
+                      <div class="muted json-url-helper-hint">可與版本 A／B 使用不同目的地；每顆按鈕都能個別設定。</div>
+                      <div id="c-json-url-list"></div>
+                    </div>
+                    <div class="broadcast-field"><label>版本 C 的 Flex JSON<textarea id="c-flex-json" rows="14" spellcheck="false"></textarea></label></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1284,8 +1297,9 @@
         font-size: 13px;
         font-weight: 600;
         color: #92400e;
-        margin-bottom: 8px;
+        margin-bottom: 4px;
       }
+      .json-url-helper-hint { font-size: 11px; line-height: 1.5; margin-bottom: 8px; }
       .json-url-helper-head code {
         background: #fff;
         padding: 1px 6px;
@@ -1321,6 +1335,7 @@
         background: #fff;
       }
       .jur-status { font-size: 12px; color: #92400e; flex: 0 0 auto; }
+      .jur-status.ok { color: #065f46; }
       .jir-context, .jur-context {
         display: inline-block;
         font-weight: 600;

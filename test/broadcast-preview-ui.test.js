@@ -22,6 +22,24 @@ function flexCard(text) {
   };
 }
 
+function flexCardWithCta(url = 'https://example.com/old') {
+  return {
+    type: 'flex',
+    altText: 'CTA 測試卡片',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical',
+        contents: [{
+          type: 'box', layout: 'vertical', backgroundColor: '#FCC726',
+          action: { type: 'uri', label: '立即查看', uri: url },
+          contents: [{ type: 'text', text: '立即查看', align: 'center', weight: 'bold' }]
+        }]
+      }
+    }
+  };
+}
+
 test('Campaign Testing 已開啟時選模板，空白 B 版會沿用 A 並正常顯示雙版本預覽', async () => {
   const html = await ejs.renderFile(path.join(REPO, 'views', 'admin_broadcast.ejs'), {
     title: '群發訊息', bodyClass: 'admin-shell broadcast-shell', user: 'admin', isAdmin: true,
@@ -95,4 +113,64 @@ test('某個測試版本無效時，正常版本仍可預覽並明確標示未�
   assert.match(source, /已顯示可預覽版本；請完成版本/);
   assert.match(source, /版本 ' \+ variant\.label \+ ' 尚未完成/);
   assert.match(source, /state\.messagePreviewed = failed\.length === 0/);
+});
+
+test('訊息庫的既有 CTA 會顯示可編輯 URL，套用後同步 JSON 與預覽且不受群發 A/B 草稿污染', async () => {
+  const html = await ejs.renderFile(path.join(REPO, 'views', 'admin_broadcast.ejs'), {
+    title: '編輯訊息', bodyClass: 'admin-shell broadcast-shell msglib-mode', user: 'admin', isAdmin: true,
+    prizes: [], activities: [], recent: [], scheduled: [], running: [], hasLineToken: true,
+    maxRecipients: 5000, chunkSize: 50, fieldLimits: {}, msgLibMode: true,
+    msgLibId: '7', msgLibDup: false
+  }, { views: [path.join(REPO, 'views')] });
+  const source = fs.readFileSync(path.join(REPO, 'public', 'admin-broadcast.js'), 'utf8');
+  const flex = flexCardWithCta();
+  const previewBodies = [];
+  const dom = new JSDOM(html, {
+    runScripts: 'outside-only',
+    url: 'https://crm.example/admin/broadcast?msglib=1&mid=7',
+    pretendToBeVisual: true
+  });
+  const { window } = dom;
+  window.alert = () => {};
+  window.confirm = () => true;
+  window.HTMLElement.prototype.scrollIntoView = () => {};
+  window.fetch = async (url, options = {}) => {
+    if (url === '/admin/broadcast/test-recipients') return { json: async () => ({ ok: true, recipients: [] }) };
+    if (url === '/admin/broadcast/templates') return { json: async () => ({ ok: true, templates: [] }) };
+    if (url === '/admin/messages/api/7') {
+      return { json: async () => ({ ok: true, message: { id: 7, name: 'CTA 卡片', message_config: { mode: 'flex_json', flex } } }) };
+    }
+    if (url === '/admin/broadcast/preview-message') {
+      const body = JSON.parse(options.body || '{}');
+      previewBodies.push(body.message_config);
+      return { json: async () => ({ ok: true, channel: 'line', messages: [body.message_config.flex] }) };
+    }
+    return { json: async () => ({ ok: true }) };
+  };
+
+  window.localStorage.setItem('broadcast_draft_v1', JSON.stringify({
+    abEnabled: true,
+    campaign: { enabled: true, variantCount: 2, a: '10', b: '10', c: '0', holdout: '80' },
+    variantB: { flexJson: JSON.stringify(flexCardWithCta('https://example.com/wrong-b')) },
+    _t: Date.now()
+  }));
+  window.eval(source);
+  await wait(750);
+
+  const helper = window.document.getElementById('json-url-helper');
+  const input = helper.querySelector('.jur-input');
+  assert.equal(helper.hidden, false, '有既有網址的 CTA 也必須顯示連結編輯器');
+  assert.equal(input.value, 'https://example.com/old');
+  assert.match(helper.textContent, /立即查看/);
+  assert.equal(window.document.getElementById('variant-b-pane').hidden, true, '訊息庫不應載入群發 A\/B 草稿');
+  assert.equal(window.document.querySelector('#ab-preview-b'), null, '訊息庫只預覽單一素材');
+
+  input.value = 'https://tw.openrice.com/new-cta';
+  helper.querySelector('.jur-apply').click();
+  await wait(650);
+  const savedFlex = JSON.parse(window.document.getElementById('flex-json').value);
+  assert.equal(savedFlex.contents.body.contents[0].action.uri, 'https://tw.openrice.com/new-cta');
+  assert.equal(helper.querySelector('.jur-status').textContent, '已設定');
+  assert.equal(previewBodies.at(-1).flex.contents.body.contents[0].action.uri, 'https://tw.openrice.com/new-cta');
+  dom.window.close();
 });
