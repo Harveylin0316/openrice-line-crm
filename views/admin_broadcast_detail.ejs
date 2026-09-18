@@ -68,13 +68,16 @@
       </p>
 
       ${abStat && abStat.length > 0 ? (() => {
-        const clicksA = (abStat.find(x => x.variant === 'a') || {}).clicks || 0;
-        const clicksB = (abStat.find(x => x.variant === 'b') || {}).clicks || 0;
-        const winner = clicksB > clicksA ? 'B' : 'A';
-        const isTie = clicksA === clicksB;
+        const comparison = abComparison || { winner: null, reason: 'insufficient_delivery' };
+        const winner = comparison.winner ? String(comparison.winner).toUpperCase() : null;
+        const noWinnerMessage = comparison.reason === 'no_clicks'
+          ? '目前 A、B 都沒有 CTA 點擊，尚無法判定勝出版。'
+          : comparison.reason === 'tie'
+            ? '目前 A、B 的不重複點擊率相同，尚無法判定勝出版。'
+            : '目前送達資料不足，尚無法判定勝出版。';
         return `
         <h2 style="margin-top:24px;">A/B Test 對比</h2>
-        <p class="muted" style="font-size:13px;margin-bottom:10px;">收件人隨機切兩半，A/B 各收一版訊息，比較開信率與點擊率找出更好的版本。</p>
+        <p class="muted" style="font-size:13px;margin-bottom:10px;">收件人隨機切兩半，A/B 各收一版訊息；勝出版依「不重複 CTA 點擊人數 ÷ 成功送達人數」判定。平手時不選勝出版。</p>
         <div class="ab-grid">
           ${abStat.map(v => {
             const sent = v.sent_ok || 0;
@@ -82,22 +85,22 @@
             const clickRate = sent > 0 ? Math.round((v.clicks / sent) * 100) : 0;
             const isWin = String(v.variant || '').toUpperCase() === winner;
             return `<div class="ab-cell${isWin ? ' ab-cell--winner' : ''}">
-              <div class="ab-cell-head">版本 ${String(v.variant || '?').toUpperCase()}${isWin ? ' <span class="ab-win-tag">點擊較高</span>' : ''}</div>
+              <div class="ab-cell-head">版本 ${String(v.variant || '?').toUpperCase()}${isWin ? ' <span class="ab-win-tag">點擊率較高</span>' : ''}</div>
               <div class="ab-cell-row"><span class="ab-cell-label">收件人</span><span class="ab-cell-val">${v.sent_total}</span></div>
               <div class="ab-cell-row"><span class="ab-cell-label">送達成功</span><span class="ab-cell-val">${v.sent_ok}</span></div>
               <div class="ab-cell-row"><span class="ab-cell-label">送達失敗</span><span class="ab-cell-val">${v.sent_fail}</span></div>
               <div class="ab-cell-row ab-cell-row--highlight"><span class="ab-cell-label">Hero 被看</span><span class="ab-cell-val">${v.views} <span class="muted" style="font-size:11px;">(${openRate}%)</span></span></div>
-              <div class="ab-cell-row ab-cell-row--highlight"><span class="ab-cell-label">CTA 點擊</span><span class="ab-cell-val">${v.clicks} <span class="muted" style="font-size:11px;">(${clickRate}%)</span></span></div>
+              <div class="ab-cell-row ab-cell-row--highlight"><span class="ab-cell-label">CTA 點擊人數</span><span class="ab-cell-val">${v.clicks} <span class="muted" style="font-size:11px;">(${clickRate}%)</span></span></div>
             </div>`;
           }).join('')}
         </div>
         <div class="ab-winner-block">
           <div>
-            <div style="font-weight:600;color:#1f2937;">勝出版：版本 ${winner}${isTie ? '（兩版點擊一樣多，預設用 A）' : '（CTA 點擊較多）'}</div>
-            <div class="muted" style="font-size:12px;margin-top:4px;">用這版重發給「已送達但沒點」的人。系統會建立一個新批次，幾分鐘內自動送出。</div>
+            <div style="font-weight:600;color:#1f2937;">${winner ? `勝出版：版本 ${winner}（CTA 點擊率較高）` : '目前沒有勝出版'}</div>
+            <div class="muted" style="font-size:12px;margin-top:4px;">${winner ? '可用這版重發給「已送達但沒點」的人。系統會建立一個新批次，幾分鐘內自動送出。' : noWinnerMessage}</div>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
-            <button type="button" class="btn btn-resend-winner" id="btn-resend-winner">以勝出版（版本 ${winner}）重發給未點擊者</button>
+            <button type="button" class="btn btn-resend-winner" id="btn-resend-winner"${winner ? '' : ' disabled'}>${winner ? `以勝出版（版本 ${winner}）重發給未點擊者` : '尚無勝出版，不能重發'}</button>
             <span id="resend-winner-status" class="muted" style="font-size:12px;"></span>
           </div>
         </div>

@@ -142,11 +142,44 @@ function pickCtrWinner(rows, variants) {
   return winner;
 }
 
+// 舊版 A/B 重發必須真的分出高低才可稱為勝出版。
+// 與 Campaign Testing 不同，這裡沒有保留組必須自動釋放，因此平手時應停下來讓營運判讀，
+// 不能把排序在前的 A 說成「點擊較高」。用交叉相乘比較可避免浮點誤差。
+function resolveAbCtrWinner(rows) {
+  const map = new Map((rows || []).map((row) => [String(row.variant || '').toLowerCase(), row]));
+  const stats = {};
+  ['a', 'b'].forEach((variant) => {
+    const row = map.get(variant) || {};
+    const sent = Math.max(0, Number(row.sent_ok || row.sent || 0));
+    const clickers = Math.max(0, Number(row.clickers ?? row.clicks ?? 0));
+    stats[variant] = {
+      sent,
+      clickers,
+      rate: sent > 0 ? clickers / sent : null
+    };
+  });
+
+  if (stats.a.sent <= 0 || stats.b.sent <= 0) {
+    return { winner: null, reason: 'insufficient_delivery', stats };
+  }
+  const aScore = stats.a.clickers * stats.b.sent;
+  const bScore = stats.b.clickers * stats.a.sent;
+  if (aScore === bScore) {
+    return {
+      winner: null,
+      reason: stats.a.clickers === 0 && stats.b.clickers === 0 ? 'no_clicks' : 'tie',
+      stats
+    };
+  }
+  return { winner: aScore > bScore ? 'a' : 'b', reason: 'winner', stats };
+}
+
 module.exports = {
   activeVariants,
   normalizeCampaignExperiment,
   startObservationWindow,
   allocationCounts,
   assignExperimentVariants,
-  pickCtrWinner
+  pickCtrWinner,
+  resolveAbCtrWinner
 };
