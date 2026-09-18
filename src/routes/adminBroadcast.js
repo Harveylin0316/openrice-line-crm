@@ -43,7 +43,8 @@ const {
   normalizeCampaignExperiment,
   startObservationWindow,
   assignExperimentVariants,
-  pickCtrWinner
+  pickCtrWinner,
+  resolveAbCtrWinner
 } = require('../core/campaignExperiment');
 const { syncDynamicList, filterAudienceLineUserIds } = require('../core/audienceSegments');
 
@@ -2019,6 +2020,7 @@ function registerAdminBroadcastRoutes(app, deps) {
 
       // A/B 對比統計（舊流程）；Campaign Testing 另計 CTR 與保留名單。
       let abStat = null;
+      let abComparison = null;
       const experiment = getCampaignExperiment(b);
       let experimentStat = null;
       if (experiment) {
@@ -2073,8 +2075,14 @@ function registerAdminBroadcastRoutes(app, deps) {
           [broadcastId]
         );
         const clickByVariant = await query(
-          `SELECT variant, COUNT(*)::int AS n FROM admin_broadcast_clicks
-           WHERE broadcast_id = $1 GROUP BY variant`,
+          `SELECT r.variant,
+                  COUNT(DISTINCT r.id) FILTER (WHERE c.id IS NOT NULL)::int AS n
+           FROM admin_broadcast_recipients r
+           LEFT JOIN admin_broadcast_clicks c
+             ON c.broadcast_id = r.broadcast_id
+            AND (c.recipient_id = r.id OR (c.recipient_id IS NULL AND c.line_user_id = r.line_user_id))
+           WHERE r.broadcast_id = $1
+           GROUP BY r.variant`,
           [broadcastId]
         );
         const viewMap = {};
@@ -2089,6 +2097,11 @@ function registerAdminBroadcastRoutes(app, deps) {
           views: viewMap[r.variant] || 0,
           clicks: clickMap[r.variant] || 0
         }));
+        abComparison = resolveAbCtrWinner(abStat.map((row) => ({
+          variant: row.variant,
+          sent_ok: row.sent_ok,
+          clickers: row.clicks
+        })));
       }
 
       // 最近點擊 sample
@@ -2114,6 +2127,7 @@ function registerAdminBroadcastRoutes(app, deps) {
         clickRecent: clickRecentRs.rows,
         viewStat: viewStatRs.rows[0] || { views: 0, first_view: null, last_view: null },
         abStat,
+        abComparison,
         experimentStat
       });
     } catch (err) {
@@ -2181,7 +2195,8 @@ function registerAdminBroadcastRoutes(app, deps) {
   });
 
   // ---------- 6e. A/B：以勝出版重發給「未點擊」的人 ----------
-  // 受眾鎖定該批已送達但沒點 CTA 的人；訊息用點擊數較高那版（平手用 A）。
+  // 受眾鎖定該批已送達但沒點 CTA 的人；訊息使用「不重複點擊率」確實較高的版本。
+  // 平手、雙方皆 0 點擊或送達不足時不建立批次，避免把 A 當成不存在的勝出版。
   // 直接建立一個新的 running broadcast（非 A/B），複用既有 chunk loop 送出。
   app.post('/admin/broadcast/:id(\\d+)/resend-winner-to-nonclickers', requireAdmin, async (req, res) => {
     if (!lineChannelAccessToken) {
@@ -2196,18 +2211,32 @@ function registerAdminBroadcastRoutes(app, deps) {
       // 個人化／勝出版重發目前只支援 LINE 通道（email A/B 重發另議）
       if (b.channel === 'email') return safeJsonError(res, 400, 'email_ab_resend_not_supported');
 
-      // 1. 用兩版的「點擊數」判定勝出版（平手用 A）
-      const clickByVariant = await query(
-        `SELECT variant, COUNT(*)::int AS n FROM admin_broadcast_clicks
-         WHERE broadcast_id = $1 GROUP BY variant`,
+      // 1. 用兩版的「不重複點擊人數 ÷ 成功送達人數」判定勝出版。
+      const ctrByVariant = await query(
+        `SELECT r.variant,
+                COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'sent')::int AS sent_ok,
+                COUNT(DISTINCT r.id) FILTER (WHERE c.id IS NOT NULL)::int AS clickers
+         FROM admin_broadcast_recipients r
+         LEFT JOIN admin_broadcast_clicks c
+           ON c.broadcast_id = r.broadcast_id
+          AND (c.recipient_id = r.id OR (c.recipient_id IS NULL AND c.line_user_id = r.line_user_id))
+         WHERE r.broadcast_id = $1 AND r.variant IN ('a', 'b')
+         GROUP BY r.variant`,
         [sourceId]
       );
-      const clicks = { a: 0, b: 0 };
-      clickByVariant.rows.forEach(r => {
-        const v = r.variant === 'b' ? 'b' : (r.variant === 'a' ? 'a' : null);
-        if (v) clicks[v] = r.n;
-      });
-      const winner = clicks.b > clicks.a ? 'b' : 'a';
+      const comparison = resolveAbCtrWinner(ctrByVariant.rows);
+      if (!comparison.winner) {
+        const details = {
+          no_clicks: 'A、B 目前都沒有 CTA 點擊，無法判定勝出版。',
+          tie: 'A、B 的不重複點擊率相同，無法判定勝出版。',
+          insufficient_delivery: 'A、B 至少有一版沒有成功送達資料，無法判定勝出版。'
+        };
+        return safeJsonError(res, 409, 'winner_not_decided', {
+          reason: comparison.reason,
+          detail: details[comparison.reason] || '目前無法判定勝出版。'
+        });
+      }
+      const winner = comparison.winner;
       const winnerConfig = winner === 'b' ? b.variant_b_message_config : b.message_config;
       if (!winnerConfig || typeof winnerConfig !== 'object') {
         return safeJsonError(res, 400, 'winner_config_missing');
@@ -2297,7 +2326,7 @@ function registerAdminBroadcastRoutes(app, deps) {
         sourceBroadcastId: sourceId,
         newBroadcastId,
         winnerVariant: winner,
-        clicks,
+        ctr: comparison.stats,
         total: recipients.length
       });
     } catch (err) {

@@ -6,7 +6,8 @@ const {
   normalizeCampaignExperiment,
   startObservationWindow,
   assignExperimentVariants,
-  pickCtrWinner
+  pickCtrWinner,
+  resolveAbCtrWinner
 } = require('../src/core/campaignExperiment');
 
 function validExperiment(overrides = {}) {
@@ -74,6 +75,25 @@ test('CTR winner uses rate rather than raw clicks, with A as an auditable tie-br
     { variant: 'b', sent_ok: 10, clickers: 1 },
     { variant: 'c', sent_ok: 50, clickers: 5 }
   ], ['a', 'b', 'c']), 'a');
+});
+
+test('一般 A/B 平手或零點擊時不虛構勝出版，只有 CTR 確實較高才勝出', () => {
+  assert.deepEqual(resolveAbCtrWinner([
+    { variant: 'a', sent_ok: 645, clickers: 0 },
+    { variant: 'b', sent_ok: 646, clickers: 0 }
+  ]).winner, null);
+  assert.equal(resolveAbCtrWinner([
+    { variant: 'a', sent_ok: 100, clickers: 10 },
+    { variant: 'b', sent_ok: 50, clickers: 5 }
+  ]).reason, 'tie');
+  assert.equal(resolveAbCtrWinner([
+    { variant: 'a', sent_ok: 100, clickers: 2 },
+    { variant: 'b', sent_ok: 20, clickers: 1 }
+  ]).winner, 'b');
+  assert.equal(resolveAbCtrWinner([
+    { variant: 'a', sent_ok: 0, clickers: 0 },
+    { variant: 'b', sent_ok: 20, clickers: 1 }
+  ]).reason, 'insufficient_delivery');
 });
 
 test('Campaign Testing UI exposes A/B/C, custom ratios, observation window and per-version test push', () => {

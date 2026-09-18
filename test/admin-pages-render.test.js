@@ -40,7 +40,7 @@ function fake(k) {
                  recipient_total: 10, recipient_ok: 9, recipient_fail: 1, recipient_skip: 0 },
     list: { id: 1, name: '名單', total: 3, created_at: new Date().toISOString() },
     clickStat: { clicks: 0, unique_ua: 0 }, viewStat: { views: 0, first_view: null, last_view: null },
-    abStat: null, hasLineToken: true, maxRecipients: 20000, chunkSize: 50,
+    abStat: null, abComparison: null, hasLineToken: true, maxRecipients: 20000, chunkSize: 50,
     fieldLimits: { title: 40, subtitle: 120, ctaLabel: 40, ctaUrl: 1000, couponCode: 40, disclaimer: 200, altText: 400 },
     inviteLimit: 8, inviteFriendsPerDraw: 2, defaultDomain: 'openrice.com',
     error: null, notice: null, message: null, page: 1, totalCount: 0,
