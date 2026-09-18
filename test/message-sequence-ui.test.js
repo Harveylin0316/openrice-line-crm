@@ -7,7 +7,7 @@ const { JSDOM } = require('jsdom');
 const REPO = path.join(__dirname, '..');
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function renderSequencePage(recipients) {
+async function renderSequencePage(recipients, cards = []) {
   const html = await ejs.renderFile(path.join(REPO, 'views', 'admin_message_sequence.ejs'), {
     title: '多段訊息編輯器',
     bodyClass: 'admin-shell messages-shell',
@@ -25,7 +25,7 @@ async function renderSequencePage(recipients) {
       return { json: async () => ({ ok: true, recipients }) };
     }
     if (url === '/admin/messages/api/list') {
-      return { json: async () => ({ ok: true, messages: [] }) };
+      return { json: async () => ({ ok: true, messages: cards }) };
     }
     if (url === '/admin/broadcast/test-push') {
       requests.push(JSON.parse(options.body || '{}'));
@@ -71,6 +71,62 @@ test('多段訊息可選既有測試人員，並把指定 LINE User ID 傳給測
   assert.equal(requests[0].message_config.mode, 'sequence');
   assert.equal(requests[0].message_config.items[0].text, '先發文字，再發卡片');
   assert.match(document.getElementById('msq-status').textContent, /已發給 Ice/);
+  dom.window.close();
+});
+
+test('文字加既有 Flex 卡片可完整預覽，測試發送也保留兩段與原本順序', async () => {
+  const iceUid = `U${'b'.repeat(32)}`;
+  const flex = {
+    type: 'flex',
+    altText: '圖文訊息',
+    contents: {
+      type: 'bubble',
+      hero: {
+        type: 'image',
+        url: 'https://example.com/hero.jpg',
+        size: 'full',
+        aspectMode: 'cover'
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [{ type: 'text', text: '真正的圖文卡片', weight: 'bold' }]
+      }
+    }
+  };
+  const { dom, requests } = await renderSequencePage(
+    [{ id: 2, label: 'Ice', line_user_id: iceUid }],
+    [{ id: 9, name: '圖文訊息', message_config: { mode: 'flex_json', flex } }]
+  );
+  const { document } = dom.window;
+
+  document.querySelector('[data-add="text"]').click();
+  const textarea = document.querySelector('[data-f="text"]');
+  textarea.value = '先發文字';
+  textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  document.querySelector('[data-add="card"]').click();
+  const cardSelect = document.querySelector('[data-card]');
+  cardSelect.value = '9';
+  cardSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+  const preview = document.getElementById('msq-preview');
+  assert.match(preview.textContent, /先發文字/);
+  assert.match(preview.textContent, /真正的圖文卡片/);
+  assert.doesNotMatch(preview.textContent, /自訂 Flex 卡片/);
+  assert.equal(preview.querySelector('.msq-flex-image').src, 'https://example.com/hero.jpg');
+
+  document.getElementById('msq-test-recipient').value = iceUid;
+  document.getElementById('msq-test').click();
+  await wait(30);
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].message_config.items.length, 2);
+  assert.deepEqual(
+    requests[0].message_config.items.map(item => item.type),
+    ['text', 'card']
+  );
+  assert.equal(requests[0].message_config.items[0].text, '先發文字');
+  assert.deepEqual(requests[0].message_config.items[1].message_config.flex, flex);
   dom.window.close();
 });
 
