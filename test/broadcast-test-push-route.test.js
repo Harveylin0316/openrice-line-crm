@@ -111,6 +111,28 @@ test('測試訊息先清理再官方驗證，通過後才推播', async () => {
   assert.equal(ctx.calls.push[0][2].returnResult, true);
 });
 
+test('文字加 Flex 卡片測試發送時會依原順序一起交給 LINE', async () => {
+  const ctx = build();
+  const flexConfig = messageConfig();
+  const res = await run(ctx.routes['POST /admin/broadcast/test-push'], {
+    test_line_user_id: 'U' + 'a'.repeat(32),
+    message_config: {
+      mode: 'sequence',
+      items: [
+        { type: 'text', text: '先發文字' },
+        { type: 'card', message_config: flexConfig }
+      ]
+    }
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(ctx.calls.validate.length, 1);
+  assert.deepEqual(ctx.calls.validate[0].map(message => message.type), ['text', 'flex']);
+  assert.deepEqual(ctx.calls.push[0][1].map(message => message.type), ['text', 'flex']);
+  assert.equal(ctx.calls.push[0][1][0].text, '先發文字');
+});
+
 test('LINE 官方驗證未通過時不推播，後台收到可讀的錯誤位置', async () => {
   const detail = JSON.stringify({
     message: 'invalid',

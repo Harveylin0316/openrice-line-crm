@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildLineMessages } = require('../src/core/broadcastTemplates');
+const { normalizeLinePushMessageItem } = require('../src/core/linePush');
 
 test('多段訊息可依序組合文字、圖片、影片與卡片', () => {
   const built = buildLineMessages({ mode: 'sequence', items: [
@@ -15,6 +16,11 @@ test('多段訊息可依序組合文字、圖片、影片與卡片', () => {
   assert.deepEqual(built.messages.map(m => m.type), ['text', 'image', 'video', 'flex']);
   assert.equal(built.messages[0].text, '嗨 Hen，這是提醒');
   assert.equal(built.messages[2].previewImageUrl, 'https://example.com/a-cover.jpg');
+  assert.deepEqual(
+    built.messages.map(normalizeLinePushMessageItem).filter(Boolean).map(m => m.type),
+    ['text', 'image', 'video', 'flex'],
+    'LINE 正式送出前不可把文字或影片段落過濾掉'
+  );
 });
 
 test('多段訊息擋下超過五段與不安全媒體網址', () => {

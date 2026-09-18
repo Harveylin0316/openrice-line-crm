@@ -7,11 +7,21 @@ function normalizeLinePushMessageItem(item) {
     const text = item.trim();
     return text ? { type: 'text', text } : null;
   }
+  if (item && typeof item === 'object' && item.type === 'text') {
+    const text = String(item.text || '').trim();
+    return text ? { type: 'text', text } : null;
+  }
   if (item && typeof item === 'object' && item.type === 'image') {
     const originalContentUrl = String(item.originalContentUrl || '').trim();
     const previewImageUrl = String(item.previewImageUrl || item.originalContentUrl || '').trim();
     if (!originalContentUrl || !previewImageUrl) return null;
     return { type: 'image', originalContentUrl, previewImageUrl };
+  }
+  if (item && typeof item === 'object' && item.type === 'video') {
+    const originalContentUrl = String(item.originalContentUrl || '').trim();
+    const previewImageUrl = String(item.previewImageUrl || '').trim();
+    if (!originalContentUrl || !previewImageUrl) return null;
+    return { type: 'video', originalContentUrl, previewImageUrl };
   }
   if (item && typeof item === 'object' && item.type === 'flex') {
     const altText = String(item.altText || '').trim();
