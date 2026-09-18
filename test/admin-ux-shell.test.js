@@ -25,27 +25,29 @@ async function renderLayout(pathname) {
   return dom;
 }
 
-test('後台每個選單入口直接說明用途，並提供工作台、找功能與操作指南', async () => {
+test('頂部只留六個白話入口，低頻功能收進全部功能', async () => {
   const dom = await renderLayout('/admin/messages');
   const doc = dom.window.document;
-  assert.ok(doc.querySelector('.admin-home-link[href="/admin"]'));
+  const nav = [...doc.querySelectorAll('.admin-main-link[data-admin-section]')];
+  assert.equal(nav.length, 6);
+  assert.deepEqual(nav.map(link => link.textContent.trim()), ['工作台', '傳訊息', '顧客名單', '活動', '看成效', '設定']);
   assert.ok(doc.querySelector('#admin-find-trigger'));
   assert.ok(doc.querySelector('.admin-guide-link[href="/admin/guide"]'));
-  const links = [...doc.querySelectorAll('.navgrp-menu a')];
+  assert.equal(doc.querySelectorAll('.navgrp, .nav-link-desc').length, 0);
+  const links = [...doc.querySelectorAll('[data-finder-item]')];
   assert.ok(links.length >= 25);
-  assert.ok(links.every(link => link.querySelector('.nav-link-title') && link.querySelector('.nav-link-desc')));
-  assert.match(doc.querySelector('#admin-context-path').textContent, /訊息.*訊息庫/);
-  assert.match(doc.querySelector('#admin-context-desc').textContent, /文字、圖片、影片或卡片/);
+  assert.ok(links.every(link => link.querySelector('strong') && link.querySelector('span')));
+  assert.equal(doc.querySelector('#admin-context-current').textContent.trim(), '已存訊息');
   dom.window.close();
 });
 
-test('子頁只標亮最精準入口，不會同時標亮群發訊息與發送紀錄', async () => {
+test('子頁只標亮所屬主要任務，並用麵包屑說明目前頁面', async () => {
   const dom = await renderLayout('/admin/broadcast/history');
   const doc = dom.window.document;
-  const active = [...doc.querySelectorAll('.navgrp-menu a.active')];
+  const active = [...doc.querySelectorAll('.admin-main-link.has-active')];
   assert.equal(active.length, 1);
-  assert.equal(active[0].getAttribute('href'), '/admin/broadcast/history');
-  assert.match(doc.querySelector('#admin-context-path').textContent, /訊息.*發送紀錄/);
+  assert.equal(active[0].dataset.adminSection, 'message');
+  assert.match(doc.querySelector('#admin-page-context').textContent, /工作台.*發送紀錄/);
   dom.window.close();
 });
 
@@ -79,8 +81,24 @@ test('工作台不重複顯示頁面位置條，子頁才顯示方向提示', as
   const detail = await renderLayout('/admin/activities');
   const detailContext = detail.window.document.querySelector('#admin-page-context');
   assert.equal(detailContext.hidden, false);
-  assert.match(detailContext.textContent, /活動.*活動管理/);
+  assert.match(detailContext.textContent, /工作台.*活動管理/);
   detail.window.close();
+});
+
+test('工作台只顯示三個主要任務，其他報表預設收起', async () => {
+  const html = await ejs.renderFile(path.join(VIEWS, 'admin_dashboard.ejs'), {
+    user: 'Ice', isAdmin: true, bodyClass: 'admin-shell'
+  }, { views: [VIEWS] });
+  const dom = new JSDOM(html);
+  const doc = dom.window.document;
+  assert.equal(doc.querySelectorAll('.db-primary-task').length, 3);
+  assert.deepEqual([...doc.querySelectorAll('.db-primary-task strong')].map(x => x.textContent.trim()), ['傳訊息給顧客', '管理活動', '看成效']);
+  const more = doc.querySelector('details.db-more-data');
+  assert.ok(more);
+  assert.equal(more.open, false);
+  assert.match(more.textContent, /活動頁使用情況/);
+  assert.match(more.textContent, /訂位來源/);
+  dom.window.close();
 });
 
 test('操作指南以任務、流程、檢查表與名詞解釋交接，而不是只列功能名稱', async () => {
