@@ -218,7 +218,7 @@
           var acts=document.createElement('div');acts.className='msg-actions';
           var isSeq=m.message_config&&m.message_config.mode==='sequence';
           var editBase=isSeq?'/admin/messages/sequence?mid='+m.id:'/admin/broadcast?msglib=1&mid='+m.id;
-          acts.innerHTML=(isSeq?'<a class="msg-go-broadcast" href="/admin/flows">用於自動化</a>':'<a class="msg-go-broadcast" href="/admin/broadcast?tpl='+m.id+'">用這則去群發</a>')+
+          acts.innerHTML='<a class="msg-go-broadcast" href="/admin/broadcast?tpl='+m.id+'">用這則去群發</a>'+
             '<a href="'+editBase+'">編輯</a>'+
             '<a href="'+editBase+(editBase.indexOf('?')>=0?'&':'?')+'dup=1" title="複製成新訊息，建立一份副本去修改">複製成新訊息</a>'+
             '<button class="del" data-del="'+m.id+'">刪除</button>';
