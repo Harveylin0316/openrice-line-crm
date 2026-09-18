@@ -1,0 +1,101 @@
+<%-
+  include('layout', {
+    user: user,
+    isAdmin: isAdmin,
+    bodyClass: bodyClass,
+    body: `
+    <section class="guide-hero">
+      <div>
+        <span class="guide-kicker">新手從這裡開始</span>
+        <h1>CRM 操作指南</h1>
+        <p>不用先理解整套系統。先找你今天要完成的事情，再照順序做。</p>
+      </div>
+      <a class="guide-home" href="/admin">回工作台</a>
+    </section>
+
+    <section class="card guide-section">
+      <div class="guide-heading">
+        <h2>今天要做什麼？</h2>
+        <p>直接點任務開始；每張卡都寫清楚完成後會得到什麼。</p>
+      </div>
+      <div class="guide-task-grid">
+        <a href="/admin/messages"><strong>準備一則訊息</strong><span>建立文字、圖片、影片或 LINE 卡片，存進訊息庫重複使用。</span><b>前往訊息庫</b></a>
+        <a href="/admin/broadcast"><strong>發訊息給會員</strong><span>選收件人、套用訊息、先測試，再立即或排程發送。</span><b>開始群發</b></a>
+        <a href="/admin/flows"><strong>設定自動追發</strong><span>會員加好友、點按鈕或開啟活動後，自動等待並發下一則訊息。</span><b>設定自動化</b></a>
+        <a href="/admin/recipient-lists"><strong>整理一份受眾名單</strong><span>貼入指定 LINE User ID，或用條件建立會自動更新的名單。</span><b>管理名單</b></a>
+        <a href="/admin/activities"><strong>建立抽獎活動</strong><span>管理活動、獎項、遊玩次數、邀請規則與前台畫面。</span><b>管理活動</b></a>
+        <a href="/admin/insight"><strong>查看整體成效</strong><span>看好友成長、互動、圖文選單與活動表現，再依需要進入細部報表。</span><b>查看數據</b></a>
+      </div>
+    </section>
+
+    <section class="card guide-section">
+      <div class="guide-heading">
+        <h2>最常用的三條工作流程</h2>
+        <p>不要跳步；每一步完成後再進下一頁。</p>
+      </div>
+      <div class="guide-flows">
+        <article>
+          <h3>一次性群發</h3>
+          <ol>
+            <li><a href="/admin/messages">訊息庫</a><span>先做好並預覽訊息。</span></li>
+            <li><a href="/admin/recipient-lists">名單庫</a><span>需要特定受眾時先建立名單；全部好友可略過。</span></li>
+            <li><a href="/admin/broadcast">群發訊息</a><span>確認人數，先發給測試人員，再正式送出。</span></li>
+            <li><a href="/admin/broadcast/history">發送紀錄</a><span>確認是哪一篇、成功與失敗人數及點擊成效。</span></li>
+          </ol>
+        </article>
+        <article>
+          <h3>自動追發</h3>
+          <ol>
+            <li><a href="/admin/messages">訊息庫</a><span>先準備流程要發的每一則訊息。</span></li>
+            <li><a href="/admin/flows">自動化流程</a><span>選觸發條件、等待時間、訊息與每人上限。</span></li>
+            <li><span class="guide-step-label">測試自己</span><span>先用自己的 LINE User ID 跑完整流程。</span></li>
+            <li><a href="/admin/flows">流程健康狀態</a><span>確認流程有啟用、沒有卡住或失敗。</span></li>
+          </ol>
+        </article>
+        <article>
+          <h3>活動與來源追蹤</h3>
+          <ol>
+            <li><a href="/admin/activities">活動管理</a><span>建立活動並完成獎項、次數與畫面設定。</span></li>
+            <li><a href="/admin/liff-tracking">活動入口來源</a><span>為圖文選單、推播、歡迎訊息各建一條追蹤網址。</span></li>
+            <li><a href="/admin/richmenu">圖文選單</a><span>把正確入口網址放到按鈕並先預覽。</span></li>
+            <li><a href="/admin/mgm">活動成效</a><span>看參與、邀請、得獎、獎項庫存與指定期間表現。</span></li>
+          </ol>
+        </article>
+      </div>
+    </section>
+
+    <section class="guide-two-col">
+      <section class="card guide-section">
+        <div class="guide-heading"><h2>正式送出前檢查</h2><p>任何會觸達會員的功能都先做這五件事。</p></div>
+        <ol class="guide-checklist">
+          <li>確認這次要發給誰，試算人數合理。</li>
+          <li>確認圖片、文字、按鈕網址與通知列文字。</li>
+          <li>先發給測試人員，用手機實際點過一次。</li>
+          <li>確認沒有重複排程，也沒有選錯正式／測試素材。</li>
+          <li>送出後到發送紀錄確認成功、失敗與跳過人數。</li>
+        </ol>
+      </section>
+      <section class="card guide-section">
+        <div class="guide-heading"><h2>常見名詞</h2><p>畫面遇到這些字時，可以這樣理解。</p></div>
+        <dl class="guide-glossary">
+          <div><dt>訊息庫</dt><dd>存放訊息素材的地方；存好不代表已經發送。</dd></div>
+          <div><dt>靜態名單</dt><dd>手動放進去的人，除非你修改，名單不會自己變。</dd></div>
+          <div><dt>動態名單</dt><dd>符合條件就自動加入，不符合就自動移除。</dd></div>
+          <div><dt>CTA</dt><dd>會員在訊息裡按的主要按鈕，例如「立即訂位」。</dd></div>
+          <div><dt>LIFF</dt><dd>從 LINE 裡開啟的活動或工具頁面。</dd></div>
+          <div><dt>歸因</dt><dd>觀察會員進入或收到訊息後，有沒有完成指定行為。</dd></div>
+        </dl>
+      </section>
+    </section>
+
+    <section class="card guide-help">
+      <h2>遇到問題時，請一次提供四件事</h2>
+      <p>頁面名稱、你按了什麼、畫面顯示什麼、你原本期待什麼。若有錯誤訊息，再附完整截圖。這樣接手同事或 AI 才不會猜錯。</p>
+    </section>
+
+    <style>
+      .admin-guide-shell{background:#f5f6f7}.guide-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin:28px 0 18px;padding:30px;background:#fff;border:1px solid #e6e2df;border-radius:16px}.guide-kicker{display:block;margin-bottom:7px;color:#9a6700;font-size:12px;font-weight:800;letter-spacing:.12em}.guide-hero h1{margin:0 0 8px;color:#302522;font-size:32px}.guide-hero p,.guide-heading p{margin:0;color:#716661;line-height:1.65}.guide-home{padding:10px 16px;border:1px solid #d8d1cd;border-radius:9px;color:#3e2c28;text-decoration:none;font-weight:700;white-space:nowrap}.guide-section{margin-bottom:18px;border:1px solid #e9e5e2;box-shadow:0 4px 18px rgba(30,20,15,.04)}.guide-heading{margin-bottom:18px}.guide-heading h2,.guide-help h2{margin:0 0 5px;color:#302522;font-size:21px}.guide-heading p{font-size:13px}.guide-task-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.guide-task-grid a{display:flex;min-height:170px;flex-direction:column;padding:18px;border:1px solid #e8e2de;border-radius:12px;background:#fff;color:#302522;text-decoration:none;transition:border-color .15s,box-shadow .15s}.guide-task-grid a:hover{border-color:#e2b51f;box-shadow:0 7px 18px rgba(50,35,20,.07)}.guide-task-grid strong{font-size:16px}.guide-task-grid span{margin:8px 0 18px;color:#766b66;font-size:13px;line-height:1.65}.guide-task-grid b{margin-top:auto;color:#8a5a00;font-size:13px}.guide-flows{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.guide-flows article{padding:18px;border:1px solid #e8e2de;border-radius:12px}.guide-flows h3{margin:0 0 14px;color:#302522;font-size:17px}.guide-flows ol{margin:0;padding:0;list-style:none;counter-reset:steps}.guide-flows li{position:relative;padding:0 0 18px 35px;counter-increment:steps}.guide-flows li:last-child{padding-bottom:0}.guide-flows li::before{content:counter(steps);position:absolute;top:0;left:0;display:flex;width:24px;height:24px;align-items:center;justify-content:center;border-radius:50%;background:#f9c73b;color:#3e2c28;font-size:12px;font-weight:800}.guide-flows li:not(:last-child)::after{content:'';position:absolute;left:11px;top:27px;bottom:3px;border-left:1px solid #e2d9d4}.guide-flows a,.guide-step-label{display:block;color:#3e2c28;font-size:14px;font-weight:750}.guide-flows li span:last-child{display:block;margin-top:3px;color:#81736d;font-size:12px;line-height:1.5}.guide-two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}.guide-checklist{margin:0;padding-left:22px;color:#4f4541;line-height:1.75}.guide-checklist li+li{margin-top:7px}.guide-glossary{margin:0}.guide-glossary>div{display:grid;grid-template-columns:82px 1fr;gap:10px;padding:10px 0;border-bottom:1px solid #eee9e6}.guide-glossary>div:last-child{border-bottom:0}.guide-glossary dt{color:#3e2c28;font-weight:750}.guide-glossary dd{margin:0;color:#766b66;font-size:13px;line-height:1.55}.guide-help{margin-bottom:32px;border-left:4px solid #f9c73b}.guide-help p{margin:0;color:#665b56;line-height:1.7}@media(max-width:860px){.guide-task-grid,.guide-flows{grid-template-columns:1fr 1fr}.guide-two-col{grid-template-columns:1fr}}@media(max-width:620px){.guide-hero{align-items:flex-start;flex-direction:column;padding:22px}.guide-task-grid,.guide-flows{grid-template-columns:1fr}.guide-task-grid a{min-height:0}.guide-home{width:100%;text-align:center}}
+    </style>
+    `
+  })
+%>

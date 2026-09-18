@@ -17,10 +17,48 @@
       .navgrp-menu::before { content: ''; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
       .navgrp:hover .navgrp-menu, .navgrp:focus-within .navgrp-menu { display: block; }
       .navgrp.open .navgrp-menu { display: block; }
-      .navgrp-menu a { display: block; padding: 10px 12px; border-radius: 8px; color: #374151; text-decoration: none; font-size: 14px; white-space: nowrap; }
+      .navgrp-menu a { display: block; margin-left:0; padding: 10px 12px; border-radius: 8px; color: #374151; text-decoration: none; font-size: 14px; }
       .navgrp-menu a:hover { background: #F9FAFB; }
       .navgrp-menu a.active { background: #FFFBEB; color: #1f2937; font-weight: 700; }
       .navgrp-btn.has-active { color: #FCC726; }
+      .nav-link-title { display:block; font-weight:650; white-space:nowrap; }
+      .nav-link-desc { display:block; margin-top:2px; color:#8a8f98; font-size:11px; font-weight:400; line-height:1.35; white-space:normal; }
+      .navgrp-menu a.active .nav-link-desc { color:#7d6a35; }
+      .topbar--admin { position:relative; z-index:900; box-shadow:0 1px 0 rgba(255,255,255,.08); }
+      .topbar--admin .navgrp-menu { min-width:286px; }
+      .admin-home-link,.admin-guide-link,.admin-find-btn { color:#d1d5db; border:0; background:none; padding:7px 8px; border-radius:7px; font:inherit; font-size:13px; font-weight:600; text-decoration:none; cursor:pointer; white-space:nowrap; }
+      .admin-home-link:hover,.admin-guide-link:hover,.admin-find-btn:hover { color:#fff; background:rgba(255,255,255,.08); text-decoration:none; }
+      .admin-find-btn { border:1px solid rgba(255,255,255,.2); }
+      .admin-find-btn kbd { margin-left:5px; color:#9ca3af; font-family:inherit; font-size:10px; }
+      .admin-context { display:flex; align-items:center; justify-content:space-between; gap:18px; margin:0 0 14px; padding:11px 15px; border:1px solid #e7e2df; border-radius:11px; background:rgba(255,255,255,.82); }
+      .admin-context[hidden] { display:none; }
+      .admin-context-main { min-width:0; }
+      .admin-context-path { color:#765f55; font-size:12px; font-weight:750; }
+      .admin-context-desc { margin-top:3px; color:#786d68; font-size:12px; line-height:1.45; }
+      .admin-context-guide { flex:none; color:#6f4a00; font-size:12px; font-weight:750; text-decoration:none; }
+      .admin-context-guide[hidden] { display:none; }
+      .admin-context-guide:hover { text-decoration:underline; }
+      .topbar.topbar--admin .topbar-nav > a.has-active { color:#f9c73b; border-bottom-color:#f9c73b; }
+      .sr-only { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
+      .admin-shell .card { border:1px solid #ebe7e4; box-shadow:0 4px 18px rgba(30,20,15,.045); }
+      .admin-finder { width:min(720px,calc(100vw - 30px)); max-height:min(760px,calc(100vh - 40px)); padding:0; border:1px solid #ddd6d2; border-radius:16px; box-shadow:0 28px 80px rgba(20,13,10,.24); }
+      .admin-finder::backdrop { background:rgba(17,24,39,.52); backdrop-filter:blur(2px); }
+      .admin-finder-head { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; padding:22px 24px 14px; }
+      .admin-finder-head h2 { margin:0 0 4px; color:#302522; font-size:22px; }
+      .admin-finder-head p { margin:0; color:#786d68; font-size:13px; }
+      .admin-finder-close { width:34px; height:34px; border:0; border-radius:50%; background:#f2efed; color:#5f514c; font-size:22px; cursor:pointer; }
+      .admin-finder-search { display:block; margin:0 24px 15px; }
+      .admin-finder-search input { width:100%; min-height:46px; padding:10px 13px; border:1px solid #d7d1cd; border-radius:10px; color:#302522; font:inherit; }
+      .admin-finder-search input:focus { outline:3px solid rgba(249,199,59,.28); border-color:#d8a900; }
+      .admin-finder-results { max-height:520px; overflow:auto; padding:0 16px 20px; }
+      .admin-finder-group { margin:4px 0 15px; }
+      .admin-finder-group h3 { margin:0 8px 6px; color:#8b7e78; font-size:11px; letter-spacing:.08em; }
+      .admin-finder-group a { display:grid; grid-template-columns:170px 1fr; gap:12px; padding:10px 11px; border-radius:9px; color:#302522; text-decoration:none; }
+      .admin-finder-group[hidden], .admin-finder-group a[hidden], .admin-finder-empty[hidden] { display:none; }
+      .admin-finder-group a:hover,.admin-finder-group a:focus { background:#fff9df; outline:none; }
+      .admin-finder-group strong { font-size:14px; }
+      .admin-finder-group span { color:#786d68; font-size:12px; line-height:1.45; }
+      .admin-finder-empty { padding:26px 12px; color:#786d68; text-align:center; }
 
       /* 手機漢堡按鈕：桌機隱藏，窄螢幕才出現 */
       .nav-toggle { display: none; }
@@ -42,6 +80,11 @@
         /* 手機展開時下拉選單改為內嵌、不浮動，避免超出畫面 */
         .navgrp.open .navgrp-menu { position: static; margin-top: 0; box-shadow: none; border: 0; padding: 4px 0 4px 12px; min-width: 0; }
         .navgrp-menu::before { display: none; }
+        .admin-home-link,.admin-guide-link,.admin-find-btn { display:block; width:100%; padding:12px 4px; text-align:left; }
+        .admin-find-btn { border:0; }
+        .admin-find-btn kbd { display:none; }
+        .admin-context { align-items:flex-start; flex-direction:column; }
+        .admin-finder-group a { grid-template-columns:1fr; gap:3px; }
       }
     </style>
   </head>
@@ -72,60 +115,63 @@
           <% if (user) { %>
           <span class="welcome">嗨，<%= user %></span>
           <% if (isAdmin) { %>
+          <a class="admin-home-link" href="/admin">工作台</a>
           <div class="navgrp">
             <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">訊息 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
-              <a href="/admin/broadcast">群發訊息</a>
-              <a href="/admin/broadcast/history">發送紀錄</a>
-              <a href="/admin/messages">訊息庫</a>
-              <a href="/admin/revisit-email">訂位客回訪 Email</a>
-              <a href="/admin/keyword-replies">關鍵字回覆</a>
-              <a href="/admin/flows">自動化流程</a>
-              <a href="/admin/richmenu">圖文選單</a>
+              <a href="/admin/broadcast"><span class="nav-link-title">群發訊息</span><span class="nav-link-desc">選人、選內容、測試並正式發送</span></a>
+              <a href="/admin/broadcast/history"><span class="nav-link-title">發送紀錄</span><span class="nav-link-desc">查每一篇內容、成功人數與成效</span></a>
+              <a href="/admin/messages"><span class="nav-link-title">訊息庫</span><span class="nav-link-desc">先做好文字、圖片、影片或卡片</span></a>
+              <a href="/admin/revisit-email"><span class="nav-link-title">訂位客回訪 Email</span><span class="nav-link-desc">匯入訂位與優惠，產生回訪信</span></a>
+              <a href="/admin/keyword-replies"><span class="nav-link-title">關鍵字回覆</span><span class="nav-link-desc">會員輸入指定文字時自動回答</span></a>
+              <a href="/admin/flows"><span class="nav-link-title">自動化流程</span><span class="nav-link-desc">依加好友、點擊或活動行為追發</span></a>
+              <a href="/admin/richmenu"><span class="nav-link-title">圖文選單</span><span class="nav-link-desc">設計、預覽、排程與發布 LINE 選單</span></a>
             </div>
           </div>
           <div class="navgrp">
             <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">數據 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
-              <a href="/admin/insight">數據總覽</a>
-              <a href="/admin/reports">成效報表</a>
-              <a href="/admin/campaign-performance">群發漏斗成效</a>
-              <a href="/admin/attribution">轉換歸因</a>
-              <a href="/admin/liff-tracking">LIFF 來源追蹤</a>
-              <a href="/admin/referrals">邀請成效</a>
-              <a href="/admin/liff/random-rice">活動頁面數據</a>
-              <a href="/admin/rfm">會員分級分析</a>
+              <a href="/admin/insight"><span class="nav-link-title">全站數據總覽</span><span class="nav-link-desc">好友成長、互動與圖文選單曝光</span></a>
+              <a href="/admin/reports"><span class="nav-link-title">推播與互動紀錄</span><span class="nav-link-desc">查 LINE 推播、點擊與系統紀錄</span></a>
+              <a href="/admin/campaign-performance"><span class="nav-link-title">群發漏斗成效</span><span class="nav-link-desc">從發送、開啟、點擊看到後續轉換</span></a>
+              <a href="/admin/attribution"><span class="nav-link-title">轉換歸因</span><span class="nav-link-desc">查看活動與渠道帶來哪些結果</span></a>
+              <a href="/admin/liff-tracking"><span class="nav-link-title">活動入口來源</span><span class="nav-link-desc">比較圖文選單、推播、歡迎訊息來源</span></a>
+              <a href="/admin/referrals"><span class="nav-link-title">好友邀請成效</span><span class="nav-link-desc">查誰邀請誰、是否成功與原因</span></a>
+              <a href="/admin/liff/random-rice"><span class="nav-link-title">好康地圖使用數據</span><span class="nav-link-desc">開啟、搜尋、餐廳查看與訂位點擊</span></a>
+              <a href="/admin/rfm"><span class="nav-link-title">會員價值分級</span><span class="nav-link-desc">依消費與互動找高價值會員</span></a>
             </div>
           </div>
           <div class="navgrp">
             <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">名單與用戶 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
-              <a href="/admin/users">用戶檔案</a>
-              <a href="/admin/tag-rules">自動貼標籤</a>
-              <a href="/admin/recipient-lists">名單庫</a>
-              <a href="/admin/oa-contacts">新 OA 名單</a>
-              <a href="/admin/restaurants">餐廳目錄</a>
+              <a href="/admin/users"><span class="nav-link-title">用戶檔案</span><span class="nav-link-desc">搜尋單一會員、行為與標籤</span></a>
+              <a href="/admin/tag-rules"><span class="nav-link-title">自動貼標籤</span><span class="nav-link-desc">依會員行為自動加上或移除標籤</span></a>
+              <a href="/admin/recipient-lists"><span class="nav-link-title">受眾名單庫</span><span class="nav-link-desc">建立靜態或會自動更新的群發名單</span></a>
+              <a href="/admin/oa-contacts"><span class="nav-link-title">OA 好友名單</span><span class="nav-link-desc">查看新官方帳號好友匯入狀態</span></a>
+              <a href="/admin/restaurants"><span class="nav-link-title">餐廳目錄</span><span class="nav-link-desc">管理餐廳名稱與對應資料</span></a>
             </div>
           </div>
           <div class="navgrp">
             <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">活動 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
-              <a href="/admin/activities">活動管理</a>
-              <a href="/admin/mgm">活動成效</a>
-              <a href="/admin/coupons">優惠券</a>
-              <a href="/admin/booking-reg">訂位抽獎登記</a>
-              <a href="/admin/campaigns/spring">春日饗里活動</a>
-              <a href="/admin/campaigns/ludian">旅電借電券</a>
+              <a href="/admin/activities"><span class="nav-link-title">活動管理</span><span class="nav-link-desc">建立抽獎、獎項、次數與前台畫面</span></a>
+              <a href="/admin/mgm"><span class="nav-link-title">活動成效</span><span class="nav-link-desc">參與、邀請、得獎、庫存與名單</span></a>
+              <a href="/admin/coupons"><span class="nav-link-title">優惠券</span><span class="nav-link-desc">查發放、領取與使用狀態</span></a>
+              <a href="/admin/booking-reg"><span class="nav-link-title">訂位抽獎登記</span><span class="nav-link-desc">管理訂位完成後的抽獎資格</span></a>
+              <a href="/admin/campaigns/spring"><span class="nav-link-title">春日饗里活動</span><span class="nav-link-desc">管理既有春日活動資料</span></a>
+              <a href="/admin/campaigns/ludian"><span class="nav-link-title">旅電借電券</span><span class="nav-link-desc">查看與設定旅電活動兌換</span></a>
             </div>
           </div>
           <div class="navgrp">
             <button type="button" class="nav-item navgrp-btn" aria-haspopup="true" aria-expanded="false">設定 <span class="navgrp-caret" aria-hidden="true"></span></button>
             <div class="navgrp-menu">
-              <a href="/admin/accounts">帳號管理</a>
-              <a href="/admin/account/password">改密碼</a>
-              <a href="/admin/email-domain">Email 網域驗證</a>
+              <a href="/admin/accounts"><span class="nav-link-title">帳號管理</span><span class="nav-link-desc">新增、停用後台使用者與權限</span></a>
+              <a href="/admin/account/password"><span class="nav-link-title">修改自己的密碼</span><span class="nav-link-desc">更新目前登入帳號的密碼</span></a>
+              <a href="/admin/email-domain"><span class="nav-link-title">Email 網域驗證</span><span class="nav-link-desc">檢查回訪信寄件網域設定</span></a>
             </div>
           </div>
+          <button type="button" class="admin-find-btn" id="admin-find-trigger">找功能 <kbd>⌘K</kbd></button>
+          <a class="admin-guide-link" href="/admin/guide">操作指南</a>
           <% } %>
           <form action="/logout" method="post" class="inline-form topbar-logout">
             <button type="submit">登出</button>
@@ -143,21 +189,103 @@
         過一下重新整理，正常了就會恢復。
       </div>
     <% } %>
+    <% if (typeof isAdmin !== 'undefined' && isAdmin && user) { %>
+      <dialog class="admin-finder" id="admin-finder" aria-labelledby="admin-finder-title">
+        <div class="admin-finder-head">
+          <div><h2 id="admin-finder-title">找功能</h2><p>輸入你想完成的事情，例如「群發」、「名單」、「活動」或「訂位」。</p></div>
+          <button type="button" class="admin-finder-close" id="admin-finder-close" aria-label="關閉">×</button>
+        </div>
+        <label class="admin-finder-search"><span class="sr-only">搜尋功能</span><input id="admin-finder-input" type="search" placeholder="搜尋功能或工作內容…" autocomplete="off" /></label>
+        <div class="admin-finder-results" id="admin-finder-results"></div>
+        <div class="admin-finder-empty" id="admin-finder-empty" hidden>找不到符合的功能。也可以到「操作指南」依任務找入口。</div>
+      </dialog>
+    <% } %>
     <main class="container">
+      <% if (typeof isAdmin !== 'undefined' && isAdmin && user) { %>
+        <div class="admin-context" id="admin-page-context" hidden>
+          <div class="admin-context-main"><div class="admin-context-path" id="admin-context-path"></div><div class="admin-context-desc" id="admin-context-desc"></div></div>
+          <a class="admin-context-guide" href="/admin/guide">不確定下一步？看操作指南</a>
+        </div>
+      <% } %>
       <%- body %>
     </main>
     <script>
       (function () {
         var p = location.pathname;
-        document.querySelectorAll('.navgrp').forEach(function (g) {
-          var btn = g.querySelector('.navgrp-btn');
-          var has = false;
-          g.querySelectorAll('.navgrp-menu a').forEach(function (a) {
-            var h = a.getAttribute('href');
-            if (h && (p === h || p.indexOf(h + '/') === 0)) { a.classList.add('active'); has = true; }
+        var navLinks = Array.prototype.slice.call(document.querySelectorAll('.navgrp-menu a'));
+        function pathMatches(href) {
+          if (!href) return false;
+          if (href === '/admin') return p === href;
+          return p === href || p.indexOf(href + '/') === 0;
+        }
+        var activeLink = navLinks.filter(function(a){return pathMatches(a.getAttribute('href'));}).sort(function(a,b){return b.getAttribute('href').length-a.getAttribute('href').length;})[0];
+        if (activeLink) {
+          activeLink.classList.add('active');
+          var activeGroup = activeLink.closest('.navgrp');
+          var activeButton = activeGroup && activeGroup.querySelector('.navgrp-btn');
+          if (activeButton) activeButton.classList.add('has-active');
+        }
+        var homeLink = document.querySelector('.admin-home-link');
+        var guideLink = document.querySelector('.admin-guide-link');
+        if (homeLink && p === '/admin') homeLink.classList.add('has-active');
+        if (guideLink && p === '/admin/guide') guideLink.classList.add('has-active');
+
+        // 每頁固定顯示「目前在哪裡、這頁拿來做什麼」，避免新接手的人只看到系統名稱。
+        var context = document.getElementById('admin-page-context');
+        if (context) {
+          var current = activeLink;
+          var category = '';
+          if (p === '/admin/guide') {
+            document.getElementById('admin-context-path').textContent = '工作台 › 操作指南';
+            document.getElementById('admin-context-desc').textContent = '依照今天要完成的事情，找到正確頁面與操作順序。';
+            context.querySelector('.admin-context-guide').hidden = true;
+            context.hidden = false;
+          } else if (current) {
+            var group = current.closest('.navgrp');
+            var groupButton = group && group.querySelector('.navgrp-btn');
+            category = groupButton ? groupButton.childNodes[0].textContent.trim() : '';
+            var titleNode = current.querySelector('.nav-link-title');
+            var descNode = current.querySelector('.nav-link-desc');
+            document.getElementById('admin-context-path').textContent = category + ' › ' + (titleNode ? titleNode.textContent : current.textContent.trim());
+            document.getElementById('admin-context-desc').textContent = descNode ? descNode.textContent : '';
+            context.hidden = false;
+          }
+        }
+
+        // 全站功能搜尋：內容直接來自主選單，名稱與入口只維護一份。
+        var finder = document.getElementById('admin-finder');
+        var finderResults = document.getElementById('admin-finder-results');
+        var finderInput = document.getElementById('admin-finder-input');
+        var finderEmpty = document.getElementById('admin-finder-empty');
+        function buildFinder() {
+          if (!finderResults) return;
+          var html = '<section class="admin-finder-group" data-finder-group><h3>開始</h3>'+
+            '<a href="/admin" data-finder-item><strong>工作台</strong><span>依任務開始，查看提醒與關鍵數字</span></a>'+
+            '<a href="/admin/guide" data-finder-item><strong>操作指南</strong><span>新接手同事的工作流程、檢查表與名詞解釋</span></a></section>';
+          document.querySelectorAll('.navgrp').forEach(function(group){
+            var button=group.querySelector('.navgrp-btn'),links=group.querySelectorAll('.navgrp-menu a');
+            if(!button||!links.length)return;
+            html+='<section class="admin-finder-group" data-finder-group><h3>'+button.childNodes[0].textContent.trim()+'</h3>';
+            links.forEach(function(link){var title=link.querySelector('.nav-link-title'),desc=link.querySelector('.nav-link-desc');html+='<a href="'+link.getAttribute('href')+'" data-finder-item><strong>'+(title?title.textContent:link.textContent.trim())+'</strong><span>'+(desc?desc.textContent:'')+'</span></a>';});
+            html+='</section>';
           });
-          if (has && btn) btn.classList.add('has-active');
-        });
+          finderResults.innerHTML=html;
+        }
+        function filterFinder() {
+          if (!finderInput) return;
+          var q=finderInput.value.trim().toLowerCase(),visible=0;
+          finderResults.querySelectorAll('[data-finder-group]').forEach(function(group){var count=0;group.querySelectorAll('[data-finder-item]').forEach(function(item){var show=!q||item.textContent.toLowerCase().indexOf(q)>=0;item.hidden=!show;if(show){count++;visible++;}});group.hidden=count===0;});
+          finderEmpty.hidden=visible!==0;
+        }
+        function openFinder() {
+          if(!finder)return;buildFinder();finder.showModal();finderInput.value='';filterFinder();setTimeout(function(){finderInput.focus();},0);
+        }
+        var finderTrigger=document.getElementById('admin-find-trigger'),finderClose=document.getElementById('admin-finder-close');
+        if(finderTrigger)finderTrigger.addEventListener('click',openFinder);
+        if(finderClose)finderClose.addEventListener('click',function(){finder.close();});
+        if(finderInput)finderInput.addEventListener('input',filterFinder);
+        if(finder)finder.addEventListener('click',function(e){if(e.target===finder)finder.close();});
+        document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openFinder();}});
 
         // 點擊開合（觸控/手機友善）：點按鈕 toggle、一次只開一個；點外面或 Esc 關閉。桌機 hover 仍可用。
         var groups = document.querySelectorAll('.navgrp');

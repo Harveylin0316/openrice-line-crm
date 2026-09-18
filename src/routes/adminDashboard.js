@@ -2,6 +2,7 @@
  * 後台首頁（儀表板）— 登入後的落地頁
  *
  *   GET /admin                關鍵數字 + 三步驟引導 + 快速入口
+ *   GET /admin/guide          給新接手同事的任務式操作指南
  *   GET /admin/api/dashboard  統計 JSON
  */
 
@@ -13,6 +14,15 @@ function registerAdminDashboardRoutes(app, deps) {
     res.render('admin_dashboard', {
       title: '首頁',
       bodyClass: 'admin-shell dashboard-shell',
+      user: (req.authUser && req.authUser.un) || '',
+      isAdmin: true
+    });
+  });
+
+  app.get('/admin/guide', requireAdmin, (req, res) => {
+    res.render('admin_guide', {
+      title: '操作指南',
+      bodyClass: 'admin-shell admin-guide-shell',
       user: (req.authUser && req.authUser.un) || '',
       isAdmin: true
     });
