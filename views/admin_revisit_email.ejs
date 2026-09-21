@@ -9,13 +9,13 @@
         <div>
           <div class="rv-eyebrow">BOOKING CRM</div>
           <h1>訂位客回訪 Email</h1>
-          <p>每週匯入訂位與優惠，系統找出適合回訪的客人，先讓你逐封確認，再由 Mac 本機透過公司信箱寄出。</p>
+          <p>從「訂位成效報表」同步訂位，再上傳本週優惠。系統會找出適合回訪的客人，先讓你逐封確認，再由 Mac 本機透過公司信箱寄出。</p>
         </div>
         <div class="rv-sender" id="rv-sender"><span class="rv-dot"></span><span>檢查寄件環境中…</span></div>
       </section>
 
       <section class="rv-steps" aria-label="操作流程">
-        <div><b>1</b><span>上傳訂位</span></div><i></i>
+        <div><b>1</b><span>同步訂位</span></div><i></i>
         <div><b>2</b><span>上傳優惠</span></div><i></i>
         <div><b>3</b><span>產生草稿</span></div><i></i>
         <div><b>4</b><span>測試並寄出</span></div>
@@ -31,15 +31,25 @@
 
       <div class="rv-grid">
         <section class="rv-card">
-          <div class="rv-card-head"><div><span class="rv-step-no">1</span><h2>每週資料上傳</h2></div></div>
-          <p class="rv-help">支援 UTF-8 CSV 或 JSON。相同訂位編號／優惠編號會更新，不會重複新增。</p>
-          <div class="rv-upload">
-            <label><strong>Booking Record</strong><small>需要訂位編號、餐廳 ID／名稱、客戶 Email、用餐日期、狀態與訂位連結。</small></label>
-            <div class="rv-upload-row"><input type="file" id="rv-booking-file" accept=".csv,.json,text/csv,application/json"><button class="rv-btn rv-secondary" id="rv-booking-template" type="button">下載範本</button></div>
-            <label class="rv-confirm"><input type="checkbox" id="rv-consent-confirm"><span>我確認這份資料中的 Email 可用於回訪行銷，且收件人可以退訂。</span></label>
-            <button class="rv-btn rv-primary" id="rv-booking-upload" type="button" disabled>上傳訂位資料</button>
-            <p class="rv-msg" id="rv-booking-msg"></p>
+          <div class="rv-card-head"><div><span class="rv-step-no">1</span><h2>準備回訪資料</h2></div></div>
+          <p class="rv-help">相同訂位編號會更新，不會重複新增。同步只建立名單，不會寄信。</p>
+          <div class="rv-upload rv-source">
+            <label><strong>訂位成效報表 <span class="rv-pill sent">推薦</span></strong><small>選擇訂位日期後，直接讀取已有的訂位編號、餐廳、客戶 Email、姓名與狀態。</small></label>
+            <div class="rv-date-range"><label>開始日期<input type="date" id="rv-sync-from"></label><label>結束日期<input type="date" id="rv-sync-to"></label></div>
+            <label class="rv-confirm"><input type="checkbox" id="rv-sync-consent"><span>我確認這個期間的 Email 可用於回訪行銷，且收件人可以退訂。</span></label>
+            <button class="rv-btn rv-primary" id="rv-sync-bookings" type="button">從訂位成效報表同步</button>
+            <p class="rv-msg" id="rv-sync-msg"></p>
           </div>
+          <details class="rv-manual">
+            <summary>沒有出現在報表？改用檔案補上訂位</summary>
+            <div class="rv-upload">
+              <label><strong>Booking Record CSV／JSON</strong><small>需要訂位編號、餐廳 ID／名稱、客戶 Email、用餐日期、狀態與訂位連結。</small></label>
+              <div class="rv-upload-row"><input type="file" id="rv-booking-file" accept=".csv,.json,text/csv,application/json"><button class="rv-btn rv-secondary" id="rv-booking-template" type="button">下載範本</button></div>
+              <label class="rv-confirm"><input type="checkbox" id="rv-consent-confirm"><span>我確認這份資料中的 Email 可用於回訪行銷，且收件人可以退訂。</span></label>
+              <button class="rv-btn rv-primary" id="rv-booking-upload" type="button" disabled>上傳訂位資料</button>
+              <p class="rv-msg" id="rv-booking-msg"></p>
+            </div>
+          </details>
           <div class="rv-upload">
             <label><strong>Discount Offer／套餐</strong><small>以餐廳 ID 配對；優惠必須有有效期間與可開啟的訂位連結。</small></label>
             <div class="rv-upload-row"><input type="file" id="rv-offer-file" accept=".csv,.json,text/csv,application/json"><button class="rv-btn rv-secondary" id="rv-offer-template" type="button">下載範本</button></div>
@@ -117,12 +127,13 @@
       .rv-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px}.rv-kpi{background:#fff;border:1px solid var(--line);border-radius:13px;padding:17px}.rv-kpi strong{display:block;font-size:26px}.rv-kpi span{font-size:12px;color:#7A6A5D}
       .rv-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px}.rv-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;margin-bottom:18px;box-shadow:0 3px 14px rgba(62,44,35,.035)}.rv-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.rv-card-head>div{display:flex;align-items:center;gap:10px}.rv-card h2{font-size:20px;margin:0}.rv-card h3{font-size:14px;margin:18px 0 8px}.rv-help,.rv-muted{font-size:13px;line-height:1.7;color:#7A6A5D}.rv-card hr{border:0;border-top:1px solid var(--line);margin:22px 0}
       .rv-upload{border:1px solid var(--line);border-radius:13px;padding:16px;margin-top:14px}.rv-upload label strong{display:block;font-size:15px}.rv-upload label small{display:block;color:#7A6A5D;line-height:1.6;margin:4px 0 10px}.rv-upload-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.rv-upload-row input{flex:1;min-width:220px}.rv-confirm{display:flex!important;align-items:flex-start;gap:8px;margin:12px 0;font-size:12px;line-height:1.5;color:#6D5A4B}.rv-confirm input{margin-top:3px}.rv-btn{appearance:none;border:0;border-radius:9px;padding:10px 14px;font-size:13px;font-weight:800;cursor:pointer}.rv-btn:disabled{opacity:.45;cursor:not-allowed}.rv-primary{background:var(--yellow);color:var(--brown)}.rv-secondary{background:#fff;color:var(--brown);border:1px solid #D8D0C8}.rv-danger{background:var(--orange);color:#fff}.rv-wide{width:100%;margin-top:12px;padding:14px}.rv-msg{min-height:18px;margin:9px 0 0;font-size:12px;line-height:1.55;color:#856B00}.rv-msg.error{color:#BE123C}
+      .rv-source{background:#FFFCF1;border-color:#F2D675}.rv-date-range{display:grid;grid-template-columns:1fr 1fr;gap:10px}.rv-date-range label{font-size:12px;font-weight:700;color:#6D5A4B}.rv-date-range input{display:block;width:100%;box-sizing:border-box;margin-top:5px;padding:10px;border:1px solid #D8D0C8;border-radius:8px;background:#fff;color:#3E2C23;font:inherit}.rv-manual{margin-top:12px}.rv-manual summary{cursor:pointer;font-size:13px;font-weight:750;color:#6D5A4B}.rv-manual[open] summary{color:var(--brown)}
       .rv-import-row,.rv-campaign{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid #F0ECE7}.rv-import-row:first-child,.rv-campaign:first-child{border-top:0}.rv-import-row strong,.rv-campaign strong{font-size:14px}.rv-import-row small,.rv-campaign small{display:block;color:#8C7A6B;margin-top:3px}.rv-pill{display:inline-flex;padding:4px 8px;border-radius:999px;background:#F5F3EF;font-size:11px;font-weight:800}.rv-pill.sent{background:#ECFDF5;color:#047857}.rv-pill.review{background:#FFF1F2;color:#BE123C}
       .rv-setting-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}.rv-setting-grid label,.rv-date-label,.rv-sendbar label,.rv-suppression-form label{font-size:12px;font-weight:700;color:#6D5A4B}.rv-setting-grid input,.rv-date-label input,.rv-sendbar input,.rv-sendbar select,.rv-editor input,.rv-editor textarea,.rv-suppression-form input,.rv-suppression-form select,.rv-suppression-form textarea{display:block;width:100%;box-sizing:border-box;margin-top:5px;padding:10px;border:1px solid #D8D0C8;border-radius:8px;background:#fff;color:#3E2C23;font:inherit}.rv-date-label input{max-width:200px}
       .rv-suppression-form{display:grid;grid-template-columns:minmax(280px,1.5fr) minmax(160px,.55fr) minmax(220px,1fr) auto;align-items:end;gap:10px}.rv-suppression-form textarea{resize:vertical}.rv-suppression-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #F0ECE7;font-size:12px}.rv-suppression-row small{color:#8C7A6B}.rv-test-gate{margin-top:10px;padding:10px 13px;border-radius:9px;background:#FFF1F2;color:#9F1239;font-size:12px;font-weight:750}.rv-test-gate.ready{background:#ECFDF5;color:#047857}.rv-review-note{padding:11px 13px;border-radius:9px;background:#FFF1F2;color:#9F1239;font-size:12px;line-height:1.6}.rv-review-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px}
       .rv-review-summary{display:flex;gap:16px;flex-wrap:wrap;margin:14px 0}.rv-review-summary span{background:var(--cream);padding:8px 10px;border-radius:8px;font-size:12px}.rv-sendbar{display:flex;align-items:flex-end;gap:9px;flex-wrap:wrap;background:#FFF9E8;border:1px solid #F3D675;padding:14px;border-radius:12px}.rv-sendbar label:first-child{min-width:230px;flex:1}.rv-sendbar select{min-width:90px}.rv-close{border:0;background:transparent;font-size:28px;color:#8C7A6B;cursor:pointer}.rv-review-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:16px}.rv-table-wrap{overflow:auto;max-height:720px}.rv-table{border-collapse:collapse;width:100%;font-size:12px}.rv-table th{text-align:left;color:#7A6A5D;background:#FAF8F5;position:sticky;top:0}.rv-table th,.rv-table td{padding:11px 9px;border-bottom:1px solid #EEE9E3;vertical-align:top}.rv-table tr.selected{background:#FFF8DD}.rv-table button{white-space:nowrap}.rv-editor{border:1px solid var(--line);border-radius:13px;padding:15px;min-width:0}.rv-editor label{display:block;font-size:12px;font-weight:700;margin:10px 0}.rv-editor textarea{min-height:140px;resize:vertical}.rv-preview{width:100%;height:560px;border:1px solid var(--line);border-radius:10px;background:#F5F3EF;margin-top:12px}.rv-editor-actions{display:flex;gap:8px;flex-wrap:wrap}.rv-error-list{margin:8px 0 0;padding-left:18px;color:#BE123C;font-size:12px;line-height:1.6}
       @media(max-width:850px){.rv-grid,.rv-review-grid,.rv-suppression-form{grid-template-columns:1fr}.rv-kpis{grid-template-columns:repeat(2,1fr)}.rv-hero{flex-direction:column}.rv-sender{white-space:normal}.rv-steps i{display:none}.rv-steps{justify-content:space-between;overflow:auto}.rv-steps div{flex-direction:column;text-align:center;min-width:66px}.rv-review-grid{display:flex;flex-direction:column}.rv-table-wrap{max-height:420px}}
-      @media(max-width:520px){.rv-hero,.rv-card{padding:18px}.rv-hero h1{font-size:26px}.rv-setting-grid{grid-template-columns:1fr}.rv-kpis{gap:8px}.rv-kpi{padding:13px}.rv-kpi strong{font-size:21px}.rv-sendbar>*{width:100%}.rv-btn{min-height:42px}}
+      @media(max-width:520px){.rv-hero,.rv-card{padding:18px}.rv-hero h1{font-size:26px}.rv-setting-grid,.rv-date-range{grid-template-columns:1fr}.rv-kpis{gap:8px}.rv-kpi{padding:13px}.rv-kpi strong{font-size:21px}.rv-sendbar>*{width:100%}.rv-btn{min-height:42px}}
     </style>
 
     <script>
@@ -136,6 +147,7 @@
         function fetchJson(url,opts){return fetch(url,opts).then(function(r){return r.json().catch(function(){return {ok:false,error:'invalid_response'};}).then(function(d){if(!r.ok||!d.ok){var e=new Error(d.detail||d.error||('HTTP '+r.status));e.data=d;throw e;}return d;});});}
         function post(url,body,method){return fetchJson(url,{method:method||'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});}
         function todayTaipei(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
+        function shiftDate(iso,days){var d=new Date(iso+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10);}
         function senderReady(){var d=state.data;return !!(d&&d.sender&&d.sender.configured&&d.sender.local_send_enabled&&IS_OWNER);}
         function campaignTestReady(){var c=state.campaign;return !!(c&&c.last_tested_at&&Number(c.tested_version)===Number(c.content_version));}
         function updateSendGate(){var ready=campaignTestReady(),hasPending=state.recipients.some(function(r){return r.status==='pending';});$('rv-send').disabled=!(senderReady()&&ready&&hasPending);var gate=$('rv-test-gate');gate.classList.toggle('ready',ready);gate.textContent=ready?'目前草稿版本已於 '+String(state.campaign.last_tested_at||'').replace('T',' ').slice(0,16)+' 寄測試信到 '+(state.campaign.last_tested_email||'測試信箱')+'，可正式寄送。':'請先選一封草稿寄測試信；修改任何一封後都要重新測試，才會開放正式寄送。';}
@@ -156,6 +168,7 @@
         $('rv-booking-file').addEventListener('change',function(){readFile(this,'rv-booking-msg',function(rows,name){bookingRows=rows;bookingName=name;$('rv-booking-upload').disabled=!rows;});});
         $('rv-offer-file').addEventListener('change',function(){readFile(this,'rv-offer-msg',function(rows,name){offerRows=rows;offerName=name;$('rv-offer-upload').disabled=!rows;});});
         $('rv-booking-upload').addEventListener('click',function(){if(!$('rv-consent-confirm').checked){setMsg('rv-booking-msg','請先確認這份名單可用於回訪 Email。',true);return;}upload('bookings',bookingRows,bookingName,true,'rv-booking-msg',this);});
+        $('rv-sync-bookings').addEventListener('click',function(){if(!$('rv-sync-consent').checked){setMsg('rv-sync-msg','請先確認這個期間的 Email 可用於回訪行銷。',true);return;}var b=this;b.disabled=true;setMsg('rv-sync-msg','正在讀取訂位成效報表並更新訂位資料，請稍候…');post('/admin/revisit-email/api/booking-report/sync',{from_date:$('rv-sync-from').value,to_date:$('rv-sync-to').value,confirmed_marketing:true}).then(function(d){var text='同步完成：接受 '+number(d.accepted)+' 筆';if(d.rejected)text+='，略過 '+number(d.rejected)+' 筆';setMsg('rv-sync-msg',text,d.rejected>0);return loadData();}).catch(function(e){setMsg('rv-sync-msg','同步失敗：'+e.message,true);}).finally(function(){b.disabled=!IS_OWNER||!(state.data&&state.data.booking_report&&state.data.booking_report.configured);});});
         $('rv-offer-upload').addEventListener('click',function(){upload('offers',offerRows,offerName,false,'rv-offer-msg',this);});
         $('rv-booking-template').addEventListener('click',function(){downloadTemplate('booking-record-template.csv',['booking_id','restaurant_id','restaurant_name','customer_email','customer_name','dining_date','booking_status','marketing_consent','booking_url'],['BKG-DEMO-001','R-DEMO-01','範例餐廳','guest@example.com','王小明','2026-08-01','completed','yes','https://tw.openrice.com/']);});
         $('rv-offer-template').addEventListener('click',function(){downloadTemplate('discount-offer-template.csv',['offer_id','restaurant_id','restaurant_name','offer_type','offer_title','offer_description','discount_label','price_label','valid_from','valid_until','cta_url','terms','is_active'],['OFF-DEMO-001','R-DEMO-01','範例餐廳','set_menu','雙人限定套餐','主廚精選料理','限時優惠','NT$1,680','2026-09-01','2026-10-31','https://tw.openrice.com/','依餐廳現場供應為準','yes']);});
@@ -164,6 +177,7 @@
           state.data=d;var s=d.stats||{},nodes=$('rv-kpis').querySelectorAll('strong');[s.bookings,s.eligible_source_bookings,s.active_offers,s.sent,s.clicked].forEach(function(v,i){nodes[i].textContent=number(v);});
           var sender=$('rv-sender');sender.classList.remove('ready','blocked');if(d.sender&&d.sender.configured&&d.sender.local_send_enabled){sender.classList.add('ready');var provider=d.sender.provider==='ews'?'Exchange EWS':'SMTP';sender.innerHTML='<span class="rv-dot"></span><span>Mac 本機寄件已就緒 · '+esc(provider)+' · '+esc((d.sender.from&&d.sender.from.email)||'公司信箱')+'</span>';}else{sender.classList.add('blocked');sender.innerHTML='<span class="rv-dot"></span><span>正式站僅管理草稿；寄信請在 Mac 本機開啟</span>';}
           var cfg=d.settings||{};$('rv-revisit-days').value=cfg.revisit_after_days||30;$('rv-same-days').value=cfg.same_restaurant_cooldown_days||60;$('rv-global-days').value=cfg.global_cooldown_days==null?7:cfg.global_cooldown_days;$('rv-offer-days').value=cfg.min_offer_days_remaining==null?7:cfg.min_offer_days_remaining;$('rv-daily-limit').value=cfg.daily_send_limit||200;
+          var sourceReady=!!(d.booking_report&&d.booking_report.configured);$('rv-sync-bookings').disabled=!sourceReady||!IS_OWNER;if(!sourceReady)setMsg('rv-sync-msg','訂位成效報表尚未連線，請先使用下方檔案補上。',true);
           var imports=d.imports||[];$('rv-import-list').innerHTML=imports.length?imports.map(function(x){return '<div class="rv-import-row"><div><strong>'+(x.kind==='bookings'?'訂位':'優惠')+' · '+esc(x.source_file)+'</strong><small>'+esc(String(x.created_at||'').replace('T',' ').slice(0,16))+' · 接受 '+number(x.accepted_count)+' / 退回 '+number(x.rejected_count)+'</small></div><span class="rv-pill">'+esc(x.status)+'</span></div>';}).join(''):'<p class="rv-muted">尚未上傳資料</p>';
           var suppressions=d.suppressions||[];$('rv-suppression-count').textContent=number((d.stats&&d.stats.suppressed)||suppressions.length)+' 個';$('rv-suppression-list').innerHTML=suppressions.length?suppressions.map(function(x){return '<div class="rv-suppression-row"><div><strong>'+esc(x.email)+'</strong><br><small>'+esc({hard_bounce:'硬退信',complaint:'客訴／垃圾信申訴',manual:'人工排除'}[x.reason]||x.reason)+' · '+esc(x.detail||'無備註')+'</small></div>'+(IS_OWNER?'<button type="button" class="rv-btn rv-secondary" data-unsuppress="'+x.id+'">解除</button>':'')+'</div>';}).join(''):'<p class="rv-muted">目前沒有人工或退信抑制名單。</p>';$('rv-suppression-list').querySelectorAll('[data-unsuppress]').forEach(function(btn){btn.addEventListener('click',function(){var id=this.getAttribute('data-unsuppress');if(!confirm('確認要解除這個 Email 的寄送抑制？'))return;post('/admin/revisit-email/api/suppressions/'+id,{},'DELETE').then(loadData).catch(function(e){setMsg('rv-suppression-msg','解除失敗：'+e.message,true);});});});
           var campaigns=d.campaigns||[];$('rv-campaigns').innerHTML=campaigns.length?campaigns.map(function(c){return '<div class="rv-campaign"><div><strong>#'+c.id+' · 計算日 '+esc(c.as_of_date)+'</strong><small>草稿 '+number(c.pending)+' · 已寄 '+number(c.sent)+' · 需確認 '+number(c.needs_review)+' · 點擊 '+number(c.clicked)+'</small></div><div><span class="rv-pill '+(c.status==='completed'?'sent':c.needs_review?'review':'')+'">'+esc(c.status)+'</span> <button type="button" class="rv-btn rv-secondary" data-campaign="'+c.id+'">查看</button></div></div>';}).join(''):'<p class="rv-muted">尚未建立回訪草稿</p>';
@@ -187,7 +201,7 @@
         $('rv-verify-smtp').addEventListener('click',function(){var b=this;b.disabled=true;setMsg('rv-send-msg','正在連線公司郵件主機…');post('/admin/revisit-email/api/provider/verify',{}).then(function(){setMsg('rv-send-msg','公司信箱連線成功，可以寄測試信。');}).catch(function(e){setMsg('rv-send-msg','連線失敗：'+e.message,true);}).finally(function(){b.disabled=false;});});
         $('rv-send').addEventListener('click',function(){if(!state.campaign)return;var limit=Number($('rv-send-limit').value||10);if(!confirm('這會從公司信箱真的寄給最多 '+limit+' 位客人。\\n\\n目前版本已通過測試信，請再確認收件人與內容。'))return;var b=this;b.disabled=true;setMsg('rv-send-msg','正在逐封寄送，請勿關閉這個頁面…');post('/admin/revisit-email/api/campaigns/'+state.campaign.id+'/send',{limit:limit}).then(function(d){setMsg('rv-send-msg','本次完成：成功 '+number(d.sent)+'，硬退信 '+number(d.failed)+'，需確認 '+number(d.needs_review)+'，剩餘 '+number(d.pending)+'。');return loadData().then(function(){return openCampaign(state.campaign.id);});}).catch(function(e){setMsg('rv-send-msg','寄送停止：'+e.message,true);}).finally(updateSendGate);});
         $('rv-close-review').addEventListener('click',function(){$('rv-review').hidden=true;});
-        $('rv-as-of').value=todayTaipei();$('rv-as-of').max=todayTaipei();loadData();
+        $('rv-as-of').value=todayTaipei();$('rv-as-of').max=todayTaipei();$('rv-sync-to').value=todayTaipei();$('rv-sync-to').max=todayTaipei();$('rv-sync-from').value=shiftDate(todayTaipei(),-180);$('rv-sync-from').max=todayTaipei();loadData();
       })();
     </script>
     `

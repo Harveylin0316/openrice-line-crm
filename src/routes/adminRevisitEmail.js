@@ -9,10 +9,12 @@ const {
   renderRevisitHtml,
   renderRevisitText
 } = require('../core/revisitEmail');
+const { buildRestaurantSearchUrl } = require('../core/bookingReportClient');
 
 const MAX_IMPORT_CHUNK = 500;
 const MAX_CAMPAIGN_RECIPIENTS = 5000;
 const MAX_SEND_BATCH = 20;
+const MAX_BOOKING_REPORT_SYNC = 30000;
 
 function taipeiToday() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -33,6 +35,18 @@ function positiveInt(value, fallback, min, max) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function daysBetween(from, to) {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+}
+
+function mapBookingReportStatus(value) {
+  const key = String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  if (['confirm', 'confirmed', 'completed', 'attended', 'show'].includes(key)) return 'completed';
+  if (['cancel', 'cancelled', 'canceled'].includes(key)) return 'cancelled';
+  if (['noshow', '未到店', '未出席'].includes(key)) return 'no_show';
+  return 'unknown';
 }
 
 function ctaLabelFor(row) {
@@ -191,6 +205,7 @@ function selectEligibleCandidates({
 function registerAdminRevisitEmailRoutes(app, deps) {
   const {
     query, pool, authCore, revisitEmailProvider: configuredProvider, smtpEmailProvider, resolvePublicSiteOrigin,
+    bookingReportClient,
     publicBaseUrl: configuredPublicBaseUrl,
     localSendEnabled = false,
     sendIntervalMs = 1500
@@ -255,11 +270,132 @@ function registerAdminRevisitEmailRoutes(app, deps) {
           local_send_enabled: Boolean(localSendEnabled),
           provider: emailProvider && emailProvider.getProviderName ? emailProvider.getProviderName() : 'smtp',
           from: emailProvider && emailProvider.getDefaultSender ? emailProvider.getDefaultSender() : null
+        },
+        booking_report: {
+          configured: Boolean(bookingReportClient && bookingReportClient.isConfigured())
         }
       });
     } catch (err) {
       console.error('revisit email data error:', err && err.message);
       return schemaError(res, err);
+    }
+  });
+
+  app.post('/admin/revisit-email/api/booking-report/sync', requireOwner, async (req, res) => {
+    const from = parseDate(req.body && req.body.from_date);
+    const to = parseDate(req.body && req.body.to_date);
+    const confirmedMarketing = req.body && req.body.confirmed_marketing === true;
+    if (!bookingReportClient || !bookingReportClient.isConfigured()) {
+      return jsonError(res, 503, 'booking_report_not_configured', '訂位成效報表尚未連線。');
+    }
+    if (!from || !to || from > to) return jsonError(res, 400, 'invalid_date_range', '請選擇正確的訂位日期範圍。');
+    if (to > taipeiToday()) return jsonError(res, 400, 'future_date_range', '結束日期不能晚於今天。');
+    if (daysBetween(from, to) > 397) return jsonError(res, 400, 'date_range_too_large', '單次最多同步 398 天，請縮小日期範圍。');
+    if (!confirmedMarketing) {
+      return jsonError(res, 400, 'marketing_confirmation_required', '請先確認這批 Email 可以用於回訪行銷。');
+    }
+
+    let importId = null;
+    try {
+      const first = await bookingReportClient.fetchPage({ from, to, offset: 0, limit: 1000 });
+      if (first.total > MAX_BOOKING_REPORT_SYNC) {
+        return jsonError(res, 400, 'too_many_source_records', `這個期間有 ${first.total.toLocaleString()} 筆含 Email 的訂位；單次上限 ${MAX_BOOKING_REPORT_SYNC.toLocaleString()} 筆，請縮小日期範圍。`);
+      }
+      const rows = first.rows.slice();
+      for (let offset = rows.length; offset < first.total; offset += 1000) {
+        const page = await bookingReportClient.fetchPage({ from, to, offset, limit: 1000 });
+        rows.push(...page.rows);
+      }
+
+      const sourceFile = `訂位成效報表 ${from}～${to}`;
+      const created = await query(
+        `INSERT INTO revisit_email_imports (kind, source_file, uploaded_by)
+         VALUES ('bookings', $1, $2) RETURNING id`,
+        [sourceFile, req.authUser.un]
+      );
+      importId = Number(created.rows[0].id);
+
+      const accepted = [];
+      const errors = [];
+      rows.forEach((row, index) => {
+        const normalized = normalizeBookingRecord({
+          booking_id: row.booking_ref_id,
+          restaurant_id: row.or_restaurant_id,
+          restaurant_name: row.restaurant_name,
+          customer_email: row.email_full,
+          customer_name: row.diner_name_full,
+          dining_date: row.booking_date,
+          booking_status: mapBookingReportStatus(row.status),
+          marketing_consent: 'yes',
+          booking_url: buildRestaurantSearchUrl(row.restaurant_name)
+        }, { confirmedMarketing: true });
+        if (!normalized.ok) {
+          errors.push({ row: index + 1, errors: normalized.errors.slice(0, 4) });
+        } else {
+          accepted.push(normalized.value);
+        }
+      });
+
+      let client;
+      try {
+        client = await pool.connect();
+        await client.query('BEGIN');
+        for (let offset = 0; offset < accepted.length; offset += MAX_IMPORT_CHUNK) {
+          const batch = accepted.slice(offset, offset + MAX_IMPORT_CHUNK).map((v) => ({
+            external_booking_id: v.externalBookingId,
+            restaurant_id: v.restaurantId,
+            restaurant_name: v.restaurantName,
+            customer_email: v.customerEmail,
+            customer_name: v.customerName,
+            dining_date: v.diningDate,
+            booking_status: v.bookingStatus,
+            marketing_consent: v.marketingConsent,
+            booking_url: v.bookingUrl
+          }));
+          await client.query(
+            `INSERT INTO revisit_email_bookings
+              (source_system, external_booking_id, restaurant_id, restaurant_name,
+               customer_email, customer_name, dining_date, booking_status,
+               marketing_consent, booking_url, source_file, import_id)
+             SELECT 'weekly_csv', x.external_booking_id, x.restaurant_id, x.restaurant_name,
+                    x.customer_email, x.customer_name, x.dining_date, x.booking_status,
+                    x.marketing_consent, x.booking_url, $2, $3
+               FROM jsonb_to_recordset($1::jsonb) AS x(
+                 external_booking_id text, restaurant_id text, restaurant_name text,
+                 customer_email text, customer_name text, dining_date date,
+                 booking_status text, marketing_consent boolean, booking_url text)
+             ON CONFLICT (source_system, external_booking_id) DO UPDATE SET
+               restaurant_id=EXCLUDED.restaurant_id, restaurant_name=EXCLUDED.restaurant_name,
+               customer_email=EXCLUDED.customer_email, customer_name=EXCLUDED.customer_name,
+               dining_date=EXCLUDED.dining_date, booking_status=EXCLUDED.booking_status,
+               marketing_consent=EXCLUDED.marketing_consent, booking_url=EXCLUDED.booking_url,
+               source_file=EXCLUDED.source_file, import_id=EXCLUDED.import_id, updated_at=NOW()`,
+            [JSON.stringify(batch), sourceFile, importId]
+          );
+        }
+        await client.query(
+          `UPDATE revisit_email_imports SET status='completed', received_count=$2,
+             accepted_count=$3, rejected_count=$4, error_summary=$5::jsonb, completed_at=NOW()
+           WHERE id=$1`,
+          [importId, rows.length, accepted.length, errors.length, JSON.stringify(errors.slice(0, 30))]
+        );
+        await client.query('COMMIT');
+      } catch (err) {
+        if (client) await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        if (client) client.release();
+      }
+      return res.json({ ok: true, import_id: importId, received: rows.length, accepted: accepted.length, rejected: errors.length, errors: errors.slice(0, 20) });
+    } catch (err) {
+      if (importId) {
+        await query(
+          `UPDATE revisit_email_imports SET status='failed', error_summary=$2::jsonb, completed_at=NOW() WHERE id=$1`,
+          [importId, JSON.stringify([{ error: 'sync_failed' }])]
+        ).catch(() => {});
+      }
+      console.error('booking report revisit sync error:', err && err.message);
+      return jsonError(res, 502, 'booking_report_sync_failed', '目前無法讀取訂位成效報表，請稍後重試。');
     }
   });
 

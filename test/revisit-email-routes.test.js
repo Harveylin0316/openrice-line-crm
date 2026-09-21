@@ -59,6 +59,57 @@ test('後台頁面與所有公開追蹤路徑都有註冊', async () => {
   assert.ok(routes['POST /email/revisit/unsubscribe/:token([a-f0-9]{48})']);
   assert.ok(routes['POST /admin/revisit-email/api/recipients/:id(\\d+)/review']);
   assert.ok(routes['DELETE /admin/revisit-email/api/suppressions/:id(\\d+)']);
+  assert.ok(routes['POST /admin/revisit-email/api/booking-report/sync']);
+});
+
+test('從訂位成效報表同步時會轉換狀態、批次寫入且不重複新增', async () => {
+  const sqlCalls = [];
+  const client = {
+    async query(sql, params) { sqlCalls.push({ sql, params }); return { rowCount: 1, rows: [] }; },
+    release() {}
+  };
+  const routes = register({
+    bookingReportClient: {
+      isConfigured: () => true,
+      async fetchPage() {
+        return { total: 1, rows: [{
+          booking_ref_id: 'BK-100', or_restaurant_id: 'OR-9', restaurant_name: '測試餐廳',
+          status: 'Confirm', booking_date: '2026-09-01', diner_name_full: '王小明',
+          email_full: 'Guest@Example.com'
+        }] };
+      }
+    },
+    query: async (sql) => {
+      if (/INSERT INTO revisit_email_imports/.test(sql)) return { rowCount: 1, rows: [{ id: 55 }] };
+      return { rowCount: 1, rows: [] };
+    },
+    pool: { connect: async () => client }
+  });
+  const result = await run(routes, 'POST /admin/revisit-email/api/booking-report/sync', {
+    body: { from_date: '2026-09-01', to_date: '2026-09-21', confirmed_marketing: true }
+  });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.accepted, 1);
+  const upsert = sqlCalls.find((call) => /INSERT INTO revisit_email_bookings/.test(call.sql));
+  assert.ok(upsert);
+  assert.match(upsert.sql, /ON CONFLICT \(source_system, external_booking_id\) DO UPDATE/);
+  const inserted = JSON.parse(upsert.params[0]);
+  assert.equal(inserted[0].booking_status, 'completed');
+  assert.equal(inserted[0].customer_email, 'guest@example.com');
+  assert.match(inserted[0].booking_url, /utm_campaign=revisit_email/);
+});
+
+test('未確認行銷同意前不會向訂位成效報表讀取資料', async () => {
+  let fetched = false;
+  const routes = register({
+    bookingReportClient: { isConfigured: () => true, async fetchPage() { fetched = true; return { total: 0, rows: [] }; } }
+  });
+  const result = await run(routes, 'POST /admin/revisit-email/api/booking-report/sync', {
+    body: { from_date: '2026-09-01', to_date: '2026-09-21', confirmed_marketing: false }
+  });
+  assert.equal(result.statusCode, 400);
+  assert.equal(result.body.error, 'marketing_confirmation_required');
+  assert.equal(fetched, false);
 });
 
 test('正式寄送在目前草稿版本未成功測試時由後端擋下', async () => {

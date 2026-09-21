@@ -124,7 +124,7 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 
 這是獨立於 LINE／SureNotify 群發的人工回訪工作台。第一版**沒有排程自動寄送**：
 
-1. 每週上傳 UTF-8 CSV／JSON booking record；再上傳當期 discount offer／套餐。
+1. 從「訂位成效報表」選日期範圍同步 booking record；再上傳當期 discount offer／套餐。只有報表缺漏時才用 UTF-8 CSV／JSON 手動補資料。
 2. 系統只取每位客人在各餐廳最近一次已完成、可做 Email 行銷的訂位，依「用餐後天數」、同店／跨店冷卻、退訂與是否已寄過排除。
 3. 以餐廳 ID 配對優惠；套餐優先於折扣，優惠必須仍在有效期且至少剩設定天數。沒有優惠時，booking record 必須提供餐廳訂位網址，才會產生一般回訪信。
 4. 管理員先逐封查看／修改主旨、預覽文字、內文與 CTA，寄「正式等同測試信」後，再按批次手動寄出；每次最多 20 封、每日上限可設定。正式寄送 API 會核對批次 `content_version` 與 `tested_version`，任何草稿修改都會使舊測試失效。
@@ -140,6 +140,7 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 - `revisit_email_suppressions` 保存硬退信、客訴與人工排除。名單產生和 SMTP 寄送前都會查；收件人階段同步 5xx 會自動加入硬退信。SMTP 接受後的非同步退信／申訴仍需人工登錄，直到另接獲核准的 Graph／EWS 回報來源。
 - 每批寄送前會重查全域退訂與同一訂位是否已寄，並以交易、列鎖、每日上限與每次 20 封限制降低誤寄／重寄風險。
 - booking consent 欄位有明確 `no` 時不會被匯入頁的整批確認覆蓋；無法辨識的非空值也一律視為未同意。
+- 報表專案提供 `/.netlify/functions/crm-revisit-bookings` 內部 API，CRM 用 `BOOKING_REPORT_API_URL` 與兩站共用的 `BOOKING_REPORT_API_TOKEN` 讀取。API token 不得進 Git、瀏覽器或 log；報表端 RPC 只授權 `service_role`，anon／authenticated 無法讀取客戶 PII。同步頁仍要求管理員明確確認行銷使用依據。
 
 資料表：`revisit_email_settings`、`revisit_email_imports`、`revisit_email_bookings`、
 `revisit_email_offers`、`revisit_email_campaigns`、`revisit_email_recipients`、
