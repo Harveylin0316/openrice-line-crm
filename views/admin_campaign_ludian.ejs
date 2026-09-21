@@ -32,6 +32,27 @@
         <span id="lu-qa-text"></span>
         <button type="button" class="lu-btn-sub" id="lu-clear-qa" style="margin-left:10px;border-color:#DC2626;color:#DC2626;">清除測試碼</button>
       </div>
+      <h3 class="lu-h3">領取與兌換漏斗（累計人數）</h3>
+      <div class="lu-funnel" id="lu-funnel">
+        <div class="lu-fstep"><div class="v" id="f-opens">—</div><div class="k">打開領取頁（人）</div></div>
+        <div class="lu-farrow" aria-hidden="true"></div>
+        <div class="lu-fstep"><div class="v" id="f-claims">—</div><div class="k">完成領取（人）</div></div>
+        <div class="lu-farrow" aria-hidden="true"></div>
+        <div class="lu-fstep"><div class="v" id="f-redeems">—</div><div class="k">點兌換（人）</div></div>
+        <div class="lu-farrow" aria-hidden="true"></div>
+        <div class="lu-fstep"><div class="v" id="f-scans">—</div><div class="k">機台掃碼（人）</div></div>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:6px;">
+        前三項由 CRM 自動追蹤並以 LINE User ID 去重；測試碼不計入。「機台掃碼」來自旅電回報，不會用「點兌換」推估。
+      </p>
+      <div class="lu-partner-metric">
+        <label for="lu-machine-input">旅電回報的機台掃碼累計</label>
+        <input type="number" id="lu-machine-input" min="0" max="1000000" step="1" inputmode="numeric" />
+        <button type="button" class="lu-btn-sub" id="lu-machine-save">更新</button>
+        <span class="muted" id="lu-machine-msg"></span>
+      </div>
+
+      <h3 class="lu-h3">序號庫與好友成長</h3>
       <div class="lu-kpi-grid" id="lu-kpis">
         <div class="lu-kpi"><div class="v" id="k-claimed">—</div><div class="k">累計領取</div></div>
         <div class="lu-kpi"><div class="v" id="k-today">—</div><div class="k">今日領取</div></div>
@@ -41,20 +62,6 @@
         <div class="lu-kpi"><div class="v" id="k-claimers-new">—</div><div class="k">領取者中的新好友</div></div>
       </div>
       <p class="muted" id="lu-forecast" style="font-size:13px;margin-top:10px;line-height:1.6;"></p>
-
-      <h3 class="lu-h3">從卡片到兌換</h3>
-      <div class="lu-funnel" id="lu-funnel">
-        <div class="lu-fstep"><div class="v" id="f-cards">—</div><div class="k">收到卡片（次）</div></div>
-        <div class="lu-farrow" aria-hidden="true"></div>
-        <div class="lu-fstep"><div class="v" id="f-opens">—</div><div class="k">打開領取頁（人）</div></div>
-        <div class="lu-farrow" aria-hidden="true"></div>
-        <div class="lu-fstep"><div class="v" id="f-claims">—</div><div class="k">完成領取（人）</div></div>
-        <div class="lu-farrow" aria-hidden="true"></div>
-        <div class="lu-fstep"><div class="v" id="f-redeems">—</div><div class="k">點了前往兌換（人）</div></div>
-      </div>
-      <p class="muted" style="font-size:12px;margin-top:6px;">
-        「收到卡片」與「打開領取頁」含同一人重複與內部測試；「實際領取」之後的數字已排除測試碼。「領取者中的新好友」＝領取前 24 小時內才加入官方帳號的人。
-      </p>
 
       <h3 class="lu-h3">每日領取（近 30 天）</h3>
       <div id="lu-daily"><p class="muted">載入中…</p></div>
@@ -157,6 +164,9 @@
       .lu-fstep .v{font-size:20px;font-weight:700;color:#1f2937;font-variant-numeric:tabular-nums;}
       .lu-fstep .k{font-size:12px;color:#6B6B70;margin-top:3px;}
       .lu-farrow{width:0;height:0;border-top:5px solid transparent;border-bottom:5px solid transparent;border-left:6px solid #c4c4c8;align-self:center;}
+      .lu-partner-metric{margin-top:12px;padding:10px 12px;border:1px dashed #D8D8DC;border-radius:8px;background:#FAFAFA;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;}
+      .lu-partner-metric label{font-weight:600;color:#374151;}
+      .lu-partner-metric input{width:92px;padding:6px 8px;border:1px solid #D8D8DC;border-radius:6px;font:inherit;background:#fff;}
       .lu-warn{margin-top:12px;padding:12px 14px;border:1.5px solid #FCC726;background:#FFFBEB;border-radius:10px;font-size:13px;color:#1f2937;line-height:1.6;}
       .lu-kpi.lu-low{border-color:#DC2626;background:#FEF2F2;}
       .lu-kpi.lu-low .v{color:#DC2626;}
@@ -236,10 +246,11 @@
           $('k-available').textContent=Number(pool.available||0).toLocaleString();
           $('k-rate').textContent=pool.total>0?Math.round(pool.claimed/pool.total*100)+'%':'—';
 
-          $('f-cards').textContent=Number(f.card_sends||0).toLocaleString();
           $('f-opens').textContent=Number(f.opens||0).toLocaleString();
           $('f-claims').textContent=Number(f.claimers||0).toLocaleString();
           $('f-redeems').textContent=Number(f.redeem_clickers||0).toLocaleString();
+          $('f-scans').textContent=Number(f.machine_scans||0).toLocaleString();
+          if(document.activeElement!==$('lu-machine-input'))$('lu-machine-input').value=Number(f.machine_scans||0);
 
           var g=overview.growth||{};
           $('k-newfriends').textContent=Number(g.new_friends||0).toLocaleString();
@@ -344,6 +355,21 @@
         }
 
         $('lu-refresh').addEventListener('click',function(){loadOverview();});
+
+        $('lu-machine-save').addEventListener('click',function(){
+          var raw=$('lu-machine-input').value, n=Number(raw), msg=$('lu-machine-msg'), btn=$('lu-machine-save');
+          if(!/^\\d+$/.test(raw)||!Number.isInteger(n)||n<0||n>1000000){msg.textContent='請輸入 0 以上的整數。';return;}
+          btn.disabled=true;msg.textContent='儲存中…';
+          fetch('/admin/campaigns/ludian/api/partner-metrics',{
+            method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({machine_scans:n})
+          }).then(function(r){return r.json();}).then(function(d){
+            if(!d.ok){msg.textContent='儲存失敗：'+(d.detail||d.error||'');return;}
+            overview.funnel.machine_scans=Number(d.machine_scans||0);
+            overview.funnel.machine_scans_source='partner_report';
+            $('f-scans').textContent=Number(d.machine_scans||0).toLocaleString();
+            msg.textContent='已更新。';
+          }).catch(function(){msg.textContent='連線失敗，請再試一次。';}).finally(function(){btn.disabled=false;});
+        });
 
         $('lu-save-window').addEventListener('click',function(){
           var sv=$('lu-start').value, ev=$('lu-end').value, msg=$('lu-window-msg');

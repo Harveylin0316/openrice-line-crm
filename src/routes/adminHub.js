@@ -43,7 +43,9 @@ function registerAdminHubRoutes(app, deps) {
   app.get('/admin/campaigns/ludian/api/overview', requireAdmin, async (_req, res) => {
     try {
       const { rows: acts } = await query(
-        `SELECT id, name, status, start_at, end_at FROM activities WHERE slug = $1 LIMIT 1`,
+        `SELECT id, name, status, start_at, end_at, liff_id_override,
+                NULLIF(rules #>> '{partner_metrics,machine_scans}', '')::int AS partner_machine_scans
+           FROM activities WHERE slug = $1 LIMIT 1`,
         [LUDIAN.slug]
       );
       if (acts.length === 0) return res.status(404).json({ ok: false, error: 'activity_not_found' });
@@ -116,6 +118,18 @@ function registerAdminHubRoutes(app, deps) {
             AND (coupon_code IS NULL OR coupon_code NOT LIKE $2)`,
         [a.id, qaLike]
       );
+      // 「機台掃碼」發生在旅電系統，目前沒有 partner callback。
+      // CRM 自有核銷流程若有資料就照算；否則使用旅電回報的累計數，不把「點兌換」冒充掃碼。
+      const { rows: scanRows } = await query(
+        `SELECT COUNT(DISTINCT claimed_line_user_id)::int AS n
+           FROM coupon_codes
+          WHERE activity_id = $1 AND claimed_line_user_id IS NOT NULL
+            AND redeemed_at IS NOT NULL AND code NOT LIKE $2`,
+        [a.id, qaLike]
+      );
+      const systemScans = Number(scanRows[0] && scanRows[0].n || 0);
+      const partnerScans = a.partner_machine_scans == null ? null : Number(a.partner_machine_scans);
+      const machineScans = partnerScans == null ? systemScans : Math.max(systemScans, partnerScans);
 
       // 碼量預測：近 7 天平均日領取（QA 排除），推「哪天發完」或「結束時剩多少」
       const { rows: last7Rows } = await query(
@@ -154,10 +168,11 @@ function registerAdminHubRoutes(app, deps) {
         qa: qaRows[0],
         daily,
         funnel: {
-          card_sends: kwRows.length > 0 ? kwRows[0].hits : 0,
           opens: openRows[0].opens,
           claimers: claimerRows[0].n,
-          redeem_clickers: redeemRows[0].n
+          redeem_clickers: redeemRows[0].n,
+          machine_scans: machineScans,
+          machine_scans_source: partnerScans == null ? 'crm' : 'partner_report'
         },
         forecast: { last7_claims: last7Rows[0].n },
         growth: growthRows[0],
@@ -173,6 +188,38 @@ function registerAdminHubRoutes(app, deps) {
     } catch (err) {
       console.error('ludian overview error:', err && err.message);
       return res.status(500).json({ ok: false, error: 'overview_failed', detail: String(err.message || '').slice(0, 300) });
+    }
+  });
+
+  // 旅電機台掃碼是合作方數據；在對方尚未提供 callback 前，由行銷把旅電回報的累計數存在活動 rules 內。
+  // jsonb_set 只更新 partner_metrics，不會洗掉原本的頁面文案與視覺設定。
+  app.post('/admin/campaigns/ludian/api/partner-metrics', requireAdmin, async (req, res) => {
+    try {
+      const raw = req.body && req.body.machine_scans;
+      const n = Number(raw);
+      if ((typeof raw !== 'number' && typeof raw !== 'string') || String(raw).trim() === '' ||
+          !Number.isInteger(n) || n < 0 || n > 1000000) {
+        return res.status(400).json({ ok: false, error: 'invalid_machine_scans', detail: '機台掃碼必須是 0 到 1,000,000 的整數' });
+      }
+      const { rows } = await query(
+        `UPDATE activities
+            SET rules = jsonb_set(
+                  COALESCE(rules, '{}'::jsonb),
+                  '{partner_metrics}',
+                  COALESCE(rules->'partner_metrics', '{}'::jsonb) ||
+                    jsonb_build_object('machine_scans', $2::int, 'updated_at', now()),
+                  true
+                ),
+                updated_at = now()
+          WHERE slug = $1
+          RETURNING NULLIF(rules #>> '{partner_metrics,machine_scans}', '')::int AS machine_scans`,
+        [LUDIAN.slug, n]
+      );
+      if (rows.length === 0) return res.status(404).json({ ok: false, error: 'activity_not_found' });
+      return res.json({ ok: true, machine_scans: rows[0].machine_scans });
+    } catch (err) {
+      console.error('ludian partner metrics error:', err && err.message);
+      return res.status(500).json({ ok: false, error: 'partner_metrics_failed', detail: String(err.message || '').slice(0, 300) });
     }
   });
 
