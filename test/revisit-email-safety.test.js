@@ -28,15 +28,18 @@ test('回訪 Email 頁面可渲染且瀏覽器程式碼語法正確', async () =
   const html = await ejs.renderFile(path.join(REPO, 'views/admin_revisit_email.ejs'), {
     title: '訂位客回訪 Email', bodyClass: 'admin-shell', user: 'Hen', isAdmin: true, isOwner: true
   }, { views: [path.join(REPO, 'views')] });
-  assert.match(html, /準備回訪資料/);
-  assert.match(html, /從訂位成效報表同步/);
-  assert.match(html, /產生本週回訪草稿/);
-  assert.match(html, /從公司信箱寄下一批/);
-  assert.match(html, /寄正式等同測試信/);
+  assert.match(html, /你只要完成 4 步/);
+  assert.match(html, /同步這段期間的訂位/);
+  assert.match(html, /沒有優惠也可以跳過/);
+  assert.match(html, /產生回訪信草稿/);
+  assert.match(html, /確認，正式寄給客人/);
+  assert.match(html, /把這封寄到我的測試信箱/);
   assert.match(html, /api\/provider\/verify/);
-  assert.match(html, /不可寄送名單/);
+  assert.match(html, /永遠不要再寄/);
   assert.match(html, /寄件備份有這封：標記已寄/);
-  assert.match(html, /我確認這個期間的 Email 可用於回訪行銷/);
+  assert.match(html, /我確認公司可以使用這批 Email 寄送回訪信/);
+  assert.match(html, /進階：調整寄送規則/);
+  assert.doesNotMatch(html, /可判定來源|寄正式等同測試信|從公司信箱寄下一批/);
   const scripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)]
     .filter((match) => !/\ssrc=/i.test(match[1])).map((match) => match[2]);
   scripts.forEach((script) => assert.doesNotThrow(() => new vm.Script(script)));
