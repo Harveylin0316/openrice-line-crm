@@ -39,6 +39,7 @@ test('回訪 Email 頁面可渲染且瀏覽器程式碼語法正確', async () =
   assert.match(html, /寄件備份有這封：標記已寄/);
   assert.match(html, /我確認公司可以使用這批 Email 寄送回訪信/);
   assert.match(html, /進階：調整寄送規則/);
+  assert.match(html, /String\(c\.as_of_date\|\|''\)\.slice\(0,10\)/);
   assert.doesNotMatch(html, /可判定來源|寄正式等同測試信|從公司信箱寄下一批/);
   const scripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)]
     .filter((match) => !/\ssrc=/i.test(match[1])).map((match) => match[2]);
