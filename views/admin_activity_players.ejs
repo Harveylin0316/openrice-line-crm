@@ -30,6 +30,25 @@
       </div>
     </section>
 
+    <section class="card" id="funnel-card">
+      <div class="players-section-head">
+        <h2 style="margin:0;">開啟成效</h2>
+        <span class="muted" style="font-size:12px;" id="funnel-meta">載入中…</span>
+      </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 14px;line-height:1.6;">
+        從用戶打開活動頁（LINE 身分驗證成功）算起：開啟 → 開始玩 → 拿到結果 → 分享給朋友。全部以<strong>不重複用戶</strong>計算，安全預覽不計入。
+      </p>
+      <div class="funnel-grid">
+        <div class="funnel-step"><div class="v" id="fn-openers">—</div><div class="k">開啟活動</div><div class="r" id="fn-openers-r">&nbsp;</div></div>
+        <div class="funnel-step"><div class="v" id="fn-starters">—</div><div class="k">開始玩</div><div class="r" id="fn-start-rate">&nbsp;</div></div>
+        <div class="funnel-step"><div class="v" id="fn-completers">—</div><div class="k">拿到結果</div><div class="r" id="fn-complete-rate">&nbsp;</div></div>
+        <div class="funnel-step"><div class="v" id="fn-sharers">—</div><div class="k">分享過</div><div class="r" id="fn-share-rate">&nbsp;</div></div>
+        <div class="funnel-step"><div class="v" id="fn-openers-7d">—</div><div class="k">7 天內開啟</div><div class="r" id="fn-openers-24h">&nbsp;</div></div>
+      </div>
+      <div id="funnel-trend" class="funnel-trend"></div>
+      <div id="grant-summary" class="muted" style="font-size:12px;margin-top:12px;line-height:1.6;" hidden></div>
+    </section>
+
     <section class="card">
       <div class="players-section-head">
         <h2 style="margin:0;">玩家清單</h2>
@@ -180,11 +199,52 @@
             document.getElementById('ov-wins').textContent = fmt(ov.total_wins);
             document.getElementById('ov-24h').textContent = fmt(ov.plays_24h);
             document.getElementById('ov-7d').textContent = fmt(ov.plays_7d);
+            renderFunnel(resp.funnel, resp.grants);
             render(allPlayers);
           })
           .catch(function () {
             tbody.innerHTML = '<tr><td colspan="10" class="muted">載入失敗</td></tr>';
           });
+      }
+
+      function pct(v) { return v == null ? '—' : (Number(v).toLocaleString('zh-Hant-TW') + '%'); }
+      function renderFunnel(f, grants) {
+        var meta = document.getElementById('funnel-meta');
+        if (!f) {
+          if (meta) meta.textContent = '成效資料暫時讀不到';
+          return;
+        }
+        document.getElementById('fn-openers').textContent = fmt(f.openers);
+        document.getElementById('fn-starters').textContent = fmt(f.starters);
+        document.getElementById('fn-completers').textContent = fmt(f.completers);
+        document.getElementById('fn-sharers').textContent = fmt(f.sharers);
+        document.getElementById('fn-openers-7d').textContent = fmt(f.openers_7d);
+        document.getElementById('fn-start-rate').textContent = '開啟後開始率 ' + pct(f.start_rate);
+        document.getElementById('fn-complete-rate').textContent = '開啟後完成率 ' + pct(f.complete_rate);
+        document.getElementById('fn-share-rate').textContent = '分享率 ' + pct(f.share_rate) + '（共 ' + fmt(f.shares) + ' 次）';
+        document.getElementById('fn-openers-24h').textContent = '24 小時內 ' + fmt(f.openers_24h);
+        if (meta) meta.textContent = f.last_open_at ? ('最後一次開啟 ' + fmtTime(f.last_open_at)) : '還沒有人開啟過';
+        var trend = document.getElementById('funnel-trend');
+        var rows = (f.trend || []);
+        if (trend) {
+          if (!rows.length) { trend.innerHTML = ''; }
+          else {
+            var max = Math.max.apply(null, rows.map(function (r) { return Number(r.openers) || 0; }).concat([1]));
+            trend.innerHTML = '<div class="funnel-trend-title">近 14 天每日開啟人數</div>' +
+              '<div class="funnel-bars">' + rows.map(function (r) {
+                var h = Math.max(4, Math.round((Number(r.openers) || 0) / max * 60));
+                return '<div class="funnel-bar" title="' + esc(r.day) + '：開啟 ' + fmt(r.openers) + '／完成 ' + fmt(r.completers) + '／分享 ' + fmt(r.sharers) + '">' +
+                  '<div class="funnel-bar-fill" style="height:' + h + 'px;"></div>' +
+                  '<div class="funnel-bar-label">' + esc(String(r.day).slice(5)) + '</div></div>';
+              }).join('') + '</div>';
+          }
+        }
+        var grantEl = document.getElementById('grant-summary');
+        if (grantEl && grants && grants.grantedUsers > 0) {
+          grantEl.hidden = false;
+          grantEl.innerHTML = '透過群發派送：<strong>' + fmt(grants.broadcasts) + '</strong> 個批次、<strong>' + fmt(grants.grantedUsers) +
+            '</strong> 人次入帳、共 <strong>' + fmt(grants.grantedPlays) + '</strong> 次。各批次的入帳與使用情形請看 <a href="/admin/broadcast/history">群發歷史</a> 的批次詳情。';
+        }
       }
 
       function render(list) {
@@ -416,6 +476,18 @@
       .stat-box .k { font-size: 11px; color: #6B6B70; margin-top: 4px; }
 
       .players-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .funnel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+      .funnel-step { background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 12px; padding: 12px 14px; }
+      .funnel-step .v { font-size: 24px; font-weight: 700; line-height: 1; }
+      .funnel-step .k { font-size: 12px; color: #6B6B70; margin-top: 6px; }
+      .funnel-step .r { font-size: 11px; color: #92400E; margin-top: 4px; min-height: 14px; }
+      .funnel-trend { margin-top: 14px; }
+      .funnel-trend-title { font-size: 12px; color: #6B6B70; margin-bottom: 6px; }
+      .funnel-bars { display: flex; align-items: flex-end; gap: 6px; height: 84px; overflow-x: auto; padding-bottom: 4px; }
+      .funnel-bar { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-width: 34px; height: 100%; }
+      .funnel-bar-fill { width: 100%; background: #FCC726; border-radius: 4px 4px 0 0; }
+      .funnel-bar-label { font-size: 10px; color: #A0A0A6; margin-top: 4px; white-space: nowrap; }
+      #grant-summary[hidden] { display: none; }
 
       .player-search {
         padding: 6px 12px;

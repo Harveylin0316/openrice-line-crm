@@ -686,6 +686,58 @@
             <legend><span class="step-pill">4</span> 送出</legend>
             <p class="muted" style="margin-bottom:10px;">建議先發測試訊息確認沒問題，再正式批次送。</p>
 
+            <div class="broadcast-field play-grant-block channel-line-only" id="play-grant-block">
+              <div class="broadcast-field-label">派送遊玩機會（選填）</div>
+              <label class="play-grant-toggle">
+                <input type="checkbox" id="pg-enabled" />
+                <span><b>這則訊息附帶刮刮樂／遊戲的遊玩次數</b><small>LINE 回報送達成功的人才會入帳；失敗、封鎖、略過的人不給。同一批次同一人只給一次，重送不會重複。</small></span>
+              </label>
+              <div class="play-grant-body" id="play-grant-body" hidden>
+                <div class="broadcast-inline-field" style="align-items:flex-end;flex-wrap:wrap;gap:12px;">
+                  <label>
+                    <span style="display:block;margin-bottom:5px;">派送哪個活動</span>
+                    <select id="pg-activity" style="width:min(360px, 80vw);">
+                      <option value="">請選活動</option>
+                      ${
+                        Array.isArray(activities)
+                          ? activities
+                              .filter(a => ['scratch', 'wheel', 'fortune', 'slot', 'claim'].includes(String(a.game_type)))
+                              .sort((a, b) => (a.game_type === 'scratch' ? 0 : 1) - (b.game_type === 'scratch' ? 0 : 1))
+                              .map(a => {
+                                const esc = v => String(v == null ? '' : v)
+                                  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                                const id = Number(a.id);
+                                const typeLabel = ({ scratch: '刮刮樂', wheel: '輪盤', fortune: '抽籤', slot: '拉霸', claim: '領取' })[a.game_type] || a.game_type;
+                                const liff = (a.liff_id_override && String(a.liff_id_override).trim()) || String(gamesLiffId || '');
+                                const url = liff
+                                  ? 'https://liff.line.me/' + liff + '/' + a.game_type + '/' + encodeURIComponent(String(a.slug || ''))
+                                  : '';
+                                const base = a.base_plays_per_user == null ? 1 : Number(a.base_plays_per_user);
+                                return `<option value="${id}" data-url="${esc(url)}" data-name="${esc(a.name)}" data-base="${base}" data-status="${esc(a.status)}" data-type="${esc(a.game_type)}">${esc(a.name) || `活動 #${id}`}（${typeLabel}｜#${id}｜${esc(a.status)}）</option>`;
+                              }).join('')
+                          : ''
+                      }
+                    </select>
+                  </label>
+                  <label>
+                    <span style="display:block;margin-bottom:5px;">每位收到的人可以玩幾次</span>
+                    <input type="number" id="pg-plays" min="1" max="100" value="1" style="width:120px;" />
+                  </label>
+                </div>
+                <div class="play-grant-modes">
+                  <label class="play-grant-mode"><input type="radio" name="pg-mode" value="exclusive" checked /><span><b>只有收到訊息的人能玩</b><small id="pg-mode-exclusive-note">送出時會把活動的「每用戶基礎可玩次數」改成 0；沒收到訊息的人打開活動會看到 0 次。</small></span></label>
+                  <label class="play-grant-mode"><input type="radio" name="pg-mode" value="additive" /><span><b>加在活動原本的次數上</b><small id="pg-mode-additive-note">活動基礎次數不變，收到的人再多加上面填的次數。</small></span></label>
+                </div>
+                <div class="broadcast-action-row" style="margin-top:10px;">
+                  <button type="button" class="btn" id="pg-insert-cta">把活動連結填進 CTA 按鈕</button>
+                  <span class="muted" id="pg-status" style="font-size:12px;"></span>
+                </div>
+                <div class="muted" style="font-size:12px;margin-top:6px;line-height:1.6;">
+                  用戶點訊息進活動就會看到自己的次數；沒點也已入帳，之後從圖文選單進去一樣能玩。派送結果（入帳人數、已使用次數）在「群發歷史」的批次詳情可查。
+                </div>
+              </div>
+            </div>
+
             <div class="broadcast-field test-push-block">
               <div class="broadcast-field-label">先發測試訊息</div>
 
@@ -2109,7 +2161,8 @@
       fieldLimits: fieldLimits,
       msgLibMode: Boolean(typeof msgLibMode !== 'undefined' && msgLibMode),
       msgLibId: (typeof msgLibId !== 'undefined' && msgLibId) ? String(msgLibId) : null,
-      msgLibDup: Boolean(typeof msgLibDup !== 'undefined' && msgLibDup)
+      msgLibDup: Boolean(typeof msgLibDup !== 'undefined' && msgLibDup),
+      prefillActivityId: (typeof prefillActivityId !== 'undefined' && prefillActivityId) ? Number(prefillActivityId) : null
     }).replace(/</g, '\\u003c')}</script>
 
     <script>
@@ -2200,6 +2253,7 @@
           <div class="sc-row"><span class="sc-k" id="sc-titlek">通知文字</span><span class="sc-v" id="sc-msgtitle">—</span></div>
           <div class="sc-row" id="sc-schedule-row" hidden><span class="sc-k">排程時間</span><span class="sc-v" id="sc-schedule">—</span></div>
           <div class="sc-row" id="sc-ab-row" hidden><span class="sc-k">A/B 測試</span><span class="sc-v">已啟用（A、B 版各送一半）</span></div>
+          <div class="sc-row" id="sc-playgrant-row" hidden><span class="sc-k">派送遊玩機會</span><span class="sc-v" id="sc-playgrant">—</span></div>
         </div>
         <label class="sc-check"><input type="checkbox" id="sc-confirm-check" /><span>我已發送測試訊息給自己，並確認內容、圖片、連結都正確</span></label>
         <div class="sc-actions">
@@ -2212,6 +2266,16 @@
       .send-confirm-overlay{position:fixed;inset:0;background:rgba(15,15,16,.5);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;}
       /* hidden 屬性會被上面的 display:flex 蓋掉（UA 的 display:none 輸給作者樣式），必須明確補回 */
       .send-confirm-overlay[hidden]{display:none;}
+      .play-grant-block{background:#FFFBEB;border:1px solid #FDE68A;border-radius:12px;padding:14px 16px;margin-bottom:16px;}
+      .play-grant-block[hidden]{display:none;}
+      .play-grant-toggle{display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;color:#1f2937;}
+      .play-grant-toggle input{margin-top:3px;flex-shrink:0;}
+      .play-grant-toggle small,.play-grant-mode small{display:block;color:#6B7280;font-size:12px;line-height:1.55;margin-top:2px;font-weight:400;}
+      .play-grant-body{margin-top:12px;padding-top:12px;border-top:1px dashed #FCD34D;}
+      .play-grant-body[hidden]{display:none;}
+      .play-grant-modes{display:grid;gap:8px;margin-top:12px;}
+      .play-grant-mode{display:flex;align-items:flex-start;gap:9px;padding:10px 12px;background:#fff;border:1px solid #ECECEE;border-radius:10px;cursor:pointer;font-size:13px;}
+      .play-grant-mode input{margin-top:3px;flex-shrink:0;}
       .sc-row[hidden]{display:none;}
       .send-confirm-modal{background:#fff;border-radius:16px;max-width:440px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
       .sc-title{margin:0 0 6px;font-size:18px;color:#1f2937;}

@@ -51,6 +51,10 @@ const {
   resolveAbCtrWinner
 } = require('../core/campaignExperiment');
 const { syncDynamicList, filterAudienceLineUserIds } = require('../core/audienceSegments');
+const {
+  normalizePlayGrant, resolvePlayGrant, getPlayGrant, applyExclusiveMode,
+  grantPlaysForRecipient, loadPlayGrantSummary
+} = require('../core/broadcastPlayGrant');
 
 function escapeHtml(s) {
   return String(s == null ? '' : s)
@@ -150,7 +154,7 @@ function registerAdminBroadcastRoutes(app, deps) {
 
   async function loadActivities() {
     const rs = await query(
-      `SELECT id, name, status
+      `SELECT id, name, status, slug, game_type, liff_id_override, base_plays_per_user
        FROM activities
        ORDER BY created_at DESC, id DESC`
     );
@@ -353,7 +357,11 @@ function registerAdminBroadcastRoutes(app, deps) {
          RETURNING id`,
         [
           adminUsername,
-          JSON.stringify({ experimentWinnerOf: sourceId, winnerVariant, metric: 'ctr' }),
+          JSON.stringify(Object.assign(
+            { experimentWinnerOf: sourceId, winnerVariant, metric: 'ctr' },
+            // 保留名單此時才第一次收到訊息，派送次數要跟著勝出版一起給
+            getPlayGrant(source) ? { playGrant: (source.audience_config || {}).playGrant } : {}
+          )),
           JSON.stringify(winnerConfig),
           recipients.length
         ]
@@ -621,6 +629,8 @@ function registerAdminBroadcastRoutes(app, deps) {
         scheduled: scheduledRs.rows,
         running: runningRs.rows,
         hasLineToken: Boolean(lineChannelAccessToken),
+        gamesLiffId: process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '',
+        prefillActivityId: /^\d+$/.test(String(req.query.activity_id || '')) ? Number(req.query.activity_id) : null,
         maxRecipients: MAX_RECIPIENTS_PER_BROADCAST,
         chunkSize: CHUNK_SIZE_DEFAULT,
         fieldLimits: FIELD_LIMITS,
@@ -1301,6 +1311,16 @@ function registerAdminBroadcastRoutes(app, deps) {
         experiment.variantCMessageConfig = variantCConfig;
       }
 
+      // 派送遊玩機會：只有 LINE 群發能帶；活動必須存在且為通用遊戲。
+      const playGrantNorm = normalizePlayGrant(body.play_grant);
+      if (!playGrantNorm.ok) return safeJsonError(res, 400, playGrantNorm.error);
+      if (playGrantNorm.value && channel !== 'line') {
+        return safeJsonError(res, 400, 'play_grant_line_only');
+      }
+      const playGrantResolved = await resolvePlayGrant(query, playGrantNorm.value);
+      if (!playGrantResolved.ok) return safeJsonError(res, 400, playGrantResolved.error);
+      const playGrant = playGrantResolved.value;
+
       const conditions = normalizeConditions(rawConditions);
       // channel=email 時只允許 savedListId
       if (channel === 'email' && !conditions.savedListId) {
@@ -1408,6 +1428,17 @@ function registerAdminBroadcastRoutes(app, deps) {
         }
       }
       if (experiment) audienceConfig.experiment = experiment;
+      if (playGrant) {
+        audienceConfig.playGrant = {
+          activityId: playGrant.activityId,
+          activitySlug: playGrant.activitySlug,
+          activityName: playGrant.activityName,
+          gameType: playGrant.gameType,
+          plays: playGrant.plays,
+          mode: playGrant.mode,
+          previousBasePlays: playGrant.previousBasePlays
+        };
+      }
 
       const adminUsername =
         (req.authUser && (req.authUser.un || req.authUser.username)) || 'admin';
@@ -1458,6 +1489,8 @@ function registerAdminBroadcastRoutes(app, deps) {
               ]
             );
         const broadcastId = insRs.rows[0].id;
+        // 「只有收到訊息的人能玩」：同一個交易裡把活動基礎次數改成 0；批次建立失敗就一起回滾。
+        const exclusiveApplied = await applyExclusiveMode(client, playGrant);
 
         // 分批 INSERT recipients（避免單個 INSERT 太多參數）
         const BATCH = 500;
@@ -1494,6 +1527,10 @@ function registerAdminBroadcastRoutes(app, deps) {
           scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
           isAbTest,
           variantCounts,
+          playGrant: playGrant ? {
+            activityId: playGrant.activityId, activityName: playGrant.activityName,
+            plays: playGrant.plays, mode: playGrant.mode, basePlaysSetToZero: exclusiveApplied
+          } : null,
           experiment: experiment ? {
             metric: experiment.metric,
             winnerAt: experiment.winnerAt,
@@ -1625,6 +1662,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       let okCount = 0;
       let failCount = 0;
       let skipCount = 0;
+      const playGrant = getPlayGrant(b);
 
       for (const r of claimed) {
         const out = await sendOneRecipient(b, r, { origin });
@@ -1637,6 +1675,11 @@ function registerAdminBroadcastRoutes(app, deps) {
             [r.id, out.providerMessageId || null]
           );
           okCount += 1;
+          // 送達成功才入帳遊玩次數；必須 await，serverless 回應後不會再執行。
+          if (playGrant) {
+            await grantPlaysForRecipient(query, { broadcastId, grant: playGrant, lineUserId: r.line_user_id })
+              .catch(e => console.error('play grant failed (chunk):', broadcastId, r.id, e && e.message));
+          }
         } else if (out.result === 'skipped') {
           await query(
             `UPDATE admin_broadcast_recipients
@@ -1861,6 +1904,11 @@ function registerAdminBroadcastRoutes(app, deps) {
               [r.id, out.providerMessageId || null]
             );
             okCount++;
+            const rowGrant = getPlayGrant(row);
+            if (rowGrant) {
+              await grantPlaysForRecipient(query, { broadcastId: row.id, grant: rowGrant, lineUserId: r.line_user_id })
+                .catch(e => console.error('play grant failed (scheduled):', row.id, r.id, e && e.message));
+            }
           } else if (out.result === 'skipped') {
             await query(
               `UPDATE admin_broadcast_recipients SET status = 'skipped', pushed_at = NOW(), error = $2 WHERE id = $1`,
@@ -2142,8 +2190,17 @@ function registerAdminBroadcastRoutes(app, deps) {
         [broadcastId]
       );
 
+      const playGrantForDetail = getPlayGrant(b);
+      const playGrantSummary = playGrantForDetail
+        ? await loadPlayGrantSummary(query, broadcastId, playGrantForDetail).catch(e => {
+            console.error('play grant summary failed:', e && e.message);
+            return { ...playGrantForDetail, grantedUsers: null, grantedPlays: null, usersPlayed: null, playsUsed: null };
+          })
+        : null;
+
       return res.render('admin_broadcast_detail', {
         title: `批次 #${broadcastId}`,
+        playGrantSummary,
         bodyClass: 'admin-shell broadcast-detail-shell',
         user: (req.authUser && req.authUser.un) || '',
         isAdmin: true,

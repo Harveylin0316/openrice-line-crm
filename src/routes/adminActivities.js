@@ -214,7 +214,10 @@ function registerAdminActivitiesRoutes(app, deps) {
         UPDATE activities SET
           slug = $1, name = $2, description = $3, game_type = $4, status = $5,
           start_at = $6, end_at = $7, cover_image_url = $8,
-          rules = $9::jsonb, daily_plays_per_user = $10, require_follow_oa = $11,
+          -- rules 只能合併，不得用只含新欄位的物件覆蓋整包 JSON（AGENTS.md 核心邊界）。
+          -- 前端已把 ui 合併過再送；這裡再做頂層合併，保住其他程式寫進 rules 的鍵。
+          rules = COALESCE(rules, '{}'::jsonb) || $9::jsonb,
+          daily_plays_per_user = $10, require_follow_oa = $11,
           liff_id_override = $12,
           base_plays_per_user = $13, referral_bonus_per = $14, referral_bonus_max = $15, referral_invites_per_bonus = $17
         WHERE id = $16 RETURNING *
@@ -462,7 +465,14 @@ function registerAdminActivitiesRoutes(app, deps) {
          FROM activity_plays WHERE activity_id = $1`,
         [id]
       );
-      res.json({ ok: true, players: rows, overview: ov[0] || {} });
+      // 開啟成效漏斗與群發派送統計：任一失敗都不能拖垮玩家清單，各自降級成 null。
+      const { loadActivityFunnel } = require('../core/activityFunnel');
+      const { loadActivityGrantStats } = require('../core/broadcastPlayGrant');
+      const [funnel, grants] = await Promise.all([
+        loadActivityFunnel(query, id).catch(e => { console.error('activity funnel failed:', e && e.message); return null; }),
+        loadActivityGrantStats(query, id).catch(e => { console.error('activity grant stats failed:', e && e.message); return null; })
+      ]);
+      res.json({ ok: true, players: rows, overview: ov[0] || {}, funnel, grants });
     } catch (err) {
       console.error('activity players list error:', err && err.message);
       res.status(500).json({ ok: false, error: 'list_failed', detail: String(err.message || '').slice(0, 300) });
@@ -683,7 +693,8 @@ function sanitizeActivityInput(body) {
       ? String(body.liff_id_override).trim() || null
       : null,
     // MGM 邀請拉新
-    base_plays_per_user: clampInt(body.base_plays_per_user, 1, 100000, 1),
+    // 0 = 只有收到群發派送次數（或人工補次／邀請加碼）的人才能玩
+    base_plays_per_user: clampInt(body.base_plays_per_user, 0, 100000, 1),
     referral_bonus_per: clampInt(body.referral_bonus_per, 0, 100000, 0),
     referral_bonus_max: clampInt(body.referral_bonus_max, 0, 100000, 0),
     referral_invites_per_bonus: clampInt(body.referral_invites_per_bonus, 1, 1000, 1)
