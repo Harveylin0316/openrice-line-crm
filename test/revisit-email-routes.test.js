@@ -65,7 +65,19 @@ test('後台頁面與所有公開追蹤路徑都有註冊', async () => {
 test('從訂位成效報表同步時會轉換狀態、批次寫入且不重複新增', async () => {
   const sqlCalls = [];
   const client = {
-    async query(sql, params) { sqlCalls.push({ sql, params }); return { rowCount: 1, rows: [] }; },
+    async query(sql, params) {
+      sqlCalls.push({ sql, params });
+      if (/SELECT id, kind, source_file, status, received_count/.test(sql)) {
+        return { rowCount: 1, rows: [{
+          id: 55, kind: 'bookings', source_file: '訂位成效報表 2026-09-01～2026-09-21',
+          status: 'uploading', received_count: 0, accepted_count: 0, rejected_count: 0, uploaded_by: 'admin'
+        }] };
+      }
+      if (/UPDATE revisit_email_imports SET/.test(sql)) {
+        return { rowCount: 1, rows: [{ received_count: 1, accepted_count: 1, rejected_count: 0 }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
     release() {}
   };
   const routes = register({
@@ -90,6 +102,7 @@ test('從訂位成效報表同步時會轉換狀態、批次寫入且不重複�
   });
   assert.equal(result.statusCode, 200);
   assert.equal(result.body.accepted, 1);
+  assert.equal(result.body.done, true);
   const upsert = sqlCalls.find((call) => /INSERT INTO revisit_email_bookings/.test(call.sql));
   assert.ok(upsert);
   assert.match(upsert.sql, /ON CONFLICT \(source_system, external_booking_id\) DO UPDATE/);
@@ -97,6 +110,70 @@ test('從訂位成效報表同步時會轉換狀態、批次寫入且不重複�
   assert.equal(inserted[0].booking_status, 'completed');
   assert.equal(inserted[0].customer_email, 'guest@example.com');
   assert.match(inserted[0].booking_url, /utm_campaign=revisit_email/);
+});
+
+test('大量訂位會分批同步並沿用同一筆匯入紀錄', async () => {
+  const sourceFile = '訂位成效報表 2026-09-01～2026-09-21';
+  const progress = { received: 0, accepted: 0, rejected: 0, status: 'uploading' };
+  const client = {
+    async query(sql, params) {
+      if (/SELECT id, kind, source_file, status, received_count/.test(sql)) {
+        return { rowCount: 1, rows: [{
+          id: 77, kind: 'bookings', source_file: sourceFile, status: progress.status,
+          received_count: progress.received, accepted_count: progress.accepted,
+          rejected_count: progress.rejected, uploaded_by: 'admin'
+        }] };
+      }
+      if (/UPDATE revisit_email_imports SET/.test(sql)) {
+        progress.received += Number(params[1]);
+        progress.accepted += Number(params[2]);
+        progress.rejected += Number(params[3]);
+        if (params[5]) progress.status = 'completed';
+        return { rowCount: 1, rows: [{
+          received_count: progress.received,
+          accepted_count: progress.accepted,
+          rejected_count: progress.rejected
+        }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  const offsets = [];
+  const routes = register({
+    bookingReportClient: {
+      isConfigured: () => true,
+      async fetchPage({ offset, limit }) {
+        offsets.push({ offset, limit });
+        return { total: 2, rows: [{
+          booking_ref_id: `BK-${offset + 1}`, or_restaurant_id: 'OR-9', restaurant_name: '測試餐廳',
+          status: 'Confirm', booking_date: '2026-09-01', diner_name_full: '測試客',
+          email_full: `guest${offset + 1}@example.com`
+        }] };
+      }
+    },
+    query: async (sql) => {
+      if (/INSERT INTO revisit_email_imports/.test(sql)) return { rowCount: 1, rows: [{ id: 77 }] };
+      return { rowCount: 1, rows: [] };
+    },
+    pool: { connect: async () => client }
+  });
+
+  const first = await run(routes, 'POST /admin/revisit-email/api/booking-report/sync', {
+    body: { from_date: '2026-09-01', to_date: '2026-09-21', confirmed_marketing: true }
+  });
+  assert.equal(first.statusCode, 200);
+  assert.equal(first.body.done, false);
+  assert.equal(first.body.next_offset, 1);
+  assert.equal(first.body.import_id, 77);
+
+  const second = await run(routes, 'POST /admin/revisit-email/api/booking-report/sync', {
+    body: { from_date: '2026-09-01', to_date: '2026-09-21', confirmed_marketing: true, import_id: 77, offset: 1 }
+  });
+  assert.equal(second.statusCode, 200);
+  assert.equal(second.body.done, true);
+  assert.equal(second.body.accepted, 2);
+  assert.deepEqual(offsets, [{ offset: 0, limit: 500 }, { offset: 1, limit: 500 }]);
 });
 
 test('未確認行銷同意前不會向訂位成效報表讀取資料', async () => {

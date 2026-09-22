@@ -15,6 +15,7 @@ const MAX_IMPORT_CHUNK = 500;
 const MAX_CAMPAIGN_RECIPIENTS = 5000;
 const MAX_SEND_BATCH = 20;
 const MAX_BOOKING_REPORT_SYNC = 30000;
+const BOOKING_REPORT_SYNC_PAGE_SIZE = 500;
 
 function taipeiToday() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -304,29 +305,36 @@ function registerAdminRevisitEmailRoutes(app, deps) {
       return jsonError(res, 400, 'marketing_confirmation_required', '請先確認這批 Email 可以用於回訪行銷。');
     }
 
-    let importId = null;
-    try {
-      const first = await bookingReportClient.fetchPage({ from, to, offset: 0, limit: 1000 });
-      if (first.total > MAX_BOOKING_REPORT_SYNC) {
-        return jsonError(res, 400, 'too_many_source_records', `這個期間有 ${first.total.toLocaleString()} 筆含 Email 的訂位；單次上限 ${MAX_BOOKING_REPORT_SYNC.toLocaleString()} 筆，請縮小日期範圍。`);
-      }
-      const rows = first.rows.slice();
-      for (let offset = rows.length; offset < first.total; offset += 1000) {
-        const page = await bookingReportClient.fetchPage({ from, to, offset, limit: 1000 });
-        rows.push(...page.rows);
-      }
+    const requestedImportId = positiveInt(req.body && req.body.import_id, null, 1, Number.MAX_SAFE_INTEGER);
+    const requestedOffset = positiveInt(req.body && req.body.offset, 0, 0, MAX_BOOKING_REPORT_SYNC);
+    if (!requestedImportId && requestedOffset !== 0) {
+      return jsonError(res, 400, 'invalid_sync_progress', '同步進度已失效，請重新開始。');
+    }
 
+    let importId = requestedImportId;
+    try {
+      const page = await bookingReportClient.fetchPage({
+        from,
+        to,
+        offset: requestedOffset,
+        limit: BOOKING_REPORT_SYNC_PAGE_SIZE
+      });
+      if (page.total > MAX_BOOKING_REPORT_SYNC) {
+        return jsonError(res, 400, 'too_many_source_records', `這個期間有 ${page.total.toLocaleString()} 筆含 Email 的訂位；單次上限 ${MAX_BOOKING_REPORT_SYNC.toLocaleString()} 筆，請縮小日期範圍。`);
+      }
       const sourceFile = `訂位成效報表 ${from}～${to}`;
-      const created = await query(
-        `INSERT INTO revisit_email_imports (kind, source_file, uploaded_by)
-         VALUES ('bookings', $1, $2) RETURNING id`,
-        [sourceFile, req.authUser.un]
-      );
-      importId = Number(created.rows[0].id);
+      if (!importId) {
+        const created = await query(
+          `INSERT INTO revisit_email_imports (kind, source_file, uploaded_by)
+           VALUES ('bookings', $1, $2) RETURNING id`,
+          [sourceFile, req.authUser.un]
+        );
+        importId = Number(created.rows[0].id);
+      }
 
       const accepted = [];
       const errors = [];
-      rows.forEach((row, index) => {
+      page.rows.forEach((row, index) => {
         const normalized = normalizeBookingRecord({
           booking_id: row.booking_ref_id,
           restaurant_id: row.or_restaurant_id,
@@ -339,7 +347,7 @@ function registerAdminRevisitEmailRoutes(app, deps) {
           booking_url: buildRestaurantSearchUrl(row.restaurant_name)
         }, { confirmedMarketing: true });
         if (!normalized.ok) {
-          errors.push({ row: index + 1, errors: normalized.errors.slice(0, 4) });
+          errors.push({ row: requestedOffset + index + 1, errors: normalized.errors.slice(0, 4) });
         } else {
           accepted.push(normalized.value);
         }
@@ -349,8 +357,38 @@ function registerAdminRevisitEmailRoutes(app, deps) {
       try {
         client = await pool.connect();
         await client.query('BEGIN');
-        for (let offset = 0; offset < accepted.length; offset += MAX_IMPORT_CHUNK) {
-          const batch = accepted.slice(offset, offset + MAX_IMPORT_CHUNK).map((v) => ({
+        const importRs = await client.query(
+          `SELECT id, kind, source_file, status, received_count, accepted_count, rejected_count, uploaded_by
+             FROM revisit_email_imports WHERE id = $1 FOR UPDATE`,
+          [importId]
+        );
+        const currentImport = importRs.rows[0];
+        if (!currentImport || currentImport.kind !== 'bookings' || currentImport.source_file !== sourceFile || currentImport.uploaded_by !== req.authUser.un) {
+          await client.query('ROLLBACK');
+          return jsonError(res, 409, 'invalid_sync_progress', '同步進度已失效，請重新開始。');
+        }
+        if (currentImport.status === 'completed' && Number(currentImport.received_count) >= requestedOffset) {
+          await client.query('ROLLBACK');
+          return res.json({
+            ok: true,
+            import_id: importId,
+            received: Number(currentImport.received_count),
+            accepted: Number(currentImport.accepted_count),
+            rejected: Number(currentImport.rejected_count),
+            total: page.total,
+            processed: Number(currentImport.received_count),
+            next_offset: null,
+            done: true,
+            errors: []
+          });
+        }
+        if (currentImport.status !== 'uploading' || Number(currentImport.received_count) !== requestedOffset) {
+          await client.query('ROLLBACK');
+          return jsonError(res, 409, 'sync_progress_conflict', '同步進度不一致，請重新開始。');
+        }
+
+        for (let chunkOffset = 0; chunkOffset < accepted.length; chunkOffset += MAX_IMPORT_CHUNK) {
+          const batch = accepted.slice(chunkOffset, chunkOffset + MAX_IMPORT_CHUNK).map((v) => ({
             external_booking_id: v.externalBookingId,
             restaurant_id: v.restaurantId,
             restaurant_name: v.restaurantName,
@@ -382,20 +420,40 @@ function registerAdminRevisitEmailRoutes(app, deps) {
             [JSON.stringify(batch), sourceFile, importId]
           );
         }
-        await client.query(
-          `UPDATE revisit_email_imports SET status='completed', received_count=$2,
-             accepted_count=$3, rejected_count=$4, error_summary=$5::jsonb, completed_at=NOW()
-           WHERE id=$1`,
-          [importId, rows.length, accepted.length, errors.length, JSON.stringify(errors.slice(0, 30))]
+        const processed = requestedOffset + page.rows.length;
+        const done = processed >= page.total || page.rows.length === 0;
+        const updated = await client.query(
+          `UPDATE revisit_email_imports SET
+             status = CASE WHEN $6 THEN 'completed' ELSE 'uploading' END,
+             received_count = received_count + $2,
+             accepted_count = accepted_count + $3,
+             rejected_count = rejected_count + $4,
+             error_summary = error_summary || $5::jsonb,
+             completed_at = CASE WHEN $6 THEN NOW() ELSE NULL END
+           WHERE id=$1
+           RETURNING received_count, accepted_count, rejected_count`,
+          [importId, page.rows.length, accepted.length, errors.length, JSON.stringify(errors.slice(0, 30)), done]
         );
         await client.query('COMMIT');
+        const totals = updated.rows[0];
+        return res.json({
+          ok: true,
+          import_id: importId,
+          received: Number(totals.received_count),
+          accepted: Number(totals.accepted_count),
+          rejected: Number(totals.rejected_count),
+          total: page.total,
+          processed,
+          next_offset: done ? null : processed,
+          done,
+          errors: errors.slice(0, 20)
+        });
       } catch (err) {
         if (client) await client.query('ROLLBACK').catch(() => {});
         throw err;
       } finally {
         if (client) client.release();
       }
-      return res.json({ ok: true, import_id: importId, received: rows.length, accepted: accepted.length, rejected: errors.length, errors: errors.slice(0, 20) });
     } catch (err) {
       if (importId) {
         await query(

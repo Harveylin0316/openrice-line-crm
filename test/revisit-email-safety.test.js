@@ -32,6 +32,8 @@ test('回訪 Email 頁面可渲染且瀏覽器程式碼語法正確', async () =
   assert.match(html, /同步這段期間的訂位/);
   assert.match(html, /訂位成效報表資料更新至/);
   assert.match(html, /暫時無法取得最新更新日期/);
+  assert.match(html, /同步中：已處理/);
+  assert.match(html, /處理時間過長，系統已停止這次操作/);
   assert.match(html, /沒有優惠也可以跳過/);
   assert.match(html, /產生回訪信草稿/);
   assert.match(html, /確認，正式寄給客人/);
