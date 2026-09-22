@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { buildRestaurantSearchUrl } = require('./bookingReportClient');
 
 const BOOKING_ALIASES = {
   externalBookingId: ['external_booking_id', 'booking_id', 'booking_no', 'booking_number', 'reservation_id', '訂位編號'],
@@ -14,15 +15,15 @@ const BOOKING_ALIASES = {
 
 const OFFER_ALIASES = {
   externalOfferId: ['external_offer_id', 'offer_id', 'discount_offer_id', '優惠編號', '套餐編號'],
-  restaurantId: BOOKING_ALIASES.restaurantId,
-  restaurantName: BOOKING_ALIASES.restaurantName,
+  restaurantId: ['OR Restaurant ID', ...BOOKING_ALIASES.restaurantId],
+  restaurantName: ['Restaurant Name(Lang1)', ...BOOKING_ALIASES.restaurantName],
   offerType: ['offer_type', 'type', '優惠類型', '類型'],
   title: ['offer_title', 'title', 'offer_name', 'discount_name', '優惠名稱', '套餐名稱', '標題'],
   description: ['offer_description', 'description', 'details', '優惠內容', '套餐內容', '說明'],
   discountLabel: ['discount_label', 'discount', '折扣', '優惠標示'],
   priceLabel: ['price_label', 'price', '價格', '套餐價格'],
   validFrom: ['valid_from', 'start_date', '開始日期', '生效日期'],
-  validUntil: ['valid_until', 'end_date', '結束日期', '到期日期', '有效期限'],
+  validUntil: ['valid_until', 'end_date', 'End Time', '結束日期', '到期日期', '有效期限'],
   ctaUrl: ['cta_url', 'url', 'booking_url', 'offer_url', '連結', '訂位連結'],
   terms: ['terms', 'terms_and_conditions', '注意事項', '使用條款'],
   isActive: ['is_active', 'active', 'status', '啟用', '有效']
@@ -148,11 +149,17 @@ function normalizeOfferRecord(row) {
   const offerType = normalizeOfferType(readAlias(row, OFFER_ALIASES.offerType));
   const title = clip(readAlias(row, OFFER_ALIASES.title), 240);
   const description = clip(readAlias(row, OFFER_ALIASES.description), 2000) || null;
-  const discountLabel = clip(readAlias(row, OFFER_ALIASES.discountLabel), 120) || null;
+  const rawDiscount = clip(readAlias(row, OFFER_ALIASES.discountLabel), 120);
+  const nativeDiscountType = canonicalKey(readAlias(row, ['DiscountType']));
+  const discountNumber = Number(rawDiscount);
+  const discountLabel = nativeDiscountType === 'percent' && Number.isFinite(discountNumber) && discountNumber > 0
+    ? `${discountNumber}% 折扣`
+    : (rawDiscount && rawDiscount !== '0' ? rawDiscount : null);
   const priceLabel = clip(readAlias(row, OFFER_ALIASES.priceLabel), 120) || null;
   const validFrom = parseDate(readAlias(row, OFFER_ALIASES.validFrom));
   const validUntil = parseDate(readAlias(row, OFFER_ALIASES.validUntil));
-  const ctaUrl = clip(readAlias(row, OFFER_ALIASES.ctaUrl), 1200);
+  const rawCtaUrl = clip(readAlias(row, OFFER_ALIASES.ctaUrl), 1200);
+  const ctaUrl = rawCtaUrl || (restaurantName ? buildRestaurantSearchUrl(restaurantName) : '');
   const terms = clip(readAlias(row, OFFER_ALIASES.terms), 2000) || null;
   const isActive = parseBoolean(readAlias(row, OFFER_ALIASES.isActive), true);
   let externalOfferId = clip(readAlias(row, OFFER_ALIASES.externalOfferId), 160);

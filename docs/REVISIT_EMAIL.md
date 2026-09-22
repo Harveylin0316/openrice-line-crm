@@ -6,7 +6,7 @@
 
 1. 登入 CRM，從「訊息 → 訂位客回訪 Email」進入。
 2. 先看頁面顯示的「訂位成效報表資料更新至」日期，再選擇訂位日期範圍；確認該批 Email 可合法用於回訪後，按「從訂位成效報表同步」。系統每次處理 500 筆並顯示進度，避免大量訂位超過 Netlify 單次 30 秒上限；同一訂位編號會更新，不會重複新增。若少數資料不在報表，才展開手動 CSV／JSON 補上。更新日期由報表站即時讀取，狀態查詢不包含客戶姓名、Email 或訂位明細。
-3. 下載 offer 範本，整理本週完整有效優惠後上傳。這份檔案視為「目前完整快照」：成功上傳至少一筆後，前一版中沒有出現的優惠會停用。
+3. 直接上傳公司 Discount Offer 後台下載的原生 `.xls`（UTF-16 HTML 表格）。CRM 會辨識原生 21 欄並自動以餐廳名稱補上 OpenRice 搜尋 CTA，不必先另存 CSV。這份檔案視為「目前完整快照」：成功上傳至少一筆後，前一版中沒有出現的優惠會停用。畫面上的「下載原生欄位範本」會產出相同 21 欄的空白 `.xls`。
 4. 設定回訪天數、同店／跨店冷卻、優惠最少剩餘天數與每日上限，選擇計算日，按「產生本週回訪草稿」。這一步尚未寄信。
 5. 打開批次，檢查排除數、收件人、餐廳、優惠、主旨、內文與 CTA。先在 Mac 本機選一封寄給自己的「正式等同測試信」。測試信會走和正式信相同的 CTA、開信追蹤、點擊追蹤與退訂路徑，但測試退訂不會修改任何客戶名單。
 6. 確認無誤後，每次寄 5／10／20 封。關閉頁面或網路中斷後，狀態不明的信件會留在「寄送結果不確定」；先查公司信箱寄件備份，不能直接重寄。
@@ -36,14 +36,14 @@ booking_id,restaurant_id,restaurant_name,customer_email,customer_name,dining_dat
 - `marketing_consent` 可用 `yes/no`、`true/false`、`1/0`、`同意/不同意`。
 - 日期建議 `YYYY-MM-DD`；也接受常見日期字串與 Excel serial date。
 
-Discount offer／套餐：
+Discount offer／套餐也保留相容舊 CSV／JSON 的欄位：
 
 ```text
 offer_id,restaurant_id,restaurant_name,offer_type,offer_title,offer_description,discount_label,price_label,valid_from,valid_until,cta_url,terms,is_active
 ```
 
 - `offer_type` 建議 `set_menu`、`discount` 或 `other`。
-- CTA 只接受 HTTP／HTTPS。日期與 CTA 不完整的資料列會被退回並顯示原因。
+- CTA 只接受 HTTP／HTTPS。公司後台原生 `.xls` 沒有 CTA 欄位時，會依 `Restaurant Name(Lang1)` 自動產生 OpenRice 餐廳搜尋連結；若檔案自行提供了無效 CTA，仍會退回該列。
 - `offer_id` 可省略；系統會以餐廳、名稱與日期產生穩定 ID。
 
 ## Mac 本機寄件設定

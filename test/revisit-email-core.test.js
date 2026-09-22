@@ -47,6 +47,38 @@ test('優惠匯入會驗證期間與 CTA，沒有 ID 時產生穩定 ID', () => 
   assert.ok(invalid.errors.includes('CTA 連結格式錯誤'));
 });
 
+test('優惠匯入可直接辨識公司後台原生 Discount Offer 欄位並自動補 CTA', () => {
+  const native = normalizeOfferRecord({
+    'Offer ID': '552992',
+    'OR Restaurant ID': '653180',
+    'Restaurant Name(Lang1)': '太田和牛料理（炭火燒肉）',
+    'Offer Type': 'Discount',
+    'Offer Title': '會員專屬優惠',
+    DiscountType: 'Percent',
+    Discount: '17',
+    'Start Date': '2026/09/15',
+    'End Time': '2026/09/30',
+    Status: 'Active'
+  });
+  assert.equal(native.ok, true);
+  assert.equal(native.value.externalOfferId, '552992');
+  assert.equal(native.value.restaurantId, '653180');
+  assert.equal(native.value.restaurantName, '太田和牛料理（炭火燒肉）');
+  assert.equal(native.value.offerType, 'discount');
+  assert.equal(native.value.discountLabel, '17% 折扣');
+  assert.equal(native.value.validUntil, '2026-09-30');
+  assert.match(native.value.ctaUrl, /^https:\/\/tw\.openrice\.com\/zh-tw\/taipei\/restaurants\?what=/);
+
+  const zero = normalizeOfferRecord({
+    'Offer ID': '552993', 'OR Restaurant ID': '653180',
+    'Restaurant Name(Lang1)': '測試餐廳', 'Offer Type': 'MarketingOffer',
+    'Offer Title': '壽星禮', DiscountType: 'FreeText', Discount: '0',
+    'Start Date': '2026/09/15', 'End Time': '2026/09/30', Status: 'Active'
+  });
+  assert.equal(zero.ok, true);
+  assert.equal(zero.value.discountLabel, null);
+});
+
 test('同餐廳有多個優惠時優先套餐，並要求優惠仍有足夠天數', () => {
   const offers = [
     { id: 1, restaurant_id: 'R-1', offer_type: 'discount', is_active: true, valid_from: '2026-09-01', valid_until: '2026-12-31' },

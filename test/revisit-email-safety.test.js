@@ -35,6 +35,9 @@ test('回訪 Email 頁面可渲染且瀏覽器程式碼語法正確', async () =
   assert.match(html, /同步中：已處理/);
   assert.match(html, /處理時間過長，系統已停止這次操作/);
   assert.match(html, /沒有優惠也可以跳過/);
+  assert.match(html, /後台下載的 \.xls/);
+  assert.match(html, /下載原生欄位範本/);
+  assert.match(html, /revisit-offer-import\.js/);
   assert.match(html, /產生回訪信草稿/);
   assert.match(html, /確認，正式寄給客人/);
   assert.match(html, /把這封寄到我的測試信箱/);
