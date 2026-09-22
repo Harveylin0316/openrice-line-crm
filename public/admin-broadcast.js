@@ -338,10 +338,10 @@
       };
     }
     var inviteMinRaw = $('invite-min').value.trim();
-    var inviteCompletedMin = null;
+    var activityReferralMin = null;
     if (inviteMinRaw !== '') {
       var n = parseInt(inviteMinRaw, 10);
-      if (Number.isInteger(n) && n > 0) inviteCompletedMin = n;
+      if (Number.isInteger(n) && n > 0) activityReferralMin = n;
     }
     var drewRaw = $('drew-in-campaign').value;
     var drewInCampaign = null;
@@ -370,7 +370,8 @@
       activityParticipationActivityId: activityParticipationActivityId,
       lifecycleStages: lifecycleStages,
       prizeFilter: prizeFilter,
-      inviteCompletedMin: inviteCompletedMin,
+      activityReferralMin: activityReferralMin,
+      activityReferralActivityId: activityParticipationActivityId,
       drewInCampaign: drewInCampaign,
       playedLiffWithinDays: playedLiffWithinDays,
       clickedBookingWithinDays: clickedBookingWithinDays,
@@ -517,8 +518,25 @@
     function refresh() {
       activity.disabled = !mode.value;
       if (!mode.value) activity.value = '';
+      var label = $('invite-min-label');
+      var help = $('invite-min-help');
+      var selected = activity.options[activity.selectedIndex];
+      var selectedName = selected && activity.value
+        ? String(selected.textContent || '').replace(/（#\d+.*$/, '').trim()
+        : '';
+      if (label) {
+        label.textContent = selectedName
+          ? '「' + selectedName + '」成功邀請新好友數 ≥'
+          : '全部 CRM 活動成功邀請新好友數 ≥';
+      }
+      if (help) {
+        help.textContent = selectedName
+          ? '只計算這個活動中，成功邀請「原本不是好友」的人數。'
+          : '計算全部新版 CRM 活動中，成功邀請「原本不是好友」的人數。';
+      }
     }
     mode.addEventListener('change', refresh);
+    activity.addEventListener('change', refresh);
     refresh();
   })();
 

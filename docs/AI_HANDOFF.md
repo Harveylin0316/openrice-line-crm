@@ -659,6 +659,7 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 - LIFF／活動／Booking 等下游指標目前是「每次發送後 7 天觀察」而非唯一歸因；同一人在重疊期間收到多個 Campaign 時，事件可能出現在多列。頁面會明確提示不可把各列直接相加。
 - LINE Messaging API 不提供逐人 delivered／open。LINE Delivered 必須顯示「無資料」；Open 只可能是追蹤圖 proxy。Email Delivered 來自 provider webhook。一般 Booking、OpenRice App Registration 與 Attendance 目前無可靠 LINE ID 對應，也必須顯示「無資料」；目前 Registration 只計活動手機登記，Booking 只計金豬食堂的 LINE 綁定訂位。
 - Reward 的「未兌換／已兌換」以 `activity_plays.is_redeemed` 判定，不可用 coupon code 已指派來代替。尚未回寫兌換狀態的哩數或外部獎項會維持未兌換，不能宣稱已領取。
+- 群發的「成功邀請新好友數」使用 `activity_referrals`，只計 `invitee_was_existing IS FALSE`；同時選了指定活動時，邀請與遊玩條件必須共用該活動 ID。舊批次的 `inviteCompletedMin` 繼續查 Legacy `line_invites`，新畫面不再產生這個舊條件。
 - `Dashboard` 的訂位來源可用 `booking_from`／`booking_to` 自訂日期，首尾都包含且依台灣日界線查詢。
 
 ### Schema

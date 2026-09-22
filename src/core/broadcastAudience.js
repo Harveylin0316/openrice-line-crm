@@ -7,7 +7,10 @@
  *     mode: 'any' | 'all' | 'none',     // 中過任一 / 中過全部 / 從未中過這些獎
  *     prizeNames: string[]               // 用 prize_name 字串比對（與 draw_logs 一致）
  *   } | null,
- *   inviteCompletedMin: number | null,  // 邀請成功 rewarded 數 ≥ N
+ *   inviteCompletedMin: number | null,  // 舊春日活動：line_invites rewarded 數 ≥ N（舊批次相容）
+ *   activityReferralMin: number | null, // 新版 CRM 活動：成功邀請新好友數 ≥ N
+ *   activityReferralActivityId: number | null,
+ *                                          // 指定活動；null 代表全部新版 CRM 活動
  *   drewInCampaign: boolean | null,     // true = 活動期間刮過; false = 從未刮過
  *   joinedWithinDays: number | null,    // 最近 N 天內加入（舊設定與快捷選項）
  *   joinedFromDate: string | null,      // 自訂加入開始日 YYYY-MM-DD（台灣時間）
@@ -234,6 +237,8 @@ function normalizeConditions(raw) {
     lifecycleStages: null,
     prizeFilter: null,
     inviteCompletedMin: null,
+    activityReferralMin: null,
+    activityReferralActivityId: null,
     drewInCampaign: null,
     playedLiffWithinDays: null,
     clickedBookingWithinDays: null,
@@ -305,6 +310,15 @@ function normalizeConditions(raw) {
     out.inviteCompletedMin = n;
   }
 
+  const activityReferralMin = Number(safe.activityReferralMin);
+  if (Number.isInteger(activityReferralMin) && activityReferralMin > 0 && activityReferralMin <= 1000) {
+    out.activityReferralMin = activityReferralMin;
+    const activityId = Number(safe.activityReferralActivityId);
+    if (Number.isSafeInteger(activityId) && activityId > 0) {
+      out.activityReferralActivityId = activityId;
+    }
+  }
+
   if (safe.drewInCampaign === true || safe.drewInCampaign === false) {
     out.drewInCampaign = safe.drewInCampaign;
   }
@@ -334,6 +348,7 @@ function hasAnyCondition(conds) {
     conds.lineUserIds ||
     conds.prizeFilter ||
     conds.inviteCompletedMin !== null ||
+    conds.activityReferralMin !== null ||
     conds.drewInCampaign !== null ||
     conds.playedLiffWithinDays !== null ||
     conds.clickedBookingWithinDays !== null ||
@@ -422,6 +437,24 @@ function buildWhere(conds) {
     where.push(`(
       SELECT COUNT(*) FROM line_invites li
       WHERE li.inviter_user_id = u.id AND li.status = 'rewarded'
+    ) >= $${params.length}`);
+  }
+
+  // 新版 CRM 活動以 activity_referrals 為準，只計算邀請到原本不是 OA 好友的紀錄。
+  // 舊的 inviteCompletedMin 保留上方語意，避免改掉已建立批次／排程的收件人條件。
+  if (conds.activityReferralMin !== null) {
+    let activityClause = '';
+    if (conds.activityReferralActivityId !== null) {
+      params.push(conds.activityReferralActivityId);
+      const activityIdParam = `$${params.length}::bigint`;
+      where.push(`EXISTS (SELECT 1 FROM activities arf WHERE arf.id = ${activityIdParam})`);
+      activityClause = `\n        AND ar.activity_id = ${activityIdParam}`;
+    }
+    params.push(conds.activityReferralMin);
+    where.push(`(
+      SELECT COUNT(*) FROM activity_referrals ar
+      WHERE ar.inviter_line_user_id = u.line_user_id
+        AND ar.invitee_was_existing IS FALSE${activityClause}
     ) >= $${params.length}`);
   }
 

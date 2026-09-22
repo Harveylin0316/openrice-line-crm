@@ -96,6 +96,8 @@ test('活動成效 API 把同一期間套到 KPI、邀請、得獎名單與庫�
     assert.match(call.sql, /(?:played_at|created_at) >= \$2/);
     assert.match(call.sql, /(?:played_at|created_at) < \$3/);
   });
+  assert.match(reportQueries[1].sql, /COUNT\(DISTINCT inviter_line_user_id\) FILTER \(WHERE invitee_was_existing IS FALSE\)/);
+  assert.match(reportQueries[4].sql, /HAVING COUNT\(\*\) FILTER \(WHERE r\.invitee_was_existing IS FALSE\) > 0/);
 });
 
 test('活動成效 API 遇到不完整日期時先拒絕，不執行報表查詢', async () => {
@@ -210,6 +212,7 @@ test('活動成效頁同頁顯示分享超有哩 KPI、獎項庫存與得獎名�
   const document = dom.window.document;
   assert.equal(document.querySelector('#mg-act option:checked').textContent, '分享超有哩（幸運轉盤）');
   assert.match(document.getElementById('mg-stats').textContent, /成功邀請新好友/);
+  assert.match(document.getElementById('mg-stats').textContent, /成功邀請的會員/);
   assert.match(document.getElementById('mg-stats').textContent, /20,000/);
   assert.equal(document.querySelectorAll('#mg-inventory .mg-prize').length, 2);
   assert.match(document.getElementById('mg-inventory').textContent, /剩餘/);
