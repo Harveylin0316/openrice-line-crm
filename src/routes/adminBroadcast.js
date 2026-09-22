@@ -30,6 +30,7 @@ const {
 } = require('../core/emailTemplates');
 const {
   normalizeConditions,
+  parseExplicitLineUserIds,
   validateJoinedDateRange,
   hasAnyCondition,
   previewAudience,
@@ -67,6 +68,20 @@ function isPositiveIntegerString(s) {
 
 function safeJsonError(res, status, error, extra = {}) {
   return res.status(status).json({ ok: false, error, ...extra });
+}
+
+function csvCell(value) {
+  let text = String(value == null ? '' : value);
+  // 防止從 Excel／Google Sheets 開啟時，把陌生人暱稱或錯誤訊息當公式執行。
+  if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
+  return '"' + text.replace(/"/g, '""') + '"';
+}
+
+function tpeCsvTimestamp(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }).replace(' ', 'T');
 }
 
 function isTestVariant(value) {
@@ -867,10 +882,12 @@ function registerAdminBroadcastRoutes(app, deps) {
       // 靜態名單可以選擇在建立當下套用一次條件。這不是動態名單：
       // 建立後不會自動增刪，但試算與實際寫入必須使用同一個「匯入 ID ∩ 條件」結果。
       let acceptedLineUserIds = valid;
+      let appliedFilterDefinition = null;
       if (body.filterDefinition != null) {
         try {
           const filtered = await filterAudienceLineUserIds(query, body.filterDefinition, valid);
           acceptedLineUserIds = filtered.lineUserIds;
+          appliedFilterDefinition = filtered.definition;
         } catch (filterErr) {
           return safeJsonError(res, 400, 'invalid_filter_definition', {
             detail: filterErr && filterErr.message
@@ -884,10 +901,20 @@ function registerAdminBroadcastRoutes(app, deps) {
       try {
         await client.query('BEGIN');
         const insListRs = await client.query(
-          `INSERT INTO admin_recipient_lists (name, description, total, created_by)
-           VALUES ($1, $2, $3, $4)
+          `INSERT INTO admin_recipient_lists
+             (name, description, total, created_by, list_type, definition)
+           VALUES ($1, $2, $3, $4, 'static', $5::jsonb)
            RETURNING id, name, description, total, created_by, created_at`,
-          [name, description || null, acceptedLineUserIds.length, createdBy]
+          [name, description || null, acceptedLineUserIds.length, createdBy,
+            valid.length > 0 ? JSON.stringify({
+              kind: 'static_import',
+              version: 1,
+              sourceLineUserIds: valid,
+              filterDefinition: appliedFilterDefinition,
+              importedValid: valid.length,
+              accepted: acceptedLineUserIds.length,
+              filteredOut: valid.length - acceptedLineUserIds.length
+            }) : null]
         );
         const listId = insListRs.rows[0].id;
         // 分批 INSERT members
@@ -2005,17 +2032,40 @@ function registerAdminBroadcastRoutes(app, deps) {
         [broadcastId]
       );
 
-      // 收件人前 30 筆（一般 sample）
+      // 完整收件人名單。單一批次已有 5,000 人上限，詳情頁可安全完整呈現，
+      // 不再只顯示前 30 筆，避免營運無法對帳。
       const recentSampleRs = await query(
         `SELECT m.id, m.line_user_id, m.status, m.error, m.pushed_at,
                 u.line_display_name, u.username
          FROM admin_broadcast_recipients m
          LEFT JOIN users u ON u.line_user_id = m.line_user_id
          WHERE m.broadcast_id = $1
-         ORDER BY m.id ASC
-         LIMIT 30`,
+         ORDER BY m.id ASC`,
         [broadcastId]
       );
+
+      // 2026-09-22 起，靜態名單會在 definition 留下「原始匯入名單」快照，
+      // 讓批次詳情可以還原誰在建單時被條件排除。舊名單沒有快照時，
+      // 頁面仍提供貼上原始名單的即時比對工具。
+      let recipientSourceAudit = null;
+      const savedListId = Number(b.audience_config && b.audience_config.conditions &&
+        b.audience_config.conditions.savedListId);
+      if (Number.isInteger(savedListId) && savedListId > 0) {
+        const sourceRs = await query(
+          `SELECT id, name, definition FROM admin_recipient_lists WHERE id = $1 LIMIT 1`,
+          [savedListId]
+        );
+        const source = sourceRs.rows[0];
+        const definition = source && source.definition;
+        if (definition && definition.kind === 'static_import' &&
+            Array.isArray(definition.sourceLineUserIds)) {
+          recipientSourceAudit = {
+            listId: source.id,
+            listName: source.name,
+            lineUserIds: definition.sourceLineUserIds.slice(0, MAX_RECIPIENTS_PER_BROADCAST)
+          };
+        }
+      }
 
       // click 統計
       const clickStatRs = await query(
@@ -2151,6 +2201,7 @@ function registerAdminBroadcastRoutes(app, deps) {
         statusCounts,
         failedSample: failedSampleRs.rows,
         recentSample: recentSampleRs.rows,
+        recipientSourceAudit,
         clickStat: clickStatRs.rows[0] || { clicks: 0, unique_ua: 0 },
         clickRecent: clickRecentRs.rows,
         viewStat: viewStatRs.rows[0] || { views: 0, first_view: null, last_view: null },
@@ -2393,7 +2444,115 @@ function registerAdminBroadcastRoutes(app, deps) {
     }
   });
 
-  // ---------- 8. 匯出收件人成名單庫（5 種 filter）----------
+  // ---------- 8. 完整收件人 CSV／原始名單比對 ----------
+  app.get('/admin/broadcast/:id(\\d+)/recipients.csv', requireAdmin, async (req, res) => {
+    const broadcastId = Number(req.params.id);
+    try {
+      const broadcast = await loadBroadcast(broadcastId);
+      if (!broadcast) return res.status(404).type('text/plain').send('Not found');
+      const rows = await query(
+        `SELECT r.id, r.line_user_id, r.status, r.pushed_at, r.error,
+                COALESCE(u.line_display_name, u.username, '') AS display_name
+         FROM admin_broadcast_recipients r
+         LEFT JOIN users u ON u.line_user_id = r.line_user_id
+         WHERE r.broadcast_id = $1
+         ORDER BY r.id ASC`,
+        [broadcastId]
+      );
+      const statusLabel = {
+        pending: '等待發送', processing: '發送中', sent: '已送出', failed: '失敗',
+        skipped: '跳過', cancelled: '已取消', waiting_winner: '等待勝出版', released: '已交給勝出版'
+      };
+      const lines = [
+        ['recipient_id', '顯示名稱', 'LINE User ID', '狀態', '送出時間（台北）', '錯誤訊息'],
+        ...rows.rows.map((row) => [
+          row.id,
+          row.display_name,
+          row.line_user_id,
+          statusLabel[row.status] || row.status,
+          tpeCsvTimestamp(row.pushed_at),
+          row.error
+        ])
+      ];
+      const filename = `broadcast-${broadcastId}-recipients.csv`;
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send('\ufeff' + lines.map((line) => line.map(csvCell).join(',')).join('\r\n'));
+    } catch (err) {
+      console.error('broadcast recipients csv error:', err && err.message);
+      return res.status(500).type('text/plain').send('export_failed');
+    }
+  });
+
+  app.post('/admin/broadcast/:id(\\d+)/compare-recipients', requireAdmin, async (req, res) => {
+    const broadcastId = Number(req.params.id);
+    try {
+      const parsed = parseExplicitLineUserIds(req.body && req.body.lineUserIds);
+      if (parsed.values.length === 0) {
+        return safeJsonError(res, 400, 'no_valid_line_user_ids', {
+          detail: '請貼上至少一個有效的 LINE User ID（U 開頭加 32 碼）'
+        });
+      }
+      if (parsed.values.length > MAX_RECIPIENTS_PER_BROADCAST) {
+        return safeJsonError(res, 400, 'too_many_recipients', {
+          detail: `一次最多比對 ${MAX_RECIPIENTS_PER_BROADCAST} 位`
+        });
+      }
+      const exists = await query('SELECT id FROM admin_broadcasts WHERE id = $1 LIMIT 1', [broadcastId]);
+      if (exists.rowCount === 0) return safeJsonError(res, 404, 'broadcast_not_found');
+
+      const compared = await query(
+        `WITH input AS (
+           SELECT line_user_id, ord
+           FROM UNNEST($2::text[]) WITH ORDINALITY AS item(line_user_id, ord)
+         )
+         SELECT input.line_user_id,
+                recipient.id AS recipient_id,
+                recipient.status,
+                recipient.pushed_at,
+                recipient.error,
+                COALESCE(person.line_display_name, person.username, '') AS display_name,
+                CASE
+                  WHEN recipient.id IS NOT NULL THEN '已進入批次'
+                  WHEN person.id IS NULL THEN 'CRM 找不到這位用戶，建立名單時未符合「目前仍是好友」'
+                  WHEN person.blocked_at IS NOT NULL THEN '已封鎖官方帳號'
+                  WHEN person.archived_at IS NOT NULL THEN '好友資料已失效或封存'
+                  ELSE '建立名單時未符合篩選條件'
+                END AS comparison_reason
+         FROM input
+         LEFT JOIN LATERAL (
+           SELECT r.id, r.status, r.pushed_at, r.error
+           FROM admin_broadcast_recipients r
+           WHERE r.broadcast_id = $1
+             AND LOWER(r.line_user_id) = LOWER(input.line_user_id)
+           ORDER BY r.id ASC LIMIT 1
+         ) recipient ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT u.id, u.line_display_name, u.username, u.blocked_at, u.archived_at
+           FROM users u
+           WHERE LOWER(u.line_user_id) = LOWER(input.line_user_id)
+           ORDER BY u.id ASC LIMIT 1
+         ) person ON TRUE
+         ORDER BY input.ord ASC`,
+        [broadcastId, parsed.values]
+      );
+      const included = compared.rows.filter((row) => row.recipient_id != null).length;
+      return res.json({
+        ok: true,
+        inputTotal: parsed.values.length,
+        included,
+        missing: parsed.values.length - included,
+        invalid: parsed.invalid,
+        duplicates: parsed.duplicates,
+        rows: compared.rows
+      });
+    } catch (err) {
+      console.error('compare broadcast recipients error:', err && err.message);
+      return safeJsonError(res, 500, 'compare_failed', { detail: err && err.message });
+    }
+  });
+
+  // ---------- 9. 匯出收件人成名單庫（5 種 filter）----------
   app.post('/admin/broadcast/:id(\\d+)/export-recipients-to-list', requireAdmin, async (req, res) => {
     try {
       const broadcastId = Number(req.params.id);

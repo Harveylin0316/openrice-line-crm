@@ -107,6 +107,13 @@ test('static-list creation saves the same filtered intersection shown by preview
   assert.equal(res.body.filteredOut, 1);
   const listInsert = clientCalls.find(call => /INSERT INTO admin_recipient_lists/.test(call.text));
   assert.equal(listInsert.params[2], 2);
+  const audit = JSON.parse(listInsert.params[4]);
+  assert.equal(audit.kind, 'static_import');
+  assert.deepEqual(audit.sourceLineUserIds, ids);
+  assert.equal(audit.importedValid, 3);
+  assert.equal(audit.accepted, 2);
+  assert.equal(audit.filteredOut, 1);
+  assert.equal(audit.filterDefinition.conditions[0].type, 'is_friend');
   const memberInsert = clientCalls.find(call => /INSERT INTO admin_recipient_list_members/.test(call.text));
   assert.deepEqual(memberInsert.params, [91, ids[0], 91, ids[2]]);
 });

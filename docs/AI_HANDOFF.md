@@ -1,6 +1,6 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
-本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-17；正式資料與部署狀態仍應在接手時重新確認。
+本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-22；正式資料與部署狀態仍應在接手時重新確認。
 
 - Repo：<https://github.com/Harveylin0316/openrice-line-crm>
 - 正式站：<https://openrice-line-crm.netlify.app>
@@ -635,6 +635,7 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 - `/admin/recipient-lists` 可建立靜態名單或動態受眾。動態受眾的規則存在
   `admin_recipient_lists.definition`，成員物化至既有 `admin_recipient_list_members`，因此群發與流程仍只消費同一種名單介面。
 - 建立靜態名單時可選擇「建立前，只保留符合條件的人」。試算與正式建立都以貼入的 LINE userId 為 scope，採「匯入 ID ∩ 受眾條件」；未勾選時維持原本的純手動名單。前端送 `scopeLineUserIds` 試算、`filterDefinition` 建立，後端必須重新計算，不能信任畫面顯示的人數。
+- 2026-09-22 起，靜態名單會把原始有效 ID、當時篩選條件與納入／排除筆數保存在 `definition.kind=static_import` 的快照。群發詳情 `/admin/broadcast/:id` 會顯示完整實際收件人、提供受保護的 CSV，並可把原始名單與 `admin_broadcast_recipients` 固定快照逐位比對。舊名單沒有來源快照，不能憑 34 位收件人反推被丟棄的 30 位；頁面會要求管理員把原始名單再貼一次。
 - 條件支援 Include／Exclude 與 Include 間 AND／OR。Exclude 永遠是強制排除，不會因選 OR 而意外把排除者放回名單；只有 Exclude 時語意是「全部有效會員扣掉排除條件」。
 - 可用加入日期、目前好友／封鎖狀態、Tag、指定圖文選單／按鈕、LIFF event、活動進入／開始／完成／分享、成功邀請、獎勵、LINE Login、活動手機登記、金豬訂位、群發已發／Email delivered／open／click／測試組／CTA conversion 等條件。現有 `campaign_phone_registrations` 只能證明活動手機登記，不能當作 OpenRice App Registration；後者須等正式身份橋接後才能加入。
 - 「點過指定圖文選單按鈕」必須用三段名稱選擇器（圖文選單 → 分頁 → 按鈕），不可要求使用者手填 `menu_id:tab:cell`。畫面顯示人話名稱，儲存時仍轉成既有底層格式，讓舊名單與 `rich_menu_taps` 查詢維持相容。

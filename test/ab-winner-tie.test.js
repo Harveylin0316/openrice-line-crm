@@ -35,6 +35,9 @@ test('A/B 都是零點擊時顯示無勝出版，且不能重發', async () => {
   assert.match(html, /id="btn-resend-winner" disabled/);
   assert.doesNotMatch(html, /點擊率較高<\/span>/);
   assert.doesNotMatch(html, /預設用 A/);
+  assert.match(html, /實際進入批次的收件人（0 位）/);
+  assert.match(html, /下載完整 CSV/);
+  assert.match(html, /找出原始名單中沒有派送的人/);
 });
 
 function response() {
