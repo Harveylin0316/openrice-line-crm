@@ -340,6 +340,30 @@ route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-pl
 回歸測試：`test/scratch-preview-studio.test.js`、`test/scratch-admin-editor.test.js`、
 `test/activity-open-funnel.test.js`。
 
+#### 群發成效追蹤：自訂 Flex／Carousel／多段訊息（2026-09-22）
+
+以前只有「模板模式」會追蹤（CTA 包 `/r/b/<批次>/<收件人>`、主圖走 `/v/b/`）；訊息庫的
+按鈕卡片與 Carousel 是 `flex_json`，多段訊息是 `sequence`，送出時完全沒包，所以批次 8/9/10
+送達 1291 人卻 0 看過 0 點擊。現在 `buildLineMessages()` 在 `flex_json` 與 `sequence` 建好
+成品後統一套 `applyBroadcastTracking()`：
+
+- 點擊：用 `messageTapTracking.walkUriActions(..., BROADCAST_WALK_OPTS)` 走訪成品訊息樹，
+  每一顆「開啟網址」按鈕（**含自家 LIFF 活動連結**）換成 `/r/b/<批次>/<收件人>/<按鈕序號>?v=`。
+  點下去由 `resolveBroadcastButtonTarget()` 用同一份訊息設定重建、同一個走訪器反查目的網址，
+  絕不從網址帶目的地。序號是整串訊息一起數（多段訊息的文字段不佔序號）。
+  `admin_broadcast_clicks` 新增 `button_index`（模板模式一律 0）；批次詳情多「各按鈕點擊」表。
+- 看過：每張 bubble 底部塞 1px 透明 PNG `/v/b/<批次>/<收件人>/pixel.png?v=`（Carousel 每張都塞），
+  沿用 Email 的 pixel 路由（現在 `pixel.:ext(gif|png)`，variant 也吃 c）。估計值，同模板主圖。
+- 只有 `broadcastId` 且 `recipientId` 都有時才包；測試訊息、後台預覽、反查重建都不包。
+- 模板模式維持原本 `/r/b/<批次>/<收件人>`（無序號）路徑與測試，不動。
+- 自動化流程一併修：自訂 Flex 以前全指到同一個 `/rf/<enrollment>/<message>` 而 `/rf` 只認模板
+  ctaUrl → 一律 404。現在 `/rf/<enrollment>/<message>/<序號>` 用同一套反查；舊連結沒序號視為第 0 顆。
+  流程也改為連自家 LIFF 連結都包（與群發一致），`clicked` 分支才判斷得出來。
+- 已送出的舊批次補不回來；修完之後的批次才有數字。
+
+**改訊息走訪邏輯時，送出（`applyBroadcastClickTracking`）與反查（`resolveBroadcastButtonTarget`）
+必須用同一組 opts，否則序號對不起來、用戶會被導到錯的網址。** 回歸測試 `test/broadcast-flex-tracking.test.js`。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`

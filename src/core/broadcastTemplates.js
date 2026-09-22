@@ -1,3 +1,4 @@
+const { walkUriActions, listUriButtons } = require('./messageTapTracking');
 /**
  * 後台「群發訊息」黃色 Flex 模板 builder
  *
@@ -413,6 +414,85 @@ function stripEmptyTexts(node) {
   });
 }
 
+/* ============================================================
+ * 群發成效追蹤：自訂 Flex／多段訊息也要有「點擊」與「看過」
+ *
+ * 模板模式一直有追蹤（CTA 包成 /r/b、主圖走 /v/b）；訊息庫的按鈕卡片、Carousel
+ * 是自訂 Flex，以前完全沒包，1291 人送達也是 0 點擊。這裡統一：
+ *   點擊：走訪成品訊息樹，每一顆「開啟網址」按鈕（含自家 LIFF 活動連結）換成
+ *         /r/b/<批次>/<收件人>/<按鈕序號>；點下去伺服器用同一個走訪器反查目的網址。
+ *   看過：每張 bubble 底部塞 1px 透明追蹤圖 /v/b/<批次>/<收件人>/pixel.png（估計值；LINE Flex 只吃 JPEG／PNG）。
+ * 送出與反查必須用同一組走訪 opts（BROADCAST_WALK_OPTS），序號才對得起來。
+ * ============================================================ */
+const BROADCAST_WALK_OPTS = { includeOwnLiff: true };
+
+function trackingVariantSuffix(variant) {
+  return variant === 'a' || variant === 'b' || variant === 'c' ? `?v=${variant}` : '';
+}
+
+/** 把成品訊息裡每顆按鈕包成 /r/b/<bid>/<rid>/<index>；回傳包了幾顆 */
+function applyBroadcastClickTracking(messages, { origin, broadcastId, recipientId, variant } = {}) {
+  if (!Array.isArray(messages) || !broadcastId || !origin || !/^https:\/\//i.test(origin)) return 0;
+  const base = origin.replace(/\/+$/, '');
+  const rSeg = (recipientId != null && Number.isFinite(Number(recipientId))) ? `/${Number(recipientId)}` : '';
+  if (!rSeg) return 0;                       // 沒有收件人序號記不到「誰點」，不包
+  const suffix = trackingVariantSuffix(variant);
+  const found = walkUriActions({ contents: messages }, (item) =>
+    `${base}/r/b/${Number(broadcastId)}${rSeg}/${item.index}${suffix}`, BROADCAST_WALK_OPTS);
+  return found.length;
+}
+
+/** 反查第 index 顆按鈕的真正目的網址：用同一份訊息設定重建，再用同一個走訪器數 */
+function resolveBroadcastButtonTarget(messageConfig, index, { heroImageBaseUrl } = {}) {
+  const built = buildLineMessages(messageConfig, { heroImageBaseUrl, recipientName: '' });
+  if (!built.ok) return null;
+  const list = listUriButtons({ contents: built.messages }, BROADCAST_WALK_OPTS);
+  const n = Number(index);
+  return list.find(b => b.index === n) || null;
+}
+
+/** 列出這則訊息所有可追蹤的按鈕（批次詳情「各按鈕點擊」用） */
+function listBroadcastButtons(messageConfig, { heroImageBaseUrl } = {}) {
+  const built = buildLineMessages(messageConfig, { heroImageBaseUrl, recipientName: '' });
+  if (!built.ok) return [];
+  return listUriButtons({ contents: built.messages }, BROADCAST_WALK_OPTS);
+}
+
+/** 在每張 bubble 底部塞 1px 追蹤圖；只在有批次、有收件人、有 https origin 時 */
+function appendBroadcastViewPixel(messages, { origin, broadcastId, recipientId, variant } = {}) {
+  if (!Array.isArray(messages) || !broadcastId || !origin || !/^https:\/\//i.test(origin)) return 0;
+  if (recipientId == null || !Number.isFinite(Number(recipientId))) return 0;
+  const url = `${origin.replace(/\/+$/, '')}/v/b/${Number(broadcastId)}/${Number(recipientId)}/pixel.png${trackingVariantSuffix(variant)}`;
+  const pixel = () => ({ type: 'image', url, size: '1px', aspectRatio: '1:1', aspectMode: 'cover', margin: 'none', flex: 0 });
+  let count = 0;
+  const addToBubble = (bubble) => {
+    if (!bubble || bubble.type !== 'bubble') return;
+    if (bubble.footer && bubble.footer.type === 'box' && Array.isArray(bubble.footer.contents)) {
+      bubble.footer.contents.push(pixel());
+    } else if (!bubble.footer) {
+      bubble.footer = { type: 'box', layout: 'vertical', paddingAll: '0px', contents: [pixel()] };
+    } else {
+      return;
+    }
+    count += 1;
+  };
+  for (const m of messages) {
+    if (!m || m.type !== 'flex' || !m.contents) continue;
+    if (m.contents.type === 'bubble') addToBubble(m.contents);
+    else if (m.contents.type === 'carousel' && Array.isArray(m.contents.contents)) {
+      // Carousel 每張都塞：哪張被滑到才算被看，也讓「看過」不會只算第一張
+      m.contents.contents.forEach(addToBubble);
+    }
+  }
+  return count;
+}
+
+function applyBroadcastTracking(messages, opts) {
+  applyBroadcastClickTracking(messages, opts);
+  appendBroadcastViewPixel(messages, opts);
+  return messages;
+}
+
 function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, variant, recipientId, recipientName } = {}) {
   const variantSuffix = variant === 'a' || variant === 'b' || variant === 'c' ? `?v=${variant}` : '';
   // recipient id segment：有提供就嵌入 URL，後續 track endpoint 可寫入 line_user_id 對應
@@ -457,8 +537,8 @@ function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, varia
       if (item.type === 'card') {
         const nested = item.message_config;
         if (!nested || nested.mode === 'sequence') return { ok: false, error: pos + '卡片內容缺失。' };
-        // 多段訊息裡的卡片不套 broadcast CTA 中轉：舊中轉端點只認單一卡片設定。
-        // Flow 本身仍會在成品訊息樹上套自己的 /rf 點擊追蹤。
+        // 卡片先不帶 broadcastId 建（不在這裡包）：整串訊息建完後由 applyBroadcastTracking
+        // 一次走訪、統一編按鈕序號，反查才對得起來。
         const built = buildLineMessages(nested, {
           heroImageBaseUrl, recipientName, variant, recipientId, broadcastId: undefined
         });
@@ -470,6 +550,8 @@ function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, varia
       }
       return { ok: false, error: pos + '不支援的內容類型。' };
     }
+    // 多段訊息：所有卡片建好後統一套追蹤（按鈕序號是整串訊息一起數的）
+    applyBroadcastTracking(messages, { origin: heroImageBaseUrl, broadcastId, recipientId, variant });
     return { ok: true, messages };
   }
   if (messageConfig.mode === 'flex_json') {
@@ -511,7 +593,9 @@ function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, varia
     }
     stripEmptyTexts(cloned.contents);
     postProcessFlexTree(cloned.contents);
-    return { ok: true, messages: [cloned] };
+    const flexMessages = [cloned];
+    applyBroadcastTracking(flexMessages, { origin: heroImageBaseUrl, broadcastId, recipientId, variant });
+    return { ok: true, messages: flexMessages };
   }
   // template mode（預設）
   const t = normalizeTemplateInput(messageConfig.template || {});
@@ -578,5 +662,10 @@ module.exports = {
   buildYellowFlexFromTemplate,
   applyPersonalization,
   resolveRecipientName,
-  buildLineMessages
+  buildLineMessages,
+  BROADCAST_WALK_OPTS,
+  applyBroadcastClickTracking,
+  appendBroadcastViewPixel,
+  resolveBroadcastButtonTarget,
+  listBroadcastButtons
 };

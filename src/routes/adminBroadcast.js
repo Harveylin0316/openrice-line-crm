@@ -20,6 +20,8 @@ const multer = require('multer');
 const {
   buildLineMessages,
   normalizeTemplateInput,
+  resolveBroadcastButtonTarget,
+  listBroadcastButtons,
   FIELD_LIMITS
 } = require('../core/broadcastTemplates');
 const {
@@ -490,6 +492,58 @@ function registerAdminBroadcastRoutes(app, deps) {
     }
   });
 
+  // ---------- 0-newest. /r/b/:broadcastId/:recipientId/:buttonIndex（自訂 Flex／多段訊息的每一顆按鈕）----------
+  // 目的網址一律回 DB 用同一份訊息設定與同一個走訪器反查（不從網址帶，避免 open redirect）。
+  app.get('/r/b/:broadcastId(\\d+)/:recipientId(\\d+)/:buttonIndex(\\d+)', async (req, res) => {
+    const broadcastId = Number(req.params.broadcastId);
+    const recipientId = Number(req.params.recipientId);
+    const buttonIndex = Number(req.params.buttonIndex);
+    const variant = isTestVariant(req.query.v) ? req.query.v : null;
+    try {
+      const rs = await query(
+        `SELECT message_config, variant_b_message_config, audience_config FROM admin_broadcasts WHERE id = $1`,
+        [broadcastId]
+      );
+      if (rs.rowCount === 0) return res.status(404).type('text/plain').send('Not found');
+      const cfg = getVariantConfig(rs.rows[0], variant || 'a') || {};
+      const hit = resolveBroadcastButtonTarget(cfg, buttonIndex, { heroImageBaseUrl: publicOriginOrEmpty(req) });
+      const targetUrl = hit ? String(hit.uri || '').trim() : '';
+      if (!/^https?:\/\//i.test(targetUrl)) {
+        return res.status(404).type('text/plain').send('Not found');
+      }
+      // click log 必須寫完才 302：這筆決定 A/B 勝出與「沒點擊」重發名單
+      try {
+        await query(
+          `WITH tracked AS (
+             INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, line_user_id, target_url, user_agent, referer, variant, button_index)
+             SELECT $1, $2, m.line_user_id, $3, $4, $5, $6, $7
+             FROM admin_broadcast_recipients m
+             WHERE m.id = $2 AND m.broadcast_id = $1
+             ON CONFLICT DO NOTHING
+           )
+           UPDATE admin_broadcast_recipients
+              SET first_clicked_at = COALESCE(first_clicked_at, NOW())
+            WHERE id = $2 AND broadcast_id = $1`,
+          [
+            broadcastId, recipientId, targetUrl,
+            (req.get('user-agent') || '').slice(0, 500),
+            (req.get('referer') || '').slice(0, 500),
+            variant, buttonIndex
+          ]
+        );
+      } catch (err) { console.error('click log (button) failed:', err.message); }
+      try {
+        const r = await query(`SELECT line_user_id FROM admin_broadcast_recipients WHERE id = $1 AND broadcast_id = $2`, [recipientId, broadcastId]);
+        const luid = r.rows[0] && r.rows[0].line_user_id;
+        if (luid) await recordRestaurantClick(query, { lineUserId: luid, url: targetUrl, source: 'broadcast' });
+      } catch (err) { console.error('restaurant click (button) failed:', err.message); }
+      return res.redirect(302, targetUrl);
+    } catch (err) {
+      console.error('redirect (button) error:', err.message);
+      return res.status(500).type('text/plain').send('Server error');
+    }
+  });
+
   // ---------- 0-new. /r/b/:broadcastId/:recipientId（含 recipient 追蹤）----------
   app.get('/r/b/:broadcastId(\\d+)/:recipientId(\\d+)', async (req, res) => {
     const broadcastId = Number(req.params.broadcastId);
@@ -513,8 +567,8 @@ function registerAdminBroadcastRoutes(app, deps) {
       try {
         await query(
           `WITH tracked AS (
-             INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, line_user_id, target_url, user_agent, referer, variant)
-             SELECT $1, $2, m.line_user_id, $3, $4, $5, $6
+             INSERT INTO admin_broadcast_clicks (broadcast_id, recipient_id, line_user_id, target_url, user_agent, referer, variant, button_index)
+             SELECT $1, $2, m.line_user_id, $3, $4, $5, $6, 0
              FROM admin_broadcast_recipients m
              WHERE m.id = $2 AND m.broadcast_id = $1
              ON CONFLICT DO NOTHING
@@ -2190,6 +2244,42 @@ function registerAdminBroadcastRoutes(app, deps) {
         [broadcastId]
       );
 
+      // 各按鈕點擊：自訂 Flex／多段訊息可能有好幾顆（Carousel 每張卡一顆），
+      // 用同一份訊息設定與同一個走訪器列出按鈕，再對上 clicks 的 button_index。
+      let buttonStats = [];
+      try {
+        const variantsToShow = ['a'];
+        if (b.is_ab_test || getCampaignExperiment(b)) variantsToShow.push('b');
+        if (getCampaignExperiment(b) && getVariantConfig(b, 'c')) variantsToShow.push('c');
+        const grouped = await query(
+          `SELECT COALESCE(variant, 'a') AS variant, COALESCE(button_index, 0) AS button_index,
+                  COUNT(*)::int AS clicks,
+                  COUNT(DISTINCT COALESCE(recipient_id::text, id::text))::int AS people
+             FROM admin_broadcast_clicks
+            WHERE broadcast_id = $1
+            GROUP BY 1, 2`,
+          [broadcastId]
+        );
+        const clicksBy = {};
+        grouped.rows.forEach(r => { clicksBy[r.variant + ':' + r.button_index] = r; });
+        const originForButtons = publicOriginOrEmpty(req);
+        variantsToShow.forEach(v => {
+          const cfg = getVariantConfig(b, v);
+          if (!cfg) return;
+          const buttons = listBroadcastButtons(cfg, { heroImageBaseUrl: originForButtons });
+          buttons.forEach(btn => {
+            const hit = clicksBy[v + ':' + btn.index] || {};
+            buttonStats.push({
+              variant: v, index: btn.index, label: btn.label || ('按鈕 ' + (btn.index + 1)), uri: btn.uri,
+              clicks: Number(hit.clicks || 0), people: Number(hit.people || 0)
+            });
+          });
+        });
+      } catch (err) {
+        console.error('button stats failed:', err && err.message);
+        buttonStats = [];
+      }
+
       const playGrantForDetail = getPlayGrant(b);
       const playGrantSummary = playGrantForDetail
         ? await loadPlayGrantSummary(query, broadcastId, playGrantForDetail).catch(e => {
@@ -2201,6 +2291,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       return res.render('admin_broadcast_detail', {
         title: `批次 #${broadcastId}`,
         playGrantSummary,
+        buttonStats,
         bodyClass: 'admin-shell broadcast-detail-shell',
         user: (req.authUser && req.authUser.un) || '',
         isAdmin: true,
@@ -2584,10 +2675,14 @@ function registerAdminBroadcastRoutes(app, deps) {
    * URL: /v/b/:bid/:rid/pixel.gif?v=a
    * （Brevo 自帶開信追蹤，這個是雙保險，也方便自家報表）
    */
-  app.get('/v/b/:bid(\\d+)/:rid(\\d+)/pixel.gif', async (req, res) => {
+  // 自訂 Flex／多段訊息的 LINE 卡片也用這顆（每張 bubble 底部 1px 追蹤圖），
+  // 所以這不再是 Email 專屬；variant 也要吃 c（Campaign Testing 三版）。
+  // LINE Flex 的 image 只吃 JPEG／PNG，所以卡片用 pixel.png；Email 維持 pixel.gif。
+  app.get('/v/b/:bid(\\d+)/:rid(\\d+)/pixel.:ext(gif|png)', async (req, res) => {
     const bid = Number(req.params.bid);
     const rid = Number(req.params.rid);
-    const variant = req.query.v === 'a' || req.query.v === 'b' ? req.query.v : null;
+    const asPng = req.params.ext === 'png';
+    const variant = isTestVariant(req.query.v) ? req.query.v : null;
     try {
       const rcp = await query(
         `SELECT email, line_user_id FROM admin_broadcast_recipients
@@ -2613,15 +2708,14 @@ function registerAdminBroadcastRoutes(app, deps) {
     } catch (err) {
       console.error('pixel track failed:', err.message);
     }
-    // 一律回 1x1 透明 GIF（GIF89a 標頭）
-    const gif = Buffer.from(
-      'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==',
-      'base64'
-    );
-    res.setHeader('Content-Type', 'image/gif');
+    // 一律回 1x1 透明圖：GIF（GIF89a）給 Email，PNG 給 LINE Flex
+    const pixel = asPng
+      ? Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')
+      : Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
+    res.setHeader('Content-Type', asPng ? 'image/png' : 'image/gif');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Content-Length', String(gif.length));
-    return res.status(200).end(gif);
+    res.setHeader('Content-Length', String(pixel.length));
+    return res.status(200).end(pixel);
   });
 
   /**
