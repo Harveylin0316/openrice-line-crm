@@ -112,6 +112,34 @@ test('未確認行銷同意前不會向訂位成效報表讀取資料', async ()
   assert.equal(fetched, false);
 });
 
+test('回訪頁會顯示報表最新訂位日期，狀態查詢失敗也不拖垮頁面', async () => {
+  const currentRoutes = register({
+    bookingReportClient: {
+      isConfigured: () => true,
+      async fetchStatus() {
+        return { latestBookingDate: '2026-09-20', earliestBookingDate: '2024-01-01', totalBookings: 1234 };
+      }
+    }
+  });
+  const current = await run(currentRoutes, 'GET /admin/revisit-email/api/data');
+  assert.equal(current.statusCode, 200);
+  assert.equal(current.body.booking_report.status_available, true);
+  assert.equal(current.body.booking_report.latest_booking_date, '2026-09-20');
+  assert.equal(current.body.booking_report.total_bookings, 1234);
+
+  const unavailableRoutes = register({
+    bookingReportClient: {
+      isConfigured: () => true,
+      async fetchStatus() { throw new Error('temporary_source_failure'); }
+    }
+  });
+  const unavailable = await run(unavailableRoutes, 'GET /admin/revisit-email/api/data');
+  assert.equal(unavailable.statusCode, 200);
+  assert.equal(unavailable.body.booking_report.configured, true);
+  assert.equal(unavailable.body.booking_report.status_available, false);
+  assert.equal(unavailable.body.booking_report.latest_booking_date, null);
+});
+
 test('正式寄送在目前草稿版本未成功測試時由後端擋下', async () => {
   let smtpCalls = 0;
   const client = {

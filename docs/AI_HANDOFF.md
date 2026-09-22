@@ -124,7 +124,7 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 
 這是獨立於 LINE／SureNotify 群發的人工回訪工作台。第一版**沒有排程自動寄送**：
 
-1. 從「訂位成效報表」選日期範圍同步 booking record；再上傳當期 discount offer／套餐。只有報表缺漏時才用 UTF-8 CSV／JSON 手動補資料。
+1. 頁面先從報表站的非個資狀態查詢顯示「訂位資料更新至哪一天」，再由管理員選日期範圍同步 booking record；之後上傳當期 discount offer／套餐。只有報表缺漏時才用 UTF-8 CSV／JSON 手動補資料。
 2. 系統只取每位客人在各餐廳最近一次已完成、可做 Email 行銷的訂位，依「用餐後天數」、同店／跨店冷卻、退訂與是否已寄過排除。
 3. 以餐廳 ID 配對優惠；套餐優先於折扣，優惠必須仍在有效期且至少剩設定天數。沒有優惠時，booking record 必須提供餐廳訂位網址，才會產生一般回訪信。
 4. 管理員先逐封查看／修改主旨、預覽文字、內文與 CTA，寄「正式等同測試信」後，再按批次手動寄出；每次最多 20 封、每日上限可設定。正式寄送 API 會核對批次 `content_version` 與 `tested_version`，任何草稿修改都會使舊測試失效。

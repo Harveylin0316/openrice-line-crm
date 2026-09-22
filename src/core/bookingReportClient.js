@@ -41,7 +41,35 @@ function createBookingReportClient(options = {}) {
     };
   }
 
-  return { isConfigured, fetchPage };
+  async function fetchStatus() {
+    if (!isConfigured()) throw new Error('booking_report_not_configured');
+    const url = new URL(apiUrl);
+    url.searchParams.set('mode', 'status');
+    const response = await fetchImpl(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000)
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload || payload.ok !== true) {
+      const error = new Error('booking_report_status_failed');
+      error.status = response.status;
+      error.sourceError = payload && payload.error;
+      throw error;
+    }
+    const date = (value) => {
+      const normalized = String(value || '').slice(0, 10);
+      return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
+    };
+    return {
+      latestBookingDate: date(payload.latest_booking_date),
+      earliestBookingDate: date(payload.earliest_booking_date),
+      totalBookings: Math.max(Number(payload.total_bookings) || 0, 0),
+      totalRestaurants: Math.max(Number(payload.total_restaurants) || 0, 0)
+    };
+  }
+
+  return { isConfigured, fetchPage, fetchStatus };
 }
 
 module.exports = { DEFAULT_PAGE_SIZE, buildRestaurantSearchUrl, createBookingReportClient };

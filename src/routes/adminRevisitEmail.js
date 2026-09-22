@@ -226,7 +226,11 @@ function registerAdminRevisitEmailRoutes(app, deps) {
 
   app.get('/admin/revisit-email/api/data', requireAdmin, async (_req, res) => {
     try {
-      const [settings, stats, imports, campaigns, suppressions] = await Promise.all([
+      const reportConfigured = Boolean(bookingReportClient && bookingReportClient.isConfigured());
+      const reportStatusPromise = reportConfigured && typeof bookingReportClient.fetchStatus === 'function'
+        ? bookingReportClient.fetchStatus().catch(() => null)
+        : Promise.resolve(null);
+      const [settings, stats, imports, campaigns, suppressions, reportStatus] = await Promise.all([
         query(`SELECT revisit_after_days, same_restaurant_cooldown_days, global_cooldown_days,
                       min_offer_days_remaining, daily_send_limit, updated_at
                  FROM revisit_email_settings WHERE id = 1`),
@@ -256,7 +260,8 @@ function registerAdminRevisitEmailRoutes(app, deps) {
                 GROUP BY c.id ORDER BY c.id DESC LIMIT 12`),
         query(`SELECT id, email, reason, source, detail, created_by, updated_by, updated_at
                  FROM revisit_email_suppressions
-                WHERE active = TRUE ORDER BY updated_at DESC LIMIT 50`)
+                WHERE active = TRUE ORDER BY updated_at DESC LIMIT 50`),
+        reportStatusPromise
       ]);
       return res.json({
         ok: true,
@@ -272,7 +277,11 @@ function registerAdminRevisitEmailRoutes(app, deps) {
           from: emailProvider && emailProvider.getDefaultSender ? emailProvider.getDefaultSender() : null
         },
         booking_report: {
-          configured: Boolean(bookingReportClient && bookingReportClient.isConfigured())
+          configured: reportConfigured,
+          status_available: Boolean(reportStatus),
+          latest_booking_date: reportStatus && reportStatus.latestBookingDate,
+          earliest_booking_date: reportStatus && reportStatus.earliestBookingDate,
+          total_bookings: reportStatus ? reportStatus.totalBookings : null
         }
       });
     } catch (err) {
