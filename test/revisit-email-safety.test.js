@@ -40,7 +40,11 @@ test('回訪 Email 頁面可渲染且瀏覽器程式碼語法正確', async () =
   assert.match(html, /revisit-offer-import\.js/);
   assert.match(html, /產生回訪信草稿/);
   assert.match(html, /確認，正式寄給客人/);
-  assert.match(html, /把這封寄到我的測試信箱/);
+  assert.match(html, /③ 寄這封到測試信箱/);
+  assert.match(html, /不是只找剛好第/);
+  assert.match(html, /booking_import_id:state\.bookingSource\.id/);
+  assert.match(html, /你現在開的是正式網站，這裡刻意不能寄信/);
+  assert.match(html, /http:\/\/localhost:3000\/admin\/revisit-email/);
   assert.match(html, /api\/provider\/verify/);
   assert.match(html, /永遠不要再寄/);
   assert.match(html, /寄件備份有這封：標記為公司信箱已接受/);

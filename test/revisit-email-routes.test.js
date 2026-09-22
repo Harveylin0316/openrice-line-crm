@@ -326,10 +326,45 @@ test('正式環境未開本機旗標時，測試信與正式寄送都在查資�
 test('沒有正式 HTTPS 追蹤網址時不可產生草稿', async () => {
   const routes = register();
   const result = await run(routes, 'POST /admin/revisit-email/api/generate', {
-    body: { as_of_date: '2026-09-10' }
+    body: { as_of_date: '2026-09-10', booking_import_id: 1 }
   });
   assert.equal(result.statusCode, 400);
   assert.equal(result.body.error, 'public_url_required');
+});
+
+test('沒有指定這次同步的訂位批次時不可產生草稿', async () => {
+  const routes = register({ publicBaseUrl: 'https://crm.example.com' });
+  const result = await run(routes, 'POST /admin/revisit-email/api/generate', {
+    body: { as_of_date: '2026-09-10' }
+  });
+  assert.equal(result.statusCode, 400);
+  assert.equal(result.body.error, 'booking_source_required');
+});
+
+test('產生草稿只讀取指定的已完成訂位批次', async () => {
+  const calls = [];
+  const routes = register({
+    publicBaseUrl: 'https://crm.example.com',
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      if (/SELECT id, source_file, accepted_count FROM revisit_email_imports/.test(sql)) {
+        return { rowCount: 1, rows: [{ id: 42, source_file: '訂位成效報表 2026-03-26～2026-04-25', accepted_count: 3117 }] };
+      }
+      if (/SELECT \* FROM revisit_email_settings/.test(sql)) {
+        return { rowCount: 1, rows: [{ revisit_after_days: 30, same_restaurant_cooldown_days: 60, global_cooldown_days: 7, min_offer_days_remaining: 7 }] };
+      }
+      return { rowCount: 0, rows: [] };
+    }
+  });
+  const result = await run(routes, 'POST /admin/revisit-email/api/generate', {
+    body: { as_of_date: '2026-09-10', booking_import_id: 42 }
+  });
+  assert.equal(result.statusCode, 400);
+  assert.equal(result.body.error, 'no_eligible_recipients');
+  const bookingQuery = calls.find((call) => /FROM revisit_email_bookings/.test(call.sql));
+  assert.ok(bookingQuery);
+  assert.match(bookingQuery.sql, /import_id = \$1/);
+  assert.equal(bookingQuery.params[0], 42);
 });
 
 test('不允許用未來日期提前產生回訪信', async () => {

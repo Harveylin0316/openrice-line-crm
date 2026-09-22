@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildRestaurantSearchUrl, createBookingReportClient } = require('../src/core/bookingReportClient');
+const { buildRestaurantDetailUrl, buildRestaurantSearchUrl, createBookingReportClient } = require('../src/core/bookingReportClient');
 
 test('訂位報表 client 只把 token 放在 Authorization，並限制分頁大小', async () => {
   let seen;
@@ -24,6 +24,13 @@ test('回訪的餐廳備援連結使用店名搜尋並帶 email 來源', () => {
   assert.equal(url.searchParams.get('what'), '好吃餐廳');
   assert.equal(url.searchParams.get('utm_source'), 'email');
   assert.equal(url.searchParams.get('utm_campaign'), 'revisit_email');
+});
+
+test('有 OR Restaurant ID 時直接開餐廳頁，不再依完整店名搜尋', () => {
+  const url = new URL(buildRestaurantDetailUrl('487469', '蔦燒日式居酒屋 淡水店'));
+  assert.equal(url.pathname, '/zh-tw/taipei/r-openrice-r487469');
+  assert.equal(url.searchParams.get('utm_source'), 'email');
+  assert.equal(url.searchParams.has('what'), false);
 });
 
 test('訂位報表狀態查詢只讀取更新日期，不帶訂位期間', async () => {

@@ -5,6 +5,14 @@ function buildRestaurantSearchUrl(name) {
   return `https://tw.openrice.com/zh-tw/taipei/restaurants?what=${query}&utm_source=email&utm_medium=crm&utm_campaign=revisit_email`;
 }
 
+function buildRestaurantDetailUrl(restaurantId, name) {
+  const id = String(restaurantId == null ? '' : restaurantId).trim();
+  if (/^\d+$/.test(id)) {
+    return `https://tw.openrice.com/zh-tw/taipei/r-openrice-r${id}?utm_source=email&utm_medium=crm&utm_campaign=revisit_email`;
+  }
+  return buildRestaurantSearchUrl(name);
+}
+
 function createBookingReportClient(options = {}) {
   const apiUrl = String(options.apiUrl || process.env.BOOKING_REPORT_API_URL || '').trim().replace(/\/+$/, '');
   const token = String(options.token || process.env.BOOKING_REPORT_API_TOKEN || '').trim();
@@ -72,4 +80,4 @@ function createBookingReportClient(options = {}) {
   return { isConfigured, fetchPage, fetchStatus };
 }
 
-module.exports = { DEFAULT_PAGE_SIZE, buildRestaurantSearchUrl, createBookingReportClient };
+module.exports = { DEFAULT_PAGE_SIZE, buildRestaurantDetailUrl, buildRestaurantSearchUrl, createBookingReportClient };

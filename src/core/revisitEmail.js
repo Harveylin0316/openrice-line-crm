@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { buildRestaurantSearchUrl } = require('./bookingReportClient');
+const { buildRestaurantDetailUrl } = require('./bookingReportClient');
 
 const BOOKING_ALIASES = {
   externalBookingId: ['external_booking_id', 'booking_id', 'booking_no', 'booking_number', 'reservation_id', '訂位編號'],
@@ -159,7 +159,7 @@ function normalizeOfferRecord(row) {
   const validFrom = parseDate(readAlias(row, OFFER_ALIASES.validFrom));
   const validUntil = parseDate(readAlias(row, OFFER_ALIASES.validUntil));
   const rawCtaUrl = clip(readAlias(row, OFFER_ALIASES.ctaUrl), 1200);
-  const ctaUrl = rawCtaUrl || (restaurantName ? buildRestaurantSearchUrl(restaurantName) : '');
+  const ctaUrl = rawCtaUrl || (restaurantName ? buildRestaurantDetailUrl(restaurantId, restaurantName) : '');
   const terms = clip(readAlias(row, OFFER_ALIASES.terms), 2000) || null;
   const isActive = parseBoolean(readAlias(row, OFFER_ALIASES.isActive), true);
   let externalOfferId = clip(readAlias(row, OFFER_ALIASES.externalOfferId), 160);

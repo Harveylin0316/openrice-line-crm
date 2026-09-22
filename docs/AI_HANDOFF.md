@@ -124,15 +124,15 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 
 這是獨立於 LINE／SureNotify 群發的人工回訪工作台。第一版**沒有排程自動寄送**：
 
-1. 頁面先從報表站的非個資狀態查詢顯示「訂位資料更新至哪一天」，再由管理員選日期範圍同步 booking record；大量資料由瀏覽器循序呼叫、後端每批最多處理 500 筆並回傳累計進度，避免 Netlify function 30 秒逾時。之後可直接上傳公司 Discount Offer 後台原生 `.xls`（實際是 UTF-16 HTML table，21 欄）；瀏覽器會轉成資料列，後端依 `OR Restaurant ID`、`Restaurant Name(Lang1)`、`Start Date`、`End Time` 等欄位正規化，原檔沒有 CTA 時以餐廳名稱產生 OpenRice 搜尋連結。只有 booking report 缺漏時才用 UTF-8 CSV／JSON 手動補訂位資料。
-2. 系統只取每位客人在各餐廳最近一次已完成、可做 Email 行銷的訂位，依「用餐後天數」、同店／跨店冷卻、退訂與是否已寄過排除。
+1. 頁面先從報表站的非個資狀態查詢顯示「訂位資料更新至哪一天」，再由管理員選日期範圍同步 booking record；大量資料由瀏覽器循序呼叫、後端每批最多處理 500 筆並回傳累計進度，避免 Netlify function 30 秒逾時。之後可直接上傳公司 Discount Offer 後台原生 `.xls`（實際是 UTF-16 HTML table，21 欄）；瀏覽器會轉成資料列，後端依 `OR Restaurant ID`、`Restaurant Name(Lang1)`、`Start Date`、`End Time` 等欄位正規化，原檔沒有 CTA 時以數字 OR Restaurant ID 產生 OpenRice 餐廳直達頁，ID 不可用時才退回名稱搜尋。只有 booking report 缺漏時才用 UTF-8 CSV／JSON 手動補訂位資料。
+2. 每次產生草稿都必須帶入最近完成的 booking import ID，而且 SQL 只查該批 `import_id`，不可將歷史匯入混入。系統再從該批只取每位客人在各餐廳最近一次已完成、可做 Email 行銷的訂位，依「用餐日 + 回訪天數 <= 判斷日」、同店／跨店冷卻、退訂與是否已寄過排除；不是只找剛好第 N 天。
 3. 以餐廳 ID 配對優惠；套餐優先於折扣，優惠必須仍在有效期且至少剩設定天數。沒有優惠時，booking record 必須提供餐廳訂位網址，才會產生一般回訪信。
 4. 管理員先逐封查看／修改主旨、預覽文字、內文與 CTA，寄「正式等同測試信」後，再按批次手動寄出；每次最多 20 封、每日上限可設定。正式寄送 API 會核對批次 `content_version` 與 `tested_version`，任何草稿修改都會使舊測試失效。
 5. 正式信記錄已寄、第一次開信、第一次點擊與退訂。開信率受郵件客戶端圖片代理／封鎖影響，只能當方向性指標。
 
 寄件安全邊界：
 
-- Netlify production 一律不能從公司信箱寄送。只有非 production 的 Mac process 同時設定 `REVISIT_EMAIL_LOCAL_SEND_ENABLED=1`，以及完整 EWS 或 SMTP 連線，才會顯示測試／正式寄送。OpenRice 現行公司 Exchange 實測走 EWS／NTLM；`REVISIT_EMAIL_PROVIDER=ews`，帳密僅留在 Mac。
+- Netlify production 一律不能從公司信箱寄送。只有非 production 的 Mac process 同時設定 `REVISIT_EMAIL_LOCAL_SEND_ENABLED=1`，以及完整 EWS 或 SMTP 連線，才可執行測試／正式寄送。正式站仍顯示停用的測試按鈕與本機操作說明，不可再把入口完全藏掉。OpenRice 現行公司 Exchange 實測走 EWS／NTLM；`REVISIT_EMAIL_PROVIDER=ews`，帳密僅留在 Mac。
 - 帳號密碼只放 Mac 本機 `.env`，不得放 Netlify、Git、文件、fixture 或 log。正式站仍負責公開 HTTPS 開信、點擊與退訂網址。
 - 公司郵件服務接受後若 DB 回寫失敗，信件標為「需確認」；不得自動重寄。先到公司寄件備份確認未寄出，再由管理員手動重新排入。EWS 採 `SendAndSaveCopy`，正式寄送前需確認信箱未接近容量上限。
 - 「需確認」只能逐封標記已寄、確認未寄後重排、或取消，所有決定寫入 `revisit_email_recipient_events`；舊的整批重排端點固定回 410。
