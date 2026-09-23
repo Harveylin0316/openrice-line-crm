@@ -47,6 +47,38 @@ test('優惠匯入會驗證期間與 CTA，沒有 ID 時產生穩定 ID', () => 
   assert.ok(invalid.errors.includes('CTA 連結格式錯誤'));
 });
 
+test('優惠匯入可直接辨識公司後台原生 Discount Offer 欄位並自動補 CTA', () => {
+  const native = normalizeOfferRecord({
+    'Offer ID': '552992',
+    'OR Restaurant ID': '653180',
+    'Restaurant Name(Lang1)': '太田和牛料理（炭火燒肉）',
+    'Offer Type': 'Discount',
+    'Offer Title': '會員專屬優惠',
+    DiscountType: 'Percent',
+    Discount: '17',
+    'Start Date': '2026/09/15',
+    'End Time': '2026/09/30',
+    Status: 'Active'
+  });
+  assert.equal(native.ok, true);
+  assert.equal(native.value.externalOfferId, '552992');
+  assert.equal(native.value.restaurantId, '653180');
+  assert.equal(native.value.restaurantName, '太田和牛料理（炭火燒肉）');
+  assert.equal(native.value.offerType, 'discount');
+  assert.equal(native.value.discountLabel, '17% 折扣');
+  assert.equal(native.value.validUntil, '2026-09-30');
+  assert.equal(native.value.ctaUrl, 'https://tw.openrice.com/zh-tw/taipei/r-openrice-r653180?utm_source=email&utm_medium=crm&utm_campaign=revisit_email');
+
+  const zero = normalizeOfferRecord({
+    'Offer ID': '552993', 'OR Restaurant ID': '653180',
+    'Restaurant Name(Lang1)': '測試餐廳', 'Offer Type': 'MarketingOffer',
+    'Offer Title': '壽星禮', DiscountType: 'FreeText', Discount: '0',
+    'Start Date': '2026/09/15', 'End Time': '2026/09/30', Status: 'Active'
+  });
+  assert.equal(zero.ok, true);
+  assert.equal(zero.value.discountLabel, null);
+});
+
 test('同餐廳有多個優惠時優先套餐，並要求優惠仍有足夠天數', () => {
   const offers = [
     { id: 1, restaurant_id: 'R-1', offer_type: 'discount', is_active: true, valid_from: '2026-09-01', valid_until: '2026-12-31' },
@@ -105,11 +137,35 @@ test('完整回訪判定會逐項排除，且同一人一批最多只收到一�
       { booking_id: 98, recipient_email: 'global@example.com', restaurant_id: 'OTHER', sent_at: '2026-09-08' }
     ]
   });
-  assert.deepEqual(result.eligible.map((item) => item.booking.id), [1]);
+  assert.deepEqual(result.eligible.map((item) => item.booking.id), [1, 8]);
   assert.deepEqual(result.excluded, {
     not_due: 1, unsubscribed: 1, suppressed: 0, already_sent: 1,
-    restaurant_cooldown: 1, global_cooldown: 2, missing_cta: 1
+    restaurant_cooldown: 1, global_cooldown: 2, missing_cta: 0
   });
+});
+
+test('舊的餐廳搜尋 CTA 會改成 OR ID 直達頁，自訂 CTA 仍保留', () => {
+  const settings = {
+    revisit_after_days: 30, same_restaurant_cooldown_days: 60,
+    global_cooldown_days: 0, min_offer_days_remaining: 7
+  };
+  const result = selectEligibleCandidates({
+    bookings: [
+      {
+        id: 1, customer_email: 'direct@example.com', restaurant_id: '487469',
+        restaurant_name: '蔦燒日式居酒屋 淡水店', dining_date: '2026-01-01',
+        booking_url: 'https://tw.openrice.com/zh-tw/taipei/restaurants?what=%E8%94%A6%E7%87%92&utm_source=email&utm_medium=crm&utm_campaign=revisit_email'
+      },
+      {
+        id: 2, customer_email: 'custom@example.com', restaurant_id: '653180',
+        restaurant_name: '測試餐廳', dining_date: '2026-01-01',
+        booking_url: 'https://booking.example.com/custom'
+      }
+    ],
+    offers: [], sentRows: [], unsubscribedEmails: [], settings, asOfDate: '2026-09-10'
+  });
+  assert.equal(result.eligible[0].booking.booking_url, 'https://tw.openrice.com/zh-tw/taipei/r-openrice-r487469?utm_source=email&utm_medium=crm&utm_campaign=revisit_email');
+  assert.equal(result.eligible[1].booking.booking_url, 'https://booking.example.com/custom');
 });
 
 test('抑制名單會在名單產生前排除，只有收件階段永久拒收算硬退信', () => {

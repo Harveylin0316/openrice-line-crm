@@ -54,6 +54,7 @@ const { registerGoldPigRoutes } = require('./routes/goldPig');
 const { createEmailProvider } = require('./core/emailProvider');
 const { createSureNotifyProvider } = require('./core/emailProviderSureNotify');
 const { createRevisitEmailProvider } = require('./core/revisitEmailProvider');
+const { createBookingReportClient } = require('./core/bookingReportClient');
 const { registerAdminRevisitEmailRoutes } = require('./routes/adminRevisitEmail');
 
 // 多重偵測：Netlify 不會自動設 NODE_ENV，但會設 NETLIFY=true；AWS Lambda 也會設 AWS_LAMBDA_FUNCTION_NAME。
@@ -606,6 +607,7 @@ registerAdminRevisitEmailRoutes(app, {
   query,
   pool,
   authCore,
+  bookingReportClient: createBookingReportClient(),
   revisitEmailProvider,
   resolvePublicSiteOrigin,
   publicBaseUrl: process.env.REVISIT_EMAIL_PUBLIC_BASE_URL || process.env.PUBLIC_SITE_URL || '',

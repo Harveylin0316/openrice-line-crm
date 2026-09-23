@@ -124,15 +124,15 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 
 這是獨立於 LINE／SureNotify 群發的人工回訪工作台。第一版**沒有排程自動寄送**：
 
-1. 每週上傳 UTF-8 CSV／JSON booking record；再上傳當期 discount offer／套餐。
-2. 系統只取每位客人在各餐廳最近一次已完成、可做 Email 行銷的訂位，依「用餐後天數」、同店／跨店冷卻、退訂與是否已寄過排除。
+1. 頁面先從報表站的非個資狀態查詢顯示「訂位資料更新至哪一天」，再由管理員選日期範圍同步 booking record；大量資料由瀏覽器循序呼叫、後端每批最多處理 500 筆並回傳累計進度，避免 Netlify function 30 秒逾時。之後可直接上傳公司 Discount Offer 後台原生 `.xls`（實際是 UTF-16 HTML table，21 欄）；瀏覽器會轉成資料列，後端依 `OR Restaurant ID`、`Restaurant Name(Lang1)`、`Start Date`、`End Time` 等欄位正規化，原檔沒有 CTA 時以數字 OR Restaurant ID 產生 OpenRice 餐廳直達頁，ID 不可用時才退回名稱搜尋。只有 booking report 缺漏時才用 UTF-8 CSV／JSON 手動補訂位資料。
+2. 每次產生草稿都必須帶入最近完成的 booking import ID，而且 SQL 只查該批 `import_id`，不可將歷史匯入混入。系統再從該批只取每位客人在各餐廳最近一次已完成、可做 Email 行銷的訂位，依「用餐日 + 回訪天數 <= 判斷日」、同店／跨店冷卻、退訂與是否已寄過排除；不是只找剛好第 N 天。
 3. 以餐廳 ID 配對優惠；套餐優先於折扣，優惠必須仍在有效期且至少剩設定天數。沒有優惠時，booking record 必須提供餐廳訂位網址，才會產生一般回訪信。
 4. 管理員先逐封查看／修改主旨、預覽文字、內文與 CTA，寄「正式等同測試信」後，再按批次手動寄出；每次最多 20 封、每日上限可設定。正式寄送 API 會核對批次 `content_version` 與 `tested_version`，任何草稿修改都會使舊測試失效。
 5. 正式信記錄已寄、第一次開信、第一次點擊與退訂。開信率受郵件客戶端圖片代理／封鎖影響，只能當方向性指標。
 
 寄件安全邊界：
 
-- Netlify production 一律不能從公司信箱寄送。只有非 production 的 Mac process 同時設定 `REVISIT_EMAIL_LOCAL_SEND_ENABLED=1`，以及完整 EWS 或 SMTP 連線，才會顯示測試／正式寄送。OpenRice 現行公司 Exchange 實測走 EWS／NTLM；`REVISIT_EMAIL_PROVIDER=ews`，帳密僅留在 Mac。
+- Netlify production 一律不能從公司信箱寄送。只有非 production 的 Mac process 同時設定 `REVISIT_EMAIL_LOCAL_SEND_ENABLED=1`，以及完整 EWS 或 SMTP 連線，才可執行測試／正式寄送。正式站仍顯示停用的測試按鈕與本機操作說明，不可再把入口完全藏掉。OpenRice 現行公司 Exchange 實測走 EWS／NTLM；`REVISIT_EMAIL_PROVIDER=ews`，帳密僅留在 Mac。
 - 帳號密碼只放 Mac 本機 `.env`，不得放 Netlify、Git、文件、fixture 或 log。正式站仍負責公開 HTTPS 開信、點擊與退訂網址。
 - 公司郵件服務接受後若 DB 回寫失敗，信件標為「需確認」；不得自動重寄。先到公司寄件備份確認未寄出，再由管理員手動重新排入。EWS 採 `SendAndSaveCopy`，正式寄送前需確認信箱未接近容量上限。
 - 「需確認」只能逐封標記已寄、確認未寄後重排、或取消，所有決定寫入 `revisit_email_recipient_events`；舊的整批重排端點固定回 410。
@@ -140,6 +140,7 @@ Netlify: netlify/functions/server.js → serverless-http(app)
 - `revisit_email_suppressions` 保存硬退信、客訴與人工排除。名單產生和 SMTP 寄送前都會查；收件人階段同步 5xx 會自動加入硬退信。SMTP 接受後的非同步退信／申訴仍需人工登錄，直到另接獲核准的 Graph／EWS 回報來源。
 - 每批寄送前會重查全域退訂與同一訂位是否已寄，並以交易、列鎖、每日上限與每次 20 封限制降低誤寄／重寄風險。
 - booking consent 欄位有明確 `no` 時不會被匯入頁的整批確認覆蓋；無法辨識的非空值也一律視為未同意。
+- 報表專案提供 `/.netlify/functions/crm-revisit-bookings` 內部 API，CRM 用 `BOOKING_REPORT_API_URL` 與兩站共用的 `BOOKING_REPORT_API_TOKEN` 讀取。API token 不得進 Git、瀏覽器或 log；報表端 RPC 只授權 `service_role`，anon／authenticated 無法讀取客戶 PII。同步頁仍要求管理員明確確認行銷使用依據。
 
 資料表：`revisit_email_settings`、`revisit_email_imports`、`revisit_email_bookings`、
 `revisit_email_offers`、`revisit_email_campaigns`、`revisit_email_recipients`、
@@ -709,6 +710,7 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 - `/admin/recipient-lists` 可建立靜態名單或動態受眾。動態受眾的規則存在
   `admin_recipient_lists.definition`，成員物化至既有 `admin_recipient_list_members`，因此群發與流程仍只消費同一種名單介面。
 - 建立靜態名單時可選擇「建立前，只保留符合條件的人」。試算與正式建立都以貼入的 LINE userId 為 scope，採「匯入 ID ∩ 受眾條件」；未勾選時維持原本的純手動名單。前端送 `scopeLineUserIds` 試算、`filterDefinition` 建立，後端必須重新計算，不能信任畫面顯示的人數。
+- 2026-09-22 起，靜態名單會把原始有效 ID、當時篩選條件與納入／排除筆數保存在 `definition.kind=static_import` 的快照。群發詳情 `/admin/broadcast/:id` 會顯示完整實際收件人、提供受保護的 CSV，並可把原始名單與 `admin_broadcast_recipients` 固定快照逐位比對。舊名單沒有來源快照，不能憑 34 位收件人反推被丟棄的 30 位；頁面會要求管理員把原始名單再貼一次。
 - 條件支援 Include／Exclude 與 Include 間 AND／OR。Exclude 永遠是強制排除，不會因選 OR 而意外把排除者放回名單；只有 Exclude 時語意是「全部有效會員扣掉排除條件」。
 - 可用加入日期、目前好友／封鎖狀態、Tag、指定圖文選單／按鈕、LIFF event、活動進入／開始／完成／分享、成功邀請、獎勵、LINE Login、活動手機登記、金豬訂位、群發已發／Email delivered／open／click／測試組／CTA conversion 等條件。現有 `campaign_phone_registrations` 只能證明活動手機登記，不能當作 OpenRice App Registration；後者須等正式身份橋接後才能加入。
 - 「點過指定圖文選單按鈕」必須用三段名稱選擇器（圖文選單 → 分頁 → 按鈕），不可要求使用者手填 `menu_id:tab:cell`。畫面顯示人話名稱，儲存時仍轉成既有底層格式，讓舊名單與 `rich_menu_taps` 查詢維持相容。
@@ -733,6 +735,7 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 - LIFF／活動／Booking 等下游指標目前是「每次發送後 7 天觀察」而非唯一歸因；同一人在重疊期間收到多個 Campaign 時，事件可能出現在多列。頁面會明確提示不可把各列直接相加。
 - LINE Messaging API 不提供逐人 delivered／open。LINE Delivered 必須顯示「無資料」；Open 只可能是追蹤圖 proxy。Email Delivered 來自 provider webhook。一般 Booking、OpenRice App Registration 與 Attendance 目前無可靠 LINE ID 對應，也必須顯示「無資料」；目前 Registration 只計活動手機登記，Booking 只計金豬食堂的 LINE 綁定訂位。
 - Reward 的「未兌換／已兌換」以 `activity_plays.is_redeemed` 判定，不可用 coupon code 已指派來代替。尚未回寫兌換狀態的哩數或外部獎項會維持未兌換，不能宣稱已領取。
+- 群發的「成功邀請新好友數」使用 `activity_referrals`，只計 `invitee_was_existing IS FALSE`；同時選了指定活動時，邀請與遊玩條件必須共用該活動 ID。舊批次的 `inviteCompletedMin` 繼續查 Legacy `line_invites`，新畫面不再產生這個舊條件。
 - `Dashboard` 的訂位來源可用 `booking_from`／`booking_to` 自訂日期，首尾都包含且依台灣日界線查詢。
 
 ### Schema

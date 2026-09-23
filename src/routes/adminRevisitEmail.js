@@ -9,10 +9,13 @@ const {
   renderRevisitHtml,
   renderRevisitText
 } = require('../core/revisitEmail');
+const { buildRestaurantDetailUrl } = require('../core/bookingReportClient');
 
 const MAX_IMPORT_CHUNK = 500;
 const MAX_CAMPAIGN_RECIPIENTS = 5000;
 const MAX_SEND_BATCH = 20;
+const MAX_BOOKING_REPORT_SYNC = 30000;
+const BOOKING_REPORT_SYNC_PAGE_SIZE = 500;
 
 function taipeiToday() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -33,6 +36,18 @@ function positiveInt(value, fallback, min, max) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function daysBetween(from, to) {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+}
+
+function mapBookingReportStatus(value) {
+  const key = String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  if (['confirm', 'confirmed', 'completed', 'attended', 'show'].includes(key)) return 'completed';
+  if (['cancel', 'cancelled', 'canceled'].includes(key)) return 'cancelled';
+  if (['noshow', '未到店', '未出席'].includes(key)) return 'no_show';
+  return 'unknown';
 }
 
 function ctaLabelFor(row) {
@@ -127,6 +142,21 @@ function chooseOffer(offers, restaurantId, asOfDate, minDaysRemaining) {
   return rows[0] || null;
 }
 
+function isLegacyRestaurantSearchUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return url.hostname === 'tw.openrice.com' && /\/restaurants\/?$/.test(url.pathname) &&
+      url.searchParams.get('utm_campaign') === 'revisit_email';
+  } catch (_) {
+    return false;
+  }
+}
+
+function resolveRestaurantCta(value, restaurantId, restaurantName) {
+  if (isHttpUrl(value) && !isLegacyRestaurantSearchUrl(value)) return value;
+  return buildRestaurantDetailUrl(restaurantId, restaurantName);
+}
+
 function selectEligibleCandidates({
   bookings = [], offers = [], sentRows = [], unsubscribedEmails = [], suppressedEmails = [], settings,
   asOfDate, maxRecipients = MAX_CAMPAIGN_RECIPIENTS
@@ -163,9 +193,14 @@ function selectEligibleCandidates({
       excluded.global_cooldown += 1; continue;
     }
     const offer = chooseOffer(offers, booking.restaurant_id, asOfDate, settings.min_offer_days_remaining);
-    const targetUrl = offer ? offer.cta_url : booking.booking_url;
+    const bookingUrl = resolveRestaurantCta(booking.booking_url, booking.restaurant_id, booking.restaurant_name);
+    const offerUrl = offer ? resolveRestaurantCta(offer.cta_url, booking.restaurant_id, booking.restaurant_name) : null;
+    const targetUrl = offer ? offerUrl : bookingUrl;
     if (!isHttpUrl(targetUrl)) { excluded.missing_cta += 1; continue; }
-    preEligible.push({ booking, offer });
+    preEligible.push({
+      booking: { ...booking, booking_url: bookingUrl },
+      offer: offer ? { ...offer, cta_url: offerUrl } : null
+    });
   }
   preEligible.sort((a, b) => {
     const priority = { set_menu: 0, discount: 1, other: 2 };
@@ -191,6 +226,7 @@ function selectEligibleCandidates({
 function registerAdminRevisitEmailRoutes(app, deps) {
   const {
     query, pool, authCore, revisitEmailProvider: configuredProvider, smtpEmailProvider, resolvePublicSiteOrigin,
+    bookingReportClient,
     publicBaseUrl: configuredPublicBaseUrl,
     localSendEnabled = false,
     sendIntervalMs = 1500
@@ -211,7 +247,11 @@ function registerAdminRevisitEmailRoutes(app, deps) {
 
   app.get('/admin/revisit-email/api/data', requireAdmin, async (_req, res) => {
     try {
-      const [settings, stats, imports, campaigns, suppressions] = await Promise.all([
+      const reportConfigured = Boolean(bookingReportClient && bookingReportClient.isConfigured());
+      const reportStatusPromise = reportConfigured && typeof bookingReportClient.fetchStatus === 'function'
+        ? bookingReportClient.fetchStatus().catch(() => null)
+        : Promise.resolve(null);
+      const [settings, stats, imports, campaigns, suppressions, bookingSource, reportStatus] = await Promise.all([
         query(`SELECT revisit_after_days, same_restaurant_cooldown_days, global_cooldown_days,
                       min_offer_days_remaining, daily_send_limit, updated_at
                  FROM revisit_email_settings WHERE id = 1`),
@@ -241,7 +281,12 @@ function registerAdminRevisitEmailRoutes(app, deps) {
                 GROUP BY c.id ORDER BY c.id DESC LIMIT 12`),
         query(`SELECT id, email, reason, source, detail, created_by, updated_by, updated_at
                  FROM revisit_email_suppressions
-                WHERE active = TRUE ORDER BY updated_at DESC LIMIT 50`)
+                WHERE active = TRUE ORDER BY updated_at DESC LIMIT 50`),
+        query(`SELECT id, source_file, received_count, accepted_count, rejected_count, completed_at
+                 FROM revisit_email_imports
+                WHERE kind='bookings' AND status='completed'
+                ORDER BY id DESC LIMIT 1`),
+        reportStatusPromise
       ]);
       return res.json({
         ok: true,
@@ -250,16 +295,199 @@ function registerAdminRevisitEmailRoutes(app, deps) {
         imports: imports.rows,
         campaigns: campaigns.rows,
         suppressions: suppressions.rows,
+        booking_source: bookingSource.rows[0] || null,
         sender: {
           configured: Boolean(emailProvider && emailProvider.isConfigured()),
           local_send_enabled: Boolean(localSendEnabled),
           provider: emailProvider && emailProvider.getProviderName ? emailProvider.getProviderName() : 'smtp',
           from: emailProvider && emailProvider.getDefaultSender ? emailProvider.getDefaultSender() : null
+        },
+        booking_report: {
+          configured: reportConfigured,
+          status_available: Boolean(reportStatus),
+          latest_booking_date: reportStatus && reportStatus.latestBookingDate,
+          earliest_booking_date: reportStatus && reportStatus.earliestBookingDate,
+          total_bookings: reportStatus ? reportStatus.totalBookings : null
         }
       });
     } catch (err) {
       console.error('revisit email data error:', err && err.message);
       return schemaError(res, err);
+    }
+  });
+
+  app.post('/admin/revisit-email/api/booking-report/sync', requireOwner, async (req, res) => {
+    const from = parseDate(req.body && req.body.from_date);
+    const to = parseDate(req.body && req.body.to_date);
+    const confirmedMarketing = req.body && req.body.confirmed_marketing === true;
+    if (!bookingReportClient || !bookingReportClient.isConfigured()) {
+      return jsonError(res, 503, 'booking_report_not_configured', '訂位成效報表尚未連線。');
+    }
+    if (!from || !to || from > to) return jsonError(res, 400, 'invalid_date_range', '請選擇正確的訂位日期範圍。');
+    if (to > taipeiToday()) return jsonError(res, 400, 'future_date_range', '結束日期不能晚於今天。');
+    if (daysBetween(from, to) > 397) return jsonError(res, 400, 'date_range_too_large', '單次最多同步 398 天，請縮小日期範圍。');
+    if (!confirmedMarketing) {
+      return jsonError(res, 400, 'marketing_confirmation_required', '請先確認這批 Email 可以用於回訪行銷。');
+    }
+
+    const requestedImportId = positiveInt(req.body && req.body.import_id, null, 1, Number.MAX_SAFE_INTEGER);
+    const requestedOffset = positiveInt(req.body && req.body.offset, 0, 0, MAX_BOOKING_REPORT_SYNC);
+    if (!requestedImportId && requestedOffset !== 0) {
+      return jsonError(res, 400, 'invalid_sync_progress', '同步進度已失效，請重新開始。');
+    }
+
+    let importId = requestedImportId;
+    try {
+      const page = await bookingReportClient.fetchPage({
+        from,
+        to,
+        offset: requestedOffset,
+        limit: BOOKING_REPORT_SYNC_PAGE_SIZE
+      });
+      if (page.total > MAX_BOOKING_REPORT_SYNC) {
+        return jsonError(res, 400, 'too_many_source_records', `這個期間有 ${page.total.toLocaleString()} 筆含 Email 的訂位；單次上限 ${MAX_BOOKING_REPORT_SYNC.toLocaleString()} 筆，請縮小日期範圍。`);
+      }
+      const sourceFile = `訂位成效報表 ${from}～${to}`;
+      if (!importId) {
+        const created = await query(
+          `INSERT INTO revisit_email_imports (kind, source_file, uploaded_by)
+           VALUES ('bookings', $1, $2) RETURNING id`,
+          [sourceFile, req.authUser.un]
+        );
+        importId = Number(created.rows[0].id);
+      }
+
+      const accepted = [];
+      const errors = [];
+      page.rows.forEach((row, index) => {
+        const normalized = normalizeBookingRecord({
+          booking_id: row.booking_ref_id,
+          restaurant_id: row.or_restaurant_id,
+          restaurant_name: row.restaurant_name,
+          customer_email: row.email_full,
+          customer_name: row.diner_name_full,
+          dining_date: row.booking_date,
+          booking_status: mapBookingReportStatus(row.status),
+          marketing_consent: 'yes',
+          booking_url: buildRestaurantDetailUrl(row.or_restaurant_id, row.restaurant_name)
+        }, { confirmedMarketing: true });
+        if (!normalized.ok) {
+          errors.push({ row: requestedOffset + index + 1, errors: normalized.errors.slice(0, 4) });
+        } else {
+          accepted.push(normalized.value);
+        }
+      });
+
+      let client;
+      try {
+        client = await pool.connect();
+        await client.query('BEGIN');
+        const importRs = await client.query(
+          `SELECT id, kind, source_file, status, received_count, accepted_count, rejected_count, uploaded_by
+             FROM revisit_email_imports WHERE id = $1 FOR UPDATE`,
+          [importId]
+        );
+        const currentImport = importRs.rows[0];
+        if (!currentImport || currentImport.kind !== 'bookings' || currentImport.source_file !== sourceFile || currentImport.uploaded_by !== req.authUser.un) {
+          await client.query('ROLLBACK');
+          return jsonError(res, 409, 'invalid_sync_progress', '同步進度已失效，請重新開始。');
+        }
+        if (currentImport.status === 'completed' && Number(currentImport.received_count) >= requestedOffset) {
+          await client.query('ROLLBACK');
+          return res.json({
+            ok: true,
+            import_id: importId,
+            received: Number(currentImport.received_count),
+            accepted: Number(currentImport.accepted_count),
+            rejected: Number(currentImport.rejected_count),
+            total: page.total,
+            processed: Number(currentImport.received_count),
+            next_offset: null,
+            done: true,
+            errors: []
+          });
+        }
+        if (currentImport.status !== 'uploading' || Number(currentImport.received_count) !== requestedOffset) {
+          await client.query('ROLLBACK');
+          return jsonError(res, 409, 'sync_progress_conflict', '同步進度不一致，請重新開始。');
+        }
+
+        for (let chunkOffset = 0; chunkOffset < accepted.length; chunkOffset += MAX_IMPORT_CHUNK) {
+          const batch = accepted.slice(chunkOffset, chunkOffset + MAX_IMPORT_CHUNK).map((v) => ({
+            external_booking_id: v.externalBookingId,
+            restaurant_id: v.restaurantId,
+            restaurant_name: v.restaurantName,
+            customer_email: v.customerEmail,
+            customer_name: v.customerName,
+            dining_date: v.diningDate,
+            booking_status: v.bookingStatus,
+            marketing_consent: v.marketingConsent,
+            booking_url: v.bookingUrl
+          }));
+          await client.query(
+            `INSERT INTO revisit_email_bookings
+              (source_system, external_booking_id, restaurant_id, restaurant_name,
+               customer_email, customer_name, dining_date, booking_status,
+               marketing_consent, booking_url, source_file, import_id)
+             SELECT 'weekly_csv', x.external_booking_id, x.restaurant_id, x.restaurant_name,
+                    x.customer_email, x.customer_name, x.dining_date, x.booking_status,
+                    x.marketing_consent, x.booking_url, $2, $3
+               FROM jsonb_to_recordset($1::jsonb) AS x(
+                 external_booking_id text, restaurant_id text, restaurant_name text,
+                 customer_email text, customer_name text, dining_date date,
+                 booking_status text, marketing_consent boolean, booking_url text)
+             ON CONFLICT (source_system, external_booking_id) DO UPDATE SET
+               restaurant_id=EXCLUDED.restaurant_id, restaurant_name=EXCLUDED.restaurant_name,
+               customer_email=EXCLUDED.customer_email, customer_name=EXCLUDED.customer_name,
+               dining_date=EXCLUDED.dining_date, booking_status=EXCLUDED.booking_status,
+               marketing_consent=EXCLUDED.marketing_consent, booking_url=EXCLUDED.booking_url,
+               source_file=EXCLUDED.source_file, import_id=EXCLUDED.import_id, updated_at=NOW()`,
+            [JSON.stringify(batch), sourceFile, importId]
+          );
+        }
+        const processed = requestedOffset + page.rows.length;
+        const done = processed >= page.total || page.rows.length === 0;
+        const updated = await client.query(
+          `UPDATE revisit_email_imports SET
+             status = CASE WHEN $6 THEN 'completed' ELSE 'uploading' END,
+             received_count = received_count + $2,
+             accepted_count = accepted_count + $3,
+             rejected_count = rejected_count + $4,
+             error_summary = error_summary || $5::jsonb,
+             completed_at = CASE WHEN $6 THEN NOW() ELSE NULL END
+           WHERE id=$1
+           RETURNING received_count, accepted_count, rejected_count`,
+          [importId, page.rows.length, accepted.length, errors.length, JSON.stringify(errors.slice(0, 30)), done]
+        );
+        await client.query('COMMIT');
+        const totals = updated.rows[0];
+        return res.json({
+          ok: true,
+          import_id: importId,
+          received: Number(totals.received_count),
+          accepted: Number(totals.accepted_count),
+          rejected: Number(totals.rejected_count),
+          total: page.total,
+          processed,
+          next_offset: done ? null : processed,
+          done,
+          errors: errors.slice(0, 20)
+        });
+      } catch (err) {
+        if (client) await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        if (client) client.release();
+      }
+    } catch (err) {
+      if (importId) {
+        await query(
+          `UPDATE revisit_email_imports SET status='failed', error_summary=$2::jsonb, completed_at=NOW() WHERE id=$1`,
+          [importId, JSON.stringify([{ error: 'sync_failed' }])]
+        ).catch(() => {});
+      }
+      console.error('booking report revisit sync error:', err && err.message);
+      return jsonError(res, 502, 'booking_report_sync_failed', '目前無法讀取訂位成效報表，請稍後重試。');
     }
   });
 
@@ -475,11 +703,15 @@ function registerAdminRevisitEmailRoutes(app, deps) {
   app.post('/admin/revisit-email/api/generate', requireOwner, async (req, res) => {
     const rawAsOfDate = req.body && req.body.as_of_date;
     const asOfDate = parseDate(rawAsOfDate) || taipeiToday();
+    const bookingImportId = positiveInt(req.body && req.body.booking_import_id, null, 1, Number.MAX_SAFE_INTEGER);
     if (rawAsOfDate && !parseDate(rawAsOfDate)) {
       return jsonError(res, 400, 'invalid_as_of_date', '計算日期格式不正確。');
     }
     if (asOfDate > taipeiToday()) {
       return jsonError(res, 400, 'future_as_of_date', '不能用未來日期提前寄回訪信。');
+    }
+    if (!bookingImportId) {
+      return jsonError(res, 400, 'booking_source_required', '請先在第 1 步同步這次要檢查的訂位。');
     }
     const origin = publicBaseUrl(req, configuredPublicBaseUrl, resolvePublicSiteOrigin);
     if (!isHttpUrl(origin) || !origin.startsWith('https://')) {
@@ -496,6 +728,15 @@ function registerAdminRevisitEmailRoutes(app, deps) {
       if (activeCampaign.rowCount) {
         return jsonError(res, 409, 'campaign_still_active', '上一批還有未完成或需人工確認的信件，請先處理完再建立新名單。');
       }
+      const bookingSourceRs = await query(
+        `SELECT id, source_file, accepted_count FROM revisit_email_imports
+          WHERE id=$1 AND kind='bookings' AND status='completed'`,
+        [bookingImportId]
+      );
+      if (!bookingSourceRs.rowCount) {
+        return jsonError(res, 400, 'booking_source_not_found', '這批訂位來源已失效，請回到第 1 步重新同步。');
+      }
+      const bookingSource = bookingSourceRs.rows[0];
       const settingsRs = await query(`SELECT * FROM revisit_email_settings WHERE id = 1`);
       const settings = settingsRs.rows[0];
       const bookingsRs = await query(
@@ -503,10 +744,10 @@ function registerAdminRevisitEmailRoutes(app, deps) {
                 id, external_booking_id, restaurant_id, restaurant_name, customer_email,
                 customer_name, dining_date, booking_url
            FROM revisit_email_bookings
-          WHERE booking_status = 'completed' AND marketing_consent = TRUE
+          WHERE booking_status = 'completed' AND marketing_consent = TRUE AND import_id = $1
           ORDER BY LOWER(customer_email), restaurant_id, dining_date DESC, id DESC
-          LIMIT $1`,
-        [MAX_CAMPAIGN_RECIPIENTS * 4]
+          LIMIT $2`,
+        [bookingImportId, MAX_CAMPAIGN_RECIPIENTS * 4]
       );
       const bookings = bookingsRs.rows;
       const emails = [...new Set(bookings.map((b) => String(b.customer_email).toLowerCase()))];
@@ -545,11 +786,17 @@ function registerAdminRevisitEmailRoutes(app, deps) {
           WHERE status = 'pending' AND campaign_id IN (SELECT id FROM revisit_email_campaigns WHERE status = 'draft')`);
         await client.query(`UPDATE revisit_email_campaigns SET status = 'cancelled', completed_at = NOW()
           WHERE status = 'draft'`);
+        const settingsSnapshot = {
+          ...settings,
+          booking_import_id: bookingImportId,
+          booking_source: bookingSource.source_file,
+          booking_source_accepted: Number(bookingSource.accepted_count) || 0
+        };
         const campaignRs = await client.query(
           `INSERT INTO revisit_email_campaigns
             (as_of_date, settings_snapshot, candidate_count, excluded_counts, created_by)
            VALUES ($1,$2::jsonb,$3,$4::jsonb,$5) RETURNING id`,
-          [asOfDate, JSON.stringify(settings), bookings.length, JSON.stringify(excluded), req.authUser.un]
+          [asOfDate, JSON.stringify(settingsSnapshot), bookings.length, JSON.stringify(excluded), req.authUser.un]
         );
         const campaignId = campaignRs.rows[0].id;
         for (const item of eligible) {

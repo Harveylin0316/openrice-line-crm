@@ -282,7 +282,8 @@ function registerMgmMilesRoutes(app, deps) {
       const refs = (await query(
         `SELECT COUNT(*) FILTER (WHERE invitee_was_existing IS FALSE)::int AS c,
                 COUNT(*) FILTER (WHERE invitee_was_existing IS NOT FALSE)::int AS existing,
-                COUNT(DISTINCT inviter_line_user_id)::int AS inviters
+                COUNT(DISTINCT inviter_line_user_id)
+                  FILTER (WHERE invitee_was_existing IS FALSE)::int AS inviters
            FROM activity_referrals r WHERE r.activity_id = $1${referralRangeSql}`, reportParams)).rows[0];
 
       const people = (await query(
@@ -334,6 +335,7 @@ function registerMgmMilesRoutes(app, deps) {
            LEFT JOIN users u ON u.line_user_id = r.inviter_line_user_id
           WHERE r.activity_id = $1${referralRangeSql}
           GROUP BY r.inviter_line_user_id, u.line_display_name
+          HAVING COUNT(*) FILTER (WHERE r.invitee_was_existing IS FALSE) > 0
           ORDER BY new_friends DESC, last_at DESC LIMIT 2000`, reportParams)).rows;
 
       const pairs = (await query(

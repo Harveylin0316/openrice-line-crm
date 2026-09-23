@@ -277,10 +277,10 @@
 
             <div class="broadcast-field">
               <label class="broadcast-inline-field">
-                <span>邀請好友成功數 ≥</span>
+                <span id="invite-min-label">全部 CRM 活動成功邀請新好友數 ≥</span>
                 <input type="number" id="invite-min" min="0" max="1000" placeholder="留空 = 不限" style="width:120px;" />
-                <span class="muted">（line_invites.status = rewarded）</span>
               </label>
+              <div class="muted" id="invite-min-help" style="font-size:12px;margin-top:6px;">計算全部新版 CRM 活動中，成功邀請「原本不是好友」的人數。</div>
             </div>
 
             <div class="broadcast-field">

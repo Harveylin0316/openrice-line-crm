@@ -138,6 +138,43 @@ test('指定活動的包含或排除使用同一個參數化條件，預覽與�
   assert.match(sendCalls[0].sql, /NOT EXISTS \( SELECT 1 FROM activity_plays ap WHERE ap\.line_user_id = u\.line_user_id AND ap\.activity_id = \$2::bigint \)/);
 });
 
+test('玩過指定活動且成功邀請新好友，會查同一活動的有效邀請', async () => {
+  const raw = {
+    activityParticipation: 'any',
+    activityParticipationActivityId: 6,
+    activityReferralMin: 1,
+    activityReferralActivityId: 6
+  };
+  const normalized = normalizeConditions(raw);
+  assert.equal(normalized.activityReferralMin, 1);
+  assert.equal(normalized.activityReferralActivityId, 6);
+  assert.equal(hasAnyCondition(normalized), true);
+
+  const calls = [];
+  await previewAudience(async (sql, params) => {
+    calls.push({ sql: String(sql).replace(/\s+/g, ' '), params: params.slice() });
+    if (/COUNT\(DISTINCT u\.id\)/.test(sql)) return { rows: [{ total: 15 }] };
+    return { rows: [] };
+  }, raw);
+
+  assert.deepEqual(calls[0].params, [6, 6, 1]);
+  assert.match(calls[0].sql, /activity_plays ap WHERE ap\.line_user_id = u\.line_user_id AND ap\.activity_id = \$1::bigint/);
+  assert.match(calls[0].sql, /activity_referrals ar WHERE ar\.inviter_line_user_id = u\.line_user_id AND ar\.invitee_was_existing IS FALSE AND ar\.activity_id = \$2::bigint/);
+  assert.doesNotMatch(calls[0].sql, /line_invites li/);
+});
+
+test('舊批次的春日邀請條件保留舊語意，不被新活動篩選改寫', async () => {
+  const calls = [];
+  await previewAudience(async (sql, params) => {
+    calls.push({ sql: String(sql).replace(/\s+/g, ' '), params: params.slice() });
+    if (/COUNT\(DISTINCT u\.id\)/.test(sql)) return { rows: [{ total: 2 }] };
+    return { rows: [] };
+  }, { inviteCompletedMin: 1 });
+  assert.deepEqual(calls[0].params, [1]);
+  assert.match(calls[0].sql, /line_invites li/);
+  assert.doesNotMatch(calls[0].sql, /activity_referrals ar/);
+});
+
 test('近 7 天新好友且尚未參加活動會在預覽與正式名單套用同一組 AND 條件', async () => {
   const previewCalls = [];
   const preview = await previewAudience(async (sql, params) => {
@@ -196,6 +233,11 @@ test('群發頁可選活動參與包含或排除，並提供近 7 天未參加�
   assert.match(view, /兩個都要符合（AND）/);
   assert.match(script, /activityParticipation: activityParticipation/);
   assert.match(script, /activityParticipationActivityId: activityParticipationActivityId/);
+  assert.match(script, /activityReferralMin: activityReferralMin/);
+  assert.match(script, /activityReferralActivityId: activityParticipationActivityId/);
+  assert.match(view, /id="invite-min-label"/);
+  assert.match(view, /id="invite-min-help"/);
+  assert.doesNotMatch(view, /line_invites\.status = rewarded/);
   assert.match(script, /joined\.value = '7'/);
   assert.match(script, /activity\.value = 'none'/);
 });

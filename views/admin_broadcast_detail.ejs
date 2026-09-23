@@ -1,3 +1,10 @@
+<%
+  const sourceAudit = typeof recipientSourceAudit !== 'undefined' && recipientSourceAudit
+    ? recipientSourceAudit : null;
+  const h = (value) => String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+%>
 <%-
   include('layout', {
     user: user,
@@ -18,6 +25,7 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${experimentStat ? '' : '<button type="button" class="btn btn-export-list" id="btn-resend-nonclick">重發給沒點擊的人</button>'}
           <button type="button" class="btn btn-export-list" id="btn-export-list">匯出到名單庫</button>
+          <a href="/admin/broadcast/${broadcast.id}/recipients.csv" class="btn">下載完整 CSV</a>
           <a href="/admin/broadcast/history" class="btn">回歷史列表</a>
           <a href="/admin/broadcast" class="btn">回主頁</a>
         </div>
@@ -208,7 +216,13 @@
     })() : ''}
 
     <section class="card">
-      <h2 style="margin-top:0;">收件人前 30 筆</h2>
+      <div class="recipient-heading">
+        <div>
+          <h2 style="margin:0;">實際進入批次的收件人（${recentSample.length} 位）</h2>
+          <p class="muted" style="font-size:13px;margin:6px 0 0;">以下是完整名單，不再只顯示前 30 位。</p>
+        </div>
+        <a href="/admin/broadcast/${broadcast.id}/recipients.csv" class="btn">下載完整 CSV</a>
+      </div>
       ${recentSample.length === 0
         ? '<p class="muted">無資料</p>'
         : `<div class="table-responsive"><table class="prize-table">
@@ -229,16 +243,34 @@
                   : '';
                 return `<tr>
                   <td>${r.id}</td>
-                  <td>${String(r.line_display_name || r.username || '').replace(/</g,'&lt;')}</td>
-                  <td><code style="font-size:11px;">${String(r.line_user_id || '').replace(/</g,'&lt;')}</code></td>
-                  <td><span class="status-pill status-${r.status}">${r.status}</span></td>
+                  <td>${h(r.line_display_name || r.username || '')}</td>
+                  <td><code style="font-size:11px;">${h(r.line_user_id || '')}</code></td>
+                  <td><span class="status-pill status-${h(r.status)}">${h(r.status)}</span></td>
                   <td class="muted" style="font-size:12px;">${pushed}</td>
-                  <td class="muted" style="font-size:12px;">${String(r.error || '').replace(/</g,'&lt;')}</td>
+                  <td class="muted" style="font-size:12px;">${h(r.error || '')}</td>
                 </tr>`;
               }).join('')}
             </tbody>
           </table></div>`
       }
+    </section>
+
+    <section class="card" id="recipient-compare-card">
+      <h2 style="margin-top:0;">找出原始名單中沒有派送的人</h2>
+      <p style="margin:0 0 8px;line-height:1.65;">
+        貼上原本匯入的名單，系統會逐位比對這個批次，列出「有進入批次」與「沒進入批次」的人及原因。
+      </p>
+      ${sourceAudit
+        ? `<p class="compare-note compare-note--ok">已自動帶入來源名單「${h(sourceAudit.listName)}」保存的 ${sourceAudit.lineUserIds.length} 位。</p>`
+        : `<p class="compare-note">這個舊批次只保存最後進入批次的 ${recentSample.length} 位，當時被條件排除的原始資料沒有留下；請把原始 64 位再貼一次即可找出差異。從今天起，新建名單會自動保留這份比對紀錄。</p>`}
+      <label class="compare-label" for="recipient-compare-input">原始 LINE User ID（一行一個，也可直接貼 CSV）</label>
+      <textarea id="recipient-compare-input" rows="7" placeholder="U1234…&#10;U5678…">${sourceAudit ? h(sourceAudit.lineUserIds.join('\n')) : ''}</textarea>
+      <div class="compare-actions">
+        <button type="button" class="btn btn-export-list" id="recipient-compare-run">開始比對</button>
+        <button type="button" class="btn" id="recipient-compare-export" hidden>下載比對 CSV</button>
+        <span id="recipient-compare-status" class="muted"></span>
+      </div>
+      <div id="recipient-compare-result"></div>
     </section>
 
     ${(clickStat.clicks || 0) > 0 ? `
@@ -351,6 +383,17 @@
       .btn-resend-winner { background: #FCC726; color: #1f2937; font-weight: 600; border: none; cursor: pointer; }
       .btn-resend-winner:hover { background: #f5b800; }
       .btn-resend-winner:disabled { opacity: 0.6; cursor: default; }
+      .recipient-heading { display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px; }
+      .compare-note { margin:10px 0 14px;padding:10px 12px;border:1px solid #F59E0B;border-radius:8px;background:#FFFBEB;color:#78350F;font-size:13px;line-height:1.6; }
+      .compare-note--ok { border-color:#86EFAC;background:#F0FDF4;color:#166534; }
+      .compare-label { display:block;font-size:13px;font-weight:700;margin-bottom:6px; }
+      #recipient-compare-input { box-sizing:border-box;width:100%;padding:10px;border:1px solid #D1D5DB;border-radius:8px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical; }
+      .compare-actions { display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px; }
+      #recipient-compare-result { margin-top:14px; }
+      .compare-summary { display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:10px;margin-bottom:12px; }
+      .compare-summary > div { border:1px solid #E5E7EB;border-radius:8px;padding:12px;background:#F9FAFB; }
+      .compare-summary strong { display:block;font-size:22px;margin-top:3px; }
+      @media(max-width:640px){.compare-summary{grid-template-columns:1fr}.recipient-heading .btn{width:100%;text-align:center;}}
     </style>
 
     <!-- 匯出收件人到名單庫 modal -->
@@ -468,6 +511,107 @@
               saveBtn.disabled = false;
               statusEl.textContent = '錯誤：' + e.message;
             });
+        });
+      })();
+    </script>
+
+    <script>
+      // 對照「原始匯入名單」與實際進入本批次的固定快照。
+      (function () {
+        var runBtn = document.getElementById('recipient-compare-run');
+        var exportBtn = document.getElementById('recipient-compare-export');
+        var input = document.getElementById('recipient-compare-input');
+        var statusEl = document.getElementById('recipient-compare-status');
+        var resultEl = document.getElementById('recipient-compare-result');
+        var lastResult = null;
+        if (!runBtn) return;
+
+        function esc(value) {
+          return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function csvCell(value) {
+          var text = String(value == null ? '' : value);
+          if (/^[=+\\-@\\t\\r]/.test(text)) text = "'" + text;
+          return '"' + text.replace(/"/g, '""') + '"';
+        }
+        function render(data) {
+          lastResult = data;
+          exportBtn.hidden = false;
+          var rows = (data.rows || []).map(function (row) {
+            var inBatch = row.recipient_id != null;
+            var pushed = row.pushed_at
+              ? new Date(row.pushed_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) : '';
+            return '<tr>' +
+              '<td><code style="font-size:11px;">' + esc(row.line_user_id) + '</code></td>' +
+              '<td>' + esc(row.display_name) + '</td>' +
+              '<td><strong style="color:' + (inBatch ? '#065f46' : '#991b1b') + ';">' +
+                (inBatch ? '有進入批次' : '沒有進入批次') + '</strong></td>' +
+              '<td>' + esc(row.comparison_reason) + '</td>' +
+              '<td>' + esc(row.status || '') + '</td>' +
+              '<td class="muted">' + esc(pushed) + '</td>' +
+              '</tr>';
+          }).join('');
+          resultEl.innerHTML =
+            '<div class="compare-summary">' +
+              '<div>原始有效名單<strong>' + data.inputTotal + '</strong></div>' +
+              '<div>有進入批次<strong style="color:#065f46;">' + data.included + '</strong></div>' +
+              '<div>沒有進入批次<strong style="color:#991b1b;">' + data.missing + '</strong></div>' +
+            '</div>' +
+            ((data.invalid || data.duplicates)
+              ? '<p class="muted">另忽略格式錯誤 ' + data.invalid + ' 筆、重複 ' + data.duplicates + ' 筆。</p>' : '') +
+            '<div class="table-responsive"><table class="prize-table"><thead><tr>' +
+              '<th>LINE User ID</th><th>顯示名稱</th><th>比對結果</th><th>原因</th><th>發送狀態</th><th>送出時間</th>' +
+            '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+        }
+        runBtn.addEventListener('click', function () {
+          var raw = input.value.trim();
+          if (!raw) { statusEl.textContent = '請先貼上原始名單'; return; }
+          runBtn.disabled = true;
+          exportBtn.hidden = true;
+          statusEl.textContent = '比對中…';
+          fetch('/admin/broadcast/${broadcast.id}/compare-recipients', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lineUserIds: raw })
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (!data.ok) throw new Error(data.detail || data.error || '比對失敗');
+              statusEl.textContent = '比對完成';
+              render(data);
+            })
+            .catch(function (err) {
+              statusEl.textContent = '失敗：' + err.message;
+              resultEl.innerHTML = '';
+            })
+            .then(function () { runBtn.disabled = false; });
+        });
+        exportBtn.addEventListener('click', function () {
+          if (!lastResult) return;
+          var rows = [['LINE User ID','顯示名稱','比對結果','原因','發送狀態','送出時間（台北）','錯誤訊息']];
+          (lastResult.rows || []).forEach(function (row) {
+            rows.push([
+              row.line_user_id,
+              row.display_name,
+              row.recipient_id != null ? '有進入批次' : '沒有進入批次',
+              row.comparison_reason,
+              row.status || '',
+              row.pushed_at ? new Date(row.pushed_at).toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }) : '',
+              row.error || ''
+            ]);
+          });
+          var csv = '\\ufeff' + rows.map(function (row) { return row.map(csvCell).join(','); })
+            .join(String.fromCharCode(13, 10));
+          var url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+          var link = document.createElement('a');
+          link.href = url;
+          link.download = 'broadcast-${broadcast.id}-comparison.csv';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(function () { URL.revokeObjectURL(url); }, 0);
         });
       })();
     </script>

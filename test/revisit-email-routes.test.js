@@ -59,6 +59,162 @@ test('後台頁面與所有公開追蹤路徑都有註冊', async () => {
   assert.ok(routes['POST /email/revisit/unsubscribe/:token([a-f0-9]{48})']);
   assert.ok(routes['POST /admin/revisit-email/api/recipients/:id(\\d+)/review']);
   assert.ok(routes['DELETE /admin/revisit-email/api/suppressions/:id(\\d+)']);
+  assert.ok(routes['POST /admin/revisit-email/api/booking-report/sync']);
+});
+
+test('從訂位成效報表同步時會轉換狀態、批次寫入且不重複新增', async () => {
+  const sqlCalls = [];
+  const client = {
+    async query(sql, params) {
+      sqlCalls.push({ sql, params });
+      if (/SELECT id, kind, source_file, status, received_count/.test(sql)) {
+        return { rowCount: 1, rows: [{
+          id: 55, kind: 'bookings', source_file: '訂位成效報表 2026-09-01～2026-09-21',
+          status: 'uploading', received_count: 0, accepted_count: 0, rejected_count: 0, uploaded_by: 'admin'
+        }] };
+      }
+      if (/UPDATE revisit_email_imports SET/.test(sql)) {
+        return { rowCount: 1, rows: [{ received_count: 1, accepted_count: 1, rejected_count: 0 }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  const routes = register({
+    bookingReportClient: {
+      isConfigured: () => true,
+      async fetchPage() {
+        return { total: 1, rows: [{
+          booking_ref_id: 'BK-100', or_restaurant_id: 'OR-9', restaurant_name: '測試餐廳',
+          status: 'Confirm', booking_date: '2026-09-01', diner_name_full: '王小明',
+          email_full: 'Guest@Example.com'
+        }] };
+      }
+    },
+    query: async (sql) => {
+      if (/INSERT INTO revisit_email_imports/.test(sql)) return { rowCount: 1, rows: [{ id: 55 }] };
+      return { rowCount: 1, rows: [] };
+    },
+    pool: { connect: async () => client }
+  });
+  const result = await run(routes, 'POST /admin/revisit-email/api/booking-report/sync', {
+    body: { from_date: '2026-09-01', to_date: '2026-09-21', confirmed_marketing: true }
+  });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.accepted, 1);
+  assert.equal(result.body.done, true);
+  const upsert = sqlCalls.find((call) => /INSERT INTO revisit_email_bookings/.test(call.sql));
+  assert.ok(upsert);
+  assert.match(upsert.sql, /ON CONFLICT \(source_system, external_booking_id\) DO UPDATE/);
+  const inserted = JSON.parse(upsert.params[0]);
+  assert.equal(inserted[0].booking_status, 'completed');
+  assert.equal(inserted[0].customer_email, 'guest@example.com');
+  assert.match(inserted[0].booking_url, /utm_campaign=revisit_email/);
+});
+
+test('大量訂位會分批同步並沿用同一筆匯入紀錄', async () => {
+  const sourceFile = '訂位成效報表 2026-09-01～2026-09-21';
+  const progress = { received: 0, accepted: 0, rejected: 0, status: 'uploading' };
+  const client = {
+    async query(sql, params) {
+      if (/SELECT id, kind, source_file, status, received_count/.test(sql)) {
+        return { rowCount: 1, rows: [{
+          id: 77, kind: 'bookings', source_file: sourceFile, status: progress.status,
+          received_count: progress.received, accepted_count: progress.accepted,
+          rejected_count: progress.rejected, uploaded_by: 'admin'
+        }] };
+      }
+      if (/UPDATE revisit_email_imports SET/.test(sql)) {
+        progress.received += Number(params[1]);
+        progress.accepted += Number(params[2]);
+        progress.rejected += Number(params[3]);
+        if (params[5]) progress.status = 'completed';
+        return { rowCount: 1, rows: [{
+          received_count: progress.received,
+          accepted_count: progress.accepted,
+          rejected_count: progress.rejected
+        }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  const offsets = [];
+  const routes = register({
+    bookingReportClient: {
+      isConfigured: () => true,
+      async fetchPage({ offset, limit }) {
+        offsets.push({ offset, limit });
+        return { total: 2, rows: [{
+          booking_ref_id: `BK-${offset + 1}`, or_restaurant_id: 'OR-9', restaurant_name: '測試餐廳',
+          status: 'Confirm', booking_date: '2026-09-01', diner_name_full: '測試客',
+          email_full: `guest${offset + 1}@example.com`
+        }] };
+      }
+    },
+    query: async (sql) => {
+      if (/INSERT INTO revisit_email_imports/.test(sql)) return { rowCount: 1, rows: [{ id: 77 }] };
+      return { rowCount: 1, rows: [] };
+    },
+    pool: { connect: async () => client }
+  });
+
+  const first = await run(routes, 'POST /admin/revisit-email/api/booking-report/sync', {
+    body: { from_date: '2026-09-01', to_date: '2026-09-21', confirmed_marketing: true }
+  });
+  assert.equal(first.statusCode, 200);
+  assert.equal(first.body.done, false);
+  assert.equal(first.body.next_offset, 1);
+  assert.equal(first.body.import_id, 77);
+
+  const second = await run(routes, 'POST /admin/revisit-email/api/booking-report/sync', {
+    body: { from_date: '2026-09-01', to_date: '2026-09-21', confirmed_marketing: true, import_id: 77, offset: 1 }
+  });
+  assert.equal(second.statusCode, 200);
+  assert.equal(second.body.done, true);
+  assert.equal(second.body.accepted, 2);
+  assert.deepEqual(offsets, [{ offset: 0, limit: 500 }, { offset: 1, limit: 500 }]);
+});
+
+test('未確認行銷同意前不會向訂位成效報表讀取資料', async () => {
+  let fetched = false;
+  const routes = register({
+    bookingReportClient: { isConfigured: () => true, async fetchPage() { fetched = true; return { total: 0, rows: [] }; } }
+  });
+  const result = await run(routes, 'POST /admin/revisit-email/api/booking-report/sync', {
+    body: { from_date: '2026-09-01', to_date: '2026-09-21', confirmed_marketing: false }
+  });
+  assert.equal(result.statusCode, 400);
+  assert.equal(result.body.error, 'marketing_confirmation_required');
+  assert.equal(fetched, false);
+});
+
+test('回訪頁會顯示報表最新訂位日期，狀態查詢失敗也不拖垮頁面', async () => {
+  const currentRoutes = register({
+    bookingReportClient: {
+      isConfigured: () => true,
+      async fetchStatus() {
+        return { latestBookingDate: '2026-09-20', earliestBookingDate: '2024-01-01', totalBookings: 1234 };
+      }
+    }
+  });
+  const current = await run(currentRoutes, 'GET /admin/revisit-email/api/data');
+  assert.equal(current.statusCode, 200);
+  assert.equal(current.body.booking_report.status_available, true);
+  assert.equal(current.body.booking_report.latest_booking_date, '2026-09-20');
+  assert.equal(current.body.booking_report.total_bookings, 1234);
+
+  const unavailableRoutes = register({
+    bookingReportClient: {
+      isConfigured: () => true,
+      async fetchStatus() { throw new Error('temporary_source_failure'); }
+    }
+  });
+  const unavailable = await run(unavailableRoutes, 'GET /admin/revisit-email/api/data');
+  assert.equal(unavailable.statusCode, 200);
+  assert.equal(unavailable.body.booking_report.configured, true);
+  assert.equal(unavailable.body.booking_report.status_available, false);
+  assert.equal(unavailable.body.booking_report.latest_booking_date, null);
 });
 
 test('正式寄送在目前草稿版本未成功測試時由後端擋下', async () => {
@@ -170,10 +326,45 @@ test('正式環境未開本機旗標時，測試信與正式寄送都在查資�
 test('沒有正式 HTTPS 追蹤網址時不可產生草稿', async () => {
   const routes = register();
   const result = await run(routes, 'POST /admin/revisit-email/api/generate', {
-    body: { as_of_date: '2026-09-10' }
+    body: { as_of_date: '2026-09-10', booking_import_id: 1 }
   });
   assert.equal(result.statusCode, 400);
   assert.equal(result.body.error, 'public_url_required');
+});
+
+test('沒有指定這次同步的訂位批次時不可產生草稿', async () => {
+  const routes = register({ publicBaseUrl: 'https://crm.example.com' });
+  const result = await run(routes, 'POST /admin/revisit-email/api/generate', {
+    body: { as_of_date: '2026-09-10' }
+  });
+  assert.equal(result.statusCode, 400);
+  assert.equal(result.body.error, 'booking_source_required');
+});
+
+test('產生草稿只讀取指定的已完成訂位批次', async () => {
+  const calls = [];
+  const routes = register({
+    publicBaseUrl: 'https://crm.example.com',
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      if (/SELECT id, source_file, accepted_count FROM revisit_email_imports/.test(sql)) {
+        return { rowCount: 1, rows: [{ id: 42, source_file: '訂位成效報表 2026-03-26～2026-04-25', accepted_count: 3117 }] };
+      }
+      if (/SELECT \* FROM revisit_email_settings/.test(sql)) {
+        return { rowCount: 1, rows: [{ revisit_after_days: 30, same_restaurant_cooldown_days: 60, global_cooldown_days: 7, min_offer_days_remaining: 7 }] };
+      }
+      return { rowCount: 0, rows: [] };
+    }
+  });
+  const result = await run(routes, 'POST /admin/revisit-email/api/generate', {
+    body: { as_of_date: '2026-09-10', booking_import_id: 42 }
+  });
+  assert.equal(result.statusCode, 400);
+  assert.equal(result.body.error, 'no_eligible_recipients');
+  const bookingQuery = calls.find((call) => /FROM revisit_email_bookings/.test(call.sql));
+  assert.ok(bookingQuery);
+  assert.match(bookingQuery.sql, /import_id = \$1/);
+  assert.equal(bookingQuery.params[0], 42);
 });
 
 test('不允許用未來日期提前產生回訪信', async () => {
