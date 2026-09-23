@@ -290,6 +290,81 @@ CRM 內建活動另有 fallback：遊戲頁的 `/meta` 完成 LINE ID token 驗�
 `src/core/flowEngine.js` 的 `triggerCampaignOpen()`／`triggerCampaignOpenByActivity()`、
 `src/routes/gamesGeneric.js` 的已驗證 meta fallback，以及 `views/admin_flows.ejs`。
 
+#### 群發派送刮刮樂遊玩機會（2026-09-22）
+
+`/admin/broadcast` 步驟 4 有「派送遊玩機會（選填）」：選一個通用活動（刮刮樂排最前）、
+設定每位收到的人可以玩幾次（1–100），並選擇計算方式：
+
+- `exclusive`「只有收到訊息的人能玩」：建立批次時在同一個交易把該活動
+  `base_plays_per_user` 改成 0；沒收到派送、也沒有邀請加碼或人工補次的人打開活動是 0 次。
+- `additive`「加在活動原本的次數上」：活動基礎次數不變。
+
+設定存在 `admin_broadcasts.audience_config.playGrant`（含活動 id／slug／名稱／類型快照），
+不需要新資料表。**入帳時機是 LINE 回報送達成功那一刻**：`process-chunk` 與排程 runner 在把
+recipient 標成 `sent` 後，寫一筆 `activity_bonus_plays`，`granted_key =
+broadcast:<批次id>:<活動id>:<userId>`，同一批次同一人只會有一筆；chunk 重試、排程重跑、
+`resend-failed` 都不會重複給。失敗／封鎖／略過的人不入帳。Campaign Testing 的保留名單在
+勝出版釋出時第一次收到訊息，所以 `releaseExperimentWinner` 會把 `playGrant` 複製到勝出版批次；
+「重發給沒點擊的人」不複製，因為那些人已經入帳過。測試訊息（test-push）不入帳。
+
+次數仍由 `computeUserQuota()`／`computeQuotaNumbers()` 統一計算（`manualBonus`），前台顯示與
+實際抽獎一致；`base_plays_per_user` 現在允許 0，engine 只有欄位為 `null` 才退回 1，不能再用
+`|| 1`。活動編輯頁「活動連結」區有「用訊息派送這個活動」，會開 `/admin/broadcast?activity_id=<id>`
+自動勾選派送、選好活動並把 LIFF 連結填進 CTA。批次詳情頁顯示入帳人數／次數、已來玩的人與
+已使用次數；活動玩家數據頁顯示該活動被派送過幾批。核心在 `src/core/broadcastPlayGrant.js`，
+route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-play-grant.test.js`、
+`test/broadcast-play-grant-ui.test.js`。
+
+#### 刮刮樂畫面設定、兌獎事項、分享卡與開啟成效（2026-09-22）
+
+刮刮樂（`game_type=scratch`，`views/game_scratch.ejs`）比照輪盤改為可設定：
+
+- `activities.rules.ui.scratch`：`style`（silver／gold／brand／night／custom）、`custom` 12 色
+  （刮膜三段、提示字、卡片底色、文字、強調、圖示底、頭獎底色與文字）、`ratio`（4:3／16:9／1:1／3:4）、
+  `reveal_threshold`（刮開幾成自動揭曉，20–70）、`cover_image_url`（自訂刮膜圖，畫在同一張 canvas
+  上，載入失敗仍保留漸層不會露獎）、`show_hero_cover`／`show_stats`／`show_share`／`show_prize_list`。
+- `activities.rules.ui.copy`：刮刮樂用自己的鍵（`stage_label`、`cover_text`、`reveal_button`、
+  `winner_status {{prize}}`、`redemption_label`、`redemption_text`、`share_*` 等），與輪盤鍵共存在同一個
+  `copy` 物件，後台存檔時只合併自己的鍵。`redemption_text` 是活動層級兌獎說明；留空就不顯示。
+- 獎品層級兌獎事項：`activity_prizes.prize_value.redeem_note`（獎品池編輯的「兌獎事項」欄），刮開後與
+  獎名一起顯示在卡片上；`prize_type=none` 不顯示。
+- 分享改用 LINE Flex 卡片（封面／標題／說明／「馬上玩」CTA），CTA 與文字 fallback 都保留 `?ref=`；
+  文案可在後台設定。分享成功寫 `activity_user_events.share`。
+- 安全預覽 `preview=1` 改為純前端演出，支援 `preview_scenario`（first_open／ready／last／invite／done／
+  redemption／prize:<id>）與 `preview_ui`，不呼叫 play／meta／referral／event。
+- 後台編輯頁依 `game_type` 切換：刮刮樂顯示「刮刮樂卡片」與「刮刮樂文案與兌獎說明」，輪盤設定隱藏
+  但完整保留；`PUT /admin/activities/api/:id` 改為 `rules = rules || $new` 頂層合併。
+- 開啟成效：`/admin/activities/:id/players` 新增「開啟成效」漏斗（開啟→開始→拿到結果→分享，
+  全部以不重複用戶計算，另有近 14 天每日開啟）。資料來自 `activity_user_events`；`enter` 每次
+  `/meta` 都會寫，所以不拿次數當 KPI。核心 `src/core/activityFunnel.js`。
+
+回歸測試：`test/scratch-preview-studio.test.js`、`test/scratch-admin-editor.test.js`、
+`test/activity-open-funnel.test.js`。
+
+#### 群發成效追蹤：自訂 Flex／Carousel／多段訊息（2026-09-22）
+
+以前只有「模板模式」會追蹤（CTA 包 `/r/b/<批次>/<收件人>`、主圖走 `/v/b/`）；訊息庫的
+按鈕卡片與 Carousel 是 `flex_json`，多段訊息是 `sequence`，送出時完全沒包，所以批次 8/9/10
+送達 1291 人卻 0 看過 0 點擊。現在 `buildLineMessages()` 在 `flex_json` 與 `sequence` 建好
+成品後統一套 `applyBroadcastTracking()`：
+
+- 點擊：用 `messageTapTracking.walkUriActions(..., BROADCAST_WALK_OPTS)` 走訪成品訊息樹，
+  每一顆「開啟網址」按鈕（**含自家 LIFF 活動連結**）換成 `/r/b/<批次>/<收件人>/<按鈕序號>?v=`。
+  點下去由 `resolveBroadcastButtonTarget()` 用同一份訊息設定重建、同一個走訪器反查目的網址，
+  絕不從網址帶目的地。序號是整串訊息一起數（多段訊息的文字段不佔序號）。
+  `admin_broadcast_clicks` 新增 `button_index`（模板模式一律 0）；批次詳情多「各按鈕點擊」表。
+- 看過：每張 bubble 底部塞 1px 透明 PNG `/v/b/<批次>/<收件人>/pixel.png?v=`（Carousel 每張都塞），
+  沿用 Email 的 pixel 路由（現在 `pixel.:ext(gif|png)`，variant 也吃 c）。估計值，同模板主圖。
+- 只有 `broadcastId` 且 `recipientId` 都有時才包；測試訊息、後台預覽、反查重建都不包。
+- 模板模式維持原本 `/r/b/<批次>/<收件人>`（無序號）路徑與測試，不動。
+- 自動化流程一併修：自訂 Flex 以前全指到同一個 `/rf/<enrollment>/<message>` 而 `/rf` 只認模板
+  ctaUrl → 一律 404。現在 `/rf/<enrollment>/<message>/<序號>` 用同一套反查；舊連結沒序號視為第 0 顆。
+  流程也改為連自家 LIFF 連結都包（與群發一致），`clicked` 分支才判斷得出來。
+- 已送出的舊批次補不回來；修完之後的批次才有數字。
+
+**改訊息走訪邏輯時，送出（`applyBroadcastClickTracking`）與反查（`resolveBroadcastButtonTarget`）
+必須用同一組 opts，否則序號對不起來、用戶會被導到錯的網址。** 回歸測試 `test/broadcast-flex-tracking.test.js`。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
@@ -702,6 +777,8 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 |---|---|
 | 新增／修改活動欄位 | `src/routes/adminActivities.js`、`views/admin_activity_edit.ejs`、`activities.rules` |
 | 修改輪盤畫面／文案 | `views/game_wheel.ejs`、`views/admin_activity_edit.ejs`、相關 JSDOM test |
+| 修改刮刮樂畫面／文案／兌獎事項 | `views/game_scratch.ejs`、`views/admin_activity_edit.ejs`、`test/scratch-preview-studio.test.js` |
+| 群發派送遊玩次數 | `src/core/broadcastPlayGrant.js`、`src/routes/adminBroadcast.js`、`public/admin-broadcast.js` |
 | 修改抽獎／次數／邀請 | `src/core/gamePlayEngine.js` 與對應 test；不要只改前端 |
 | 修改 MGM 里程 | `src/core/mgmMilesEngine.js`、`src/routes/mgmMiles.js` |
 | 修改群發 | `src/routes/adminBroadcast.js`、provider service、scheduled function |

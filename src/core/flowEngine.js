@@ -35,6 +35,7 @@ class FlowTransientError extends Error {
 
 // 走訪訊息裡的按鈕連結（跟關鍵字回覆、圖文選單共用同一套）
 const { walkUriActions } = require('./messageTapTracking');
+const { BROADCAST_WALK_OPTS } = require('./broadcastTemplates');
 
 function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
   const MAX_STEPS_PER_TICK = 12;
@@ -772,15 +773,12 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     // 自訂 Flex 用走訪器把每一顆按鈕的連結都換掉（跟關鍵字回覆同一套）。
     const origin = getOrigin();
     if (opts.enrollmentId && origin && cfg) {
-      const trackUrl = origin + '/rf/' + opts.enrollmentId + '/' + messageId;
-      if (cfg.mode === 'template' && cfg.template && cfg.template.ctaUrl) {
-        wrapCtaUri(built.messages, cfg.template.ctaUrl, trackUrl);
-      } else {
-        // 自訂 Flex：走訪整棵訊息樹，把對外連結換成中轉網址
-        try {
-          walkUriActions({ flex: { contents: built.messages } }, () => trackUrl);
-        } catch (e) { console.error('flow click tracking wrap failed:', e && e.message); }
-      }
+      // 每顆按鈕帶自己的序號：/rf/<enrollment>/<message>/<index>，點下去用同一個走訪器反查目的網址。
+      // 以前自訂 Flex 全部指到同一個 /rf 網址，而 /rf 只認模板的 ctaUrl → 自訂訊息按鈕一律 404。
+      const trackBase = origin + '/rf/' + opts.enrollmentId + '/' + messageId;
+      try {
+        walkUriActions({ contents: built.messages }, (item) => trackBase + '/' + item.index, BROADCAST_WALK_OPTS);
+      } catch (e) { console.error('flow click tracking wrap failed:', e && e.message); }
     }
     // 冪等鍵：同一 enrollment 的同一節點重跑時，LINE 端去重，避免崩潰/逾時後重發
     const retryKey = opts.enrollmentId ? `flow-${opts.enrollmentId}-${opts.nodeKey || messageId}` : undefined;

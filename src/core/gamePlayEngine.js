@@ -324,7 +324,9 @@ function computeQuotaNumbers(cfg) {
 }
 
 async function computeUserQuota(query, activity, lineUserId) {
-  const basePlays = Number(activity.base_plays_per_user || 1);
+  // 基礎次數可以是 0：「只有收到群發派送的人才能玩」就是靠 base=0 + activity_bonus_plays。
+  // 只有欄位是 null（舊資料）才退回 1，不能用 || 1 把 0 吃掉。
+  const basePlays = activity.base_plays_per_user == null ? 1 : Math.max(0, Number(activity.base_plays_per_user) || 0);
   const refPer = Number(activity.referral_bonus_per || 0);
   const refMax = Number(activity.referral_bonus_max || 0);
   // 每邀幾位朋友換一份加碼（預設 1 = 每邀 1 人 +refPer 次；九月活動設 2 = 邀 2 人 +1 次）

@@ -74,7 +74,7 @@
       <p class="muted" style="margin-top:10px;font-size:11px;line-height:1.5;">
         備註：LINE 沒有提供「已讀」數字，「主圖被看到」是估出來的，會有一點誤差，僅供參考。
         「按鈕點擊」是可靠數字——有看到訊息才可能點。
-        只有「模板模式」會追蹤；進階 Flex JSON 由你自行用 utm 追蹤。
+        模板、訊息庫的自訂 Flex、多段訊息都會追蹤（自訂 Flex 的「看過」靠卡片底部 1px 追蹤圖估算）；連到自家活動頁的按鈕也算點擊。
       </p>
 
       ${abStat && abStat.length > 0 ? (() => {
@@ -166,6 +166,54 @@
         </div>
       ` : ''}
     </section>
+
+    ${(typeof buttonStats !== 'undefined' && Array.isArray(buttonStats) && buttonStats.length) ? (() => {
+      const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const showVariant = buttonStats.some(s => s.variant !== 'a');
+      return `
+    <section class="card" id="button-stats">
+      <h2 style="margin-top:0;">各按鈕點擊</h2>
+      <p class="muted" style="margin:0 0 10px;font-size:13px;line-height:1.6;">訊息裡每一顆「開啟網址」按鈕各被點了幾次（含連到自家活動頁的按鈕）。Carousel 每張卡片的按鈕分開算，「人數」是不重複收件人。</p>
+      <div style="overflow-x:auto;"><table class="table">
+        <thead><tr>${showVariant ? '<th>版本</th>' : ''}<th>#</th><th>按鈕文字</th><th>連到哪裡</th><th style="text-align:right;">人數</th><th style="text-align:right;">點擊次數</th></tr></thead>
+        <tbody>
+          ${buttonStats.map(s => `<tr>
+            ${showVariant ? `<td>${esc(s.variant.toUpperCase())}</td>` : ''}
+            <td>${s.index + 1}</td>
+            <td>${esc(s.label)}</td>
+            <td class="muted" style="font-size:12px;font-family:monospace;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(s.uri)}">${esc(s.uri)}</td>
+            <td style="text-align:right;"><strong>${s.people.toLocaleString('zh-Hant-TW')}</strong></td>
+            <td style="text-align:right;">${s.clicks.toLocaleString('zh-Hant-TW')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </section>`;
+    })() : ''}
+
+    ${(typeof playGrantSummary !== 'undefined' && playGrantSummary) ? (() => {
+      const g = playGrantSummary;
+      const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const num = v => (v == null ? '—' : Number(v).toLocaleString('zh-Hant-TW'));
+      const typeLabel = ({ scratch: '刮刮樂', wheel: '輪盤', fortune: '抽籤', slot: '拉霸', claim: '領取' })[g.gameType] || g.gameType || '';
+      const usedRate = (g.grantedUsers && g.usersPlayed != null) ? Math.round(g.usersPlayed / g.grantedUsers * 1000) / 10 + '%' : '—';
+      return `
+    <section class="card" id="play-grant-summary">
+      <h2 style="margin-top:0;">派送遊玩機會</h2>
+      <p class="muted" style="margin:0 0 12px;font-size:13px;line-height:1.6;">
+        活動：<a href="/admin/activities/${Number(g.activityId)}"><strong>${esc(g.activityName || ('#' + g.activityId))}</strong></a>${typeLabel ? '（' + esc(typeLabel) + '）' : ''}
+        · 每位送達成功的人 <strong>${num(g.plays)}</strong> 次
+        · ${g.mode === 'exclusive' ? '只有收到訊息的人能玩（活動基礎次數已設為 0）' : '加在活動原本的次數上'}
+      </p>
+      <div class="stat-grid">
+        <div class="stat-cell"><div class="stat-label">已入帳人數</div><div class="stat-value">${num(g.grantedUsers)}</div></div>
+        <div class="stat-cell"><div class="stat-label">已入帳次數</div><div class="stat-value">${num(g.grantedPlays)}</div></div>
+        <div class="stat-cell"><div class="stat-label">已來玩的人</div><div class="stat-value" style="color:#065f46;">${num(g.usersPlayed)}</div></div>
+        <div class="stat-cell"><div class="stat-label">已使用次數</div><div class="stat-value">${num(g.playsUsed)}</div></div>
+        <div class="stat-cell"><div class="stat-label">入帳後來玩率</div><div class="stat-value">${usedRate}</div></div>
+      </div>
+      <p class="muted" style="margin:10px 0 0;font-size:12px;line-height:1.6;">入帳只發生在 LINE 回報送達成功那一刻；失敗或跳過的人不會有次數，重發成功後才會補入帳。「已使用次數」是這些人入帳後在該活動的實際遊玩紀錄。</p>
+    </section>`;
+    })() : ''}
 
     <section class="card">
       <div class="recipient-heading">

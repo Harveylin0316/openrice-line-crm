@@ -22,6 +22,11 @@
  */
 
 const { recordRestaurantClick } = require('../core/restaurantLinkParse');
+const { resolveBroadcastButtonTarget } = require('../core/broadcastTemplates');
+// 與 flowEngine.getOrigin() 同一套來源；只影響模板主圖網址，不影響按鈕序號
+function publicOriginForFlow() {
+  return String(process.env.LINE_PUSH_PUBLIC_BASE_URL || process.env.URL || process.env.PUBLIC_SITE_URL || '').replace(/\/+$/, '');
+}
 const { normalizeTabs } = require('../core/lineRichMenu');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 
@@ -126,13 +131,21 @@ function registerAdminFlowsRoutes(app, deps) {
   }
 
   // ---------- 公開：流程訊息點擊中轉（記點擊 + 302 導向真連結） ----------
-  app.get('/rf/:enrollmentId(\\d+)/:messageId(\\d+)', async (req, res) => {
+  app.get('/rf/:enrollmentId(\\d+)/:messageId(\\d+)/:buttonIndex(\\d+)?', async (req, res) => {
     const eid = Number(req.params.enrollmentId);
     const mid = Number(req.params.messageId);
+    // 舊連結沒有序號 → 視為第 0 顆（模板模式的 CTA）
+    const buttonIndex = req.params.buttonIndex == null ? 0 : Number(req.params.buttonIndex);
     try {
       const rs = await query(`SELECT message_config FROM admin_message_templates WHERE id = $1`, [mid]);
       const cfg = rs.rows[0] && rs.rows[0].message_config;
-      let target = (cfg && cfg.mode === 'template' && cfg.template && cfg.template.ctaUrl) ? String(cfg.template.ctaUrl).trim() : '';
+      let target = '';
+      if (cfg) {
+        const hit = resolveBroadcastButtonTarget(cfg, buttonIndex, { heroImageBaseUrl: publicOriginForFlow(req) });
+        target = hit ? String(hit.uri || '').trim() : '';
+        // 舊模板連結相容：反查不到就退回 ctaUrl
+        if (!target && cfg.mode === 'template' && cfg.template && cfg.template.ctaUrl) target = String(cfg.template.ctaUrl).trim();
+      }
       if (!/^https?:\/\//i.test(target)) return res.status(404).type('text/plain').send('Not found');
       // 點擊追蹤必須在 302 之前寫完：serverless 在回應送出後會凍結，
       // 沒 await 的 INSERT 可能永遠沒進 DB → 「點了連結」分支永遠走不到

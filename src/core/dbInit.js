@@ -555,6 +555,8 @@ async function initDb({ query, adminUsername, adminPassword, skipDdl = true }) {
   await query('ALTER TABLE admin_broadcast_recipients ADD COLUMN IF NOT EXISTS opened_at TIMESTAMPTZ');
   await query('ALTER TABLE admin_broadcast_recipients ADD COLUMN IF NOT EXISTS first_clicked_at TIMESTAMPTZ');
   await query('ALTER TABLE admin_broadcast_clicks ADD COLUMN IF NOT EXISTS variant TEXT');
+  // 自訂 Flex／多段訊息：記錄點的是第幾顆按鈕（模板模式一律 0）
+  await query('ALTER TABLE admin_broadcast_clicks ADD COLUMN IF NOT EXISTS button_index INT');
   await query('ALTER TABLE admin_broadcast_views ADD COLUMN IF NOT EXISTS variant TEXT');
   await query(
     'CREATE INDEX IF NOT EXISTS admin_broadcast_recipients_broadcast_variant_idx ON admin_broadcast_recipients (broadcast_id, variant)'

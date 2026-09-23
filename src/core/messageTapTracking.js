@@ -41,19 +41,31 @@ function isTrackableUri(uri) {
   return /^https?:\/\//i.test(u) && !isOwnLiff(u);
 }
 
+/** 已經是我們自己的追蹤中轉（群發 /r/b、流程 /rf、關鍵字 /t/m），不能再包一層 */
+function isTrackerUri(uri) {
+  return /\/(r\/b|rf|t\/m)\/\d/.test(String(uri || ''));
+}
+
 /**
  * 走訪訊息設定，對每一顆「開啟網址」的按鈕呼叫 visit(node, index)。
  * visit 回傳字串就把該顆的網址換掉（用來包成跳板）。
  * 回傳找到的按鈕清單 [{ index, uri, label }]。
+ *
+ * opts.includeOwnLiff = true 時連自家活動頁（LIFF）的按鈕也算一顆：
+ * 群發與自動化流程要算「點擊」，自家活動連結也得包；關鍵字回覆維持預設（跳過）。
+ * 前後端、送出與反查必須用同一組 opts，序號才對得起來。
  */
-function walkUriActions(config, visit) {
+function walkUriActions(config, visit, opts) {
+  const includeOwnLiff = !!(opts && opts.includeOwnLiff);
   const found = [];
   let index = 0;
   const consider = (holder, label) => {
     const a = holder && holder.action;
     if (!a || a.type !== 'uri' || !a.uri) return;
     const uri = String(a.uri);
-    if (!isTrackableUri(uri)) return;          // 自家 LIFF 或非 http 一律跳過
+    if (!/^https?:\/\//i.test(uri)) return;   // 非 http 一律跳過
+    if (isTrackerUri(uri)) return;            // 已包過的不重包
+    if (!includeOwnLiff && !isTrackableUri(uri)) return;   // 自家 LIFF 依 opts 決定
     const item = { index, uri, label: a.label || label || null };
     found.push(item);
     if (typeof visit === 'function') {
@@ -76,7 +88,9 @@ function walkUriActions(config, visit) {
   if (config.mode === 'template' && config.template) {
     // 模板模式：ctaUrl 就是唯一那顆
     const t = config.template;
-    if (isTrackableUri(t.ctaUrl)) {
+    const ctaOk = /^https?:\/\//i.test(String(t.ctaUrl || '')) && !isTrackerUri(t.ctaUrl) &&
+      (includeOwnLiff || isTrackableUri(t.ctaUrl));
+    if (ctaOk) {
       const item = { index, uri: String(t.ctaUrl), label: t.ctaLabel || null };
       found.push(item);
       if (typeof visit === 'function') {
@@ -92,8 +106,8 @@ function walkUriActions(config, visit) {
 }
 
 /** 只是列出有哪些按鈕（後台挑選器用），不動原本的設定 */
-function listUriButtons(config) {
-  return walkUriActions(JSON.parse(JSON.stringify(config || {})));
+function listUriButtons(config, opts) {
+  return walkUriActions(JSON.parse(JSON.stringify(config || {})), undefined, opts);
 }
 
 /**
@@ -111,10 +125,10 @@ function withMessageTracking(config, { source, refId, liffId }) {
 }
 
 /** 反查第 n 顆按鈕的真正目的地（跳板要用；一律回頭查設定，不從網址帶） */
-function findUriButton(config, index) {
-  const list = listUriButtons(config);
+function findUriButton(config, index, opts) {
+  const list = listUriButtons(config, opts);
   const n = Number(index);
   return list.find(b => b.index === n) || null;
 }
 
-module.exports = { walkUriActions, listUriButtons, withMessageTracking, findUriButton, isTrackableUri, isOwnLiff, ownLiffIds };
+module.exports = { walkUriActions, listUriButtons, withMessageTracking, findUriButton, isTrackableUri, isTrackerUri, isOwnLiff, ownLiffIds };

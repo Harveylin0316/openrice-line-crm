@@ -90,7 +90,7 @@ function registerGameType(app, deps, opts) {
       }
       const a = rows[0];
       const { rows: prizes } = await query(
-        `SELECT id, name, description, image_url, position, is_grand_prize, prize_value,
+        `SELECT id, name, description, image_url, position, is_grand_prize, prize_type, prize_value,
                 CASE WHEN stock_total IS NULL THEN false
                      ELSE stock_remaining <= 0 END AS sold_out
          FROM activity_prizes WHERE activity_id = $1

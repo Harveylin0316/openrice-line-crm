@@ -47,8 +47,8 @@
           <input type="number" id="ae-daily-limit" min="0" placeholder="1" />
         </label>
         <label class="ae-field">
-          <span>每用戶基礎可玩次數 *</span>
-          <input type="number" id="ae-base-plays" min="1" value="1" />
+          <span>每用戶基礎可玩次數 *（0 = 只有收到群發派送次數的人才能玩）</span>
+          <input type="number" id="ae-base-plays" min="0" value="1" />
         </label>
         <label class="ae-field">
           <span>要邀請幾位朋友才加一次（1 = 每邀 1 人就加）</span>
@@ -140,13 +140,13 @@
             <button type="button" class="ae-map-row" data-ae-focus="ae-base-plays">
               <span><b>剩餘次數／邀請規則</b><small>「還可以轉幾次」與找朋友文案</small></span><em>到欄位修改</em>
             </button>
-            <button type="button" class="ae-map-row" data-ae-scroll="ae-prizes-section">
+            <button type="button" class="ae-map-row" data-ae-scroll="ae-prizes-section" id="ae-map-prizes">
               <span><b>轉盤格與中獎畫面</b><small>獎名、圖片、說明、排序與大獎效果</small></span><em>到獎品修改</em>
             </button>
-            <button type="button" class="ae-map-row" data-ae-scenario="redemption">
+            <button type="button" class="ae-map-row" data-ae-scenario="redemption" id="ae-map-redemption">
               <span><b>兌獎說明</b><small>這檔活動目前使用固定版文字</small></span><em class="ae-fixed">預覽固定版</em>
             </button>
-            <button type="button" class="ae-map-row" data-ae-scroll="ae-visual-settings">
+            <button type="button" class="ae-map-row" data-ae-scroll="ae-visual-settings" id="ae-map-visual">
               <span><b>Logo／輪盤／提示文案</b><small>可在下方依這檔活動調整</small></span><em>到畫面設定</em>
             </button>
           </div>
@@ -156,7 +156,7 @@
               <h3>活動視覺</h3>
               <p>只影響這檔活動；右側預覽可立即確認結果。</p>
             </div>
-            <label class="ae-visual-toggle">
+            <label class="ae-visual-toggle" id="ae-hero-art-toggle">
               <input type="checkbox" id="ae-show-hero-art" checked />
               <span><b>顯示標題右上角插圖</b><small>取消勾選即可移除目前的火鍋線稿</small></span>
             </label>
@@ -171,7 +171,7 @@
               <span class="muted" id="ae-logo-status"></span>
               <span class="ae-logo-preview" id="ae-logo-preview"></span>
             </label>
-            <label class="ae-field">
+            <label class="ae-field" id="ae-wheel-style-field">
               <span>快速套用風格</span>
               <div class="ae-preset-row">
                 <select id="ae-wheel-style">
@@ -183,7 +183,7 @@
                 <button type="button" class="ae-secondary-btn" id="ae-reset-wheel">重新套用</button>
               </div>
             </label>
-            <div class="ae-wheel-editor">
+            <div class="ae-wheel-editor" id="ae-wheel-editor">
               <div class="ae-editor-title">
                 <b>自訂輪盤</b>
                 <small>每一項都能自己調，改動會直接出現在右側測試畫面。</small>
@@ -227,7 +227,112 @@
                 </label>
               </div>
             </div>
-            <div class="ae-copy-editor">
+            <div class="ae-scratch-editor" id="ae-scratch-editor" hidden>
+              <div class="ae-editor-title">
+                <b>刮刮樂卡片</b>
+                <small>刮膜、卡片配色、比例與刮開門檻都能自己調；改動會直接出現在右側測試畫面。</small>
+              </div>
+              <label class="ae-field">
+                <span>快速套用風格</span>
+                <div class="ae-preset-row">
+                  <select id="ae-scratch-style">
+                    <option value="silver">銀色刮膜</option>
+                    <option value="gold">金色刮膜</option>
+                    <option value="brand">OpenRice 黃</option>
+                    <option value="night">深色刮膜</option>
+                    <option value="custom">自訂設定</option>
+                  </select>
+                  <button type="button" class="ae-secondary-btn" id="ae-reset-scratch">重新套用</button>
+                </div>
+              </label>
+              <div class="ae-color-grid">
+                <label class="ae-color-control"><span>刮膜色 1</span><input type="color" id="ae-scratch-foil-1" value="#D5D9E0" /><output data-for="ae-scratch-foil-1">#D5D9E0</output></label>
+                <label class="ae-color-control"><span>刮膜色 2</span><input type="color" id="ae-scratch-foil-2" value="#9CA3AD" /><output data-for="ae-scratch-foil-2">#9CA3AD</output></label>
+                <label class="ae-color-control"><span>刮膜色 3</span><input type="color" id="ae-scratch-foil-3" value="#7B8290" /><output data-for="ae-scratch-foil-3">#7B8290</output></label>
+                <label class="ae-color-control"><span>刮膜提示字</span><input type="color" id="ae-scratch-foil-text" value="#FFFFFF" /><output data-for="ae-scratch-foil-text">#FFFFFF</output></label>
+                <label class="ae-color-control"><span>卡片底色 1</span><input type="color" id="ae-scratch-card-bg-1" value="#FFFDF0" /><output data-for="ae-scratch-card-bg-1">#FFFDF0</output></label>
+                <label class="ae-color-control"><span>卡片底色 2</span><input type="color" id="ae-scratch-card-bg-2" value="#FFF7DA" /><output data-for="ae-scratch-card-bg-2">#FFF7DA</output></label>
+                <label class="ae-color-control"><span>卡片文字</span><input type="color" id="ae-scratch-card-text" value="#0F0F10" /><output data-for="ae-scratch-card-text">#0F0F10</output></label>
+                <label class="ae-color-control"><span>標籤強調色</span><input type="color" id="ae-scratch-accent" value="#E11D27" /><output data-for="ae-scratch-accent">#E11D27</output></label>
+                <label class="ae-color-control"><span>獎品圖示底</span><input type="color" id="ae-scratch-glyph-bg" value="#FCC726" /><output data-for="ae-scratch-glyph-bg">#FCC726</output></label>
+                <label class="ae-color-control"><span>頭獎底色 1</span><input type="color" id="ae-scratch-grand-1" value="#E11D27" /><output data-for="ae-scratch-grand-1">#E11D27</output></label>
+                <label class="ae-color-control"><span>頭獎底色 2</span><input type="color" id="ae-scratch-grand-2" value="#B61118" /><output data-for="ae-scratch-grand-2">#B61118</output></label>
+                <label class="ae-color-control"><span>頭獎文字</span><input type="color" id="ae-scratch-grand-text" value="#FFFFFF" /><output data-for="ae-scratch-grand-text">#FFFFFF</output></label>
+              </div>
+              <div class="ae-range-grid">
+                <label class="ae-field">
+                  <span>卡片比例</span>
+                  <select id="ae-scratch-ratio">
+                    <option value="4:3">4:3（預設）</option>
+                    <option value="16:9">16:9 橫幅</option>
+                    <option value="1:1">1:1 正方</option>
+                    <option value="3:4">3:4 直式</option>
+                  </select>
+                </label>
+                <label class="ae-range-control">
+                  <span><b>刮開幾成自動揭曉</b><output id="ae-scratch-threshold-output">35%</output></span>
+                  <input type="range" id="ae-scratch-threshold" min="20" max="70" step="5" value="35" />
+                </label>
+              </div>
+              <label class="ae-field" style="margin-top:12px;">
+                <span>自訂刮膜圖（可選，會蓋在刮膜色上；建議與卡片比例相同，最大 2MB）</span>
+                <div class="ae-upload-row">
+                  <input type="text" id="ae-scratch-cover-url" placeholder="留空用刮膜色，也可貼圖片網址" />
+                  <input type="file" id="ae-scratch-cover-file" accept="image/png,image/jpeg" hidden />
+                  <button type="button" class="ae-secondary-btn" id="ae-scratch-cover-upload">上傳</button>
+                  <button type="button" class="ae-secondary-btn" id="ae-scratch-cover-clear">清除</button>
+                </div>
+                <span class="muted" id="ae-scratch-cover-status"></span>
+              </label>
+              <div class="ae-scratch-toggles">
+                <label class="ae-visual-toggle"><input type="checkbox" id="ae-scratch-show-hero-cover" checked /><span><b>顯示活動封面圖</b><small>頁首介紹下方的大圖</small></span></label>
+                <label class="ae-visual-toggle"><input type="checkbox" id="ae-scratch-show-stats" checked /><span><b>顯示次數／邀請統計列</b><small>剩餘次數、已邀請、獎品種數</small></span></label>
+                <label class="ae-visual-toggle"><input type="checkbox" id="ae-scratch-show-share" checked /><span><b>顯示分享／邀請卡</b><small>取消後用戶無法從這頁分享活動</small></span></label>
+                <label class="ae-visual-toggle"><input type="checkbox" id="ae-scratch-show-prize-list" checked /><span><b>顯示「本次獎項」清單</b><small>刮獎區下方的獎項總覽</small></span></label>
+              </div>
+            </div>
+            <div class="ae-copy-editor" id="ae-scratch-copy-editor" hidden>
+              <div class="ae-editor-title">
+                <b>刮刮樂文案與兌獎說明</b>
+                <small>直接改用戶看得到的文字；雙大括號是自動帶入的名字或獎名，請保留需要的變數。</small>
+              </div>
+              <details class="ae-copy-group" open>
+                <summary>主畫面</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field"><span>右上角狀態小標</span><input type="text" id="ae-scopy-chip" /></label>
+                  <label class="ae-field"><span>標題上方小標</span><input type="text" id="ae-scopy-hero-tag" /></label>
+                  <label class="ae-field"><span>刮獎區標籤</span><input type="text" id="ae-scopy-stage-label" /></label>
+                  <label class="ae-field"><span>刮膜上的提示字</span><input type="text" id="ae-scopy-cover-text" maxlength="20" /></label>
+                  <label class="ae-field"><span>拿到卡片時的提示</span><input type="text" id="ae-scopy-ready-hint" /></label>
+                  <label class="ae-field"><span>揭曉按鈕</span><input type="text" id="ae-scopy-reveal-button" /></label>
+                  <label class="ae-field"><span>再來一張按鈕</span><input type="text" id="ae-scopy-new-card-button" /></label>
+                  <label class="ae-field"><span>獎項清單標題</span><input type="text" id="ae-scopy-prize-list-title" /></label>
+                </div>
+              </details>
+              <details class="ae-copy-group" open>
+                <summary>中獎與兌獎</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field"><span>中獎提示 <code>{{prize}}</code></span><input type="text" id="ae-scopy-winner-status" /></label>
+                  <label class="ae-field"><span>未中獎提示</span><input type="text" id="ae-scopy-no-prize-status" /></label>
+                  <label class="ae-field ae-copy-wide"><span>優惠序號核銷提示</span><input type="text" id="ae-scopy-coupon-hint" /></label>
+                  <label class="ae-field"><span>我的優惠券連結文字</span><input type="text" id="ae-scopy-wallet-link" /></label>
+                  <label class="ae-field"><span>兌獎說明標籤</span><input type="text" id="ae-scopy-redemption-label" /></label>
+                  <label class="ae-field ae-copy-wide"><span>兌獎說明內容（活動層級；留空就不顯示這一區。每個獎品自己的兌獎事項在獎品池編輯）</span><textarea id="ae-scopy-redemption-text" rows="5" placeholder="例：&#10;・中獎後 7 天內至指定門市出示此畫面&#10;・每人每檔活動限兌換一次&#10;・不可與其他優惠併用"></textarea></label>
+                </div>
+              </details>
+              <details class="ae-copy-group" open>
+                <summary>分享活動</summary>
+                <div class="ae-copy-grid">
+                  <label class="ae-field"><span>分享按鈕</span><input type="text" id="ae-scopy-share-button" /></label>
+                  <label class="ae-field"><span>分享卡標題（沒有邀請加碼時顯示）</span><input type="text" id="ae-scopy-share-title" /></label>
+                  <label class="ae-field ae-copy-wide"><span>LINE 卡片標題（留空用活動名稱）</span><input type="text" id="ae-scopy-share-card-title" maxlength="80" /></label>
+                  <label class="ae-field ae-copy-wide"><span>LINE 卡片說明（留空用活動說明）</span><input type="text" id="ae-scopy-share-card-desc" maxlength="300" /></label>
+                  <label class="ae-field"><span>LINE 卡片按鈕文字</span><input type="text" id="ae-scopy-share-cta" maxlength="20" /></label>
+                  <label class="ae-field ae-copy-wide"><span>文字版分享訊息 <code>{{name}}</code>（舊版 LINE 收不到卡片時）</span><input type="text" id="ae-scopy-share-message" /></label>
+                </div>
+              </details>
+            </div>
+            <div class="ae-copy-editor" id="ae-wheel-copy-editor">
               <div class="ae-editor-title">
                 <b>畫面提示文案</b>
                 <small>設計師可以直接改用戶看得到的語氣；雙大括號是自動帶入的數字或名字，請保留需要的變數。</small>
@@ -338,7 +443,9 @@
       <div class="ae-link-box">
         <code id="ae-liff-share-url">—</code>
         <button type="button" class="ae-secondary-btn" id="ae-copy-liff">複製</button>
+        <a href="/admin/broadcast?activity_id=${activityId}" class="ae-primary-btn" id="ae-send-broadcast" style="text-decoration:none;">用訊息派送這個活動 ›</a>
       </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0;">會打開群發訊息，CTA 連結與按鈕文字自動帶入這個活動；選好收件人、改好文案就能發。</p>
 
       <div class="ae-link-title" style="margin-top:16px;">桌機預覽用（直連）</div>
       <p class="muted" style="font-size:12px;margin:4px 0 8px;">
@@ -403,6 +510,10 @@
             <span id="pm-value-label">獎勵金額 / 內容</span>
             <input type="text" id="pm-value" placeholder="100" />
             <small class="muted" id="pm-extra-note" style="font-size:11px;line-height:1.5;" hidden></small>
+          </label>
+          <label class="ae-field ae-field-full">
+            <span>兌獎事項（可留空；刮刮樂刮開後會和獎名一起顯示在卡片上）</span>
+            <textarea id="pm-redeem-note" rows="3" maxlength="300" placeholder="例：憑此畫面至門市兌換，每人限一次，有效期至 12/31"></textarea>
           </label>
           <label class="ae-field ae-field-full">
             <span>這個獎品等於幾哩（可留空）</span>
@@ -514,6 +625,134 @@
         history_note: 'ae-copy-history-note'
       };
       var PRIZE_COLOR_PALETTE = ['#F9C73B', '#FFF3C4', '#FFFFFF', '#FFE082', '#FFF8E1', '#FFD45A', '#F7F4EC'];
+
+      // ---- 刮刮樂畫面設定（與 views/game_scratch.ejs 的 SCRATCH_PRESETS / COPY_DEFAULTS 對應）----
+      var SCRATCH_PRESETS = {
+        silver: { foil_1: '#D5D9E0', foil_2: '#9CA3AD', foil_3: '#7B8290', foil_text: '#FFFFFF', card_bg_1: '#FFFDF0', card_bg_2: '#FFF7DA', card_text: '#0F0F10', accent: '#E11D27', glyph_bg: '#FCC726', grand_1: '#E11D27', grand_2: '#B61118', grand_text: '#FFFFFF' },
+        gold:   { foil_1: '#FFE082', foil_2: '#F9C73B', foil_3: '#D69E00', foil_text: '#7A5A00', card_bg_1: '#FFFFFF', card_bg_2: '#FFF3C4', card_text: '#3F2C25', accent: '#B8421B', glyph_bg: '#F9C73B', grand_1: '#E8491D', grand_2: '#B8401A', grand_text: '#FFFFFF' },
+        brand:  { foil_1: '#FCC726', foil_2: '#F0B400', foil_3: '#D89E00', foil_text: '#0F0F10', card_bg_1: '#FFFFFF', card_bg_2: '#FFF7DA', card_text: '#0F0F10', accent: '#E11D27', glyph_bg: '#FCC726', grand_1: '#E11D27', grand_2: '#B61118', grand_text: '#FFFFFF' },
+        night:  { foil_1: '#3B3F4A', foil_2: '#22252D', foil_3: '#111318', foil_text: '#FCC726', card_bg_1: '#FFFDF0', card_bg_2: '#FFF3C4', card_text: '#0F0F10', accent: '#E11D27', glyph_bg: '#FCC726', grand_1: '#111318', grand_2: '#3B3F4A', grand_text: '#FCC726' }
+      };
+      var SCRATCH_COLOR_FIELDS = {
+        foil_1: 'ae-scratch-foil-1', foil_2: 'ae-scratch-foil-2', foil_3: 'ae-scratch-foil-3', foil_text: 'ae-scratch-foil-text',
+        card_bg_1: 'ae-scratch-card-bg-1', card_bg_2: 'ae-scratch-card-bg-2', card_text: 'ae-scratch-card-text',
+        accent: 'ae-scratch-accent', glyph_bg: 'ae-scratch-glyph-bg',
+        grand_1: 'ae-scratch-grand-1', grand_2: 'ae-scratch-grand-2', grand_text: 'ae-scratch-grand-text'
+      };
+      var SCRATCH_COPY_DEFAULTS = {
+        chip: '活動進行中', hero_tag: '刮刮樂', stage_label: '刮獎', cover_text: '刮開查看獎品',
+        ready_hint: '刮一下試試', reveal_button: '直 接 揭 曉', new_card_button: '再 來 一 張',
+        winner_status: '恭喜抽中 {{prize}}', no_prize_status: '銘謝惠顧，下次再來',
+        coupon_hint: '請到店出示此畫面或序號給店員核銷', wallet_link: '我的優惠券',
+        prize_list_title: '本次獎項', redemption_label: '兌獎說明', redemption_text: '',
+        share_button: '分享', share_title: '分享給朋友一起玩',
+        share_message: '快來刮「{{name}}」！我刮過了，你也來試試', share_cta: '馬上玩',
+        share_card_title: '', share_card_desc: ''
+      };
+      var SCRATCH_COPY_FIELDS = {
+        chip: 'ae-scopy-chip', hero_tag: 'ae-scopy-hero-tag', stage_label: 'ae-scopy-stage-label', cover_text: 'ae-scopy-cover-text',
+        ready_hint: 'ae-scopy-ready-hint', reveal_button: 'ae-scopy-reveal-button', new_card_button: 'ae-scopy-new-card-button',
+        winner_status: 'ae-scopy-winner-status', no_prize_status: 'ae-scopy-no-prize-status',
+        coupon_hint: 'ae-scopy-coupon-hint', wallet_link: 'ae-scopy-wallet-link',
+        prize_list_title: 'ae-scopy-prize-list-title', redemption_label: 'ae-scopy-redemption-label', redemption_text: 'ae-scopy-redemption-text',
+        share_button: 'ae-scopy-share-button', share_title: 'ae-scopy-share-title',
+        share_message: 'ae-scopy-share-message', share_cta: 'ae-scopy-share-cta',
+        share_card_title: 'ae-scopy-share-card-title', share_card_desc: 'ae-scopy-share-card-desc'
+      };
+      function isScratchActivity() {
+        var gt = currentActivity && currentActivity.game_type;
+        if (!gt && $('ae-game-type')) gt = $('ae-game-type').value;
+        return gt === 'scratch';
+      }
+      function collectScratchControls() {
+        if (!$('ae-scratch-style')) return null;
+        var style = $('ae-scratch-style').value || 'silver';
+        var custom = {};
+        Object.keys(SCRATCH_COLOR_FIELDS).forEach(function (key) {
+          custom[key] = safeHex($(SCRATCH_COLOR_FIELDS[key]).value, SCRATCH_PRESETS.silver[key]);
+        });
+        return {
+          style: SCRATCH_PRESETS[style] ? style : 'custom',
+          custom: custom,
+          ratio: $('ae-scratch-ratio').value || '4:3',
+          reveal_threshold: clamp($('ae-scratch-threshold').value, 20, 70, 35),
+          cover_image_url: ($('ae-scratch-cover-url').value || '').trim() || null,
+          show_hero_cover: $('ae-scratch-show-hero-cover').checked,
+          show_stats: $('ae-scratch-show-stats').checked,
+          show_share: $('ae-scratch-show-share').checked,
+          show_prize_list: $('ae-scratch-show-prize-list').checked
+        };
+      }
+      function collectScratchCopyControls() {
+        var result = {};
+        Object.keys(SCRATCH_COPY_FIELDS).forEach(function (key) {
+          var el = $(SCRATCH_COPY_FIELDS[key]);
+          var max = key === 'redemption_text' ? 2000 : 300;
+          result[key] = el ? String(el.value || '').slice(0, max) : SCRATCH_COPY_DEFAULTS[key];
+        });
+        return result;
+      }
+      function setScratchColorControls(colors) {
+        Object.keys(SCRATCH_COLOR_FIELDS).forEach(function (key) {
+          var input = $(SCRATCH_COLOR_FIELDS[key]);
+          if (!input) return;
+          input.value = safeHex(colors[key], SCRATCH_PRESETS.silver[key]);
+          var output = document.querySelector('output[data-for="' + SCRATCH_COLOR_FIELDS[key] + '"]');
+          if (output) output.textContent = input.value.toUpperCase();
+        });
+      }
+      function setScratchControls(scratch, copy) {
+        if (!$('ae-scratch-style')) return;
+        var s = scratch && typeof scratch === 'object' ? scratch : {};
+        var style = SCRATCH_PRESETS[s.style] ? s.style : (s.style === 'custom' ? 'custom' : 'silver');
+        $('ae-scratch-style').value = style;
+        setScratchColorControls(Object.assign({}, SCRATCH_PRESETS[style === 'custom' ? 'silver' : style], s.custom || {}));
+        $('ae-scratch-ratio').value = ['4:3', '16:9', '1:1', '3:4'].indexOf(s.ratio) >= 0 ? s.ratio : '4:3';
+        $('ae-scratch-threshold').value = clamp(s.reveal_threshold, 20, 70, 35);
+        $('ae-scratch-threshold-output').textContent = $('ae-scratch-threshold').value + '%';
+        $('ae-scratch-cover-url').value = s.cover_image_url || '';
+        $('ae-scratch-show-hero-cover').checked = s.show_hero_cover !== false;
+        $('ae-scratch-show-stats').checked = s.show_stats !== false;
+        $('ae-scratch-show-share').checked = s.show_share !== false;
+        $('ae-scratch-show-prize-list').checked = s.show_prize_list !== false;
+        var saved = copy && typeof copy === 'object' ? copy : {};
+        Object.keys(SCRATCH_COPY_FIELDS).forEach(function (key) {
+          var el = $(SCRATCH_COPY_FIELDS[key]);
+          if (el) el.value = typeof saved[key] === 'string' ? saved[key] : SCRATCH_COPY_DEFAULTS[key];
+        });
+      }
+      // 依遊戲類型切換畫面設定區：輪盤與刮刮樂各有自己的控制項，其他類型只保留 Logo。
+      function applyGameTypeUi() {
+        var scratch = isScratchActivity();
+        var wheel = (currentActivity && currentActivity.game_type) === 'wheel';
+        var toggle = function (id, show) { var el = $(id); if (el) el.hidden = !show; };
+        toggle('ae-scratch-editor', scratch);
+        toggle('ae-scratch-copy-editor', scratch);
+        toggle('ae-wheel-editor', wheel);
+        toggle('ae-wheel-copy-editor', wheel);
+        toggle('ae-wheel-style-field', wheel);
+        toggle('ae-hero-art-toggle', wheel);
+        var mapPrizes = $('ae-map-prizes');
+        var mapRedemption = $('ae-map-redemption');
+        var mapVisual = $('ae-map-visual');
+        if (scratch) {
+          if (mapPrizes) mapPrizes.innerHTML = '<span><b>刮開後的獎品卡</b><small>獎名、圖片、說明、中獎機率與每個獎品的兌獎事項</small></span><em>到獎品修改</em>';
+          if (mapRedemption) mapRedemption.innerHTML = '<span><b>兌獎說明</b><small>活動層級的兌獎規則，可在下方文案區修改</small></span><em>預覽</em>';
+          if (mapVisual) mapVisual.innerHTML = '<span><b>Logo／刮膜／文案／分享卡</b><small>可在下方依這檔活動調整</small></span><em>到畫面設定</em>';
+        }
+        // 情境選單：刮刮樂沒有「我的獎項」歷史區
+        var select = $('ae-preview-scenario');
+        if (select) {
+          Array.from(select.options).forEach(function (opt) {
+            if (opt.value === 'history') opt.hidden = scratch;
+            if (opt.value === 'ready') opt.textContent = scratch ? '一般可刮（還有 3 次）' : '一般可抽（還有 3 次）';
+            if (opt.value === 'redemption') opt.textContent = scratch ? '刮開後展開兌獎說明' : '展開兌獎說明';
+          });
+          if (scratch && select.value === 'history') select.value = 'ready';
+        }
+        var orderNoun = $('ae-prize-order-noun');
+        if (orderNoun && scratch) orderNoun.textContent = '獎項清單';
+      }
 
       function escapeHtml(s) {
         return String(s == null ? '' : s)
@@ -650,14 +889,23 @@
           ? JSON.parse(JSON.stringify(currentActivity.rules)) : {};
         if ($('ae-show-hero-art')) {
           var existingUi = existingRules.ui && typeof existingRules.ui === 'object' ? existingRules.ui : {};
-          existingRules.ui = Object.assign({}, existingUi, {
-            show_hero_art: $('ae-show-hero-art').checked,
-            logo_url: $('ae-logo-url').value.trim() || null,
-            wheel_style: $('ae-wheel-style').value || 'brand',
-            wheel_custom: collectWheelControls(),
-            wheel_slice_colors: collectPrizeColorControls(),
-            copy: collectCopyControls()
-          });
+          if (isScratchActivity()) {
+            // 刮刮樂：只寫自己的欄位，輪盤設定原封不動保留（同一活動改類型時不會互相蓋掉）
+            existingRules.ui = Object.assign({}, existingUi, {
+              logo_url: $('ae-logo-url').value.trim() || null,
+              scratch: collectScratchControls(),
+              copy: Object.assign({}, existingUi.copy && typeof existingUi.copy === 'object' ? existingUi.copy : {}, collectScratchCopyControls())
+            });
+          } else {
+            existingRules.ui = Object.assign({}, existingUi, {
+              show_hero_art: $('ae-show-hero-art').checked,
+              logo_url: $('ae-logo-url').value.trim() || null,
+              wheel_style: $('ae-wheel-style').value || 'brand',
+              wheel_custom: collectWheelControls(),
+              wheel_slice_colors: collectPrizeColorControls(),
+              copy: Object.assign({}, existingUi.copy && typeof existingUi.copy === 'object' ? existingUi.copy : {}, collectCopyControls())
+            });
+          }
         }
         return {
           slug: $('ae-slug').value.trim(),
@@ -671,7 +919,7 @@
           daily_plays_per_user: $('ae-daily-limit').value ? Number($('ae-daily-limit').value) : null,
           require_follow_oa: $('ae-require-follow').checked,
           liff_id_override: $('ae-liff-override').value.trim() || null,
-          base_plays_per_user: Number($('ae-base-plays').value || 1),
+          base_plays_per_user: $('ae-base-plays').value === '' ? 1 : Math.max(0, Number($('ae-base-plays').value) || 0),
           referral_bonus_per: Number($('ae-ref-per').value || 0),
           referral_bonus_max: Number($('ae-ref-max').value || 0),
           referral_invites_per_bonus: Math.max(1, Number($('ae-ref-need').value || 1)),
@@ -718,6 +966,8 @@
         }
         renderPrizeColorControls(ui.wheel_slice_colors);
         setCopyControls(ui.copy);
+        setScratchControls(ui.scratch, ui.copy);
+        applyGameTypeUi();
         updateLogoPreview();
         updateRefHint();
       }
@@ -780,7 +1030,11 @@
         params.set('preview', '1');
         params.set('preview_scenario', scenario);
         if ($('ae-show-hero-art')) {
-          params.set('preview_ui', JSON.stringify({
+          params.set('preview_ui', JSON.stringify(isScratchActivity() ? {
+            logo_url: $('ae-logo-url').value.trim() || null,
+            scratch: collectScratchControls(),
+            copy: collectScratchCopyControls()
+          } : {
             show_hero_art: $('ae-show-hero-art').checked,
             logo_url: $('ae-logo-url').value.trim() || null,
             wheel_style: $('ae-wheel-style').value || 'brand',
@@ -872,6 +1126,11 @@
         }
       }
       $('ae-status-select').addEventListener('change', updateLinkStatusBanner);
+      $('ae-game-type').addEventListener('change', function () {
+        if (currentActivity) currentActivity.game_type = $('ae-game-type').value;
+        applyGameTypeUi();
+        scheduleVisualPreview();
+      });
       ['ae-start', 'ae-end'].forEach(function (id) {
         var el = $(id); if (el) el.addEventListener('change', updateLinkStatusBanner);
       });
@@ -1016,6 +1275,77 @@
       Object.keys(COPY_FIELDS).forEach(function (key) {
         var input = $(COPY_FIELDS[key]);
         if (input) input.addEventListener('input', scheduleVisualPreview);
+      });
+      // ---- 刮刮樂控制項事件 ----
+      var scratchStyleSelect = $('ae-scratch-style');
+      if (scratchStyleSelect) scratchStyleSelect.addEventListener('change', function () {
+        if (SCRATCH_PRESETS[scratchStyleSelect.value]) setScratchColorControls(SCRATCH_PRESETS[scratchStyleSelect.value]);
+        scheduleVisualPreview();
+      });
+      var resetScratchBtn = $('ae-reset-scratch');
+      if (resetScratchBtn) resetScratchBtn.addEventListener('click', function () {
+        var preset = SCRATCH_PRESETS[scratchStyleSelect.value] ? scratchStyleSelect.value : 'silver';
+        scratchStyleSelect.value = preset;
+        setScratchColorControls(SCRATCH_PRESETS[preset]);
+        scheduleVisualPreview();
+      });
+      Object.keys(SCRATCH_COLOR_FIELDS).forEach(function (key) {
+        var input = $(SCRATCH_COLOR_FIELDS[key]);
+        if (!input) return;
+        input.addEventListener('input', function () {
+          scratchStyleSelect.value = 'custom';
+          var output = document.querySelector('output[data-for="' + SCRATCH_COLOR_FIELDS[key] + '"]');
+          if (output) output.textContent = String(input.value || '').toUpperCase();
+          scheduleVisualPreview();
+        });
+      });
+      ['ae-scratch-ratio', 'ae-scratch-show-hero-cover', 'ae-scratch-show-stats', 'ae-scratch-show-share', 'ae-scratch-show-prize-list'].forEach(function (id) {
+        var el = $(id);
+        if (el) el.addEventListener('change', scheduleVisualPreview);
+      });
+      var thresholdInput = $('ae-scratch-threshold');
+      if (thresholdInput) thresholdInput.addEventListener('input', function () {
+        $('ae-scratch-threshold-output').textContent = thresholdInput.value + '%';
+        scheduleVisualPreview();
+      });
+      Object.keys(SCRATCH_COPY_FIELDS).forEach(function (key) {
+        var input = $(SCRATCH_COPY_FIELDS[key]);
+        if (input) input.addEventListener('input', scheduleVisualPreview);
+      });
+      var scratchCoverUrl = $('ae-scratch-cover-url');
+      if (scratchCoverUrl) scratchCoverUrl.addEventListener('input', scheduleVisualPreview);
+      var scratchCoverClear = $('ae-scratch-cover-clear');
+      if (scratchCoverClear) scratchCoverClear.addEventListener('click', function () {
+        $('ae-scratch-cover-url').value = '';
+        $('ae-scratch-cover-status').textContent = '已清除，按下儲存後生效。';
+        scheduleVisualPreview();
+      });
+      var scratchCoverUpload = $('ae-scratch-cover-upload');
+      if (scratchCoverUpload) scratchCoverUpload.addEventListener('click', function () { $('ae-scratch-cover-file').click(); });
+      var scratchCoverFile = $('ae-scratch-cover-file');
+      if (scratchCoverFile) scratchCoverFile.addEventListener('change', function () {
+        var file = scratchCoverFile.files && scratchCoverFile.files[0];
+        if (!file) return;
+        var statusEl = $('ae-scratch-cover-status');
+        if (file.size > 2 * 1024 * 1024) {
+          statusEl.textContent = '圖片超過 2MB，請壓縮後再上傳。';
+          scratchCoverFile.value = '';
+          return;
+        }
+        statusEl.textContent = '上傳中…';
+        scratchCoverUpload.disabled = true;
+        var form = new FormData();
+        form.append('hero', file);
+        fetch('/admin/broadcast/hero/upload', { method: 'POST', body: form })
+          .then(function (r) { return r.json(); })
+          .then(function (resp) {
+            if (!resp.ok || !resp.url) throw new Error(resp.error || '上傳失敗');
+            $('ae-scratch-cover-url').value = resp.url;
+            statusEl.textContent = '已上傳，按下儲存後生效。';
+            scheduleVisualPreview();
+          })
+          .catch(function (e) { statusEl.textContent = '上傳失敗：' + e.message; })
+          .finally(function () { scratchCoverUpload.disabled = false; scratchCoverFile.value = ''; });
       });
 
       // ---- copy link helpers ----
@@ -1202,6 +1532,7 @@
           var v = p.prize_value || {};
           $('pm-value').value = v.amount || v.code || v.label || v.note || '';
           $('pm-miles').value = (v.miles != null ? v.miles : '');
+          $('pm-redeem-note').value = typeof v.redeem_note === 'string' ? v.redeem_note : '';
           showExtraValueNote(v);
         } else {
           $('pm-name').value = '';
@@ -1214,6 +1545,7 @@
           $('pm-grand').checked = false;
           $('pm-value').value = '';
           $('pm-miles').value = '';
+          $('pm-redeem-note').value = '';
           showExtraValueNote(null);
         }
         updatePrizeValueLabel();
@@ -1224,7 +1556,7 @@
       function showExtraValueNote(v) {
         var note = $('pm-extra-note');
         if (!note) return;
-        var shown = { amount: 1, code: 1, label: 1, note: 1, miles: 1 };
+        var shown = { amount: 1, code: 1, label: 1, note: 1, miles: 1, redeem_note: 1 };
         var extras = v && typeof v === 'object'
           ? Object.keys(v).filter(function (k) { return !shown[k]; })
           : [];
@@ -1272,6 +1604,9 @@
         var milesStr = ($('pm-miles').value || '').trim();
         if (milesStr && Number(milesStr) > 0) prizeValue.miles = Number(milesStr);
         else delete prizeValue.miles;
+        var redeemNoteStr = ($('pm-redeem-note').value || '').trim().slice(0, 300);
+        if (redeemNoteStr) prizeValue.redeem_note = redeemNoteStr;
+        else delete prizeValue.redeem_note;
         var valueKey = ({ rice_dollar: 'amount', coupon_code: 'code', badge: 'label', physical: 'note' })[pt];
         if (valueKey) {
           if (valStr) prizeValue[valueKey] = (pt === 'rice_dollar') ? Number(valStr) : valStr;
@@ -1538,6 +1873,8 @@
       .ae-preset-row { display: flex; align-items: stretch; gap: 6px; }
       .ae-preset-row select { flex: 1; min-width: 0; }
       .ae-wheel-editor { margin-top: 13px; padding-top: 13px; border-top: 1px solid #eadfca; }
+      .ae-scratch-editor { margin-top: 13px; padding-top: 13px; border-top: 1px solid #eadfca; }
+      .ae-scratch-toggles { display: grid; gap: 8px; margin-top: 12px; }
       .ae-editor-title { display: flex; flex-direction: column; margin-bottom: 10px; color: #3f2c25; }
       .ae-editor-title b { font-size: 13px; }
       .ae-editor-title small { margin-top: 2px; color: #7c716b; font-size: 11px; line-height: 1.45; }
@@ -1718,6 +2055,8 @@
         padding: 16px;
       }
       .ae-modal[hidden] { display: none !important; }
+      /* 畫面設定區依遊戲類型隱藏的欄位，flex/grid 不可蓋掉 hidden */
+      #ae-preview-studio [hidden], #ae-preview-studio option[hidden] { display: none !important; }
       .ae-modal-inner {
         background: #fff;
         border-radius: 12px;

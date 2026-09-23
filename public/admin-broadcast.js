@@ -2089,8 +2089,129 @@
       .catch(function (e) { statusEl.textContent = '網路錯誤：' + e.message; });
   });
 
+  // ------------------------------------------------------------------
+  // 派送遊玩機會（play grant）
+  //   設定跟著批次走（audience_config.playGrant），送達成功才入帳；這裡只收集與檢查，
+  //   人數與次數的真正計算都在後端。
+  // ------------------------------------------------------------------
+  function playGrantEnabled() {
+    var cb = $('pg-enabled');
+    var block = $('play-grant-block');
+    return !!(cb && cb.checked && block && !block.hidden && getActiveChannel() === 'line');
+  }
+  function collectPlayGrant() {
+    if (!playGrantEnabled()) return null;
+    var activityId = Number(($('pg-activity') && $('pg-activity').value) || 0);
+    var plays = Number(($('pg-plays') && $('pg-plays').value) || 0);
+    var modeEl = document.querySelector('input[name="pg-mode"]:checked');
+    return {
+      enabled: true,
+      activityId: activityId > 0 ? activityId : null,
+      plays: plays,
+      mode: modeEl ? modeEl.value : 'additive'
+    };
+  }
+  function validatePlayGrant() {
+    if (!playGrantEnabled()) return null;
+    var pg = collectPlayGrant();
+    if (!pg.activityId) return '派送遊玩機會：請先選要派送的活動';
+    if (!Number.isInteger(pg.plays) || pg.plays < 1 || pg.plays > 100) return '派送遊玩機會：每人次數要是 1–100 的整數';
+    var opt = $('pg-activity').options[$('pg-activity').selectedIndex];
+    var status = opt ? opt.getAttribute('data-status') : '';
+    if (status && status !== 'active' && status !== 'draft') {
+      return '派送遊玩機會：活動狀態是「' + status + '」，用戶收到後打不開。請先把活動改成進行中，或換一個活動';
+    }
+    return null;
+  }
+  function updatePlayGrantNotes() {
+    var sel = $('pg-activity');
+    if (!sel) return;
+    var opt = sel.options[sel.selectedIndex];
+    var base = opt ? Number(opt.getAttribute('data-base')) : NaN;
+    var name = opt ? (opt.getAttribute('data-name') || '') : '';
+    var status = opt ? (opt.getAttribute('data-status') || '') : '';
+    var exNote = $('pg-mode-exclusive-note');
+    var addNote = $('pg-mode-additive-note');
+    var statusEl = $('pg-status');
+    if (!sel.value) {
+      if (exNote) exNote.textContent = '送出時會把活動的「每用戶基礎可玩次數」改成 0；沒收到訊息的人打開活動會看到 0 次。';
+      if (addNote) addNote.textContent = '活動基礎次數不變，收到的人再多加上面填的次數。';
+      if (statusEl) statusEl.textContent = '';
+      return;
+    }
+    if (exNote) exNote.textContent = isFinite(base) && base > 0
+      ? '「' + name + '」目前每人基礎 ' + base + ' 次；送出時會改成 0，之後只有收到這則（或其他派送）訊息的人才有次數。已在玩的人剩餘基礎次數也會歸零。'
+      : '「' + name + '」基礎次數已經是 0，只有收到派送的人能玩。';
+    if (addNote) addNote.textContent = isFinite(base)
+      ? '「' + name + '」每人基礎 ' + base + ' 次不變，收到的人再加上面填的次數。'
+      : '活動基礎次數不變，收到的人再多加上面填的次數。';
+    if (statusEl) statusEl.textContent = status && status !== 'active'
+      ? '提醒：活動狀態是「' + status + '」，請先改成進行中，用戶才打得開。'
+      : '';
+  }
+  function fillCtaFromPlayGrant(force) {
+    var sel = $('pg-activity');
+    if (!sel || !sel.value) return false;
+    var opt = sel.options[sel.selectedIndex];
+    var url = opt ? opt.getAttribute('data-url') : '';
+    var name = opt ? (opt.getAttribute('data-name') || '') : '';
+    if (!url) {
+      if ($('pg-status')) $('pg-status').textContent = '活動連結還沒開通（缺 LIFF ID），請找系統管理員設定。';
+      return false;
+    }
+    var changed = false;
+    ['tpl-cta-url', 'b-tpl-cta-url', 'c-tpl-cta-url'].forEach(function (id, idx) {
+      var el = $(id);
+      if (!el) return;
+      if (idx > 0 && !(state.abTestEnabled || state.campaignTestEnabled)) return;
+      if (force || !el.value.trim()) { el.value = url; changed = true; el.dispatchEvent(new Event('input', { bubbles: true })); }
+    });
+    ['tpl-cta-label', 'b-tpl-cta-label', 'c-tpl-cta-label'].forEach(function (id, idx) {
+      var el = $(id);
+      if (!el) return;
+      if (idx > 0 && !(state.abTestEnabled || state.campaignTestEnabled)) return;
+      if (!el.value.trim()) { el.value = '馬上玩'; el.dispatchEvent(new Event('input', { bubbles: true })); }
+    });
+    var titleEl = $('tpl-title');
+    if (titleEl && !titleEl.value.trim() && name) { titleEl.value = name; titleEl.dispatchEvent(new Event('input', { bubbles: true })); }
+    if ($('pg-status')) $('pg-status').textContent = changed ? '已把「' + name + '」的活動連結填進 CTA。' : 'CTA 已有連結，沒有覆蓋；要換成活動連結請先清空 CTA 連結欄位。';
+    return changed;
+  }
+  function initPlayGrant() {
+    var cb = $('pg-enabled');
+    var body = $('play-grant-body');
+    if (!cb || !body) return;
+    var sync = function () { body.hidden = !cb.checked; updatePlayGrantNotes(); updateSendButton(); };
+    cb.addEventListener('change', sync);
+    var sel = $('pg-activity');
+    if (sel) sel.addEventListener('change', function () { updatePlayGrantNotes(); updateSendButton(); });
+    var plays = $('pg-plays');
+    if (plays) plays.addEventListener('input', updateSendButton);
+    var insertBtn = $('pg-insert-cta');
+    if (insertBtn) insertBtn.addEventListener('click', function () { fillCtaFromPlayGrant(false); });
+    // 從活動編輯頁「用訊息派送這個活動」進來：直接開啟並選好活動、填 CTA
+    var prefill = Number(INIT.prefillActivityId || 0);
+    if (prefill > 0 && sel && sel.querySelector('option[value="' + prefill + '"]')) {
+      cb.checked = true;
+      sel.value = String(prefill);
+      body.hidden = false;
+      updatePlayGrantNotes();
+      fillCtaFromPlayGrant(false);
+    } else {
+      sync();
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initPlayGrant);
+  else initPlayGrant();
+
   function errorMap(code) {
     var map = {
+      play_grant_activity_required: '派送遊玩機會：請先選活動',
+      play_grant_plays_out_of_range: '派送遊玩機會：次數要在 1–100 之間',
+      play_grant_mode_invalid: '派送遊玩機會：計算方式不正確',
+      play_grant_line_only: '派送遊玩機會只支援 LINE 群發',
+      play_grant_activity_not_found: '派送遊玩機會：找不到這個活動',
+      play_grant_activity_type_unsupported: '派送遊玩機會：這個活動類型不支援派送次數',
       no_line_channel_access_token: '未設定 LINE token',
       invalid_line_user_id: 'LINE userId 格式錯（需 U + 32 hex）',
       name_not_found: '找不到該會員顯示名稱或帳號',
@@ -2642,6 +2763,10 @@
     if (recipientSelectionError) {
       return { ok: false, reason: recipientSelectionError, focusEl: 'recipient-selection-count' };
     }
+    var playGrantError = validatePlayGrant();
+    if (playGrantError) {
+      return { ok: false, reason: playGrantError, focusEl: 'pg-activity' };
+    }
     if (!state.messagePreviewed) {
       return { ok: false, reason: '預覽尚未產生 — 請編輯訊息或從訊息模板選一個，等預覽顯示後再送', focusEl: 'msg-preview' };
     }
@@ -2767,6 +2892,8 @@
       createBody.ab_test = true;
       createBody.variant_b_message_config = collectVariantBMessageConfig();
     }
+    var playGrant = collectPlayGrant();
+    if (playGrant) createBody.play_grant = playGrant;
     if (state.campaignTestEnabled) {
       createBody.campaign_experiment = {
         enabled: true,
@@ -2845,6 +2972,16 @@
       $('sc-schedule').textContent = (($('schedule-datetime') && $('schedule-datetime').value) || '').replace('T', ' ');
     } else {
       $('sc-schedule-row').hidden = true;
+    }
+    var pgRow = $('sc-playgrant-row');
+    if (pgRow) {
+      var pg = collectPlayGrant();
+      pgRow.hidden = !pg;
+      if (pg) {
+        var pgOpt = $('pg-activity').options[$('pg-activity').selectedIndex];
+        $('sc-playgrant').textContent = ((pgOpt && pgOpt.getAttribute('data-name')) || ('活動 #' + pg.activityId)) +
+          '：每人 ' + pg.plays + ' 次' + (pg.mode === 'exclusive' ? '（只有收到的人能玩，活動基礎次數將改為 0）' : '（加在原本次數上）');
+      }
     }
     $('sc-ab-row').hidden = !state.abTestEnabled;
     if (state.campaignTestEnabled) {
@@ -2970,7 +3107,9 @@
     // 活動頁行為（好康地圖／擲骰子選餐廳）
     'liff-played-days', 'liff-booking-days', 'liff-inactive-days',
     // 訂位來源
-    'booking-source', 'booking-source-answered'
+    'booking-source', 'booking-source-answered',
+    // 派送遊玩機會
+    'pg-enabled', 'pg-activity', 'pg-plays'
   ];
   var draftSaveTimer = null;
 
