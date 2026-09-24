@@ -95,7 +95,8 @@ test('後台輪盤編輯器提供完整控制項', async () => {
   // 輪盤與刮刮樂各有自己的控制區；輪盤的 9 色／2 滑桿／24 文案欄位不可少
   assert.equal(document.querySelectorAll('#ae-wheel-editor .ae-color-control input[type="color"]').length, 9);
   assert.equal(document.querySelectorAll('#ae-wheel-editor .ae-range-control input[type="range"]').length, 2);
-  assert.equal(document.querySelectorAll('#ae-wheel-copy-editor .ae-copy-grid input, #ae-wheel-copy-editor .ae-copy-grid textarea').length, 24);
+  // 24 個畫面文案＋5 個「分享給朋友的 LINE 卡片」欄位（檔案選擇器不算）
+  assert.equal(document.querySelectorAll('#ae-wheel-copy-editor .ae-copy-grid input:not([type="file"]), #ae-wheel-copy-editor .ae-copy-grid textarea').length, 29);
   // 刮刮樂控制區在同一頁，預設隱藏，載入活動後依 game_type 切換
   assert.equal(document.querySelectorAll('#ae-scratch-editor .ae-color-control input[type="color"]').length, 12);
   assert.equal(document.getElementById('ae-scratch-editor').hidden, true);

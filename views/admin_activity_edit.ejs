@@ -321,14 +321,37 @@
                 </div>
               </details>
               <details class="ae-copy-group" open>
-                <summary>分享活動</summary>
+                <summary>分享活動（頁面上的分享區）</summary>
                 <div class="ae-copy-grid">
                   <label class="ae-field"><span>分享按鈕</span><input type="text" id="ae-scopy-share-button" /></label>
                   <label class="ae-field"><span>分享卡標題（沒有邀請加碼時顯示）</span><input type="text" id="ae-scopy-share-title" /></label>
-                  <label class="ae-field ae-copy-wide"><span>LINE 卡片標題（留空用活動名稱）</span><input type="text" id="ae-scopy-share-card-title" maxlength="80" /></label>
-                  <label class="ae-field ae-copy-wide"><span>LINE 卡片說明（留空用活動說明）</span><input type="text" id="ae-scopy-share-card-desc" maxlength="300" /></label>
-                  <label class="ae-field"><span>LINE 卡片按鈕文字</span><input type="text" id="ae-scopy-share-cta" maxlength="20" /></label>
-                  <label class="ae-field ae-copy-wide"><span>文字版分享訊息 <code>{{name}}</code>（舊版 LINE 收不到卡片時）</span><input type="text" id="ae-scopy-share-message" /></label>
+                </div>
+              </details>
+              <details class="ae-copy-group" open>
+                <summary>分享給朋友的 LINE 卡片</summary>
+                <div class="ae-share-card-layout">
+                  <div class="ae-copy-grid">
+                    <label class="ae-field ae-copy-wide"><span>卡片標題（留空用活動名稱）</span><input type="text" id="ae-scopy-share-card-title" maxlength="80" /></label>
+                    <label class="ae-field ae-copy-wide"><span>卡片說明（留空用活動說明）</span><textarea id="ae-scopy-share-card-desc" rows="3" maxlength="220"></textarea></label>
+                    <label class="ae-field ae-copy-wide"><span>卡片圖片（留空用活動封面圖；建議 1600×1040，最大 2MB）</span>
+                      <div class="ae-upload-row">
+                        <input type="text" id="ae-scopy-share-card-image" placeholder="https://…" />
+                        <input type="file" id="ae-scopy-share-card-image-file" accept="image/png,image/jpeg" hidden />
+                        <button type="button" class="ae-secondary-btn" data-share-image-upload="ae-scopy">上傳</button>
+                      </div>
+                    </label>
+                    <label class="ae-field"><span>卡片按鈕文字</span><input type="text" id="ae-scopy-share-cta" maxlength="20" /></label>
+                    <label class="ae-field ae-copy-wide"><span>文字版分享訊息 <code>{{name}}</code>（舊版 LINE 收不到卡片時）</span><input type="text" id="ae-scopy-share-message" /></label>
+                  </div>
+                  <div class="ae-share-card-preview" data-share-preview="ae-scopy" aria-label="朋友收到的卡片預覽">
+                    <div class="ae-share-card-kicker">朋友收到的卡片</div>
+                    <div class="ae-share-card">
+                      <div class="ae-share-card-hero" data-share-preview-hero></div>
+                      <div class="ae-share-card-body"><b data-share-preview-title></b><p data-share-preview-desc></p></div>
+                      <div class="ae-share-card-foot"><span data-share-preview-cta></span></div>
+                    </div>
+                    <small class="muted">按鈕連到活動，並帶上分享者的邀請碼（朋友加入才會算次數）。</small>
+                  </div>
                 </div>
               </details>
             </div>
@@ -377,6 +400,33 @@
                   <label class="ae-field"><span>完成按鈕</span><input type="text" id="ae-copy-result-close" /></label>
                   <label class="ae-field"><span>未中後邀請按鈕</span><input type="text" id="ae-copy-invite-after-miss" /></label>
                   <label class="ae-field ae-copy-wide"><span>未中後邀請提示 <code>{{left}}</code></span><input type="text" id="ae-copy-result-invite-note" /></label>
+                </div>
+              </details>
+              <details class="ae-copy-group" open>
+                <summary>分享給朋友的 LINE 卡片</summary>
+                <div class="ae-share-card-layout">
+                  <div class="ae-copy-grid">
+                    <label class="ae-field ae-copy-wide"><span>卡片標題（留空用活動名稱）</span><input type="text" id="ae-copy-share-card-title" maxlength="80" /></label>
+                    <label class="ae-field ae-copy-wide"><span>卡片說明（留空用活動說明）</span><textarea id="ae-copy-share-card-desc" rows="3" maxlength="220"></textarea></label>
+                    <label class="ae-field ae-copy-wide"><span>卡片圖片（留空用活動封面圖；建議 1600×1040，最大 2MB）</span>
+                      <div class="ae-upload-row">
+                        <input type="text" id="ae-copy-share-card-image" placeholder="https://…" />
+                        <input type="file" id="ae-copy-share-card-image-file" accept="image/png,image/jpeg" hidden />
+                        <button type="button" class="ae-secondary-btn" data-share-image-upload="ae-copy">上傳</button>
+                      </div>
+                    </label>
+                    <label class="ae-field"><span>卡片按鈕文字</span><input type="text" id="ae-copy-share-cta" maxlength="20" /></label>
+                    <label class="ae-field ae-copy-wide"><span>文字版分享訊息 <code>{{name}}</code>（舊版 LINE 收不到卡片時）</span><input type="text" id="ae-copy-share-message" /></label>
+                  </div>
+                  <div class="ae-share-card-preview" data-share-preview="ae-copy" aria-label="朋友收到的卡片預覽">
+                    <div class="ae-share-card-kicker">朋友收到的卡片</div>
+                    <div class="ae-share-card">
+                      <div class="ae-share-card-hero" data-share-preview-hero></div>
+                      <div class="ae-share-card-body"><b data-share-preview-title></b><p data-share-preview-desc></p></div>
+                      <div class="ae-share-card-foot"><span data-share-preview-cta></span></div>
+                    </div>
+                    <small class="muted">按鈕連到活動，並帶上分享者的邀請碼（朋友加入才會算次數）。</small>
+                  </div>
                 </div>
               </details>
               <details class="ae-copy-group">
@@ -596,7 +646,12 @@
         invite_after_miss: '找朋友再抽一次',
         result_invite_note: '朋友加入官方帳號才算，最多還能加 {{left}} 次',
         history_title: '我抽到的獎',
-        history_note: '結果會留在這一頁，不用再跳到別的地方找'
+        history_note: '結果會留在這一頁，不用再跳到別的地方找',
+        share_card_title: '',
+        share_card_desc: '',
+        share_card_image: '',
+        share_cta: '馬上玩',
+        share_message: '快來玩「{{name}}」！我已經玩過了，你也來試試'
       };
       var COPY_FIELDS = {
         remaining_lead: 'ae-copy-remaining-lead',
@@ -622,7 +677,12 @@
         invite_after_miss: 'ae-copy-invite-after-miss',
         result_invite_note: 'ae-copy-result-invite-note',
         history_title: 'ae-copy-history-title',
-        history_note: 'ae-copy-history-note'
+        history_note: 'ae-copy-history-note',
+        share_card_title: 'ae-copy-share-card-title',
+        share_card_desc: 'ae-copy-share-card-desc',
+        share_card_image: 'ae-copy-share-card-image',
+        share_cta: 'ae-copy-share-cta',
+        share_message: 'ae-copy-share-message'
       };
       var PRIZE_COLOR_PALETTE = ['#F9C73B', '#FFF3C4', '#FFFFFF', '#FFE082', '#FFF8E1', '#FFD45A', '#F7F4EC'];
 
@@ -647,7 +707,7 @@
         prize_list_title: '本次獎項', redemption_label: '兌獎說明', redemption_text: '',
         share_button: '分享', share_title: '分享給朋友一起玩',
         share_message: '快來刮「{{name}}」！我刮過了，你也來試試', share_cta: '馬上玩',
-        share_card_title: '', share_card_desc: ''
+        share_card_title: '', share_card_desc: '', share_card_image: ''
       };
       var SCRATCH_COPY_FIELDS = {
         chip: 'ae-scopy-chip', hero_tag: 'ae-scopy-hero-tag', stage_label: 'ae-scopy-stage-label', cover_text: 'ae-scopy-cover-text',
@@ -657,7 +717,8 @@
         prize_list_title: 'ae-scopy-prize-list-title', redemption_label: 'ae-scopy-redemption-label', redemption_text: 'ae-scopy-redemption-text',
         share_button: 'ae-scopy-share-button', share_title: 'ae-scopy-share-title',
         share_message: 'ae-scopy-share-message', share_cta: 'ae-scopy-share-cta',
-        share_card_title: 'ae-scopy-share-card-title', share_card_desc: 'ae-scopy-share-card-desc'
+        share_card_title: 'ae-scopy-share-card-title', share_card_desc: 'ae-scopy-share-card-desc',
+        share_card_image: 'ae-scopy-share-card-image'
       };
       function isScratchActivity() {
         var gt = currentActivity && currentActivity.game_type;
@@ -968,6 +1029,7 @@
         setCopyControls(ui.copy);
         setScratchControls(ui.scratch, ui.copy);
         applyGameTypeUi();
+        if (typeof renderAllSharePreviews === 'function') renderAllSharePreviews();
         updateLogoPreview();
         updateRefHint();
       }
@@ -1312,6 +1374,59 @@
         var input = $(SCRATCH_COPY_FIELDS[key]);
         if (input) input.addEventListener('input', scheduleVisualPreview);
       });
+      // ---- 分享給朋友的 LINE 卡片：即時預覽＋圖片上傳（輪盤 ae-copy-*、刮刮樂 ae-scopy-* 共用）----
+      function renderSharePreview(prefix) {
+        var box = document.querySelector('[data-share-preview="' + prefix + '"]');
+        if (!box) return;
+        var nameEl = $('ae-name'), descEl = $('ae-desc'), coverEl = $('ae-cover');
+        var title = ($(prefix + '-share-card-title').value || '').trim() || (nameEl && nameEl.value.trim()) || '活動名稱';
+        var desc = ($(prefix + '-share-card-desc').value || '').trim() || (descEl && descEl.value.trim()) || '打開活動，一起試試好運！';
+        var cta = ($(prefix + '-share-cta').value || '').trim() || '馬上玩';
+        var img = ($(prefix + '-share-card-image').value || '').trim();
+        var isHttps = function (u) { return String(u || '').toLowerCase().indexOf('https://') === 0; };
+        if (!isHttps(img)) img = coverEl ? coverEl.value.trim() : '';
+        box.querySelector('[data-share-preview-title]').textContent = title.slice(0, 80);
+        box.querySelector('[data-share-preview-desc]').textContent = desc.slice(0, 300);
+        box.querySelector('[data-share-preview-cta]').textContent = cta.slice(0, 20);
+        var hero = box.querySelector('[data-share-preview-hero]');
+        hero.hidden = !isHttps(img);
+        // 樣板字串頁面不能用反斜線：用 split/join 拿掉會破壞 CSS url() 的字元
+        hero.style.backgroundImage = hero.hidden ? '' : 'url("' + img.split('"').join('').split(String.fromCharCode(92)).join('') + '")';
+      }
+      function renderAllSharePreviews() { renderSharePreview('ae-copy'); renderSharePreview('ae-scopy'); }
+      ['ae-copy', 'ae-scopy'].forEach(function (prefix) {
+        ['-share-card-title', '-share-card-desc', '-share-card-image', '-share-cta'].forEach(function (suffix) {
+          var el = $(prefix + suffix);
+          if (el) el.addEventListener('input', function () { renderSharePreview(prefix); });
+        });
+        var fileInput = $(prefix + '-share-card-image-file');
+        var btn = document.querySelector('[data-share-image-upload="' + prefix + '"]');
+        if (!fileInput || !btn) return;
+        btn.addEventListener('click', function () { fileInput.click(); });
+        fileInput.addEventListener('change', function () {
+          var file = fileInput.files && fileInput.files[0];
+          if (!file) return;
+          if (file.size > 2 * 1024 * 1024) { alert('圖片超過 2MB，請壓縮後再上傳。'); fileInput.value = ''; return; }
+          btn.disabled = true; btn.textContent = '上傳中…';
+          var form = new FormData();
+          form.append('hero', file);
+          fetch('/admin/broadcast/hero/upload', { method: 'POST', body: form })
+            .then(function (r) { return r.json(); })
+            .then(function (resp) {
+              if (!resp.ok || !resp.url) throw new Error(resp.error || '上傳失敗');
+              $(prefix + '-share-card-image').value = resp.url;
+              renderSharePreview(prefix);
+              scheduleVisualPreview();
+            })
+            .catch(function (e) { alert('上傳失敗：' + e.message); })
+            .finally(function () { btn.disabled = false; btn.textContent = '上傳'; fileInput.value = ''; });
+        });
+      });
+      ['ae-name', 'ae-desc', 'ae-cover'].forEach(function (id) {
+        var el = $(id);
+        if (el) el.addEventListener('input', renderAllSharePreviews);
+      });
+
       var scratchCoverUrl = $('ae-scratch-cover-url');
       if (scratchCoverUrl) scratchCoverUrl.addEventListener('input', scheduleVisualPreview);
       var scratchCoverClear = $('ae-scratch-cover-clear');
@@ -1875,6 +1990,17 @@
       .ae-wheel-editor { margin-top: 13px; padding-top: 13px; border-top: 1px solid #eadfca; }
       .ae-scratch-editor { margin-top: 13px; padding-top: 13px; border-top: 1px solid #eadfca; }
       .ae-scratch-toggles { display: grid; gap: 8px; margin-top: 12px; }
+      .ae-share-card-layout { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 14px; align-items: start; }
+      @media (max-width: 760px) { .ae-share-card-layout { grid-template-columns: 1fr; } }
+      .ae-share-card-preview { display: grid; gap: 6px; }
+      .ae-share-card-kicker { font-size: 11px; font-weight: 700; color: #92400E; }
+      .ae-share-card { background: #fff; border: 1px solid #ECECEE; border-radius: 14px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
+      .ae-share-card-hero { aspect-ratio: 20 / 13; background: #F3F3F5 center / cover no-repeat; }
+      .ae-share-card-body { padding: 12px 14px 6px; }
+      .ae-share-card-body b { display: block; font-size: 15px; color: #4E3C2D; line-height: 1.35; word-break: break-word; }
+      .ae-share-card-body p { margin: 6px 0 0; font-size: 12px; color: #8D6E63; line-height: 1.5; white-space: pre-line; word-break: break-word; }
+      .ae-share-card-foot { padding: 8px 14px 14px; }
+      .ae-share-card-foot span { display: block; text-align: center; background: #F4511E; color: #fff; font-size: 13px; font-weight: 700; padding: 8px; border-radius: 8px; }
       .ae-editor-title { display: flex; flex-direction: column; margin-bottom: 10px; color: #3f2c25; }
       .ae-editor-title b { font-size: 13px; }
       .ae-editor-title small { margin-top: 2px; color: #7c716b; font-size: 11px; line-height: 1.45; }

@@ -68,7 +68,13 @@
     invite_after_miss: '找朋友再抽一次',
     result_invite_note: '朋友加入官方帳號才算，最多還能加 {{left}} 次',
     history_title: '我抽到的獎',
-    history_note: '結果會留在這一頁，不用再跳到別的地方找'
+    history_note: '結果會留在這一頁，不用再跳到別的地方找',
+    // 邀請朋友時送出的 LINE 卡片（留空＝沿用活動名稱／說明／封面圖）
+    share_card_title: '',
+    share_card_desc: '',
+    share_card_image: '',
+    share_cta: '馬上玩',
+    share_message: '快來玩「{{name}}」！我已經玩過了，你也來試試'
   };
   var _rawCopy = _ui.copy && typeof _ui.copy === 'object' ? _ui.copy : {};
   var _activityCopy = {};
@@ -1556,11 +1562,13 @@
         inviteBtn.addEventListener('click', shareWithFriend);
       }
       async function shareWithFriend() {
-        if (IS_PREVIEW) {
+        // 測試專用：window.__wheelCaptureShare 存在時只回傳「會送出的卡片」，不呼叫 LINE、不寫事件
+        var capture = typeof window.__wheelCaptureShare === 'function' ? window.__wheelCaptureShare : null;
+        if (IS_PREVIEW && !capture) {
           statusEl.textContent = '安全測試不會真的分享；回後台切換情境即可繼續檢查';
           return;
         }
-        if (!profile || !profile.userId) {
+        if ((!profile || !profile.userId) && !capture) {
           alert('身分驗證中，稍等一下再試');
           return;
         }
@@ -1568,14 +1576,16 @@
         // 注意：LIFF 短網址子路徑會被 append 到 endpoint URL
         // /wheel/<slug>?ref=<my_id> 會解析到 /games/wheel/<slug>?ref=<my_id>
         var inviteUrl = 'https://liff.line.me/' + liffId +
-          '/wheel/' + encodeURIComponent(slug) + '?ref=' + encodeURIComponent(profile.userId);
-        var msg = '快來玩「' + activityMeta.name + '」！我已經玩過了，你也來試試';
+          '/wheel/' + encodeURIComponent(slug) + '?ref=' + encodeURIComponent((profile && profile.userId) || 'PREVIEW');
+        var msg = formatCopy('share_message', { name: activityMeta.name });
 
         // LINE Share Target Picker 可以直接送 Flex Message。封面與文案沿用活動後台，
         // CTA 的 URI 必須保留 ref，否則卡片雖然漂亮，邀請卻永遠不會入帳。
         function buildInviteFlexMessage() {
-          var title = String(activityMeta.name || '邀請你一起玩').trim().slice(0, 80);
-          var description = String(activityMeta.description || '打開活動，一起試試好運！').trim().slice(0, 300);
+          // 後台「分享給朋友的 LINE 卡片」可改；留空就沿用活動名稱／說明／封面圖
+          var title = String(copyText('share_card_title') || activityMeta.name || '邀請你一起玩').trim().slice(0, 80);
+          var description = String(copyText('share_card_desc') || activityMeta.description || '打開活動，一起試試好運！').trim().slice(0, 300);
+          var ctaLabel = String(copyText('share_cta') || '馬上玩').trim().slice(0, 20);
           var bodyContents = [
             { type: 'text', text: title, weight: 'bold', size: 'xl', color: '#4E3C2D', wrap: true },
             { type: 'text', text: description, size: 'sm', color: '#8D6E63', wrap: true, margin: 'md' }
@@ -1587,15 +1597,16 @@
               type: 'box', layout: 'vertical', paddingAll: '16px', paddingTop: '0px',
               contents: [{
                 type: 'button', style: 'primary', height: 'sm', color: '#F4511E',
-                action: { type: 'uri', label: '馬上玩', uri: inviteUrl }
+                action: { type: 'uri', label: ctaLabel, uri: inviteUrl }
               }]
             }
           };
-          var coverUrl = String(activityMeta.cover_image_url || '').trim();
+          var shareImage = String(copyText('share_card_image') || '').trim();
+          var coverUrl = /^https:\/\//i.test(shareImage) ? shareImage : String(activityMeta.cover_image_url || '').trim();
           if (/^https:\/\//i.test(coverUrl)) {
             bubble.hero = {
               type: 'image', url: coverUrl, size: 'full', aspectRatio: '20:13', aspectMode: 'cover',
-              action: { type: 'uri', label: '馬上玩', uri: inviteUrl }
+              action: { type: 'uri', label: ctaLabel, uri: inviteUrl }
             };
           }
           return {
@@ -1605,6 +1616,7 @@
           };
         }
 
+        if (capture) { capture({ flex: buildInviteFlexMessage(), text: msg, url: inviteUrl }); return; }
         var pickerAvailable = false;
         try {
           if (liff.isApiAvailable && liff.isApiAvailable('shareTargetPicker')) {

@@ -365,6 +365,21 @@ route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-pl
 **改訊息走訪邏輯時，送出（`applyBroadcastClickTracking`）與反查（`resolveBroadcastButtonTarget`）
 必須用同一組 opts，否則序號對不起來、用戶會被導到錯的網址。** 回歸測試 `test/broadcast-flex-tracking.test.js`。
 
+#### 分享卡片設定與抽獎次數分布（2026-09-24）
+
+- 「分享超有哩」是**輪盤活動**（slug `share-miles`），不是 MGM 揪友賺哩。邀請朋友時送出的 LINE Flex
+  卡片現在可在活動編輯頁「分享給朋友的 LINE 卡片」設定：`rules.ui.copy.share_card_title`、
+  `share_card_desc`、`share_card_image`（可上傳）、`share_cta`、`share_message`（文字版 fallback，`{{name}}`）。
+  留空一律沿用活動名稱／說明／封面圖與「馬上玩」。輪盤與刮刮樂共用同一組鍵，後台有即時卡片預覽。
+  CTA 與 hero 的 URI 都保留 `?ref=`。
+- 玩家數據頁新增「抽獎次數分布」：每位玩家實際抽了幾次（排除後台開獎 `draw_win`，與玩家清單的
+  `plays` 同一定義），1～4 抽各一格、5 抽以上合併一格；全部由 DB 聚合，不受清單 200 筆上限影響。
+  每格「建名單並推播」→ `export-players-to-list` 新 filter `plays_eq`／`plays_gte`（`plays` 參數）
+  → 顯示「用這份名單群發」連結 `/admin/broadcast?list_id=<id>`，群發頁會切到「已儲存名單」並選好。
+- `views/admin_activity_edit.ejs` 是樣板字串頁面：新增的 JS 不可有反斜線（`test/ejs-template-traps.test.js`）。
+
+回歸測試：`test/share-card-and-play-distribution.test.js`。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
