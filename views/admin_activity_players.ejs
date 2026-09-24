@@ -49,6 +49,17 @@
       <div id="grant-summary" class="muted" style="font-size:12px;margin-top:12px;line-height:1.6;" hidden></div>
     </section>
 
+    <section class="card" id="play-dist-card">
+      <div class="players-section-head">
+        <h2 style="margin:0;">抽獎次數分布</h2>
+        <span class="muted" style="font-size:12px;" id="play-dist-meta">載入中…</span>
+      </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 14px;line-height:1.6;">
+        每位玩家實際抽了幾次（不含後台開獎）。每一格都能直接建成名單，接著用群發推播給這群人，例如提醒「1 抽」的人找朋友多拿幾次。
+      </p>
+      <div class="play-dist-grid" id="play-dist-grid"></div>
+    </section>
+
     <section class="card">
       <div class="players-section-head">
         <h2 style="margin:0;">玩家清單</h2>
@@ -110,7 +121,13 @@
               <option value="winners">中過獎的人（含一般獎 + 頭獎）</option>
               <option value="grand_winners">只取中過頭獎的人</option>
               <option value="losers">玩過但沒中過獎的人</option>
+              <option value="plays_eq">剛好抽 N 次的人</option>
+              <option value="plays_gte">抽 N 次以上的人</option>
             </select>
+            <div id="ex-plays-wrap" hidden style="margin-top:8px;">
+              <span style="font-size:12px;">N =</span>
+              <input type="number" id="ex-plays" min="1" value="1" style="width:90px;padding:6px 8px;border:1px solid #ECECEE;border-radius:6px;" />
+            </div>
             <div id="ex-preview" class="muted" style="font-size:11px;min-height:14px;margin-top:4px;"></div>
           </label>
         </div>
@@ -161,6 +178,8 @@
     <script>
     (function () {
       var activityId = ${activity.id};
+      // 名單預設名稱用：原始活動名（JSON 編碼，前端只放進 prompt 與 JSON body，不進 innerHTML）
+      var activityNameRaw = ${JSON.stringify(String(activity.name == null ? '' : activity.name)).replace(/</g, '\\u003c')};
       var allPlayers = [];
 
       var tbody = document.getElementById('players-tbody');
@@ -200,6 +219,7 @@
             document.getElementById('ov-24h').textContent = fmt(ov.plays_24h);
             document.getElementById('ov-7d').textContent = fmt(ov.plays_7d);
             renderFunnel(resp.funnel, resp.grants);
+            renderPlayDistribution(resp.play_distribution);
             render(allPlayers);
           })
           .catch(function () {
@@ -208,6 +228,84 @@
       }
 
       function pct(v) { return v == null ? '—' : (Number(v).toLocaleString('zh-Hant-TW') + '%'); }
+
+      // ---- 抽獎次數分布：1 抽／2 抽／3 抽／4 抽 各一格，5 次以上合成一格（不寫死 4，若最多只到 2 抽就只顯示 2 格）----
+      var PLAY_DIST_SINGLE_MAX = 4;
+      function playDistBuckets(dist) {
+        var rows = Array.isArray(dist) ? dist : [];
+        var by = {};
+        var maxPlays = 0;
+        rows.forEach(function (r) { by[r.plays] = Number(r.users) || 0; if (r.plays > maxPlays) maxPlays = r.plays; });
+        var buckets = [];
+        var singleTop = Math.max(PLAY_DIST_SINGLE_MAX, 1);
+        for (var n = 1; n <= Math.min(singleTop, Math.max(maxPlays, 1)); n++) {
+          buckets.push({ label: n + ' 抽', filter: 'plays_eq', plays: n, users: by[n] || 0 });
+        }
+        if (maxPlays > singleTop) {
+          var more = 0;
+          rows.forEach(function (r) { if (r.plays > singleTop) more += Number(r.users) || 0; });
+          buckets.push({ label: (singleTop + 1) + ' 抽以上', filter: 'plays_gte', plays: singleTop + 1, users: more });
+        }
+        return buckets;
+      }
+      function renderPlayDistribution(dist) {
+        var grid = document.getElementById('play-dist-grid');
+        var meta = document.getElementById('play-dist-meta');
+        if (!grid) return;
+        if (dist == null) { meta.textContent = '分布資料暫時讀不到'; grid.innerHTML = ''; return; }
+        var buckets = playDistBuckets(dist);
+        var total = buckets.reduce(function (s, b) { return s + b.users; }, 0);
+        if (!total) { meta.textContent = '還沒有人抽過'; grid.innerHTML = ''; return; }
+        meta.textContent = '共 ' + fmt(total) + ' 位玩家';
+        var max = Math.max.apply(null, buckets.map(function (b) { return b.users; }).concat([1]));
+        grid.innerHTML = buckets.map(function (b, i) {
+          var share = total ? Math.round(b.users / total * 1000) / 10 : 0;
+          return '<div class="play-dist-cell" data-bucket="' + i + '">' +
+            '<div class="k">' + esc(b.label) + '</div>' +
+            '<div class="v">' + fmt(b.users) + '<small>人</small></div>' +
+            '<div class="bar"><i style="width:' + Math.round(b.users / max * 100) + '%"></i></div>' +
+            '<div class="pct">占玩家 ' + share + '%</div>' +
+            '<button type="button" data-export-bucket="' + i + '"' + (b.users ? '' : ' disabled') + '>建名單並推播</button>' +
+            '<div class="done" id="play-dist-done-' + i + '"></div>' +
+          '</div>';
+        }).join('');
+        Array.prototype.forEach.call(grid.querySelectorAll('[data-export-bucket]'), function (btn) {
+          btn.addEventListener('click', function () {
+            var b = buckets[Number(btn.getAttribute('data-export-bucket'))];
+            exportPlayBucket(b, btn);
+          });
+        });
+      }
+      function exportPlayBucket(bucket, btn) {
+        var today = new Date();
+        var stamp = (today.getMonth() + 1) + '/' + today.getDate();
+        var defaultName = activityNameRaw + '｜' + bucket.label + '（' + stamp + '）';
+        var name = window.prompt('名單名稱（建立後可在群發選用）', defaultName);
+        if (name == null) return;
+        name = String(name).trim();
+        if (!name) return;
+        var doneEl = document.getElementById('play-dist-done-' + btn.getAttribute('data-export-bucket'));
+        btn.disabled = true;
+        doneEl.textContent = '建立中…';
+        fetch('/admin/activities/api/' + activityId + '/export-players-to-list', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: name,
+            description: activityNameRaw + ' 抽獎次數 ' + bucket.label + '（' + today.toLocaleString('zh-Hant-TW') + ' 建立）',
+            filter: bucket.filter,
+            plays: bucket.plays
+          })
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            btn.disabled = false;
+            if (!d.ok) { doneEl.textContent = '失敗：' + (d.detail || d.error || '未知'); return; }
+            doneEl.innerHTML = '已建立 ' + fmt(d.total) + ' 人名單<br>' +
+              '<a href="/admin/broadcast?list_id=' + Number(d.list.id) + '">→ 用這份名單群發</a>';
+          })
+          .catch(function (e) { btn.disabled = false; doneEl.textContent = '錯誤：' + e.message; });
+      }
       function renderFunnel(f, grants) {
         var meta = document.getElementById('funnel-meta');
         if (!f) {
@@ -374,7 +472,14 @@
           count = allPlayers.filter(function (p) { return p.grand_wins > 0; }).length;
         } else if (filter === 'losers') {
           count = allPlayers.filter(function (p) { return p.plays > 0 && p.wins === 0; }).length;
+        } else if (filter === 'plays_eq' || filter === 'plays_gte') {
+          var nWanted = Math.max(1, Math.floor(Number(document.getElementById('ex-plays').value) || 1));
+          count = allPlayers.filter(function (p) {
+            var n = Number(p.plays) || 0;
+            return filter === 'plays_eq' ? n === nWanted : n >= nWanted;
+          }).length;
         }
+        document.getElementById('ex-plays-wrap').hidden = !(filter === 'plays_eq' || filter === 'plays_gte');
         document.getElementById('ex-preview').textContent = '預估包含 ' + count + ' 人（建立後以後端實算為準）';
       }
       document.getElementById('btn-export-list').addEventListener('click', function () {
@@ -389,6 +494,7 @@
       document.getElementById('export-modal-close').addEventListener('click', function () { exportModal.hidden = true; });
       document.getElementById('ex-cancel').addEventListener('click', function () { exportModal.hidden = true; });
       document.getElementById('ex-filter').addEventListener('change', updateExportPreview);
+      document.getElementById('ex-plays').addEventListener('input', updateExportPreview);
 
       document.getElementById('ex-save').addEventListener('click', function () {
         var name = document.getElementById('ex-name').value.trim();
@@ -400,7 +506,7 @@
         fetch('/admin/activities/api/' + activityId + '/export-players-to-list', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name, description: desc, filter: filter })
+          body: JSON.stringify({ name: name, description: desc, filter: filter, plays: Number(document.getElementById('ex-plays').value) || 1 })
         })
           .then(function (r) { return r.json(); })
           .then(function (d) {
@@ -411,8 +517,8 @@
             }
             document.getElementById('ex-status').innerHTML =
               '成功！已建立名單「' + (d.list.name || '').replace(/</g, '&lt;') + '」（' + d.total + ' 人）<br>' +
+              '<a href="/admin/broadcast?list_id=' + Number(d.list.id) + '" style="color:#2563eb;">→ 用這份名單群發</a>　' +
               '<a href="/admin/recipient-lists/' + d.list.id + '" style="color:#2563eb;">→ 前往名單庫查看</a>';
-            setTimeout(function () { exportModal.hidden = true; }, 3500);
           })
           .catch(function (e) {
             document.getElementById('ex-save').disabled = false;
@@ -476,6 +582,18 @@
       .stat-box .k { font-size: 11px; color: #6B6B70; margin-top: 4px; }
 
       .players-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .play-dist-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+      .play-dist-cell { border: 1px solid #ECECEE; border-radius: 12px; padding: 12px 14px; background: #fff; display: flex; flex-direction: column; gap: 6px; }
+      .play-dist-cell .k { font-size: 13px; font-weight: 700; color: #3F2C25; }
+      .play-dist-cell .v { font-size: 26px; font-weight: 800; line-height: 1; }
+      .play-dist-cell .v small { font-size: 12px; font-weight: 500; color: #6B6B70; margin-left: 3px; }
+      .play-dist-cell .bar { height: 6px; border-radius: 3px; background: #F3F3F5; overflow: hidden; }
+      .play-dist-cell .bar i { display: block; height: 100%; background: #FCC726; }
+      .play-dist-cell .pct { font-size: 11px; color: #92400E; }
+      .play-dist-cell button { margin-top: 4px; font-size: 12px; padding: 6px 8px; border-radius: 8px; border: 1px solid #E5D9B8; background: #FFFBEB; cursor: pointer; font-family: inherit; }
+      .play-dist-cell button:disabled { opacity: .5; cursor: default; }
+      .play-dist-cell .done { font-size: 12px; line-height: 1.5; }
+      .play-dist-cell .done a { color: #2563eb; }
       .funnel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
       .funnel-step { background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 12px; padding: 12px 14px; }
       .funnel-step .v { font-size: 24px; font-weight: 700; line-height: 1; }

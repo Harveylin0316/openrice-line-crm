@@ -259,9 +259,18 @@
       $('audience-status').textContent = '尚未預覽';
       $('audience-sample').hidden = true;
       updateSendButton();
-      if (src === 'saved_list') loadSavedLists();
+      if (src === 'saved_list') {
+        loadSavedLists(pendingListPrefill);
+        pendingListPrefill = null;
+      }
     });
   });
+  // 從活動玩家數據「建名單並推播」進來：/admin/broadcast?list_id=<id> → 切到已儲存名單並選好
+  var pendingListPrefill = Number(INIT.prefillListId || 0) || null;
+  if (pendingListPrefill) {
+    var savedListTab = document.querySelector('.tab-btn[data-audience="saved_list"]');
+    if (savedListTab) savedListTab.click();
+  }
 
   // ------------------------------------------------------------------
   // 2. condition collection
@@ -3348,10 +3357,10 @@
   // ------------------------------------------------------------------
   // 10. recipient lists（已儲存名單 + 上傳）
   // ------------------------------------------------------------------
-  function loadSavedLists() {
+  function loadSavedLists(preselectId) {
     var sel = $('saved-list-select');
     sel.innerHTML = '<option value="">— 載入中 —</option>';
-    fetch('/admin/broadcast/recipient-lists')
+    return fetch('/admin/broadcast/recipient-lists')
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data.ok || !data.lists || data.lists.length === 0) {
@@ -3364,6 +3373,10 @@
             var label = l.name + '（' + l.total + ' 人）';
             return '<option value="' + l.id + '">' + escapeHtml(label) + '</option>';
           }).join('');
+        if (preselectId && sel.querySelector('option[value="' + Number(preselectId) + '"]')) {
+          sel.value = String(Number(preselectId));
+          sel.dispatchEvent(new Event('change'));
+        }
       })
       .catch(function () {
         sel.innerHTML = '<option value="">— 載入失敗 —</option>';
