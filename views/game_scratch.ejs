@@ -473,7 +473,8 @@
         share_message: '快來刮「{{name}}」！我刮過了，你也來試試',
         share_cta: '馬上玩',
         share_card_title: '',
-        share_card_desc: ''
+        share_card_desc: '',
+        share_card_image: ''
       };
       var ui = { logo_url: null, scratch: {}, copy: {} };
       function safeHex(value, fallback) {
@@ -1283,7 +1284,8 @@
             }]
           }
         };
-        var coverUrl = String(activityMeta.cover_image_url || '').trim();
+        var shareImage = String(ui.copy.share_card_image || '').trim();
+        var coverUrl = /^https:\/\//i.test(shareImage) ? shareImage : String(activityMeta.cover_image_url || '').trim();
         if (/^https:\/\//i.test(coverUrl)) {
           bubble.hero = {
             type: 'image', url: coverUrl, size: 'full', aspectRatio: '20:13', aspectMode: 'cover',

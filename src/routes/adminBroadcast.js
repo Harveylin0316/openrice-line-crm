@@ -700,6 +700,7 @@ function registerAdminBroadcastRoutes(app, deps) {
         hasLineToken: Boolean(lineChannelAccessToken),
         gamesLiffId: process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '',
         prefillActivityId: /^\d+$/.test(String(req.query.activity_id || '')) ? Number(req.query.activity_id) : null,
+        prefillListId: /^\d+$/.test(String(req.query.list_id || '')) ? Number(req.query.list_id) : null,
         maxRecipients: MAX_RECIPIENTS_PER_BROADCAST,
         chunkSize: CHUNK_SIZE_DEFAULT,
         fieldLimits: FIELD_LIMITS,

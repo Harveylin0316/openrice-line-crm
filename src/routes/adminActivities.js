@@ -352,6 +352,26 @@ function registerAdminActivitiesRoutes(app, deps) {
     }
   });
 
+  // ---- 抽獎次數分布：每位玩家實際抽了幾次（不含後台抽獎 draw_win），1 抽／2 抽／…各多少人 ----
+  // 與玩家清單的 plays 欄位同一個定義，數字才對得起來；全部由 DB 聚合，不受清單 200 筆上限影響。
+  const PLAY_COUNT_PER_USER_SQL = `
+    SELECT line_user_id,
+           COUNT(*) FILTER (WHERE COALESCE(prize_snapshot->>'kind','') <> 'draw_win') AS n
+      FROM activity_plays
+     WHERE activity_id = $1 AND line_user_id IS NOT NULL
+     GROUP BY line_user_id`;
+  async function loadPlayDistribution(q, activityId) {
+    const { rows } = await q(
+      `SELECT n::int AS plays, COUNT(*)::int AS users
+         FROM (${PLAY_COUNT_PER_USER_SQL}) t
+        WHERE n > 0
+        GROUP BY n
+        ORDER BY n ASC`,
+      [activityId]
+    );
+    return rows.map(r => ({ plays: Number(r.plays), users: Number(r.users) }));
+  }
+
   // API: 取活動的玩家列表 + 統計
   app.get('/admin/activities/api/:id(\\d+)/players', requireAdmin, async (req, res) => {
     try {
@@ -468,11 +488,12 @@ function registerAdminActivitiesRoutes(app, deps) {
       // 開啟成效漏斗與群發派送統計：任一失敗都不能拖垮玩家清單，各自降級成 null。
       const { loadActivityFunnel } = require('../core/activityFunnel');
       const { loadActivityGrantStats } = require('../core/broadcastPlayGrant');
-      const [funnel, grants] = await Promise.all([
+      const [funnel, grants, playDistribution] = await Promise.all([
         loadActivityFunnel(query, id).catch(e => { console.error('activity funnel failed:', e && e.message); return null; }),
-        loadActivityGrantStats(query, id).catch(e => { console.error('activity grant stats failed:', e && e.message); return null; })
+        loadActivityGrantStats(query, id).catch(e => { console.error('activity grant stats failed:', e && e.message); return null; }),
+        loadPlayDistribution(query, id).catch(e => { console.error('play distribution failed:', e && e.message); return null; })
       ]);
-      res.json({ ok: true, players: rows, overview: ov[0] || {}, funnel, grants });
+      res.json({ ok: true, players: rows, overview: ov[0] || {}, funnel, grants, play_distribution: playDistribution });
     } catch (err) {
       console.error('activity players list error:', err && err.message);
       res.status(500).json({ ok: false, error: 'list_failed', detail: String(err.message || '').slice(0, 300) });
@@ -542,14 +563,24 @@ function registerAdminActivitiesRoutes(app, deps) {
       const description = String(body.description || '').trim().slice(0, 500);
       const filter = String(body.filter || 'all').trim();
       if (!name) return res.status(400).json({ ok: false, error: 'name_required' });
-      const ALLOWED = ['all', 'winners', 'grand_winners', 'losers'];
+      const ALLOWED = ['all', 'winners', 'grand_winners', 'losers', 'plays_eq', 'plays_gte'];
       if (!ALLOWED.includes(filter)) {
         return res.status(400).json({ ok: false, error: 'invalid_filter', detail: 'filter 必須是 ' + ALLOWED.join(' / ') });
+      }
+      // plays_eq：剛好抽 N 次；plays_gte：抽 N 次以上（儀表板「N 抽以上」那格）
+      const playsN = Math.floor(Number(body.plays));
+      if ((filter === 'plays_eq' || filter === 'plays_gte') && (!Number.isFinite(playsN) || playsN < 1 || playsN > 10000)) {
+        return res.status(400).json({ ok: false, error: 'invalid_plays', detail: '抽獎次數要是 1 以上的整數' });
       }
 
       // 撈 distinct line_user_id（依 filter）
       let sql;
-      if (filter === 'all') {
+      let params = [id];
+      if (filter === 'plays_eq' || filter === 'plays_gte') {
+        sql = `SELECT line_user_id FROM (${PLAY_COUNT_PER_USER_SQL}) t
+               WHERE ${filter === 'plays_eq' ? 'n = $2' : 'n >= $2'}`;
+        params = [id, playsN];
+      } else if (filter === 'all') {
         sql = `SELECT DISTINCT line_user_id FROM activity_plays
                WHERE activity_id = $1 AND line_user_id IS NOT NULL`;
       } else if (filter === 'winners') {
@@ -566,7 +597,7 @@ function registerAdminActivitiesRoutes(app, deps) {
                GROUP BY line_user_id
                HAVING bool_and(prize_id IS NULL)`;
       }
-      const { rows } = await query(sql, [id]);
+      const { rows } = await query(sql, params);
       const uids = rows.map(r => r.line_user_id).filter(Boolean);
       if (uids.length === 0) {
         return res.status(400).json({ ok: false, error: 'no_matching_players', detail: '找不到符合條件的玩家' });
