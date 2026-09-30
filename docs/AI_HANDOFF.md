@@ -380,6 +380,61 @@ route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-pl
 
 回歸測試：`test/share-card-and-play-distribution.test.js`。
 
+- 玩家數據時間篩選（全部期間／今天／昨天／近 7 天／近 30 天／自訂）：`GET .../players?from=&to=`，
+  台北曆日含起訖（`rangeSql()`：`>= from 00:00 台北` 且 `< (to+1) 00:00 台北`，已用真 PostgreSQL 驗過邊界）。
+  沒給就是全部期間，請求與畫面都跟原本一樣。有範圍時總覽、開啟成效（`loadActivityFunnel(q, id, range)`，
+  趨勢改成範圍內每天、最多 92 天）、抽獎次數分布、玩家清單、建名單全部只算範圍內；「24 小時內」「7 天內」
+  兩格仍以現在往回算。玩家清單的 plays/wins 是範圍內，但剩餘次數用整檔 `plays_all` 算，不能用範圍內次數。
+  有範圍時不列「有配額但沒玩過」的人。範圍寫在網址上可分享。回歸測試 `test/players-date-filter.test.js`。
+
+#### 活動頁不在 LINE 裡打開（2026-09-24）
+
+輪盤、刮刮樂、拉霸、抽籤、領取優惠券頁在 `liff.isInClient()` 為 false 時，以前只顯示「請在 LINE App 內打開」
+就停住。現在 `initLiff()` 丟 `code='not_in_line'`，頁面改呼叫共用的 `ORMGM.openInLine()`（`public/games-mgm.js`）：
+
+- 電腦：卡片放在頁首介紹正下方，卡片之後的遊戲本體（輪盤、刮卡、狀態列、按鈕、獎項、邀請區）全部收起，
+  只留頁首＋卡片。文案：LINE 好友限定／請開啟手機版 LINE 遊玩／掃描 QR Code 前往 LINE／三步驟
+  （開啟手機 LINE、點搜尋列旁的掃描圖示、對準 QR Code）／複製連結。QR 由
+  `GET /api/games/<type>/<slug>/open-in-line.svg` 產生（`qrcode` 套件）。
+- 手機瀏覽器（Safari／Chrome 直接開網址）：狀態列下方卡片「請開啟手機版 LINE 遊玩／點擊下方按鈕前往 LINE／
+  立即前往／沒有跳到 LINE？複製連結」。實務上點 LIFF 連結會直接進 LINE，這張卡只在直接開網址時出現。
+- 有合法 `?ref=` 時卡片顯示「好友邀請資格將自動保留」，QR 與按鈕都帶 ref（`buildOpenInLineUrl()`）。
+  端點只編碼活動自己的 LIFF 連結（含 `liff_id_override`），不接受任意網址。
+- 不在 LINE 時絕不呼叫遊戲 API，也不 `liff.login()`（維持只在 LINE 內玩的既有決定）。
+- 拉霸／抽籤的 `.status-row` 是 `display:flex`，`hidden` 蓋不掉，要用 inline `display:none`。
+- `mgm_share.ejs`（MGM 揪友頁）沒改。新增依賴 `qrcode`（純 JS，esbuild 可打包）。
+回歸測試 `test/open-in-line.test.js`。
+
+#### 名單庫：訂位來源受眾（2026-09-24）
+
+動態名單新增兩個條件：`booking_source`（值為來源代號 openrice／google／…）與 `booking_source_answered`。
+都查 `member_booking_source`（每人只留最新一次問卷回答），與首頁「訂位來源」統計、群發「訂位來源」條件同一口徑；
+改過答案的人只算最新來源。`/admin/recipient-lists/api/catalog` 回 `booking_sources`（從實際回答整理，
+附回答人數，並固定補上 OpenRice／Google），新來源自動出現。這是問卷答案，不是實際訂位管道。
+已用真 PostgreSQL 驗證。回歸測試 `test/recipient-list-booking-source.test.js`。
+
+#### 指標定義、領券成效、測試帳號重玩、群發成效通知文字（2026-09-30）
+
+- **指標定義唯一來源**：`public/activity-metric-defs.js`（`window.ActivityMetricDefs`）。活動列表與玩家數據頁上標
+  `data-metric="<key>"` 的指標旁自動出現「?」，頁尾 `data-metric-glossary` 列完整定義表。改算法一定同步改定義；
+  `test/activity-metrics-testers-claim.test.js` 會檢查每個標記都有定義。
+- **指標口徑修正**：「中獎」＝抽中實際獎品（`winSql()`：排除 `prize_type='none'` 與名稱為銘謝惠顧類），以前把銘謝惠顧也算中獎；
+  「總抽次／玩家」一律排除後台開獎 `draw_win`（以前列表與總覽有含）。上線後這兩個數字會比以前小，是修正。
+- **領券成效**（`src/core/claimFunnel.js`，只有 `game_type='claim'`）：同一批人＝第一次 `enter` 落在所選期間；
+  觀察期 1/3/7/14/30 天從各自第一次開啟起算；四步驟皆不重複人數：開啟畫面（enter）→ 顯示序號（play 有 coupon_code）
+  → 複製序號（新事件 `copy_code`）→ 前往兌換（`properties.redeem_clicked_at` 或新事件 `redeem_click`）；
+  另計序號發完。依 `users.created_at` 對分界日（預設 2026-09-01）拆既有好友／新好友／未知。
+  `copy_code`、`redeem_click` 從這版開始記，舊資料沒有。事件路由只有 claim 接受 `copy_code`。
+- **測試帳號重玩**（`src/core/activityTesters.js`）：用群發「測試人員」名單（`admin_test_recipients`）。
+  `POST /admin/activities/api/:id/testers/reset`（單一或 `all`）在一個交易內清該帳號在本活動的 plays、bonus、個別配額、
+  referrals（邀請人與被邀請人）、referral attempts、events；還非序號獎品庫存（不超過總量），優惠序號不還只回報。
+  不在名單上一律拒絕。`registerReferral` 內：邀請人與被邀請人**都**是測試帳號 → `invitee_was_existing=false`，
+  真實用戶判定不變。不動 users（不像 MGM reset-tester 會封存會員）。
+- **近期群發成效**（`/admin/attribution`）：標題與 LINE 通知預覽文字改用發送紀錄同一個
+  `getBroadcastMessageIdentity()`；新增 `notificationText`（卡片 altText；多段訊息取第一段，圖片／影片為 LINE 固定字；Email 為主旨）。
+
+以上 SQL 已在真 PostgreSQL 驗證（重置只清測試帳號、庫存歸還上限、觀察期 7 vs 14 天、分界日切分、重開不重算、中獎排除銘謝惠顧）。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`

@@ -409,7 +409,169 @@
     });
   }
 
+  // ── 不在 LINE 裡打開（電腦瀏覽器、手機 Safari／Chrome）───────────────
+  // 以前只丟一句「請在 LINE App 內打開」就停住，用戶沒有下一步。
+  // 現在：電腦 → 顯示 QR Code 讓手機 LINE 掃；手機瀏覽器 → 一顆按鈕直接跳回 LINE。
+  // 兩條路都用活動自己的 LIFF 連結，並把網址上的 ?ref= 帶過去，邀請不會掉。
+  function isMobileUa(ua, touchPoints) {
+    ua = String(ua || '');
+    if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
+    return /Macintosh/.test(ua) && Number(touchPoints || 0) > 1;   // iPadOS 偽裝成 Mac
+  }
+  function currentRef() {
+    try {
+      var r = new URLSearchParams(w.location.search).get('ref') || '';
+      return UID_RE.test(r) ? r : '';
+    } catch (e) { return ''; }
+  }
+  function openInLineUrl(liffId, gameType, slug, ref) {
+    var base = 'https://liff.line.me/' + encodeURIComponent(String(liffId || '')) + '/' + gameType + '/' + encodeURIComponent(String(slug || ''));
+    return ref ? base + '?ref=' + encodeURIComponent(ref) : base;
+  }
+  var OIL_CSS = '' +
+    '.oil-card{margin:16px 0;padding:18px;border-radius:18px;background:#fff;border:1px solid #F0E6CC;box-shadow:0 4px 18px rgba(63,44,37,.08);text-align:center;color:#3F2C25;font-family:inherit}' +
+    '.oil-kicker{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;color:#06C755;background:#E8F9EE;padding:3px 10px;border-radius:999px}' +
+    '.oil-title{margin:10px 0 4px;font-size:19px;font-weight:800;line-height:1.35}' +
+    '.oil-sub{margin:0 0 14px;font-size:13px;line-height:1.6;color:#8D6E63}' +
+    '.oil-qr{width:188px;height:188px;margin:0 auto 12px;padding:10px;border-radius:14px;background:#fff;border:1px solid #ECECEE;display:block}' +
+    '.oil-steps{margin:0 auto 14px;padding:0;list-style:none;display:grid;gap:6px;max-width:320px;text-align:left;font-size:13px;line-height:1.5}' +
+    '.oil-steps li{display:flex;gap:8px;align-items:flex-start}' +
+    '.oil-steps b{flex:0 0 20px;height:20px;border-radius:50%;background:#FCC726;color:#3F2C25;font-size:12px;display:flex;align-items:center;justify-content:center}' +
+    '.oil-btn{display:block;width:100%;box-sizing:border-box;padding:14px;border-radius:14px;border:0;background:#06C755;color:#fff;font-size:16px;font-weight:800;text-decoration:none;cursor:pointer;font-family:inherit}' +
+    '.oil-link{margin-top:10px;display:inline-block;background:none;border:0;padding:4px;color:#8D6E63;font-size:13px;text-decoration:underline;cursor:pointer;font-family:inherit}' +
+    '.oil-ref{margin:10px 0 0;font-size:12px;color:#06C755;font-weight:700}' +
+    '.oil-note{margin-top:8px;font-size:12px;color:#A0A0A6;min-height:16px}';
+  function injectOilCss() {
+    if (d.getElementById('oil-css')) return;
+    var st = d.createElement('style');
+    st.id = 'oil-css';
+    st.textContent = OIL_CSS;
+    (d.head || d.documentElement).appendChild(st);
+  }
+  function copyText(text, done) {
+    var ok = function () { done(true); };
+    var fail = function () {
+      try {
+        var ta = d.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+        d.body.appendChild(ta); ta.select();
+        var r = d.execCommand && d.execCommand('copy');
+        d.body.removeChild(ta);
+        done(!!r);
+      } catch (e) { done(false); }
+    };
+    try {
+      if (w.navigator.clipboard && w.navigator.clipboard.writeText) w.navigator.clipboard.writeText(text).then(ok, fail);
+      else fail();
+    } catch (e) { fail(); }
+  }
+  /**
+   * o: { gameType, slug, liffId, mountAfter: Element, desktopMountAfter?: Element }
+   * 回傳 { url, mobile, el }；沒有 liffId 時回 null（呼叫端維持原本的錯誤文字）。
+   */
+  function openInLine(o) {
+    if (!o || !o.liffId || !o.slug || !o.gameType) return null;
+    injectOilCss();
+    var ref = currentRef();
+    var url = openInLineUrl(o.liffId, o.gameType, o.slug, ref);
+    var mobile = isMobileUa(w.navigator.userAgent, w.navigator.maxTouchPoints);
+    var existing = d.getElementById('open-in-line');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    var card = d.createElement('section');
+    card.className = 'oil-card';
+    card.id = 'open-in-line';
+    card.setAttribute('data-mode', mobile ? 'mobile' : 'desktop');
+    var kicker = d.createElement('div');
+    kicker.className = 'oil-kicker';
+    kicker.textContent = 'LINE 好友限定';
+    var title = d.createElement('div');
+    title.className = 'oil-title';
+    var sub = d.createElement('p');
+    sub.className = 'oil-sub';
+    card.appendChild(kicker);
+    card.appendChild(title);
+    card.appendChild(sub);
+    var note = d.createElement('div');
+    note.className = 'oil-note';
+    note.setAttribute('aria-live', 'polite');
+
+    var copyBtn = d.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'oil-link';
+    copyBtn.textContent = '複製活動連結';
+    copyBtn.addEventListener('click', function () {
+      copyText(url, function (okCopy) {
+        note.textContent = okCopy ? '已複製，貼到 LINE 聊天室（例如 Keep 筆記）再點開就能玩' : url;
+      });
+    });
+
+    if (mobile) {
+      title.textContent = '請開啟手機版 LINE 遊玩';
+      sub.textContent = '點擊下方按鈕前往 LINE';
+      var btn = d.createElement('a');
+      btn.className = 'oil-btn';
+      btn.id = 'open-in-line-btn';
+      btn.href = url;
+      btn.textContent = '立即前往';
+      card.appendChild(btn);
+      copyBtn.textContent = '沒有跳到 LINE？複製連結';
+      card.appendChild(copyBtn);
+    } else {
+      title.textContent = '請開啟手機版 LINE 遊玩';
+      sub.textContent = '掃描 QR Code 前往 LINE';
+      var qs = ref ? '?ref=' + encodeURIComponent(ref) : '';
+      var img = d.createElement('img');
+      img.className = 'oil-qr';
+      img.id = 'open-in-line-qr';
+      img.alt = '用手機 LINE 掃描這個 QR Code';
+      img.width = 188; img.height = 188;
+      img.src = '/api/games/' + o.gameType + '/' + encodeURIComponent(o.slug) + '/open-in-line.svg' + qs;
+      card.appendChild(img);
+      var steps = d.createElement('ol');
+      steps.className = 'oil-steps';
+      ['開啟手機 LINE', '點搜尋列旁的掃描圖示', '對準 QR Code'].forEach(function (t, i) {
+        var li = d.createElement('li');
+        var n = d.createElement('b');
+        n.textContent = String(i + 1);
+        var s = d.createElement('span');
+        s.textContent = t;
+        li.appendChild(n);
+        li.appendChild(s);
+        steps.appendChild(li);
+      });
+      card.appendChild(steps);
+      copyBtn.textContent = '複製連結';
+      card.appendChild(copyBtn);
+    }
+    if (ref) {
+      var refNote = d.createElement('p');
+      refNote.className = 'oil-ref';
+      refNote.textContent = '好友邀請資格將自動保留';
+      card.appendChild(refNote);
+    }
+    card.appendChild(note);
+    // 電腦版：QR Code 要在第一個畫面就看得到，所以放在頁首介紹正下方（遊戲區上面）；
+    // 手機維持放在狀態列下方。
+    var anchor = (!mobile && o.desktopMountAfter) ? o.desktopMountAfter : o.mountAfter;
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(card, anchor.nextSibling);
+    else d.body.appendChild(card);
+    // 電腦版只留頁首＋這張卡：遊戲本體（輪盤、刮卡、獎項、邀請區）在電腦上用不到，全部收起
+    if (!mobile && o.desktopMountAfter && anchor === o.desktopMountAfter) {
+      var sib = card.nextElementSibling;
+      while (sib) {
+        if (sib.tagName !== 'SCRIPT' && sib.tagName !== 'STYLE') {
+          sib.setAttribute('data-oil-hidden', '');
+          sib.style.display = 'none';
+        }
+        sib = sib.nextElementSibling;
+      }
+    }
+    return { url: url, mobile: mobile, el: card };
+  }
+
   w.ORMGM = {
+    openInLine: openInLine,
+    isMobileUa: isMobileUa,
     referral: referral,
     gate: gate,
     toast: toast,

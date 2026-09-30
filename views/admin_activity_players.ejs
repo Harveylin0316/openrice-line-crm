@@ -18,40 +18,85 @@
           · 基礎 ${activity.base_plays_per_user} 次 / 邀請 +${activity.referral_bonus_per} × ${activity.referral_bonus_max} 上限
         </div>
       </div>
+      <div class="date-filter" id="date-filter">
+        <div class="date-filter-presets" role="group" aria-label="時間範圍">
+          <button type="button" data-range="all" class="active">全部期間</button>
+          <button type="button" data-range="today">今天</button>
+          <button type="button" data-range="yesterday">昨天</button>
+          <button type="button" data-range="7d">近 7 天</button>
+          <button type="button" data-range="30d">近 30 天</button>
+          <button type="button" data-range="custom">自訂</button>
+        </div>
+        <div class="date-filter-custom" id="date-filter-custom" hidden>
+          <label>從 <input type="date" id="df-from" /></label>
+          <label>到 <input type="date" id="df-to" /></label>
+          <button type="button" id="df-apply">套用</button>
+        </div>
+        <div class="date-filter-note muted" id="date-filter-note">目前看的是：全部期間</div>
+      </div>
     </section>
 
     <section class="card">
       <div class="stats-grid">
-        <div class="stat-box"><div class="v" id="ov-plays">—</div><div class="k">總抽次</div></div>
-        <div class="stat-box"><div class="v" id="ov-players">—</div><div class="k">獨立玩家</div></div>
-        <div class="stat-box"><div class="v" id="ov-wins">—</div><div class="k">中獎次數</div></div>
-        <div class="stat-box"><div class="v" id="ov-24h">—</div><div class="k">24 小時內</div></div>
-        <div class="stat-box"><div class="v" id="ov-7d">—</div><div class="k">7 天內</div></div>
+        <div class="stat-box"><div class="v" id="ov-plays">—</div><div class="k" data-metric="ov_plays"><span id="ov-plays-k">總抽次</span></div></div>
+        <div class="stat-box"><div class="v" id="ov-players">—</div><div class="k" data-metric="ov_players">獨立玩家</div></div>
+        <div class="stat-box"><div class="v" id="ov-wins">—</div><div class="k" data-metric="ov_wins">中獎次數</div></div>
+        <div class="stat-box"><div class="v" id="ov-24h">—</div><div class="k" data-metric="ov_24h">24 小時內</div></div>
+        <div class="stat-box"><div class="v" id="ov-7d">—</div><div class="k" data-metric="ov_7d">7 天內</div></div>
       </div>
     </section>
 
-    <section class="card" id="funnel-card">
+    <section class="card" id="claim-funnel-card"${activity.game_type === 'claim' ? '' : ' hidden'}>
       <div class="players-section-head">
-        <h2 style="margin:0;">開啟成效</h2>
+        <h2 style="margin:0;">領券成效</h2>
+        <div class="claim-controls">
+          <label><span data-metric="cl_window">觀察期</span>
+            <select id="cf-window"><option value="1">1 天</option><option value="3">3 天</option><option value="7" selected>7 天</option><option value="14">14 天</option><option value="30">30 天</option></select>
+          </label>
+          <label>好友分界日 <input type="date" id="cf-cutoff" value="2026-09-01" /></label>
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 12px;line-height:1.6;"><span data-metric="cl_cohort">同一批人</span>＝第一次開啟落在上方所選期間的人；每人從自己第一次開啟起算，觀察期內完成才算；全部為不重複人數。</p>
+      <div class="table-wrap"><table class="claim-table" id="claim-table"><tbody><tr><td class="muted">載入中…</td></tr></tbody></table></div>
+      <p class="muted claim-foot" id="claim-foot"></p>
+    </section>
+
+    <section class="card" id="funnel-card"${activity.game_type === 'claim' ? ' hidden' : ''}>
+      <div class="players-section-head">
+        <h2 style="margin:0;" data-metric="fn_rates">開啟成效</h2>
         <span class="muted" style="font-size:12px;" id="funnel-meta">載入中…</span>
       </div>
       <p class="muted" style="font-size:12px;margin:6px 0 14px;line-height:1.6;">
         從用戶打開活動頁（LINE 身分驗證成功）算起：開啟 → 開始玩 → 拿到結果 → 分享給朋友。全部以<strong>不重複用戶</strong>計算，安全預覽不計入。
       </p>
       <div class="funnel-grid">
-        <div class="funnel-step"><div class="v" id="fn-openers">—</div><div class="k">開啟活動</div><div class="r" id="fn-openers-r">&nbsp;</div></div>
-        <div class="funnel-step"><div class="v" id="fn-starters">—</div><div class="k">開始玩</div><div class="r" id="fn-start-rate">&nbsp;</div></div>
-        <div class="funnel-step"><div class="v" id="fn-completers">—</div><div class="k">拿到結果</div><div class="r" id="fn-complete-rate">&nbsp;</div></div>
-        <div class="funnel-step"><div class="v" id="fn-sharers">—</div><div class="k">分享過</div><div class="r" id="fn-share-rate">&nbsp;</div></div>
-        <div class="funnel-step"><div class="v" id="fn-openers-7d">—</div><div class="k">7 天內開啟</div><div class="r" id="fn-openers-24h">&nbsp;</div></div>
+        <div class="funnel-step"><div class="v" id="fn-openers">—</div><div class="k" data-metric="fn_open">開啟活動</div><div class="r" id="fn-openers-r">&nbsp;</div></div>
+        <div class="funnel-step"><div class="v" id="fn-starters">—</div><div class="k" data-metric="fn_start">開始玩</div><div class="r" id="fn-start-rate">&nbsp;</div></div>
+        <div class="funnel-step"><div class="v" id="fn-completers">—</div><div class="k" data-metric="fn_complete">拿到結果</div><div class="r" id="fn-complete-rate">&nbsp;</div></div>
+        <div class="funnel-step"><div class="v" id="fn-sharers">—</div><div class="k" data-metric="fn_share">分享過</div><div class="r" id="fn-share-rate">&nbsp;</div></div>
+        <div class="funnel-step"><div class="v" id="fn-openers-7d">—</div><div class="k" data-metric="fn_open7d">7 天內開啟</div><div class="r" id="fn-openers-24h">&nbsp;</div></div>
       </div>
       <div id="funnel-trend" class="funnel-trend"></div>
       <div id="grant-summary" class="muted" style="font-size:12px;margin-top:12px;line-height:1.6;" hidden></div>
     </section>
 
-    <section class="card" id="play-dist-card">
+    <section class="card" id="tester-card">
       <div class="players-section-head">
-        <h2 style="margin:0;">抽獎次數分布</h2>
+        <h2 style="margin:0;">測試帳號重玩</h2>
+        <button type="button" class="ae-secondary-btn" id="tester-reset-all" hidden>全部重置</button>
+      </div>
+      <ol class="tester-steps">
+        <li>在「群發 › 測試人員」加入至少 2 個 LINE 帳號（分享者、被邀請者）</li>
+        <li>分享者開活動並分享；被邀請者點連結開啟，分享者即獲得邀請加碼</li>
+        <li>按「重置」回到全新狀態，可重複測試</li>
+      </ol>
+      <p class="muted tester-note">測試帳號互相邀請一律算新好友；重置會清除該帳號在本活動的抽獎、加碼、邀請與開啟紀錄，並歸還獎品庫存（優惠序號不歸還）。</p>
+      <div id="tester-list" class="tester-list muted">載入中…</div>
+    </section>
+
+    <section class="card" id="play-dist-card"${activity.game_type === 'claim' ? ' hidden' : ''}>
+      <div class="players-section-head">
+        <h2 style="margin:0;" data-metric="dist_bucket">抽獎次數分布</h2>
         <span class="muted" style="font-size:12px;" id="play-dist-meta">載入中…</span>
       </div>
       <p class="muted" style="font-size:12px;margin:6px 0 14px;line-height:1.6;">
@@ -77,14 +122,14 @@
           <thead>
             <tr>
               <th>用戶</th>
-              <th>被誰邀請</th>
-              <th style="text-align:right;">總共有幾次<div class="muted" style="font-size:10px;font-weight:400;">基本＋邀請＋人工補</div></th>
-              <th style="text-align:right;">用了幾次</th>
-              <th style="text-align:right;">還剩</th>
-              <th style="text-align:right;">中獎</th>
-              <th style="text-align:right;">邀請成功<div class="muted" style="font-size:10px;font-weight:400;">只算本來不是好友的</div></th>
-              <th>最後活動</th>
-              <th>個別配額</th>
+              <th><span data-metric="pl_invited_by">被誰邀請</span></th>
+              <th style="text-align:right;"><span data-metric="pl_total">總共有幾次</span><div class="muted" style="font-size:10px;font-weight:400;">基本＋邀請＋人工補</div></th>
+              <th style="text-align:right;"><span data-metric="pl_used">用了幾次</span></th>
+              <th style="text-align:right;"><span data-metric="pl_left">還剩</span></th>
+              <th style="text-align:right;"><span data-metric="pl_wins">中獎</span></th>
+              <th style="text-align:right;"><span data-metric="pl_invites">邀請成功</span><div class="muted" style="font-size:10px;font-weight:400;">只算本來不是好友的</div></th>
+              <th><span data-metric="pl_last">最後活動</span></th>
+              <th><span data-metric="pl_override">個別配額</span></th>
               <th></th>
             </tr>
           </thead>
@@ -175,9 +220,16 @@
       </div>
     </div>
 
+    <section class="card" style="padding-top:12px;padding-bottom:12px;">
+      <div data-metric-glossary="${activity.game_type === 'claim' ? 'overview,claim,players,testers' : 'overview,funnel,dist,players,testers'}"></div>
+    </section>
+
+    <script src="/activity-metric-defs.js?v=20260930a"></script>
     <script>
     (function () {
       var activityId = ${activity.id};
+      var isClaim = ${JSON.stringify(activity.game_type === 'claim')};
+      var canResetTesters = ${JSON.stringify(Boolean(isAdmin))};
       // 名單預設名稱用：原始活動名（JSON 編碼，前端只放進 prompt 與 JSON body，不進 innerHTML）
       var activityNameRaw = ${JSON.stringify(String(activity.name == null ? '' : activity.name)).replace(/</g, '\\u003c')};
       var allPlayers = [];
@@ -202,12 +254,104 @@
         return uid.slice(0, 6) + '…' + uid.slice(-4);
       }
 
+      // ---- 時間篩選：台北曆日（含起訖）；預設全部期間 = 原本的畫面。範圍放在網址上，重新整理或分享連結都保留 ----
+      var currentRange = { key: 'all', from: null, to: null };
+      function taipeiToday() {
+        // en-CA 會輸出 YYYY-MM-DD
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      }
+      function shiftDate(ymd, days) {
+        var d = new Date(ymd + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + days);
+        return d.toISOString().slice(0, 10);
+      }
+      function rangeForKey(key) {
+        var today = taipeiToday();
+        if (key === 'today') return { from: today, to: today };
+        if (key === 'yesterday') { var y = shiftDate(today, -1); return { from: y, to: y }; }
+        if (key === '7d') return { from: shiftDate(today, -6), to: today };
+        if (key === '30d') return { from: shiftDate(today, -29), to: today };
+        return { from: null, to: null };
+      }
+      function rangeLabel(r) {
+        if (!r.from && !r.to) return '全部期間';
+        if (r.from && r.to && r.from === r.to) return r.from;
+        return (r.from || '最早') + ' ～ ' + (r.to || '今天');
+      }
+      function rangeQuery() {
+        var parts = [];
+        if (isClaim) {
+          parts.push('window=' + encodeURIComponent(document.getElementById('cf-window').value));
+          var cut = document.getElementById('cf-cutoff').value;
+          if (cut) parts.push('cutoff=' + encodeURIComponent(cut));
+        }
+        if (currentRange.from) parts.push('from=' + encodeURIComponent(currentRange.from));
+        if (currentRange.to) parts.push('to=' + encodeURIComponent(currentRange.to));
+        return parts.join('&');
+      }
+      function setActivePreset(key) {
+        Array.prototype.forEach.call(document.querySelectorAll('[data-range]'), function (b) {
+          b.classList.toggle('active', b.getAttribute('data-range') === key);
+        });
+        document.getElementById('date-filter-custom').hidden = key !== 'custom';
+      }
+      function applyRange(key, from, to, skipUrl) {
+        currentRange = { key: key, from: from || null, to: to || null };
+        setActivePreset(key);
+        document.getElementById('df-from').value = currentRange.from || '';
+        document.getElementById('df-to').value = currentRange.to || '';
+        var label = rangeLabel(currentRange);
+        document.getElementById('date-filter-note').textContent = '目前看的是：' + label +
+          (currentRange.from || currentRange.to ? '（總覽、開啟成效、抽獎次數分布、玩家清單、建名單都只算這段期間；「24 小時內」「7 天內」固定以現在往回算）' : '');
+        document.getElementById('ov-plays-k').textContent = currentRange.from || currentRange.to ? '期間抽次' : '總抽次';
+        if (!skipUrl && window.history && window.history.replaceState) {
+          var q = rangeQuery();
+          window.history.replaceState(null, '', window.location.pathname + (q ? '?' + q : ''));
+        }
+        load();
+      }
+      Array.prototype.forEach.call(document.querySelectorAll('[data-range]'), function (btn) {
+        btn.addEventListener('click', function () {
+          var key = btn.getAttribute('data-range');
+          if (key === 'custom') {
+            setActivePreset('custom');
+            var t = taipeiToday();
+            if (!document.getElementById('df-from').value) document.getElementById('df-from').value = shiftDate(t, -6);
+            if (!document.getElementById('df-to').value) document.getElementById('df-to').value = t;
+            return;
+          }
+          var r = rangeForKey(key);
+          applyRange(key, r.from, r.to);
+        });
+      });
+      document.getElementById('df-apply').addEventListener('click', function () {
+        var from = document.getElementById('df-from').value;
+        var to = document.getElementById('df-to').value;
+        if (from && to && from > to) { alert('開始日期不能晚於結束日期'); return; }
+        applyRange('custom', from, to);
+      });
+      function initialRangeFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var ymd = function (v) { return v && v.length === 10 && !isNaN(new Date(v + 'T00:00:00Z').getTime()) ? v : null; };
+        var from = ymd(params.get('from'));
+        var to = ymd(params.get('to'));
+        if (!from && !to) return null;
+        var keys = ['today', 'yesterday', '7d', '30d'];
+        for (var i = 0; i < keys.length; i++) {
+          var r = rangeForKey(keys[i]);
+          if (r.from === from && r.to === to) return { key: keys[i], from: from, to: to };
+        }
+        return { key: 'custom', from: from, to: to };
+      }
+
       function load() {
-        fetch('/admin/activities/api/' + activityId + '/players')
+        var q = rangeQuery();
+        tbody.innerHTML = '<tr><td colspan="10" class="muted">載入中…</td></tr>';
+        fetch('/admin/activities/api/' + activityId + '/players' + (q ? '?' + q : ''))
           .then(function (r) { return r.json(); })
           .then(function (resp) {
             if (!resp.ok) {
-              tbody.innerHTML = '<tr><td colspan="10" class="muted">載入失敗</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="10" class="muted">載入失敗' + (resp.detail ? '：' + esc(resp.detail) : '') + '</td></tr>';
               return;
             }
             allPlayers = resp.players || [];
@@ -220,6 +364,8 @@
             document.getElementById('ov-7d').textContent = fmt(ov.plays_7d);
             renderFunnel(resp.funnel, resp.grants);
             renderPlayDistribution(resp.play_distribution);
+            if (isClaim) renderClaimFunnel(resp.claim_funnel);
+            if (window.ActivityMetricDefs) ActivityMetricDefs.init(document);
             render(allPlayers);
           })
           .catch(function () {
@@ -264,7 +410,7 @@
             '<div class="k">' + esc(b.label) + '</div>' +
             '<div class="v">' + fmt(b.users) + '<small>人</small></div>' +
             '<div class="bar"><i style="width:' + Math.round(b.users / max * 100) + '%"></i></div>' +
-            '<div class="pct">占玩家 ' + share + '%</div>' +
+            '<div class="pct"><span data-metric="dist_share">占玩家</span> ' + share + '%</div>' +
             '<button type="button" data-export-bucket="' + i + '"' + (b.users ? '' : ' disabled') + '>建名單並推播</button>' +
             '<div class="done" id="play-dist-done-' + i + '"></div>' +
           '</div>';
@@ -279,7 +425,8 @@
       function exportPlayBucket(bucket, btn) {
         var today = new Date();
         var stamp = (today.getMonth() + 1) + '/' + today.getDate();
-        var defaultName = activityNameRaw + '｜' + bucket.label + '（' + stamp + '）';
+        var periodTag = currentRange.from || currentRange.to ? '｜' + rangeLabel(currentRange) : '';
+        var defaultName = activityNameRaw + '｜' + bucket.label + periodTag + '（' + stamp + '）';
         var name = window.prompt('名單名稱（建立後可在群發選用）', defaultName);
         if (name == null) return;
         name = String(name).trim();
@@ -292,9 +439,11 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: name,
-            description: activityNameRaw + ' 抽獎次數 ' + bucket.label + '（' + today.toLocaleString('zh-Hant-TW') + ' 建立）',
+            description: activityNameRaw + ' 抽獎次數 ' + bucket.label + '｜期間 ' + rangeLabel(currentRange) + '（' + today.toLocaleString('zh-Hant-TW') + ' 建立）',
             filter: bucket.filter,
-            plays: bucket.plays
+            plays: bucket.plays,
+            from: currentRange.from,
+            to: currentRange.to
           })
         })
           .then(function (r) { return r.json(); })
@@ -328,7 +477,7 @@
           if (!rows.length) { trend.innerHTML = ''; }
           else {
             var max = Math.max.apply(null, rows.map(function (r) { return Number(r.openers) || 0; }).concat([1]));
-            trend.innerHTML = '<div class="funnel-trend-title">近 14 天每日開啟人數</div>' +
+            trend.innerHTML = '<div class="funnel-trend-title">' + (f.ranged ? '期間內每日開啟人數' : '近 14 天每日開啟人數') + '</div>' +
               '<div class="funnel-bars">' + rows.map(function (r) {
                 var h = Math.max(4, Math.round((Number(r.openers) || 0) / max * 60));
                 return '<div class="funnel-bar" title="' + esc(r.day) + '：開啟 ' + fmt(r.openers) + '／完成 ' + fmt(r.completers) + '／分享 ' + fmt(r.sharers) + '">' +
@@ -506,7 +655,7 @@
         fetch('/admin/activities/api/' + activityId + '/export-players-to-list', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name, description: desc, filter: filter, plays: Number(document.getElementById('ex-plays').value) || 1 })
+          body: JSON.stringify({ name: name, description: desc, filter: filter, plays: Number(document.getElementById('ex-plays').value) || 1, from: currentRange.from, to: currentRange.to })
         })
           .then(function (r) { return r.json(); })
           .then(function (d) {
@@ -552,7 +701,97 @@
           });
       });
 
-      load();
+      // ---- 領券成效（同一批人、固定觀察期、不重複人數；拆既有好友／新好友）----
+      function claimCell(seg, key, withRate) {
+        var n = seg ? Number(seg[key] || 0) : 0;
+        var rateKey = { shown: 'shown_rate', copied: 'copied_rate', redeemed: 'redeemed_rate' }[key];
+        var rate = withRate && rateKey && seg && seg[rateKey] != null ? '<small>' + seg[rateKey] + '%</small>' : '';
+        return '<td><b>' + fmt(n) + '</b>' + rate + '</td>';
+      }
+      function renderClaimFunnel(f) {
+        var table = document.getElementById('claim-table');
+        var foot = document.getElementById('claim-foot');
+        if (!f) { table.innerHTML = '<tbody><tr><td class="muted">領券成效暫時讀不到</td></tr></tbody>'; foot.textContent = ''; return; }
+        var cols = [['all', '全部', null], ['existing', '既有好友', 'cl_existing'], ['new', '新好友', 'cl_new']];
+        if (f.unknown && f.unknown.opened > 0) cols.push(['unknown', '未知', 'cl_unknown']);
+        var rows = [
+          ['opened', '開啟畫面（已滿觀察期）', 'cl_open', false, ''],
+          ['shown', '顯示序號', 'cl_shown', true, ''],
+          ['copied', '複製序號', 'cl_copy', true, ''],
+          ['redeemed', '前往兌換', 'cl_redeem', true, ''],
+          ['out_of_stock', '序號發完', 'cl_oos', false, 'sub']
+        ];
+        table.innerHTML = '<thead><tr><th>步驟</th>' + cols.map(function (c) {
+          return '<th>' + (c[2] ? '<span data-metric="' + c[2] + '">' + c[1] + '</span>' : c[1]) + '</th>';
+        }).join('') + '</tr></thead><tbody>' + rows.map(function (r) {
+          return '<tr' + (r[4] ? ' class="' + r[4] + '"' : '') + '><td><span data-metric="' + r[2] + '">' + r[1] + '</span></td>' +
+            cols.map(function (c) { return claimCell(f[c[0]], r[0], r[3]); }).join('') + '</tr>';
+        }).join('') + '</tbody>';
+        var all = f.all || {};
+        var cohortTotal = Number(all.cohort_total != null ? all.cohort_total : all.opened || 0);
+        var matured = Number(all.matured != null ? all.matured : all.opened || 0);
+        var immature = Math.max(0, cohortTotal - matured);
+        foot.innerHTML = '本批共 ' + fmt(cohortTotal) + ' 人；已滿觀察期 ' + fmt(matured) + ' 人' +
+          (immature ? '，另有 ' + fmt(immature) + ' 人<span data-metric="cl_immature">觀察期未滿</span>' : '') +
+          '。百分比只用已滿觀察期的人計算，為<span data-metric="cl_rate">對開啟 %</span>。既有好友＝' + esc(f.cutoff) + ' 前加入。';
+      }
+      if (isClaim) {
+        document.getElementById('cf-window').addEventListener('change', function () { load(); });
+        document.getElementById('cf-cutoff').addEventListener('change', function () { load(); });
+      }
+
+      // ---- 測試帳號重玩 ----
+      function loadTesters() {
+        var box = document.getElementById('tester-list');
+        fetch('/admin/activities/api/' + activityId + '/testers')
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (!d.ok) { box.textContent = '讀不到測試帳號：' + (d.detail || d.error || ''); return; }
+            var list = d.testers || [];
+            document.getElementById('tester-reset-all').hidden = !canResetTesters || list.length < 2;
+            if (!list.length) {
+              box.innerHTML = '<p class="tester-empty">還沒有測試帳號。到 <a href="/admin/broadcast">群發</a> 的「測試人員」加入 LINE 帳號（在官方帳號輸入 /whatsmyid 可查自己的 ID）。</p>';
+              return;
+            }
+            box.classList.remove('muted');
+            box.innerHTML = list.map(function (t, i) {
+              return '<div class="tester-row" data-i="' + i + '">' +
+                '<div class="who"><b>' + esc(t.label || '測試帳號') + '</b><code>' + esc(t.line_user_id) + '</code></div>' +
+                '<div class="nums"><span data-metric="ts_plays"><b>' + fmt(t.plays) + '</b>次抽獎</span><span data-metric="ts_invites"><b>' + fmt(t.new_friend_invites) + '</b>位成功邀請</span><span data-metric="ts_bonus"><b>' + fmt(t.bonus_plays) + '</b>次加碼</span></div>' +
+                (canResetTesters ? '<button type="button" data-reset="' + esc(t.line_user_id) + '">重置</button>' : '') +
+                '<div class="msg" hidden></div>' +
+              '</div>';
+            }).join('');
+            if (window.ActivityMetricDefs) ActivityMetricDefs.decorate(box);
+            Array.prototype.forEach.call(box.querySelectorAll('[data-reset]'), function (btn) {
+              btn.addEventListener('click', function () { resetTesters({ line_user_id: btn.getAttribute('data-reset') }, btn); });
+            });
+          })
+          .catch(function (e) { box.textContent = '讀不到測試帳號：' + e.message; });
+      }
+      function resetTesters(body, btn) {
+        var who = body.all ? '全部測試帳號' : '這個測試帳號';
+        if (!window.confirm('確定重置' + who + '在本活動的進度？抽獎、加碼、邀請與開啟紀錄都會清除。')) return;
+        if (btn) btn.disabled = true;
+        fetch('/admin/activities/api/' + activityId + '/testers/reset', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (btn) btn.disabled = false;
+            if (!d.ok) { alert('重置失敗：' + (d.detail || d.error)); return; }
+            loadTesters();
+            load();
+          })
+          .catch(function (e) { if (btn) btn.disabled = false; alert('重置失敗：' + e.message); });
+      }
+      document.getElementById('tester-reset-all').addEventListener('click', function () { resetTesters({ all: true }, this); });
+      loadTesters();
+
+      // 初次載入：網址有 from/to 就用；沒有就是全部期間（與原本相同）
+      var initRange = initialRangeFromUrl();
+      if (initRange) applyRange(initRange.key, initRange.from, initRange.to, true);
+      else load();
     })();
     </script>
 
@@ -582,6 +821,38 @@
       .stat-box .k { font-size: 11px; color: #6B6B70; margin-top: 4px; }
 
       .players-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .date-filter { margin-top: 14px; padding-top: 14px; border-top: 1px solid #ECECEE; display: grid; gap: 8px; }
+      .date-filter-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+      .date-filter-presets button { font-family: inherit; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid #E5E7EB; background: #fff; cursor: pointer; color: #374151; }
+      .date-filter-presets button.active { background: #FCC726; border-color: #E8B400; color: #0F0F10; font-weight: 700; }
+      .date-filter-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+      .date-filter-custom[hidden] { display: none; }
+      .date-filter-custom input { font-family: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid #E5E7EB; border-radius: 8px; }
+      .date-filter-custom button { font-family: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid #E8B400; background: #FFFBEB; cursor: pointer; }
+      .date-filter-note { font-size: 12px; }
+      .claim-controls { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; align-items: center; }
+      .claim-controls select, .claim-controls input { font-family: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid #E5E7EB; border-radius: 8px; margin-left: 4px; }
+      .claim-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      .claim-table th, .claim-table td { padding: 9px 10px; border-bottom: 1px solid #F3F4F6; text-align: right; white-space: nowrap; }
+      .claim-table th:first-child, .claim-table td:first-child { text-align: left; }
+      .claim-table thead th { font-size: 12px; color: #6B7280; font-weight: 700; background: #FAFAFA; }
+      .claim-table td b { font-size: 15px; color: #111827; }
+      .claim-table td small { display: block; font-size: 11px; color: #92400E; }
+      .claim-table tr.sub td { color: #9CA3AF; }
+      .claim-foot { font-size: 12px; margin: 8px 0 0; line-height: 1.6; }
+      .tester-steps { margin: 8px 0 6px; padding-left: 20px; font-size: 13px; line-height: 1.7; }
+      .tester-note { font-size: 12px; margin: 0 0 10px; line-height: 1.6; }
+      .tester-list { display: grid; gap: 8px; }
+      .tester-empty { margin: 0; font-size: 13px; line-height: 1.6; color: #6B7280; }
+      .tester-row { display: flex; align-items: center; gap: 12px; border: 1px solid #ECECEE; border-radius: 10px; padding: 10px 12px; background: #fff; flex-wrap: wrap; }
+      .tester-row .who { flex: 1 1 220px; min-width: 0; }
+      .tester-row .who b { display: block; font-size: 14px; color: #1f2937; }
+      .tester-row .who code { font-size: 11px; color: #9CA3AF; }
+      .tester-row .nums { display: flex; gap: 14px; font-size: 12px; color: #6B7280; }
+      .tester-row .nums b { color: #1f2937; font-size: 14px; margin-right: 2px; }
+      .tester-row button { font-family: inherit; font-size: 12px; padding: 6px 12px; border-radius: 8px; border: 1px solid #FCA5A5; background: #FEF2F2; color: #B91C1C; cursor: pointer; }
+      .tester-row button:disabled { opacity: .5; cursor: default; }
+      .tester-row .msg { flex-basis: 100%; font-size: 12px; color: #065F46; }
       .play-dist-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
       .play-dist-cell { border: 1px solid #ECECEE; border-radius: 12px; padding: 12px 14px; background: #fff; display: flex; flex-direction: column; gap: 6px; }
       .play-dist-cell .k { font-size: 13px; font-weight: 700; color: #3F2C25; }

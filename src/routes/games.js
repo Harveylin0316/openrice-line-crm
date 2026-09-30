@@ -154,6 +154,11 @@ function registerGamesRoutes(app, deps) {
             AND NOT (COALESCE(properties, '{}'::jsonb) ? 'redeem_clicked_at')`,
         [a.id, v.sub]
       );
+      // 每次點擊都留一筆事件（上面的 properties 只記第一次），領券漏斗用事件時間算觀察期
+      await query(
+        `INSERT INTO activity_user_events (activity_id, line_user_id, event_name) VALUES ($1, $2, 'redeem_click')`,
+        [a.id, v.sub]
+      ).catch(e => console.error('redeem-click event failed:', e && e.message));
       return res.json({ ok: true });
     } catch (err) {
       console.error('redeem-click error:', err && err.message);

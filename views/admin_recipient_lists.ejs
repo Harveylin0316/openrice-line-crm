@@ -115,7 +115,7 @@
     (function () {
       var $ = function (id) { return document.getElementById(id); };
       var allLists = [];
-      var catalog = { tags:[], activities:[], menus:[], broadcasts:[] };
+      var catalog = { tags:[], activities:[], menus:[], broadcasts:[], booking_sources:[] };
       var breakdowns = {}; // { [listId]: { line_sendable, email_only, unknown } }
       var editingDynamicId = null;
       var newListStep = 1;
@@ -385,6 +385,7 @@
         activity:'玩過指定活動', activity_enter:'進入指定活動', activity_start:'開始指定活動', activity_complete:'完成指定活動', activity_share:'分享指定活動', successful_invite:'指定活動成功邀請', invite_count:'全部活動成功邀請合計至少幾人', reward_status:'獎勵狀態',
         follow_event:'曾加入好友', block_event:'曾封鎖', unblock_event:'封鎖後曾重新加入',
         line_login:'已有 LINE Login 身分', app_registration:'完成活動手機登記（非 OpenRice App 註冊）', booking_confirmed:'已確認金豬食堂訂位', booking_cancelled:'已取消／申請取消金豬食堂訂位',
+        booking_source:'訂位來源（問卷最新回答）', booking_source_answered:'回答過訂位來源問卷',
         broadcast_sent:'指定群發已發送', broadcast_delivered:'指定群發已送達（Email）', broadcast_opened:'指定群發已開啟', broadcast_clicked:'指定群發已點擊', broadcast_tested:'指定群發已進測試組', broadcast_converted:'指定群發已轉換（CTA 點擊）'
       };
       function options(items) { return (items || []).map(function (x) { return '<option value="' + x.id + '">' + esc(x.name || ('#' + x.id)) + '</option>'; }).join(''); }
@@ -461,7 +462,8 @@
         }
       }
       function valueInput(type, value) {
-        if (type === 'is_friend' || type === 'is_blocked' || type === 'line_login' || type === 'app_registration' || type === 'follow_event' || type === 'block_event' || type === 'unblock_event' || type === 'booking_confirmed' || type === 'booking_cancelled') return '<span class="muted aud-no-value">不需設定</span>';
+        if (type === 'is_friend' || type === 'is_blocked' || type === 'line_login' || type === 'app_registration' || type === 'follow_event' || type === 'block_event' || type === 'unblock_event' || type === 'booking_confirmed' || type === 'booking_cancelled' || type === 'booking_source_answered') return '<span class="muted aud-no-value">不需設定</span>';
+        if (type === 'booking_source') return '<select class="aud-value">' + options(catalog.booking_sources) + '</select>';
         if (type === 'joined_after' || type === 'joined_before') return '<input class="aud-value" type="date" value="' + esc(value || '') + '" />';
         if (type === 'tag') return '<select class="aud-value">' + options(catalog.tags) + '</select>';
         if (type === 'activity' || type.indexOf('activity_') === 0 || type === 'successful_invite') return '<select class="aud-value">' + options(catalog.activities) + '</select>';

@@ -10,6 +10,7 @@
  *
  * 共用邏輯確保所有遊戲類型「中獎邏輯一致」「資料一致」「未來可重用 helper」
  */
+const { isTesterPair } = require('./activityTesters');
 const { verifyOaFollower } = require('./oaFollower');
 
 /** 從已存的遊玩紀錄還原回應——同一個 play_key 重送時回同一個結果，不重複扣次數 */
@@ -574,6 +575,11 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
       query, activitySlug, gameType, inviterId, inviteeId
     });
   } catch (e) { /* 判斷失敗保留 null，下方會 fail-closed 且不寫入正式 referral */ }
+  // 測試帳號互邀：邀請人與被邀請人都在「測試人員」名單上 → 一律算新好友，
+  // 讓後台可以反覆重置、無限次測「新戶加入→分享→邀請成功」。真實用戶的判定完全不變。
+  try {
+    if (await isTesterPair(query, inviterId, inviteeId)) inviteeWasExisting = false;
+  } catch (e) { /* 查不到測試名單就照一般規則 */ }
   // 不能把 NULL 寫進正式 referral：(activity_id, invitee) 的 unique key 會讓這筆
   // 「不確定」永久占位，後來就算查得到也無法補發。follow webhook 路徑用例外
   // 觸發短暫錯誤重試；一般 HTTP 路徑則保留 pending，稍後再試。
