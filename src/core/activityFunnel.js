@@ -104,31 +104,51 @@ async function loadActivityFunnelInRange(query, activityId, range) {
   const from = range.from || null;
   const to = range.to || null;
   const { rows } = await query(
-    `SELECT
-       COUNT(DISTINCT line_user_id) FILTER (WHERE event_name = 'enter')    AS openers,
-       COUNT(DISTINCT line_user_id) FILTER (WHERE event_name = 'start')    AS starters,
-       COUNT(DISTINCT line_user_id) FILTER (WHERE event_name = 'complete') AS completers,
-       COUNT(DISTINCT line_user_id) FILTER (WHERE event_name = 'share')    AS sharers,
-       COUNT(*)                     FILTER (WHERE event_name = 'share')    AS shares,
-       COUNT(DISTINCT line_user_id) FILTER (WHERE event_name = 'enter'
-                                              AND created_at >= NOW() - INTERVAL '24 hours') AS openers_24h,
-       COUNT(DISTINCT line_user_id) FILTER (WHERE event_name = 'enter'
-                                              AND created_at >= NOW() - INTERVAL '7 days')   AS openers_7d,
-       MIN(created_at) FILTER (WHERE event_name = 'enter') AS first_open_at,
-       MAX(created_at) FILTER (WHERE event_name = 'enter') AS last_open_at
-     FROM activity_user_events
-     WHERE activity_id = $1 AND ${rangeCond(2, 3)}`,
+    `WITH ranged_events AS (
+       SELECT line_user_id, event_name, created_at
+         FROM activity_user_events
+        WHERE activity_id = $1 AND ${rangeCond(2, 3)}
+     ),
+     cohort AS (
+       SELECT DISTINCT line_user_id
+         FROM ranged_events
+        WHERE event_name = 'enter' AND line_user_id IS NOT NULL
+     )
+     SELECT
+       COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'enter')    AS openers,
+       COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'start')    AS starters,
+       COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'complete') AS completers,
+       COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'share')    AS sharers,
+       COUNT(*)                       FILTER (WHERE e.event_name = 'share')    AS shares,
+       COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'enter'
+                                                AND e.created_at >= NOW() - INTERVAL '24 hours') AS openers_24h,
+       COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'enter'
+                                                AND e.created_at >= NOW() - INTERVAL '7 days')   AS openers_7d,
+       MIN(e.created_at) FILTER (WHERE e.event_name = 'enter') AS first_open_at,
+       MAX(e.created_at) FILTER (WHERE e.event_name = 'enter') AS last_open_at
+       FROM ranged_events e
+       JOIN cohort c ON c.line_user_id = e.line_user_id`,
     [id, from, to]
   );
   const r = rows[0] || {};
   // 趨勢：範圍內每天；範圍太長只取最後 92 天，避免圖表擠爆
   const { rows: trendRows } = await query(
-    `SELECT (created_at AT TIME ZONE 'Asia/Taipei')::date AS day,
-            COUNT(DISTINCT line_user_id) FILTER (WHERE event_name = 'enter')    AS openers,
-            COUNT(DISTINCT line_user_id) FILTER (WHERE event_name = 'complete') AS completers,
-            COUNT(DISTINCT line_user_id) FILTER (WHERE event_name = 'share')    AS sharers
-       FROM activity_user_events
-      WHERE activity_id = $1 AND ${rangeCond(2, 3)}
+    `WITH ranged_events AS (
+       SELECT line_user_id, event_name, created_at
+         FROM activity_user_events
+        WHERE activity_id = $1 AND ${rangeCond(2, 3)}
+     ),
+     cohort AS (
+       SELECT DISTINCT line_user_id
+         FROM ranged_events
+        WHERE event_name = 'enter' AND line_user_id IS NOT NULL
+     )
+     SELECT (e.created_at AT TIME ZONE 'Asia/Taipei')::date AS day,
+            COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'enter')    AS openers,
+            COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'complete') AS completers,
+            COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'share')    AS sharers
+       FROM ranged_events e
+       JOIN cohort c ON c.line_user_id = e.line_user_id
       GROUP BY 1
       ORDER BY 1 DESC
       LIMIT $4`,

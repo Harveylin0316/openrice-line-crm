@@ -32,11 +32,13 @@ function pct(n, d) {
 }
 
 function stepsWithRates(r) {
+  const cohortTotal = Number(r.cohort_total || 0);
   const opened = Number(r.opened || 0);
   const shown = Number(r.shown || 0);
   const copied = Number(r.copied || 0);
   const redeemed = Number(r.redeemed || 0);
   return {
+    cohort_total: cohortTotal,
     opened,
     shown,
     out_of_stock: Number(r.out_of_stock || 0),
@@ -114,17 +116,18 @@ async function loadClaimFunnel(query, activityId, opts = {}) {
          ) u ON TRUE
      )
      SELECT seg,
-            COUNT(*)::int AS opened,
-            COUNT(*) FILTER (WHERE shown)::int AS shown,
-            COUNT(*) FILTER (WHERE tried AND NOT shown)::int AS out_of_stock,
-            COUNT(*) FILTER (WHERE shown AND copied)::int AS copied,
-            COUNT(*) FILTER (WHERE shown AND redeemed)::int AS redeemed,
+            COUNT(*)::int AS cohort_total,
+            COUNT(*) FILTER (WHERE matured)::int AS opened,
+            COUNT(*) FILTER (WHERE matured AND shown)::int AS shown,
+            COUNT(*) FILTER (WHERE matured AND tried AND NOT shown)::int AS out_of_stock,
+            COUNT(*) FILTER (WHERE matured AND shown AND copied)::int AS copied,
+            COUNT(*) FILTER (WHERE matured AND shown AND redeemed)::int AS redeemed,
             COUNT(*) FILTER (WHERE matured)::int AS matured
        FROM tagged
       GROUP BY seg`,
     [Number(activityId), from, to, windowDays, cutoff]
   );
-  const zero = { opened: 0, shown: 0, out_of_stock: 0, copied: 0, redeemed: 0, matured: 0 };
+  const zero = { cohort_total: 0, opened: 0, shown: 0, out_of_stock: 0, copied: 0, redeemed: 0, matured: 0 };
   const by = { existing: { ...zero }, new: { ...zero }, unknown: { ...zero } };
   rows.forEach(r => { if (by[r.seg]) by[r.seg] = r; });
   const all = Object.keys(zero).reduce((acc, k) => {

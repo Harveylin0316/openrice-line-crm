@@ -44,10 +44,10 @@ const TESTERS = { ok: true, testers: [
 ] };
 const CLAIM_FUNNEL = {
   cutoff: '2026-09-01', window_days: 7,
-  all: { opened: 10, shown: 8, out_of_stock: 1, copied: 5, redeemed: 3, matured: 7, shown_rate: 80, copied_rate: 50, redeemed_rate: 30 },
-  existing: { opened: 6, shown: 5, out_of_stock: 0, copied: 3, redeemed: 2, matured: 6, shown_rate: 83.3, copied_rate: 50, redeemed_rate: 33.3 },
-  new: { opened: 4, shown: 3, out_of_stock: 1, copied: 2, redeemed: 1, matured: 1, shown_rate: 75, copied_rate: 50, redeemed_rate: 25 },
-  unknown: { opened: 0, shown: 0, out_of_stock: 0, copied: 0, redeemed: 0, matured: 0 }
+  all: { cohort_total: 10, opened: 7, shown: 6, out_of_stock: 0, copied: 4, redeemed: 2, matured: 7, shown_rate: 85.7, copied_rate: 57.1, redeemed_rate: 28.6 },
+  existing: { cohort_total: 6, opened: 6, shown: 5, out_of_stock: 0, copied: 3, redeemed: 2, matured: 6, shown_rate: 83.3, copied_rate: 50, redeemed_rate: 33.3 },
+  new: { cohort_total: 4, opened: 1, shown: 1, out_of_stock: 0, copied: 1, redeemed: 0, matured: 1, shown_rate: 100, copied_rate: 100, redeemed_rate: 0 },
+  unknown: { cohort_total: 0, opened: 0, shown: 0, out_of_stock: 0, copied: 0, redeemed: 0, matured: 0 }
 };
 
 test('每一個標了 data-metric 的指標都有定義（輪盤頁、領券頁、活動列表），並產生定義表', async () => {
@@ -101,11 +101,12 @@ test('領券活動：顯示領券成效（全部／既有好友／新好友、�
   const heads = [...doc.querySelectorAll('#claim-table thead th')].map(th => th.textContent.replace('?', ''));
   assert.deepEqual(heads, ['步驟', '全部', '既有好友', '新好友']);   // 未知 0 人不顯示
   const rows = [...doc.querySelectorAll('#claim-table tbody tr')].map(tr => tr.querySelector('td').textContent.replace('?', ''));
-  assert.deepEqual(rows, ['開啟畫面', '顯示序號', '複製序號', '前往兌換', '序號發完']);
+  assert.deepEqual(rows, ['開啟畫面（已滿觀察期）', '顯示序號', '複製序號', '前往兌換', '序號發完']);
   const redeemAll = doc.querySelectorAll('#claim-table tbody tr')[3].querySelectorAll('td')[1].textContent;
-  assert.match(redeemAll, /^3\s*30%/);
+  assert.match(redeemAll, /^2\s*28.6%/);
   assert.match(doc.getElementById('claim-foot').textContent, /2026-09-01 前加入/);
   assert.match(doc.getElementById('claim-foot').textContent, /3 人.*觀察期未滿/);
+  assert.match(doc.getElementById('claim-foot').textContent, /百分比只用已滿觀察期的人計算/);
   // 觀察期、分界日一起帶進查詢
   const playersCall = calls.find(c => /\/players/.test(c.u));
   assert.match(playersCall.u, /window=7/);
@@ -115,6 +116,25 @@ test('領券活動：顯示領券成效（全部／既有好友／新好友、�
   await wait(30);
   assert.match(calls.filter(c => /\/players/.test(c.u)).pop().u, /window=14/);
   dom.window.close();
+});
+
+test('領券成效只用已滿觀察期的 cohort 計算步驟與轉換率', async () => {
+  const { loadClaimFunnel } = require('../src/core/claimFunnel');
+  let sql = '';
+  const result = await loadClaimFunnel(async (statement) => {
+    sql = String(statement).replace(/\s+/g, ' ');
+    return { rows: [{
+      seg: 'new', cohort_total: 10, opened: 7, shown: 6,
+      out_of_stock: 0, copied: 4, redeemed: 2, matured: 7
+    }] };
+  }, 9, { windowDays: 7 });
+  assert.match(sql, /COUNT\(\*\) FILTER \(WHERE matured\)::int AS opened/);
+  assert.match(sql, /COUNT\(\*\) FILTER \(WHERE matured AND shown\)::int AS shown/);
+  assert.equal(result.all.cohort_total, 10);
+  assert.equal(result.all.opened, 7);
+  assert.equal(result.all.shown_rate, 85.7);
+  assert.equal(result.all.copied_rate, 57.1);
+  assert.equal(result.all.redeemed_rate, 28.6);
 });
 
 test('非領券活動不顯示領券成效，也不帶觀察期參數', async () => {
@@ -162,6 +182,25 @@ test('重置只接受測試人員名單上的帳號；交易失敗會回滾', as
   assert.ok(sqls.includes('ROLLBACK'));
   assert.ok(!sqls.some(s => s.startsWith('DELETE')), '不在名單上就不能刪任何東西');
   await assert.rejects(resetTesterInActivity({ connect: async () => client }, 9, 'bad'), (e) => e.code === 'bad_uid');
+});
+
+test('破壞性的測試帳號重置端點只能由 owner 執行', () => {
+  const { registerAdminActivitiesRoutes } = require('../src/routes/adminActivities');
+  const routes = {};
+  const app = ['get', 'post', 'put', 'delete'].reduce((out, method) => {
+    out[method] = (route, ...handlers) => { routes[method.toUpperCase() + ' ' + route] = handlers; };
+    return out;
+  }, {});
+  const requireAdmin = function requireAdmin(_req, _res, next) { next(); };
+  const requireOwner = function requireOwner(_req, _res, next) { next(); };
+  registerAdminActivitiesRoutes(app, {
+    query: async () => ({ rows: [] }),
+    pool: { connect: async () => ({ query: async () => ({ rows: [], rowCount: 0 }), release() {} }) },
+    authCore: { requireAdmin, requireOwner }
+  });
+  const handlers = routes['POST /admin/activities/api/:id(\\d+)/testers/reset'];
+  assert.ok(handlers);
+  assert.equal(handlers[0], requireOwner);
 });
 
 test('邀請判定：兩個測試帳號互邀一律算新好友；有一方不是測試帳號就照一般規則', async () => {

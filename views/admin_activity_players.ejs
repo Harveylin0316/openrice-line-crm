@@ -229,6 +229,7 @@
     (function () {
       var activityId = ${activity.id};
       var isClaim = ${JSON.stringify(activity.game_type === 'claim')};
+      var canResetTesters = ${JSON.stringify(Boolean(isAdmin))};
       // 名單預設名稱用：原始活動名（JSON 編碼，前端只放進 prompt 與 JSON body，不進 innerHTML）
       var activityNameRaw = ${JSON.stringify(String(activity.name == null ? '' : activity.name)).replace(/</g, '\\u003c')};
       var allPlayers = [];
@@ -714,7 +715,7 @@
         var cols = [['all', '全部', null], ['existing', '既有好友', 'cl_existing'], ['new', '新好友', 'cl_new']];
         if (f.unknown && f.unknown.opened > 0) cols.push(['unknown', '未知', 'cl_unknown']);
         var rows = [
-          ['opened', '開啟畫面', 'cl_open', false, ''],
+          ['opened', '開啟畫面（已滿觀察期）', 'cl_open', false, ''],
           ['shown', '顯示序號', 'cl_shown', true, ''],
           ['copied', '複製序號', 'cl_copy', true, ''],
           ['redeemed', '前往兌換', 'cl_redeem', true, ''],
@@ -727,9 +728,12 @@
             cols.map(function (c) { return claimCell(f[c[0]], r[0], r[3]); }).join('') + '</tr>';
         }).join('') + '</tbody>';
         var all = f.all || {};
-        var immature = Math.max(0, Number(all.opened || 0) - Number(all.matured || 0));
-        foot.innerHTML = '百分比為<span data-metric="cl_rate">對開啟 %</span>。既有好友＝' + esc(f.cutoff) + ' 前加入。' +
-          (immature ? '其中 ' + fmt(immature) + ' 人<span data-metric="cl_immature">觀察期未滿</span>。' : '');
+        var cohortTotal = Number(all.cohort_total != null ? all.cohort_total : all.opened || 0);
+        var matured = Number(all.matured != null ? all.matured : all.opened || 0);
+        var immature = Math.max(0, cohortTotal - matured);
+        foot.innerHTML = '本批共 ' + fmt(cohortTotal) + ' 人；已滿觀察期 ' + fmt(matured) + ' 人' +
+          (immature ? '，另有 ' + fmt(immature) + ' 人<span data-metric="cl_immature">觀察期未滿</span>' : '') +
+          '。百分比只用已滿觀察期的人計算，為<span data-metric="cl_rate">對開啟 %</span>。既有好友＝' + esc(f.cutoff) + ' 前加入。';
       }
       if (isClaim) {
         document.getElementById('cf-window').addEventListener('change', function () { load(); });
@@ -744,7 +748,7 @@
           .then(function (d) {
             if (!d.ok) { box.textContent = '讀不到測試帳號：' + (d.detail || d.error || ''); return; }
             var list = d.testers || [];
-            document.getElementById('tester-reset-all').hidden = list.length < 2;
+            document.getElementById('tester-reset-all').hidden = !canResetTesters || list.length < 2;
             if (!list.length) {
               box.innerHTML = '<p class="tester-empty">還沒有測試帳號。到 <a href="/admin/broadcast">群發</a> 的「測試人員」加入 LINE 帳號（在官方帳號輸入 /whatsmyid 可查自己的 ID）。</p>';
               return;
@@ -754,7 +758,7 @@
               return '<div class="tester-row" data-i="' + i + '">' +
                 '<div class="who"><b>' + esc(t.label || '測試帳號') + '</b><code>' + esc(t.line_user_id) + '</code></div>' +
                 '<div class="nums"><span data-metric="ts_plays"><b>' + fmt(t.plays) + '</b>次抽獎</span><span data-metric="ts_invites"><b>' + fmt(t.new_friend_invites) + '</b>位成功邀請</span><span data-metric="ts_bonus"><b>' + fmt(t.bonus_plays) + '</b>次加碼</span></div>' +
-                '<button type="button" data-reset="' + esc(t.line_user_id) + '">重置</button>' +
+                (canResetTesters ? '<button type="button" data-reset="' + esc(t.line_user_id) + '">重置</button>' : '') +
                 '<div class="msg" hidden></div>' +
               '</div>';
             }).join('');

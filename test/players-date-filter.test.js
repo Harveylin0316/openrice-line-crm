@@ -102,6 +102,9 @@ test('開啟成效：有範圍時查範圍內並回傳 ranged；沒範圍維持�
   const f = await loadActivityFunnel(q, 6, { from: '2026-09-01', to: '2026-09-02' });
   assert.equal(f.ranged, true);
   assert.deepEqual(calls[0].params, [6, '2026-09-01', '2026-09-02']);
+  assert.match(calls[0].sql, /WITH ranged_events AS/);
+  assert.match(calls[0].sql, /cohort AS/);
+  assert.match(calls[0].sql, /JOIN cohort c ON c\.line_user_id = e\.line_user_id/);
   calls.length = 0;
   const g = await loadActivityFunnel(q, 6, null);
   assert.equal(g.ranged, undefined);

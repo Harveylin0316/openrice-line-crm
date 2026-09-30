@@ -420,7 +420,7 @@ function registerAdminActivitiesRoutes(app, deps) {
       res.status(500).json({ ok: false, error: 'testers_failed', detail: err && err.message });
     }
   });
-  app.post('/admin/activities/api/:id(\\d+)/testers/reset', requireAdmin, async (req, res) => {
+  app.post('/admin/activities/api/:id(\\d+)/testers/reset', requireOwner, async (req, res) => {
     const { listTesters, resetTesterInActivity } = require('../core/activityTesters');
     const id = Number(req.params.id);
     const body = req.body || {};
