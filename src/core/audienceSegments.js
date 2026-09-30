@@ -71,6 +71,13 @@ function cleanCondition(raw) {
     if (!Number.isInteger(n) || n < 1 || n > 10000) throw new Error('成功邀請次數需為 1–10000');
     return { type, mode, value: n };
   }
+  if (type === 'booking_source') {
+    // 值是來源代號（openrice、google…），和群發「訂位來源」、webhook 記錄的 source_key 同一套；
+    // 用句型解析寫入的，所以日後新增來源（例：「透過 Uber Eats 訂位」）不需改程式。
+    const key = String(value == null ? '' : value).trim().toLowerCase().replace(/\s+/g, '');
+    if (!key || key.length > 40) throw new Error('請選擇訂位來源');
+    return { type, mode, value: key };
+  }
   if (type === 'reward_status') {
     const v = String(value || 'obtained');
     if (!['obtained', 'unclaimed', 'claimed'].includes(v)) throw new Error('獎勵狀態錯誤');
@@ -84,7 +91,7 @@ const CONDITION_TYPES = new Set([
   'rich_menu_button', 'liff_event', 'activity', 'invite_count', 'reward_status', 'line_login',
   'activity_enter', 'activity_start', 'activity_complete', 'activity_share', 'successful_invite',
   'follow_event', 'block_event', 'unblock_event',
-  'booking_confirmed', 'booking_cancelled',
+  'booking_confirmed', 'booking_cancelled', 'booking_source', 'booking_source_answered',
   'app_registration', 'broadcast_sent', 'broadcast_delivered', 'broadcast_opened', 'broadcast_clicked', 'broadcast_tested', 'broadcast_converted'
 ]);
 
@@ -125,6 +132,9 @@ function compileAudience(definition, options = {}) {
       case 'line_login': sql = `EXISTS (SELECT 1 FROM liff_token_probe lp WHERE lp.verified_sub=u.line_user_id AND lp.verified=true)`; break;
       case 'app_registration': sql = `EXISTS (SELECT 1 FROM campaign_phone_registrations pr WHERE pr.line_user_id = u.line_user_id)`; break;
       case 'booking_confirmed': sql = `EXISTS (SELECT 1 FROM gold_pig_bookings gb WHERE gb.line_user_id=u.line_user_id AND gb.status='confirmed')`; break;
+      // 訂位來源：只看每人「最新一次」回答（member_booking_source 每人一筆），與首頁統計、群發條件同一口徑
+      case 'booking_source': sql = `EXISTS (SELECT 1 FROM member_booking_source bs WHERE bs.line_user_id=u.line_user_id AND bs.source_key=${add(c.value)}::text)`; break;
+      case 'booking_source_answered': sql = `EXISTS (SELECT 1 FROM member_booking_source bs WHERE bs.line_user_id=u.line_user_id)`; break;
       case 'booking_cancelled': sql = `EXISTS (SELECT 1 FROM gold_pig_bookings gb WHERE gb.line_user_id=u.line_user_id AND gb.status IN ('cancellation_requested','cancelled'))`; break;
       case 'broadcast_sent': sql = `EXISTS (SELECT 1 FROM admin_broadcast_recipients br WHERE br.line_user_id = u.line_user_id AND br.broadcast_id = ${add(c.value)} AND br.status = 'sent')`; break;
       case 'broadcast_delivered': sql = `EXISTS (SELECT 1 FROM admin_broadcast_recipients br WHERE br.line_user_id=u.line_user_id AND br.broadcast_id=${add(c.value)} AND br.delivered_at IS NOT NULL)`; break;

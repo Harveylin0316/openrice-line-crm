@@ -96,6 +96,17 @@ function registerAdminRecipientListsRoutes(app, deps) {
 
   app.get('/admin/recipient-lists/api/catalog', requireAdmin, async (_req, res) => {
     try {
+      // 訂位來源選項從實際回答整理（新來源自動出現）；讀不到時仍給 OpenRice／Google 兩個基本選項
+      const bookingSources = await query(
+        `SELECT source_key AS id, MAX(source_label) AS label, COUNT(*)::int AS people
+           FROM member_booking_source
+          WHERE source_key IS NOT NULL AND source_key <> ''
+          GROUP BY source_key
+          ORDER BY COUNT(*) DESC, source_key ASC
+          LIMIT 50`
+      ).then(r => r.rows).catch(err => { console.error('catalog booking sources failed:', err && err.message); return []; });
+      const knownSources = [{ id: 'openrice', label: 'OpenRice', people: null }, { id: 'google', label: 'Google', people: null }];
+      knownSources.forEach(k => { if (!bookingSources.some(b => b.id === k.id)) bookingSources.push(k); });
       const [tags, activities, menus, broadcasts] = await Promise.all([
         query(`SELECT id, name FROM user_tags ORDER BY name`),
         query(`SELECT id, name FROM activities ORDER BY id DESC LIMIT 100`),
@@ -105,7 +116,11 @@ function registerAdminRecipientListsRoutes(app, deps) {
                       created_at FROM admin_broadcasts ORDER BY id DESC LIMIT 100`)
       ]);
       return res.json({ ok: true, tags: tags.rows, activities: activities.rows,
-        menus: buildRichMenuCatalog(menus.rows), broadcasts: broadcasts.rows });
+        menus: buildRichMenuCatalog(menus.rows), broadcasts: broadcasts.rows,
+        booking_sources: bookingSources.map(b => ({
+          id: b.id,
+          name: '透過 ' + (b.label || b.id) + (b.people != null ? '（' + Number(b.people).toLocaleString('zh-Hant-TW') + ' 人回答）' : '')
+        })) });
     } catch (err) {
       return safeJson(res, 500, 'catalog_failed', { detail: err && err.message });
     }
