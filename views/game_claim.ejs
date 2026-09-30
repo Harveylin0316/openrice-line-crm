@@ -7,6 +7,7 @@
   <meta name="theme-color" content="#211713" media="(prefers-color-scheme: dark)" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="/games-mgm.js?v=20260924a"></script>
   <style>
     /* ── 領取優惠券頁（claim）─────────────────────────────────────
        設計準據：openrice-line-oa-powerbank-flow-v1.png 設計板第三屏。
@@ -564,7 +565,11 @@
         } catch (e) { /* 舊 webview 沒有 URL/replaceState 就算了 */ }
         try { await liff.init({ liffId: liffId }); }
         catch (e) { throw new Error('LIFF 初始化失敗'); }
-        if (!liff.isInClient()) throw new Error('請在 LINE App 內打開');
+        if (!liff.isInClient()) {
+          var notInLine = new Error('請在 LINE App 內打開');
+          notInLine.code = 'not_in_line';
+          throw notInLine;
+        }
         if (!liff.isLoggedIn()) { liff.login(); return new Promise(function(){}); }
         profile = await liff.getProfile();
         try { idToken = liff.getIDToken(); } catch (e) {}
@@ -575,7 +580,15 @@
         renderExpiry();
         var mode;
         try { mode = await initLiff(); }
-        catch (e) { showError(TXT.err_title, e && e.message); return; }
+        catch (e) {
+          // 電腦／手機瀏覽器打開：給「用 LINE 繼續」的下一步，而不是只顯示錯誤
+          if (e && e.code === 'not_in_line' && window.ORMGM && ORMGM.openInLine) {
+            hide('st-loading'); hide('ticket'); hide('info-link-wrap'); hide('foot-art');
+            if (ORMGM.openInLine({ gameType: 'claim', slug: slug, liffId: liffId, mountAfter: $('st-error') })) return;
+          }
+          showError(TXT.err_title, e && e.message);
+          return;
+        }
 
         if (mode === 'demo') {
           // 純視覺展示：?demo=1 看已領取、?demo=1&pane=claim 看未領取、&pane=oos 看發完

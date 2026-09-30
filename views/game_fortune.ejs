@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#FFFBEB" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="/games-mgm.js?v=20260904a"></script>
+  <script src="/games-mgm.js?v=20260924a"></script>
   <style>
     :root {
       --bg:         #FAFAFA;
@@ -689,7 +689,11 @@
         } catch (e) { /* 舊 webview 沒有 URL/replaceState 就算了，只是多一次導頁 */ }
         try { await liff.init({ liffId: liffId }); }
         catch (e) { throw new Error('LIFF 初始化失敗'); }
-        if (!liff.isInClient()) throw new Error('請在 LINE App 內打開');
+        if (!liff.isInClient()) {
+          var notInLine = new Error('請在 LINE App 內打開');
+          notInLine.code = 'not_in_line';
+          throw notInLine;
+        }
         if (!liff.isLoggedIn()) { liff.login(); return new Promise(function () {}); }
         profile = await liff.getProfile();
         try { idToken = liff.getIDToken(); } catch (e) {}
@@ -996,7 +1000,11 @@
             statusEl.innerHTML = '哈囉，<span class="name">' + (profile.displayName || '') + '</span>';
           }
         } catch (e) {
-          statusEl.textContent = e.message || '初始化失敗';
+          var oil = (e && e.code === 'not_in_line' && window.ORMGM && ORMGM.openInLine)
+            ? ORMGM.openInLine({ gameType: 'fortune', slug: slug, liffId: liffId, mountAfter: document.getElementById('status-row'), desktopMountAfter: document.querySelector('section.hero') })
+            : null;
+          if (oil) document.getElementById('status-row').style.display = 'none';   // .status-row 是 display:flex，hidden 蓋不掉
+          else statusEl.textContent = e.message || '初始化失敗';
         }
       })();
     })();

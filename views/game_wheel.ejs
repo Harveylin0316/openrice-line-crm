@@ -97,7 +97,7 @@
   <meta name="theme-color" content="#F9C73B" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="/games-mgm.js?v=20260904a"></script>
+  <script src="/games-mgm.js?v=20260924a"></script>
   <style>
     /* ── OpenRice 九月轉盤 ─────────────────────────────────────────
        設計準據：openrice-september-wheel-ready-state-v1.png
@@ -861,7 +861,11 @@
         } catch (e) { /* 舊 webview 沒有 URL/replaceState 就算了，只是多一次導頁 */ }
         try { await liff.init({ liffId: liffId }); }
         catch (e) { throw new Error('LIFF 初始化失敗'); }
-        if (!liff.isInClient()) throw new Error('請在 LINE App 內打開');
+        if (!liff.isInClient()) {
+          var notInLine = new Error('請在 LINE App 內打開');
+          notInLine.code = 'not_in_line';
+          throw notInLine;
+        }
         if (!liff.isLoggedIn()) {
           liff.login();
           return new Promise(function () {});
@@ -1279,7 +1283,18 @@
             setGreeting(profile.displayName || '');
           }
         } catch (e) {
-          statusEl.textContent = e.message || '初始化失敗';
+          // 電腦或手機瀏覽器打開：不要只丟一句話就停住，給「用 LINE 繼續」的下一步
+          var oil = (e && e.code === 'not_in_line' && window.ORMGM && ORMGM.openInLine)
+            ? ORMGM.openInLine({ gameType: 'wheel', slug: slug, liffId: liffId, mountAfter: document.getElementById('status-row'), desktopMountAfter: document.querySelector('section.hero') })
+            : null;
+          if (oil) {
+            // 卡片本身就說明了下一步，狀態列與按不了的主按鈕都收起來
+            var statusRowEl = document.getElementById('status-row');
+            if (statusRowEl) statusRowEl.hidden = true;
+            if (ctaBtn) ctaBtn.hidden = true;
+          } else {
+            statusEl.textContent = e.message || '初始化失敗';
+          }
         }
       })();
 

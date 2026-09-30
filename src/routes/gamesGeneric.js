@@ -27,6 +27,17 @@ function bearerToken(req) {
   return h.startsWith('Bearer ') ? h.slice(7).trim() : '';
 }
 
+const QRCode = require('qrcode');
+
+/**
+ * 活動的 LIFF 連結（跟分享邀請用的是同一個格式）；ref 必須是合法 LINE userId 才帶上。
+ * 電腦／手機瀏覽器打開活動時，用這個連結讓用戶回到 LINE 裡繼續，邀請碼不會掉。
+ */
+function buildOpenInLineUrl(liffId, gameType, slug, ref) {
+  const base = 'https://liff.line.me/' + encodeURIComponent(String(liffId)) + '/' + gameType + '/' + encodeURIComponent(String(slug));
+  return /^U[0-9a-f]{32}$/i.test(String(ref || '')) ? base + '?ref=' + encodeURIComponent(ref) : base;
+}
+
 function registerGameType(app, deps, opts) {
   const { query, pool, flowEngine } = deps;
   const { gameType, viewName, defaultLiffId } = opts;
@@ -73,6 +84,31 @@ function registerGameType(app, deps, opts) {
     if (!matches) return { pass: false, reject: { status: 403, code: 'identity_mismatch', detail: '身分不符，無法進行。' } };
     return { pass: true, verifiedSub: v.sub };
   }
+
+  // ----- 不在 LINE 裡打開時的「用 LINE 繼續」QR Code -----
+  // 只會編碼「這個活動自己的 LIFF 連結」（+ 合法 ref），不接受任意網址，不能被拿去當 QR 產生器。
+  app.get('/api/games/' + gameType + '/:slug/open-in-line.svg', async (req, res) => {
+    try {
+      const slug = String(req.params.slug || '').trim();
+      const { rows } = await query(
+        `SELECT slug, game_type, liff_id_override FROM activities WHERE slug = $1 LIMIT 1`,
+        [slug]
+      );
+      if (rows.length === 0 || rows[0].game_type !== gameType) return res.status(404).type('text/plain').send('Not found');
+      const liffId = (rows[0].liff_id_override && rows[0].liff_id_override.trim()) || defaultLiffId;
+      if (!liffId) return res.status(404).type('text/plain').send('Not found');
+      const ref = String(req.query.ref || '').trim();
+      const url = buildOpenInLineUrl(liffId, gameType, rows[0].slug, ref);
+      const svg = await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0F0F10', light: '#FFFFFF' } });
+      res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      return res.status(200).send(svg);
+    } catch (err) {
+      console.error(gameType + ' open-in-line qr error:', err && err.message);
+      return res.status(500).type('text/plain').send('Server error');
+    }
+  });
 
   // ----- 頁面 -----
   app.get('/games/' + gameType + '/:slug', async (req, res) => {
@@ -391,4 +427,4 @@ function registerWalletApi(app, deps) {
   });
 }
 
-module.exports = { registerGameType, registerWalletApi };
+module.exports = { registerGameType, registerWalletApi, buildOpenInLineUrl };

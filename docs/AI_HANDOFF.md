@@ -387,6 +387,32 @@ route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-pl
   兩格仍以現在往回算。玩家清單的 plays/wins 是範圍內，但剩餘次數用整檔 `plays_all` 算，不能用範圍內次數。
   有範圍時不列「有配額但沒玩過」的人。範圍寫在網址上可分享。回歸測試 `test/players-date-filter.test.js`。
 
+#### 活動頁不在 LINE 裡打開（2026-09-24）
+
+輪盤、刮刮樂、拉霸、抽籤、領取優惠券頁在 `liff.isInClient()` 為 false 時，以前只顯示「請在 LINE App 內打開」
+就停住。現在 `initLiff()` 丟 `code='not_in_line'`，頁面改呼叫共用的 `ORMGM.openInLine()`（`public/games-mgm.js`）：
+
+- 電腦：卡片放在頁首介紹正下方，卡片之後的遊戲本體（輪盤、刮卡、狀態列、按鈕、獎項、邀請區）全部收起，
+  只留頁首＋卡片。文案：LINE 好友限定／請開啟手機版 LINE 遊玩／掃描 QR Code 前往 LINE／三步驟
+  （開啟手機 LINE、點搜尋列旁的掃描圖示、對準 QR Code）／複製連結。QR 由
+  `GET /api/games/<type>/<slug>/open-in-line.svg` 產生（`qrcode` 套件）。
+- 手機瀏覽器（Safari／Chrome 直接開網址）：狀態列下方卡片「請開啟手機版 LINE 遊玩／點擊下方按鈕前往 LINE／
+  立即前往／沒有跳到 LINE？複製連結」。實務上點 LIFF 連結會直接進 LINE，這張卡只在直接開網址時出現。
+- 有合法 `?ref=` 時卡片顯示「好友邀請資格將自動保留」，QR 與按鈕都帶 ref（`buildOpenInLineUrl()`）。
+  端點只編碼活動自己的 LIFF 連結（含 `liff_id_override`），不接受任意網址。
+- 不在 LINE 時絕不呼叫遊戲 API，也不 `liff.login()`（維持只在 LINE 內玩的既有決定）。
+- 拉霸／抽籤的 `.status-row` 是 `display:flex`，`hidden` 蓋不掉，要用 inline `display:none`。
+- `mgm_share.ejs`（MGM 揪友頁）沒改。新增依賴 `qrcode`（純 JS，esbuild 可打包）。
+回歸測試 `test/open-in-line.test.js`。
+
+#### 名單庫：訂位來源受眾（2026-09-24）
+
+動態名單新增兩個條件：`booking_source`（值為來源代號 openrice／google／…）與 `booking_source_answered`。
+都查 `member_booking_source`（每人只留最新一次問卷回答），與首頁「訂位來源」統計、群發「訂位來源」條件同一口徑；
+改過答案的人只算最新來源。`/admin/recipient-lists/api/catalog` 回 `booking_sources`（從實際回答整理，
+附回答人數，並固定補上 OpenRice／Google），新來源自動出現。這是問卷答案，不是實際訂位管道。
+已用真 PostgreSQL 驗證。回歸測試 `test/recipient-list-booking-source.test.js`。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
