@@ -136,14 +136,14 @@ test('匯出名單：剛好抽 N 次／抽 N 次以上，用同一個「實際�
   assert.equal(r1.body.ok, true, JSON.stringify(r1.body));
   assert.equal(r1.body.total, 2);
   assert.match(seen[0].sql, /draw_win/);
-  assert.match(seen[0].sql, /WHERE n = \$2/);
-  assert.deepEqual(seen[0].params, [6, 2]);
+  assert.match(seen[0].sql, /WHERE n = \$4/);
+  assert.deepEqual(seen[0].params, [6, null, null, 2]);
   assert.equal(inserted.members.length, 2);
 
   const r2 = res();
   await handler[handler.length - 1]({ params: { id: '6' }, body: { name: '5 抽以上', filter: 'plays_gte', plays: 5 }, authUser: { un: 'admin' } }, r2);
-  assert.match(seen[1].sql, /WHERE n >= \$2/);
-  assert.deepEqual(seen[1].params, [6, 5]);
+  assert.match(seen[1].sql, /WHERE n >= \$4/);
+  assert.deepEqual(seen[1].params, [6, null, null, 5]);
 
   const bad = res();
   await handler[handler.length - 1]({ params: { id: '6' }, body: { name: 'x', filter: 'plays_eq', plays: 0 }, authUser: { un: 'admin' } }, bad);

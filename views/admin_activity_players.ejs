@@ -18,11 +18,27 @@
           · 基礎 ${activity.base_plays_per_user} 次 / 邀請 +${activity.referral_bonus_per} × ${activity.referral_bonus_max} 上限
         </div>
       </div>
+      <div class="date-filter" id="date-filter">
+        <div class="date-filter-presets" role="group" aria-label="時間範圍">
+          <button type="button" data-range="all" class="active">全部期間</button>
+          <button type="button" data-range="today">今天</button>
+          <button type="button" data-range="yesterday">昨天</button>
+          <button type="button" data-range="7d">近 7 天</button>
+          <button type="button" data-range="30d">近 30 天</button>
+          <button type="button" data-range="custom">自訂</button>
+        </div>
+        <div class="date-filter-custom" id="date-filter-custom" hidden>
+          <label>從 <input type="date" id="df-from" /></label>
+          <label>到 <input type="date" id="df-to" /></label>
+          <button type="button" id="df-apply">套用</button>
+        </div>
+        <div class="date-filter-note muted" id="date-filter-note">目前看的是：全部期間</div>
+      </div>
     </section>
 
     <section class="card">
       <div class="stats-grid">
-        <div class="stat-box"><div class="v" id="ov-plays">—</div><div class="k">總抽次</div></div>
+        <div class="stat-box"><div class="v" id="ov-plays">—</div><div class="k" id="ov-plays-k">總抽次</div></div>
         <div class="stat-box"><div class="v" id="ov-players">—</div><div class="k">獨立玩家</div></div>
         <div class="stat-box"><div class="v" id="ov-wins">—</div><div class="k">中獎次數</div></div>
         <div class="stat-box"><div class="v" id="ov-24h">—</div><div class="k">24 小時內</div></div>
@@ -202,12 +218,99 @@
         return uid.slice(0, 6) + '…' + uid.slice(-4);
       }
 
+      // ---- 時間篩選：台北曆日（含起訖）；預設全部期間 = 原本的畫面。範圍放在網址上，重新整理或分享連結都保留 ----
+      var currentRange = { key: 'all', from: null, to: null };
+      function taipeiToday() {
+        // en-CA 會輸出 YYYY-MM-DD
+        return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      }
+      function shiftDate(ymd, days) {
+        var d = new Date(ymd + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + days);
+        return d.toISOString().slice(0, 10);
+      }
+      function rangeForKey(key) {
+        var today = taipeiToday();
+        if (key === 'today') return { from: today, to: today };
+        if (key === 'yesterday') { var y = shiftDate(today, -1); return { from: y, to: y }; }
+        if (key === '7d') return { from: shiftDate(today, -6), to: today };
+        if (key === '30d') return { from: shiftDate(today, -29), to: today };
+        return { from: null, to: null };
+      }
+      function rangeLabel(r) {
+        if (!r.from && !r.to) return '全部期間';
+        if (r.from && r.to && r.from === r.to) return r.from;
+        return (r.from || '最早') + ' ～ ' + (r.to || '今天');
+      }
+      function rangeQuery() {
+        var parts = [];
+        if (currentRange.from) parts.push('from=' + encodeURIComponent(currentRange.from));
+        if (currentRange.to) parts.push('to=' + encodeURIComponent(currentRange.to));
+        return parts.join('&');
+      }
+      function setActivePreset(key) {
+        Array.prototype.forEach.call(document.querySelectorAll('[data-range]'), function (b) {
+          b.classList.toggle('active', b.getAttribute('data-range') === key);
+        });
+        document.getElementById('date-filter-custom').hidden = key !== 'custom';
+      }
+      function applyRange(key, from, to, skipUrl) {
+        currentRange = { key: key, from: from || null, to: to || null };
+        setActivePreset(key);
+        document.getElementById('df-from').value = currentRange.from || '';
+        document.getElementById('df-to').value = currentRange.to || '';
+        var label = rangeLabel(currentRange);
+        document.getElementById('date-filter-note').textContent = '目前看的是：' + label +
+          (currentRange.from || currentRange.to ? '（總覽、開啟成效、抽獎次數分布、玩家清單、建名單都只算這段期間；「24 小時內」「7 天內」固定以現在往回算）' : '');
+        document.getElementById('ov-plays-k').textContent = currentRange.from || currentRange.to ? '期間抽次' : '總抽次';
+        if (!skipUrl && window.history && window.history.replaceState) {
+          var q = rangeQuery();
+          window.history.replaceState(null, '', window.location.pathname + (q ? '?' + q : ''));
+        }
+        load();
+      }
+      Array.prototype.forEach.call(document.querySelectorAll('[data-range]'), function (btn) {
+        btn.addEventListener('click', function () {
+          var key = btn.getAttribute('data-range');
+          if (key === 'custom') {
+            setActivePreset('custom');
+            var t = taipeiToday();
+            if (!document.getElementById('df-from').value) document.getElementById('df-from').value = shiftDate(t, -6);
+            if (!document.getElementById('df-to').value) document.getElementById('df-to').value = t;
+            return;
+          }
+          var r = rangeForKey(key);
+          applyRange(key, r.from, r.to);
+        });
+      });
+      document.getElementById('df-apply').addEventListener('click', function () {
+        var from = document.getElementById('df-from').value;
+        var to = document.getElementById('df-to').value;
+        if (from && to && from > to) { alert('開始日期不能晚於結束日期'); return; }
+        applyRange('custom', from, to);
+      });
+      function initialRangeFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var ymd = function (v) { return v && v.length === 10 && !isNaN(new Date(v + 'T00:00:00Z').getTime()) ? v : null; };
+        var from = ymd(params.get('from'));
+        var to = ymd(params.get('to'));
+        if (!from && !to) return null;
+        var keys = ['today', 'yesterday', '7d', '30d'];
+        for (var i = 0; i < keys.length; i++) {
+          var r = rangeForKey(keys[i]);
+          if (r.from === from && r.to === to) return { key: keys[i], from: from, to: to };
+        }
+        return { key: 'custom', from: from, to: to };
+      }
+
       function load() {
-        fetch('/admin/activities/api/' + activityId + '/players')
+        var q = rangeQuery();
+        tbody.innerHTML = '<tr><td colspan="10" class="muted">載入中…</td></tr>';
+        fetch('/admin/activities/api/' + activityId + '/players' + (q ? '?' + q : ''))
           .then(function (r) { return r.json(); })
           .then(function (resp) {
             if (!resp.ok) {
-              tbody.innerHTML = '<tr><td colspan="10" class="muted">載入失敗</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="10" class="muted">載入失敗' + (resp.detail ? '：' + esc(resp.detail) : '') + '</td></tr>';
               return;
             }
             allPlayers = resp.players || [];
@@ -279,7 +382,8 @@
       function exportPlayBucket(bucket, btn) {
         var today = new Date();
         var stamp = (today.getMonth() + 1) + '/' + today.getDate();
-        var defaultName = activityNameRaw + '｜' + bucket.label + '（' + stamp + '）';
+        var periodTag = currentRange.from || currentRange.to ? '｜' + rangeLabel(currentRange) : '';
+        var defaultName = activityNameRaw + '｜' + bucket.label + periodTag + '（' + stamp + '）';
         var name = window.prompt('名單名稱（建立後可在群發選用）', defaultName);
         if (name == null) return;
         name = String(name).trim();
@@ -292,9 +396,11 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: name,
-            description: activityNameRaw + ' 抽獎次數 ' + bucket.label + '（' + today.toLocaleString('zh-Hant-TW') + ' 建立）',
+            description: activityNameRaw + ' 抽獎次數 ' + bucket.label + '｜期間 ' + rangeLabel(currentRange) + '（' + today.toLocaleString('zh-Hant-TW') + ' 建立）',
             filter: bucket.filter,
-            plays: bucket.plays
+            plays: bucket.plays,
+            from: currentRange.from,
+            to: currentRange.to
           })
         })
           .then(function (r) { return r.json(); })
@@ -328,7 +434,7 @@
           if (!rows.length) { trend.innerHTML = ''; }
           else {
             var max = Math.max.apply(null, rows.map(function (r) { return Number(r.openers) || 0; }).concat([1]));
-            trend.innerHTML = '<div class="funnel-trend-title">近 14 天每日開啟人數</div>' +
+            trend.innerHTML = '<div class="funnel-trend-title">' + (f.ranged ? '期間內每日開啟人數' : '近 14 天每日開啟人數') + '</div>' +
               '<div class="funnel-bars">' + rows.map(function (r) {
                 var h = Math.max(4, Math.round((Number(r.openers) || 0) / max * 60));
                 return '<div class="funnel-bar" title="' + esc(r.day) + '：開啟 ' + fmt(r.openers) + '／完成 ' + fmt(r.completers) + '／分享 ' + fmt(r.sharers) + '">' +
@@ -506,7 +612,7 @@
         fetch('/admin/activities/api/' + activityId + '/export-players-to-list', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name, description: desc, filter: filter, plays: Number(document.getElementById('ex-plays').value) || 1 })
+          body: JSON.stringify({ name: name, description: desc, filter: filter, plays: Number(document.getElementById('ex-plays').value) || 1, from: currentRange.from, to: currentRange.to })
         })
           .then(function (r) { return r.json(); })
           .then(function (d) {
@@ -552,7 +658,10 @@
           });
       });
 
-      load();
+      // 初次載入：網址有 from/to 就用；沒有就是全部期間（與原本相同）
+      var initRange = initialRangeFromUrl();
+      if (initRange) applyRange(initRange.key, initRange.from, initRange.to, true);
+      else load();
     })();
     </script>
 
@@ -582,6 +691,15 @@
       .stat-box .k { font-size: 11px; color: #6B6B70; margin-top: 4px; }
 
       .players-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .date-filter { margin-top: 14px; padding-top: 14px; border-top: 1px solid #ECECEE; display: grid; gap: 8px; }
+      .date-filter-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+      .date-filter-presets button { font-family: inherit; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid #E5E7EB; background: #fff; cursor: pointer; color: #374151; }
+      .date-filter-presets button.active { background: #FCC726; border-color: #E8B400; color: #0F0F10; font-weight: 700; }
+      .date-filter-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+      .date-filter-custom[hidden] { display: none; }
+      .date-filter-custom input { font-family: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid #E5E7EB; border-radius: 8px; }
+      .date-filter-custom button { font-family: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid #E8B400; background: #FFFBEB; cursor: pointer; }
+      .date-filter-note { font-size: 12px; }
       .play-dist-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
       .play-dist-cell { border: 1px solid #ECECEE; border-radius: 12px; padding: 12px 14px; background: #fff; display: flex; flex-direction: column; gap: 6px; }
       .play-dist-cell .k { font-size: 13px; font-weight: 700; color: #3F2C25; }

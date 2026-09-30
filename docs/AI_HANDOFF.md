@@ -380,6 +380,13 @@ route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-pl
 
 回歸測試：`test/share-card-and-play-distribution.test.js`。
 
+- 玩家數據時間篩選（全部期間／今天／昨天／近 7 天／近 30 天／自訂）：`GET .../players?from=&to=`，
+  台北曆日含起訖（`rangeSql()`：`>= from 00:00 台北` 且 `< (to+1) 00:00 台北`，已用真 PostgreSQL 驗過邊界）。
+  沒給就是全部期間，請求與畫面都跟原本一樣。有範圍時總覽、開啟成效（`loadActivityFunnel(q, id, range)`，
+  趨勢改成範圍內每天、最多 92 天）、抽獎次數分布、玩家清單、建名單全部只算範圍內；「24 小時內」「7 天內」
+  兩格仍以現在往回算。玩家清單的 plays/wins 是範圍內，但剩餘次數用整檔 `plays_all` 算，不能用範圍內次數。
+  有範圍時不列「有配額但沒玩過」的人。範圍寫在網址上可分享。回歸測試 `test/players-date-filter.test.js`。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
