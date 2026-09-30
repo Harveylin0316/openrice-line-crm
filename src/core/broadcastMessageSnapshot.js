@@ -195,6 +195,26 @@ function buildBroadcastMessageSnapshots(broadcast, options = {}) {
   };
 }
 
+/**
+ * 用戶手機上 LINE 通知會顯示的那句話：
+ * 卡片 = altText；多段訊息 = 第一段（文字就是文字本身、卡片是它的 altText、圖片／影片是 LINE 的固定字）；
+ * Email = 主旨。讓後台列表一眼認出「是哪一篇」。
+ */
+function notificationTextOf(summary, channel, subject) {
+  if (channel === 'email') return clean(subject, 200);
+  const s = summary && typeof summary === 'object' ? summary : {};
+  if (s.mode === 'sequence') {
+    const first = Array.isArray(s.segments) && s.segments[0];
+    if (!first) return '';
+    const fs = first.summary || {};
+    if (fs.mode === 'text') return clean(fs.texts && fs.texts[0], 200);
+    if (fs.mode === 'image') return '傳送了圖片';
+    if (fs.mode === 'video') return '傳送了影片';
+    return notificationTextOf(fs, channel, subject);
+  }
+  return clean(s.notificationText || s.title, 200);
+}
+
 function getBroadcastMessageIdentity(broadcast, options = {}) {
   const snapshots = buildBroadcastMessageSnapshots(broadcast, options);
   const primary = snapshots.variants[0] && snapshots.variants[0].summary
@@ -212,6 +232,7 @@ function getBroadcastMessageIdentity(broadcast, options = {}) {
   return {
     title,
     preview,
+    notificationText: notificationTextOf(primary, snapshots.channel, snapshots.subject),
     channelLabel: snapshots.channelLabel,
     variantCount: snapshots.variants.length
   };

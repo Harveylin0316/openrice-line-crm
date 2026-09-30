@@ -25,6 +25,8 @@
  * 防 10s timeout：限制最近 20-30 則批次（limit 最多 30），查詢都加 LIMIT。
  */
 
+const { getBroadcastMessageIdentity } = require('../core/broadcastMessageSnapshot');
+
 function registerAdminAttributionRoutes(app, deps) {
   const { query, authCore } = deps;
   const { requireAdmin } = authCore;
@@ -65,7 +67,8 @@ function registerAdminAttributionRoutes(app, deps) {
       const sql = `
         WITH recent AS (
           SELECT id, created_at, status, channel,
-                 recipient_total, recipient_ok, message_config
+                 recipient_total, recipient_ok, message_config,
+                 variant_b_message_config, audience_config, is_ab_test, email_subject
           FROM admin_broadcasts
           WHERE status IN ('sent', 'sending', 'done', 'completed', 'partial')
              OR recipient_ok > 0
@@ -103,6 +106,7 @@ function registerAdminAttributionRoutes(app, deps) {
         )
         SELECT r.id, r.created_at, r.status, r.channel,
                r.recipient_total, r.recipient_ok, r.message_config,
+               r.variant_b_message_config, r.audience_config, r.is_ab_test, r.email_subject,
                COALESCE(c.clicks_total, 0) AS clicks_total,
                COALESCE(c.clickers, 0)     AS clickers,
                COALESCE(re.reengaged, 0)   AS reengaged
@@ -118,6 +122,8 @@ function registerAdminAttributionRoutes(app, deps) {
         const clicksTotal = Number(r.clicks_total || 0);
         const clickers = Number(r.clickers || 0);
         const reengaged = Number(r.reengaged || 0);
+        let identity = {};
+        try { identity = getBroadcastMessageIdentity(r); } catch (e) { identity = {}; }
         // 點擊率：可歸因點擊人 / 送達人（人本位，較貼近「多少人被打動」）
         const clickRatePct = sent > 0
           ? Math.round((clickers / sent) * 10000) / 100
@@ -131,7 +137,10 @@ function registerAdminAttributionRoutes(app, deps) {
           created_at: r.created_at,
           status: r.status,
           channel: r.channel === 'email' ? 'email' : 'line',
-          label: buildBroadcastLabel(r.message_config),
+          // 與「發送紀錄」同一個 helper：標題（訊息庫名稱優先）＋ LINE 通知預覽文字
+          label: identity.title && identity.title !== '（沒有可辨識文字）' ? identity.title : buildBroadcastLabel(r.message_config),
+          notification_text: identity.notificationText || '',
+          variant_count: identity.variantCount,
           recipient_total: Number(r.recipient_total || 0),
           sent,
           clicks_total: clicksTotal,

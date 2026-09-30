@@ -26,9 +26,9 @@
               <th>類型</th>
               <th>狀態</th>
               <th>期間</th>
-              <th style="text-align:right;">獎品</th>
-              <th style="text-align:right;">玩家</th>
-              <th style="text-align:right;">總抽次</th>
+              <th style="text-align:right;"><span data-metric="list_prizes">獎品</span></th>
+              <th style="text-align:right;"><span data-metric="list_players">玩家</span></th>
+              <th style="text-align:right;"><span data-metric="list_plays">總抽次</span></th>
               <th>連結</th>
               <th></th>
             </tr>
@@ -40,6 +40,9 @@
       </div>
     </section>
 
+    <div data-metric-glossary="list" style="margin-top:12px;"></div>
+    <script src="/activity-metric-defs.js?v=20260930a"></script>
+    <script>document.addEventListener("DOMContentLoaded", function () { if (window.ActivityMetricDefs) ActivityMetricDefs.init(document); });</script>
     <script>
     (function () {
       var $ = function (id) { return document.getElementById(id); };

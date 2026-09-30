@@ -428,9 +428,22 @@
         setTimeout(function(){ t.classList.remove('on'); }, 1600);
       }
 
+      // 領券漏斗第 3 步「複製序號」：不論複製是否成功，按下去就記（fire-and-forget）
+      function trackCopy(){
+        try {
+          if (!profile || !idToken) return;
+          fetch('/api/games/' + gameType + '/' + encodeURIComponent(slug) + '/event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ line_user_id: profile.userId, id_token: idToken, event_name: 'copy_code' }),
+            keepalive: true
+          }).catch(function(){});
+        } catch (e) { /* ignore */ }
+      }
       function copyCode(){
         var code = ($('code-text').textContent || '').trim();
         if (!code || code === '—') return;
+        trackCopy();
         function fallback(){
           var ta = document.createElement('textarea');
           ta.value = code;

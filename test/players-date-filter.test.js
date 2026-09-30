@@ -122,6 +122,7 @@ async function openPage(url) {
       window.alert = () => {};
       window.fetch = async (u, opts) => {
         if (opts && opts.method === 'POST') { posts.push(JSON.parse(opts.body)); return { json: async () => ({ ok: true, list: { id: 3 }, total: 2 }) }; }
+        if (/\/testers/.test(u)) return { json: async () => ({ ok: true, testers: [] }) };
         gets.push(u);
         return { json: async () => ({ ok: true, players: [], overview: { total_plays: 9 }, funnel: null, grants: null, play_distribution: [{ plays: 1, users: 2 }] }) };
       };

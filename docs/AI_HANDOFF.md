@@ -413,6 +413,28 @@ route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-pl
 附回答人數，並固定補上 OpenRice／Google），新來源自動出現。這是問卷答案，不是實際訂位管道。
 已用真 PostgreSQL 驗證。回歸測試 `test/recipient-list-booking-source.test.js`。
 
+#### 指標定義、領券成效、測試帳號重玩、群發成效通知文字（2026-09-30）
+
+- **指標定義唯一來源**：`public/activity-metric-defs.js`（`window.ActivityMetricDefs`）。活動列表與玩家數據頁上標
+  `data-metric="<key>"` 的指標旁自動出現「?」，頁尾 `data-metric-glossary` 列完整定義表。改算法一定同步改定義；
+  `test/activity-metrics-testers-claim.test.js` 會檢查每個標記都有定義。
+- **指標口徑修正**：「中獎」＝抽中實際獎品（`winSql()`：排除 `prize_type='none'` 與名稱為銘謝惠顧類），以前把銘謝惠顧也算中獎；
+  「總抽次／玩家」一律排除後台開獎 `draw_win`（以前列表與總覽有含）。上線後這兩個數字會比以前小，是修正。
+- **領券成效**（`src/core/claimFunnel.js`，只有 `game_type='claim'`）：同一批人＝第一次 `enter` 落在所選期間；
+  觀察期 1/3/7/14/30 天從各自第一次開啟起算；四步驟皆不重複人數：開啟畫面（enter）→ 顯示序號（play 有 coupon_code）
+  → 複製序號（新事件 `copy_code`）→ 前往兌換（`properties.redeem_clicked_at` 或新事件 `redeem_click`）；
+  另計序號發完。依 `users.created_at` 對分界日（預設 2026-09-01）拆既有好友／新好友／未知。
+  `copy_code`、`redeem_click` 從這版開始記，舊資料沒有。事件路由只有 claim 接受 `copy_code`。
+- **測試帳號重玩**（`src/core/activityTesters.js`）：用群發「測試人員」名單（`admin_test_recipients`）。
+  `POST /admin/activities/api/:id/testers/reset`（單一或 `all`）在一個交易內清該帳號在本活動的 plays、bonus、個別配額、
+  referrals（邀請人與被邀請人）、referral attempts、events；還非序號獎品庫存（不超過總量），優惠序號不還只回報。
+  不在名單上一律拒絕。`registerReferral` 內：邀請人與被邀請人**都**是測試帳號 → `invitee_was_existing=false`，
+  真實用戶判定不變。不動 users（不像 MGM reset-tester 會封存會員）。
+- **近期群發成效**（`/admin/attribution`）：標題與 LINE 通知預覽文字改用發送紀錄同一個
+  `getBroadcastMessageIdentity()`；新增 `notificationText`（卡片 altText；多段訊息取第一段，圖片／影片為 LINE 固定字；Email 為主旨）。
+
+以上 SQL 已在真 PostgreSQL 驗證（重置只清測試帳號、庫存歸還上限、觀察期 7 vs 14 天、分界日切分、重開不重算、中獎排除銘謝惠顧）。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`

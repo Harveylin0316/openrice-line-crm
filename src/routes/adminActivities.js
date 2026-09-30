@@ -135,8 +135,10 @@ function registerAdminActivitiesRoutes(app, deps) {
           a.start_at, a.end_at, a.cover_image_url, a.daily_plays_per_user,
           a.require_follow_oa, a.liff_id_override, a.created_at, a.updated_at,
           (SELECT COUNT(*) FROM activity_prizes p WHERE p.activity_id = a.id) AS prize_count,
-          (SELECT COUNT(*) FROM activity_plays pl WHERE pl.activity_id = a.id) AS play_count,
-          (SELECT COUNT(DISTINCT pl.line_user_id) FROM activity_plays pl WHERE pl.activity_id = a.id) AS player_count
+          (SELECT COUNT(*) FROM activity_plays pl WHERE pl.activity_id = a.id
+              AND COALESCE(pl.prize_snapshot->>'kind','') <> 'draw_win') AS play_count,
+          (SELECT COUNT(DISTINCT pl.line_user_id) FROM activity_plays pl WHERE pl.activity_id = a.id
+              AND COALESCE(pl.prize_snapshot->>'kind','') <> 'draw_win') AS player_count
         FROM activities a
         ORDER BY a.created_at DESC
       `;
@@ -376,6 +378,15 @@ function registerAdminActivitiesRoutes(app, deps) {
     return `(($${fromIdx}::date IS NULL OR ${col} >= ($${fromIdx}::date::timestamp AT TIME ZONE 'Asia/Taipei'))
          AND ($${toIdx}::date IS NULL OR ${col} < (($${toIdx}::date + 1)::timestamp AT TIME ZONE 'Asia/Taipei')))`;
   }
+  // 「中獎」＝抽中實際獎品：有獎品、不是銘謝惠顧（prize_type=none 或名稱是銘謝惠顧類）。
+  // 以前只看 prize_id IS NOT NULL，會把銘謝惠顧也算成中獎。後台開獎（draw_win）抽中也算中獎。
+  function winSql(pl, pr) {
+    return `(${pl}.prize_id IS NOT NULL AND COALESCE(${pr}.prize_type,'') <> 'none'
+             AND COALESCE(${pr}.name,'') !~ '(銘謝|惠顧|未中獎|再接再厲|下次再來)')`;
+  }
+  // 「抽獎／遊玩」＝用戶自己玩的那一次；後台開獎（draw_win）寫進 activity_plays 但不是用戶玩的，一律排除
+  const PLAYED_BY_USER_SQL = `COALESCE(prize_snapshot->>'kind','') <> 'draw_win'`;
+
   // 每位玩家實際抽了幾次（排除後台開獎 draw_win）；參數 $1 活動、$2/$3 日期範圍
   const PLAY_COUNT_PER_USER_SQL = `
     SELECT line_user_id,
@@ -397,6 +408,41 @@ function registerAdminActivitiesRoutes(app, deps) {
     return rows.map(row => ({ plays: Number(row.plays), users: Number(row.users) }));
   }
 
+  // ---- 測試帳號：列出「測試人員」名單在本活動的進度、一鍵重置回全新狀態 ----
+  app.get('/admin/activities/api/:id(\\d+)/testers', requireAdmin, async (req, res) => {
+    try {
+      const { listTesters, testerProgress } = require('../core/activityTesters');
+      const testers = await listTesters(query);
+      const progress = await testerProgress(query, Number(req.params.id), testers);
+      res.json({ ok: true, testers: progress });
+    } catch (err) {
+      console.error('activity testers error:', err && err.message);
+      res.status(500).json({ ok: false, error: 'testers_failed', detail: err && err.message });
+    }
+  });
+  app.post('/admin/activities/api/:id(\\d+)/testers/reset', requireAdmin, async (req, res) => {
+    const { listTesters, resetTesterInActivity } = require('../core/activityTesters');
+    const id = Number(req.params.id);
+    const body = req.body || {};
+    try {
+      const targets = body.all === true
+        ? (await listTesters(query)).map(t => t.line_user_id)
+        : [String(body.line_user_id || '').trim()];
+      if (targets.length === 0) return res.status(400).json({ ok: false, error: 'no_testers', detail: '測試人員名單是空的' });
+      const results = [];
+      for (const uid of targets) results.push(await resetTesterInActivity(pool, id, uid));
+      const by = (req.authUser && (req.authUser.un || req.authUser.username)) || 'admin';
+      console.log('activity tester reset', JSON.stringify({ activity_id: id, by, results: results.map(r => ({ uid: r.line_user_id, cleared: r.cleared })) }));
+      res.json({ ok: true, results });
+    } catch (err) {
+      const code = err && err.code;
+      if (code === 'not_tester' || code === 'bad_uid') return res.status(400).json({ ok: false, error: code, detail: err.message });
+      if (code === 'activity_not_found') return res.status(404).json({ ok: false, error: code, detail: err.message });
+      console.error('activity tester reset error:', err && err.message);
+      res.status(500).json({ ok: false, error: 'reset_failed', detail: err && err.message });
+    }
+  });
+
   // API: 取活動的玩家列表 + 統計
   app.get('/admin/activities/api/:id(\\d+)/players', requireAdmin, async (req, res) => {
     try {
@@ -413,7 +459,7 @@ function registerAdminActivitiesRoutes(app, deps) {
           -- GROUP BY 只留 line_user_id（改過名的用戶不拆列），顯示名取最新一筆
           (ARRAY_AGG(pl.line_display_name ORDER BY pl.played_at DESC))[1] AS line_display_name,
           COUNT(*) FILTER (WHERE COALESCE(pl.prize_snapshot->>'kind','') <> 'draw_win') AS plays,
-          COUNT(*) FILTER (WHERE pl.prize_id IS NOT NULL) AS wins,
+          COUNT(*) FILTER (WHERE ${winSql('pl', 'pr')}) AS wins,
           COUNT(*) FILTER (WHERE pr.is_grand_prize = TRUE) AS grand_wins,
           MAX(pl.played_at) AS last_played_at,
           MIN(pl.played_at) AS first_played_at,
@@ -457,7 +503,7 @@ function registerAdminActivitiesRoutes(app, deps) {
       // 次數一律用 gamePlayEngine 的共用公式算，不在這裡另寫一份
       const { computeQuotaNumbers } = require('../core/gamePlayEngine');
       const { rows: actRows } = await query(
-        `SELECT base_plays_per_user, referral_bonus_per, referral_bonus_max, referral_invites_per_bonus
+        `SELECT base_plays_per_user, referral_bonus_per, referral_bonus_max, referral_invites_per_bonus, game_type
            FROM activities WHERE id = $1`, [id]);
       const actCfg = actRows[0] || {};
       const attachQuota = (r) => {
@@ -511,12 +557,14 @@ function registerAdminActivitiesRoutes(app, deps) {
       // overview 統計
       const { rows: ov } = await query(
         `SELECT
-           COUNT(*) AS total_plays,
-           COUNT(DISTINCT line_user_id) AS unique_players,
-           COUNT(*) FILTER (WHERE prize_id IS NOT NULL) AS total_wins,
-           COUNT(*) FILTER (WHERE played_at >= NOW() - INTERVAL '24 hours') AS plays_24h,
-           COUNT(*) FILTER (WHERE played_at >= NOW() - INTERVAL '7 days') AS plays_7d
-         FROM activity_plays WHERE activity_id = $1 AND ${rangeSql('played_at', 2, 3)}`,
+           COUNT(*) FILTER (WHERE ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'pl.prize_snapshot')}) AS total_plays,
+           COUNT(DISTINCT pl.line_user_id) FILTER (WHERE ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'pl.prize_snapshot')}) AS unique_players,
+           COUNT(*) FILTER (WHERE ${winSql('pl', 'pr')}) AS total_wins,
+           COUNT(*) FILTER (WHERE ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'pl.prize_snapshot')} AND pl.played_at >= NOW() - INTERVAL '24 hours') AS plays_24h,
+           COUNT(*) FILTER (WHERE ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'pl.prize_snapshot')} AND pl.played_at >= NOW() - INTERVAL '7 days') AS plays_7d
+         FROM activity_plays pl
+         LEFT JOIN activity_prizes pr ON pr.id = pl.prize_id
+        WHERE pl.activity_id = $1 AND ${rangeSql('pl.played_at', 2, 3)}`,
         [id, range.from, range.to]
       );
       // 開啟成效漏斗與群發派送統計：任一失敗都不能拖垮玩家清單，各自降級成 null。
@@ -527,8 +575,18 @@ function registerAdminActivitiesRoutes(app, deps) {
         loadActivityGrantStats(query, id).catch(e => { console.error('activity grant stats failed:', e && e.message); return null; }),
         loadPlayDistribution(query, id, range).catch(e => { console.error('play distribution failed:', e && e.message); return null; })
       ]);
+      // 領取優惠券：另給「同一批人、固定觀察期」的四步驟漏斗（開啟→顯示序號→複製序號→前往兌換）
+      let claimFunnel = null;
+      if (actCfg.game_type === 'claim') {
+        const { loadClaimFunnel } = require('../core/claimFunnel');
+        claimFunnel = await loadClaimFunnel(query, id, {
+          from: range.from, to: range.to,
+          windowDays: req.query.window, cutoff: parseTaipeiDate(req.query.cutoff) || undefined
+        }).catch(e => { console.error('claim funnel failed:', e && e.message); return null; });
+      }
       res.json({
         ok: true, players: rows, overview: ov[0] || {}, funnel, grants, play_distribution: playDistribution,
+        claim_funnel: claimFunnel,
         range: { from: range.from, to: range.to }
       });
     } catch (err) {
@@ -625,8 +683,10 @@ function registerAdminActivitiesRoutes(app, deps) {
         sql = `SELECT DISTINCT line_user_id FROM activity_plays
                WHERE activity_id = $1 AND line_user_id IS NOT NULL AND ${rangeSql('played_at', 2, 3)}`;
       } else if (filter === 'winners') {
-        sql = `SELECT DISTINCT line_user_id FROM activity_plays
-               WHERE activity_id = $1 AND line_user_id IS NOT NULL AND prize_id IS NOT NULL AND ${rangeSql('played_at', 2, 3)}`;
+        sql = `SELECT DISTINCT pl.line_user_id FROM activity_plays pl
+               LEFT JOIN activity_prizes pr ON pr.id = pl.prize_id
+               WHERE pl.activity_id = $1 AND pl.line_user_id IS NOT NULL AND ${winSql('pl', 'pr')}
+                 AND ${rangeSql('pl.played_at', 2, 3)}`;
       } else if (filter === 'grand_winners') {
         sql = `SELECT DISTINCT pl.line_user_id FROM activity_plays pl
                JOIN activity_prizes pr ON pr.id = pl.prize_id
@@ -634,10 +694,11 @@ function registerAdminActivitiesRoutes(app, deps) {
                  AND ${rangeSql('pl.played_at', 2, 3)}`;
       } else {
         // losers: 範圍內玩過、且範圍內完全沒中過獎
-        sql = `SELECT line_user_id FROM activity_plays
-               WHERE activity_id = $1 AND line_user_id IS NOT NULL AND ${rangeSql('played_at', 2, 3)}
-               GROUP BY line_user_id
-               HAVING bool_and(prize_id IS NULL)`;
+        sql = `SELECT pl.line_user_id FROM activity_plays pl
+               LEFT JOIN activity_prizes pr ON pr.id = pl.prize_id
+               WHERE pl.activity_id = $1 AND pl.line_user_id IS NOT NULL AND ${rangeSql('pl.played_at', 2, 3)}
+               GROUP BY pl.line_user_id
+               HAVING bool_and(NOT ${winSql('pl', 'pr')})`;
       }
       const { rows } = await query(sql, params);
       const uids = rows.map(r => r.line_user_id).filter(Boolean);

@@ -253,12 +253,14 @@ function registerGameType(app, deps, opts) {
     const slug = String(req.params.slug || '').trim();
     const uid = String((req.body || {}).line_user_id || '').trim();
     const eventName = String((req.body || {}).event_name || '');
-    if (eventName !== 'share') return res.status(400).json({ ok:false,error:'bad_event' });
+    // share：所有遊戲；copy_code：只有領取優惠券頁（按「複製序號」）
+    const allowedEvents = gameType === 'claim' ? ['share', 'copy_code'] : ['share'];
+    if (!allowedEvents.includes(eventName)) return res.status(400).json({ ok:false,error:'bad_event' });
     const idCheck = await verifyGameIdentity('event', slug, uid, String((req.body || {}).id_token || '').trim());
     if (!idCheck.pass) return res.status(idCheck.reject.status).json({ ok:false,error:idCheck.reject.code });
     const act = await query(`SELECT id FROM activities WHERE slug=$1 AND game_type=$2 LIMIT 1`, [slug,gameType]);
     if (!act.rows.length) return res.status(404).json({ ok:false,error:'not_found' });
-    await query(`INSERT INTO activity_user_events (activity_id,line_user_id,event_name) VALUES ($1,$2,'share')`, [act.rows[0].id,uid]);
+    await query(`INSERT INTO activity_user_events (activity_id,line_user_id,event_name) VALUES ($1,$2,$3)`, [act.rows[0].id,uid,eventName]);
     return res.json({ ok:true });
   });
 

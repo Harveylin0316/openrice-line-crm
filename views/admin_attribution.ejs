@@ -154,7 +154,11 @@
               '<div class="attr-msg-meta">' + channelBadge(b.channel) +
                 '<span class="attr-msg-date">' + fmtDate(b.created_at) + '</span>' +
                 '<span class="attr-msg-id">#' + b.id + '</span>' +
+                (b.variant_count > 1 ? '<span class="attr-msg-id">' + b.variant_count + ' 個版本</span>' : '') +
               '</div>' +
+              // 手機 LINE 通知會顯示的那句（與標題相同就不重複）
+              (b.notification_text && b.notification_text !== b.label
+                ? '<div class="attr-msg-notify" title="LINE 通知預覽文字">' + escapeHtml(b.notification_text) + '</div>' : '') +
             '</td>' +
             '<td style="text-align:right;">' + fmt(b.sent) + '</td>' +
             '<td style="text-align:right;">' + fmt(b.clicks_total) + '</td>' +
@@ -292,6 +296,7 @@
         margin-left: 4px;
         vertical-align: middle;
       }
+      .attr-msg-notify { margin-top: 4px; font-size: 12px; color: #6B7280; line-height: 1.5; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .attr-msg-meta {
         margin-top: 4px;
         display: flex;
