@@ -126,6 +126,9 @@ test('非領券活動不顯示領券成效，也不帶觀察期參數', async ()
   assert.equal(doc.getElementById('funnel-card').hidden, false);
   assert.doesNotMatch(calls.find(c => /\/players/.test(c.u)).u, /window=/);
   assert.match(doc.getElementById('tester-list').textContent, /還沒有測試帳號/);
+  // 提示是一整段文字，不能被格狀排列拆成好幾格
+  assert.equal(doc.getElementById('tester-list').children.length, 1);
+  assert.equal(doc.getElementById('tester-list').firstElementChild.className, 'tester-empty');
   dom.window.close();
 });
 

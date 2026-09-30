@@ -746,7 +746,7 @@
             var list = d.testers || [];
             document.getElementById('tester-reset-all').hidden = list.length < 2;
             if (!list.length) {
-              box.innerHTML = '還沒有測試帳號。到 <a href="/admin/broadcast">群發</a> 的「測試人員」加入 LINE 帳號（在官方帳號輸入 /whatsmyid 可查自己的 ID）。';
+              box.innerHTML = '<p class="tester-empty">還沒有測試帳號。到 <a href="/admin/broadcast">群發</a> 的「測試人員」加入 LINE 帳號（在官方帳號輸入 /whatsmyid 可查自己的 ID）。</p>';
               return;
             }
             box.classList.remove('muted');
@@ -839,6 +839,7 @@
       .tester-steps { margin: 8px 0 6px; padding-left: 20px; font-size: 13px; line-height: 1.7; }
       .tester-note { font-size: 12px; margin: 0 0 10px; line-height: 1.6; }
       .tester-list { display: grid; gap: 8px; }
+      .tester-empty { margin: 0; font-size: 13px; line-height: 1.6; color: #6B7280; }
       .tester-row { display: flex; align-items: center; gap: 12px; border: 1px solid #ECECEE; border-radius: 10px; padding: 10px 12px; background: #fff; flex-wrap: wrap; }
       .tester-row .who { flex: 1 1 220px; min-width: 0; }
       .tester-row .who b { display: block; font-size: 14px; color: #1f2937; }
