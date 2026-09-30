@@ -248,10 +248,12 @@
       .attr-section-head h2 { margin: 0; }
       .attr-range-toggle {
         display: flex;
-        gap: 12px;
+        flex-wrap: wrap;           /* 390px 手機：觀察期選項換行，不撐出橫向捲動 */
+        gap: 8px 12px;
         font-size: 13px;
         color: #374151;
         align-items: center;
+        max-width: 100%;
       }
       .attr-range-label { color: #6b7280; font-size: 12px; }
       .attr-range-toggle label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
