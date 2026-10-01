@@ -11,7 +11,7 @@
  * 共用邏輯確保所有遊戲類型「中獎邏輯一致」「資料一致」「未來可重用 helper」
  */
 const { isTesterPair } = require('./activityTesters');
-const { verifyOaFollower } = require('./oaFollower');
+const { verifyGameOaFollower } = require('./oaFollower');
 
 /** 從已存的遊玩紀錄還原回應——同一個 play_key 重送時回同一個結果，不重複扣次數 */
 function replayFromRow(row) {
@@ -38,7 +38,7 @@ function replayFromRow(row) {
 async function selectPrizeAndRecord(opts) {
   const { pool, activitySlug, gameType, lineUserId, lineDisplayName, req, playKey } = opts;
   if (!lineUserId) return { error: { status: 400, code: 'missing_line_user_id' } };
-  // 註：require_follow_oa 的好友驗證已移到 /play 路由，與 token 驗證「並行」執行（加速「準備中」）。
+  // require_follow_oa 的好友資格與 LINE 身分綁定驗證由 /play 路由先處理。
 
   const client = await pool.connect();
   try {
@@ -57,6 +57,10 @@ async function selectPrizeAndRecord(opts) {
       return { error: { status: 404, code: 'activity_not_found' } };
     }
     const a = actRows[0];
+    // 同活動／同用戶的請求先序列化，日額與總額都必須在鎖後檢查。
+    // transaction-level lock 在 commit/rollback 自動釋放，適用 pooler，不依賴 session。
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      ['game-play:' + a.id + ':' + lineUserId]);
     // 防重複扣次數：收訊差的用戶按了但回應沒送達，再按一次會帶同一把鑰匙——
     // 查到同鑰匙的紀錄就回原本的結果，次數只扣一次。必須在扣次數檢查之前查，
     // 否則重送的那次會因為「次數已用完」被擋，用戶永遠拿不到他抽到的結果。
@@ -129,7 +133,7 @@ async function selectPrizeAndRecord(opts) {
       const { rows: dCount } = await client.query(
         `SELECT COUNT(*) AS c FROM activity_plays
          WHERE activity_id = $1 AND line_user_id = $2
-           AND played_at >= date_trunc('day', NOW())
+           AND played_at >= ((statement_timestamp() AT TIME ZONE 'Asia/Taipei')::date::timestamp AT TIME ZONE 'Asia/Taipei')
            AND COALESCE(prize_snapshot->>'kind', '') <> 'draw_win'`,
         [a.id, lineUserId]
       );
@@ -214,7 +218,7 @@ async function selectPrizeAndRecord(opts) {
     const { rows: playRow } = await client.query(
       `INSERT INTO activity_plays
          (activity_id, line_user_id, line_display_name, prize_id, prize_snapshot, properties, played_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, NOW())
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, statement_timestamp())
        RETURNING id, played_at`,
       [
         a.id, lineUserId, lineDisplayName || null, pick.id,
@@ -528,7 +532,7 @@ async function detectInviteeWasExisting({ query, activitySlug, gameType, inviter
   return rows[0].was_existing;
 }
 
-async function registerReferral({ query, activitySlug, gameType, inviterId, inviteeId, followConfirmed = false }) {
+async function registerReferral({ query, activitySlug, gameType, inviterId, inviteeId, followConfirmed = false, accessToken, channelId }) {
   if (!inviteeId || !inviterId) {
     return { error: { status: 400, code: 'missing_ids' } };
   }
@@ -597,13 +601,13 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
     };
   }
   // 只認「真實加 OA 好友的被邀者」：擋偽造假 id 灌配額、確保邀請真的長 OA、獎勵對應真實獲客
-  // fail-closed：null（LINE API 429/5xx/沒 token）也不寫。玩一次的成本可以吸收，
+  // fail-closed：null（LINE API 429/5xx/沒 token）也不寫。
   // 但 activity_referrals 有 UNIQUE，寫錯一列永久回不來，也分不出當時到底加了沒。
   // 前端拿到 follow_check_unavailable 會留著邀請、稍後自動重送。
   // follow webhook 本身已通過 LINE signature 驗證，收到該 userId 的 follow 事件就是最可靠的
   // 好友證明。這條內部路徑不必再打一次 profile API（事件剛進來時 API 偶爾尚未同步）。
-  // 其他 HTTP 路徑一律維持原本的 server-side 驗證，不能由前端自行宣稱已加好友。
-  const invFollows = followConfirmed === true ? true : await verifyOaFollower(inviteeId);
+  // 其他 HTTP 路徑驗證 Login access token 的 channel、用戶、friendFlag，不能信任前端宣稱。
+  const invFollows = followConfirmed === true ? true : await verifyGameOaFollower(inviteeId, { accessToken, channelId });
   if (invFollows !== true) {
     return invFollows === false
       ? { error: { status: 400, code: 'invitee_not_follower', detail: '被邀請的人要先加官方帳號好友，邀請才算成功。' } }
@@ -621,11 +625,12 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
   if (!counted) {
     try {
       const { rows: ex } = await query(
-        `SELECT inviter_line_user_id FROM activity_referrals
+        `SELECT inviter_line_user_id, invitee_was_existing FROM activity_referrals
           WHERE activity_id = $1 AND invitee_line_user_id = $2 LIMIT 1`,
         [a.id, inviteeId]
       );
       sameInviter = !!(ex[0] && ex[0].inviter_line_user_id === inviterId);
+      if (ex[0]) inviteeWasExisting = ex[0].invitee_was_existing;
     } catch (e) { /* 查不到就回 null，前端當作靜默處理 */ }
   }
   if (counted && gameType !== 'mgm') {

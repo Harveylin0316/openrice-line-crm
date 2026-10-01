@@ -42,7 +42,7 @@ function fakePool(opts) {
         return { rows: existing ? [existing] : [] };
       }
       if (/COUNT\(\*\) AS c FROM activity_plays/.test(f)) {
-        const isDaily = /played_at >= date_trunc/.test(f);
+        const isDaily = /AT TIME ZONE 'Asia\/Taipei'/.test(f);
         return { rows: [{ c: String(isDaily ? (opts.dailyPlayed || 0) : playedCount) }] };
       }
       if (/FROM activity_referrals/.test(f)) return { rows: [{ c: '0' }] };
@@ -120,7 +120,7 @@ function fakePool(opts) {
       return { rows: [] };
     };
     await registerReferral({ query, activitySlug: 'share-miles', gameType: 'wheel',
-      inviterId: 'U'.padEnd(33, 'd'), inviteeId: 'U'.padEnd(33, 'e') });
+      inviterId: 'U'.padEnd(33, 'd'), inviteeId: 'U'.padEnd(33, 'e'), followConfirmed: true });
     ok(pushed.length === 1, '邀請成功的通知在回應前就送出去了（不會被 serverless 凍掉）');
   }
 

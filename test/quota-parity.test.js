@@ -14,7 +14,7 @@ function makeDb(st){
       return {rows: st.override==null?[]:[{max_plays_override:st.override,note:'t'}]};
     if (/COUNT\(\*\) AS c FROM activity_plays/.test(f)) {
       const drawExcluded = /draw_win/.test(f);
-      const today = /date_trunc/.test(f);
+      const today = /AT TIME ZONE 'Asia\/Taipei'/.test(f);
       let n = st.played + (drawExcluded ? 0 : st.drawWins);
       if (today) n = st.playedToday + (drawExcluded ? 0 : st.drawWins);
       return {rows:[{c:n}]};

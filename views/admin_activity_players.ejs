@@ -44,6 +44,7 @@
         <div class="stat-box"><div class="v" id="ov-24h">—</div><div class="k" data-metric="ov_24h">24 小時內</div></div>
         <div class="stat-box"><div class="v" id="ov-7d">—</div><div class="k" data-metric="ov_7d">7 天內</div></div>
       </div>
+      <p id="tester-metric-note" class="muted" style="font-size:12px;margin-top:12px;" hidden></p>
     </section>
 
     <section class="card" id="claim-funnel-card"${activity.game_type === 'claim' ? '' : ' hidden'}>
@@ -345,13 +346,32 @@
         return { key: 'custom', from: from, to: to };
       }
 
+      var loadGeneration = 0;
+      function clearFunnel(message) {
+        ['fn-openers','fn-starters','fn-completers','fn-sharers','fn-openers-7d'].forEach(function (id) { document.getElementById(id).textContent = '—'; });
+        ['fn-start-rate','fn-complete-rate','fn-share-rate','fn-openers-24h'].forEach(function (id) { document.getElementById(id).textContent = ''; });
+        document.getElementById('funnel-meta').textContent = message;
+        document.getElementById('funnel-coverage-note').hidden = true;
+        document.getElementById('funnel-trend').innerHTML = '';
+        document.getElementById('grant-summary').hidden = true;
+      }
       function load() {
+        var generation = ++loadGeneration;
         var q = rangeQuery();
+        allPlayers = [];
+        ['ov-plays','ov-players','ov-wins','ov-24h','ov-7d'].forEach(function (id) { document.getElementById(id).textContent = '—'; });
+        document.getElementById('tester-metric-note').hidden = true;
+        clearFunnel('載入中…');
+        renderPlayDistribution(null);
+        if (isClaim) { document.getElementById('claim-table').innerHTML = '<tbody><tr><td class="muted">載入中…</td></tr></tbody>'; document.getElementById('claim-foot').textContent = ''; }
         tbody.innerHTML = '<tr><td colspan="10" class="muted">載入中…</td></tr>';
         fetch('/admin/activities/api/' + activityId + '/players' + (q ? '?' + q : ''))
           .then(function (r) { return r.json(); })
           .then(function (resp) {
+            if (generation !== loadGeneration) return;
             if (!resp.ok) {
+              clearFunnel('成效資料暫時讀不到，請重新套用期間');
+              if (isClaim) renderClaimFunnel(null);
               tbody.innerHTML = '<tr><td colspan="10" class="muted">載入失敗' + (resp.detail ? '：' + esc(resp.detail) : '') + '</td></tr>';
               return;
             }
@@ -363,6 +383,11 @@
             document.getElementById('ov-wins').textContent = fmt(ov.total_wins);
             document.getElementById('ov-24h').textContent = fmt(ov.plays_24h);
             document.getElementById('ov-7d').textContent = fmt(ov.plays_7d);
+            var testerNote = document.getElementById('tester-metric-note');
+            if (ov.tester_players != null && ov.tester_plays != null) {
+              testerNote.textContent = '上方數據包含測試帳號。所選期間：一般玩家 ' + fmt(Math.max(0, Number(ov.unique_players) - Number(ov.tester_players))) + ' 人／' + fmt(Math.max(0, Number(ov.total_plays) - Number(ov.tester_plays))) + ' 次；目前測試帳號 ' + fmt(ov.tester_players) + ' 人／' + fmt(ov.tester_plays) + ' 次。';
+              testerNote.hidden = false;
+            }
             renderFunnel(resp.funnel, resp.grants, ov);
             renderPlayDistribution(resp.play_distribution);
             if (isClaim) renderClaimFunnel(resp.claim_funnel);
@@ -370,6 +395,9 @@
             render(allPlayers);
           })
           .catch(function () {
+            if (generation !== loadGeneration) return;
+            clearFunnel('成效資料暫時讀不到，請重新套用期間');
+            if (isClaim) renderClaimFunnel(null);
             tbody.innerHTML = '<tr><td colspan="10" class="muted">載入失敗</td></tr>';
           });
       }
@@ -460,8 +488,7 @@
         var meta = document.getElementById('funnel-meta');
         var coverageNote = document.getElementById('funnel-coverage-note');
         if (!f) {
-          if (meta) meta.textContent = '成效資料暫時讀不到';
-          if (coverageNote) coverageNote.hidden = true;
+          clearFunnel('成效資料暫時讀不到');
           return;
         }
         document.getElementById('fn-openers').textContent = fmt(f.openers);
@@ -487,7 +514,7 @@
             if (!f.ranged) {
               comparison = '目前 ' + fmt(overview && overview.unique_players) + ' 位玩家中，有 ' + fmt(withoutEnter) +
                 ' 位沒有舊的開啟紀錄；另有 ' + fmt(openOnly) + ' 位只開啟、還沒玩，所以兩邊相差 ' +
-                fmt(Math.max(0, withoutEnter - openOnly)) + ' 人。';
+                fmt(Math.abs(withoutEnter - openOnly)) + ' 人。';
             }
             var status = missing === 0
               ? '追蹤上線後才開始玩的 ' + fmt(after) + ' 位都有開啟紀錄，沒有漏記。'

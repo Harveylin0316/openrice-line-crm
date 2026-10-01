@@ -564,8 +564,16 @@ function registerAdminActivitiesRoutes(app, deps) {
            COUNT(*) FILTER (WHERE ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'pl.prize_snapshot')}) AS total_plays,
            COUNT(DISTINCT pl.line_user_id) FILTER (WHERE ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'pl.prize_snapshot')}) AS unique_players,
            COUNT(*) FILTER (WHERE ${winSql('pl', 'pr')}) AS total_wins,
-           COUNT(*) FILTER (WHERE ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'pl.prize_snapshot')} AND pl.played_at >= NOW() - INTERVAL '24 hours') AS plays_24h,
-           COUNT(*) FILTER (WHERE ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'pl.prize_snapshot')} AND pl.played_at >= NOW() - INTERVAL '7 days') AS plays_7d
+           (SELECT COUNT(*) FROM activity_plays recent WHERE recent.activity_id = $1
+             AND ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'recent.prize_snapshot')}
+             AND recent.played_at >= NOW() - INTERVAL '24 hours') AS plays_24h,
+           (SELECT COUNT(*) FROM activity_plays recent WHERE recent.activity_id = $1
+             AND ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'recent.prize_snapshot')}
+             AND recent.played_at >= NOW() - INTERVAL '7 days') AS plays_7d,
+           COUNT(*) FILTER (WHERE ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'pl.prize_snapshot')}
+             AND EXISTS (SELECT 1 FROM admin_test_recipients t WHERE t.line_user_id = pl.line_user_id)) AS tester_plays,
+           COUNT(DISTINCT pl.line_user_id) FILTER (WHERE ${PLAYED_BY_USER_SQL.replace('prize_snapshot', 'pl.prize_snapshot')}
+             AND EXISTS (SELECT 1 FROM admin_test_recipients t WHERE t.line_user_id = pl.line_user_id)) AS tester_players
          FROM activity_plays pl
          LEFT JOIN activity_prizes pr ON pr.id = pl.prize_id
         WHERE pl.activity_id = $1 AND ${rangeSql('pl.played_at', 2, 3)}`,

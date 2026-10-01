@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#FFFBEB" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="/games-mgm.js?v=20260924a"></script>
+  <script src="/games-mgm.js?v=20261001b"></script>
   <style>
     :root {
       --bg: #FAFAFA; --surface: #FFFFFF;
@@ -877,7 +877,7 @@
           var resp = await fetch('/api/games/slot/' + encodeURIComponent(slug) + '/play', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ line_user_id: profile.userId, line_display_name: profile.displayName || null,
-                                   id_token: idToken, play_key: pendingPlayKey })
+                                   id_token: idToken, access_token: liff.getAccessToken() || '', play_key: pendingPlayKey })
           }).then(function (r) { return r.json(); });
 
           if (!resp.ok) {

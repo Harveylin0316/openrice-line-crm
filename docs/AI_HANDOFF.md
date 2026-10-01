@@ -896,3 +896,12 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 5. 合併後做 production smoke test，確認資料與畫面，而不只確認 status code。
 
 若本文與程式或正式環境衝突，先查明原因；以已驗證的現場為準，並在同一個變更中修正文件。
+
+## 19. 2026-10-01 邀請／遊戲完整性修復
+
+- 公開遊玩（require_follow_oa）與 referral 必須帶 LIFF `access_token`，伺服器以官方 verify/profile/friendship API 綁定 Login channel、同一個 LINE 用戶與 `friendFlag`。bot profile 200 不能證明已加好友；不可恢復為 API 錯誤時放行。暫時失敗保留邀請 pending 並允許重試，不落未知 referral。
+- `followConfirmed` 僅限已通過 LINE signature 的內部 follow webhook，不接受 HTTP body 宣稱。共用 MGM helper 與六種頁面已接新版 token 傳送。
+- 同活動／同人抽獎在交易內先取 advisory xact lock，再查 play_key、總額及每日上限；每日以台北午夜和 statement_timestamp 計算，寫 played_at 也用 statement_timestamp，避免等鎖跨日仍用交易開始時間。
+- referral 重送回原入帳 `invitee_was_existing` 快照；`preview=1` 即使有合法 ID token 也不得寫 enter；MGM attempt 必須 await。
+- 玩家頁只採最新日期請求、載入／失敗先清除舊數字。24h／7d 固定從現在往回，不與所選歷史期間交集；一般玩家與「目前測試名單」的數量另外列出，原始總數保留，不宣稱歷史測試名單永久可追溯。
+- 回歸覆蓋：friendship fail-closed、錯配 channel/user、並行上限、同 key 重送、台北日界線、preview、referral 快照、日期競態、失敗清空與近期 SQL。沒有補發機會、回填事件、改庫存或資料庫 migration。

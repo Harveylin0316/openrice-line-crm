@@ -97,7 +97,7 @@
   <meta name="theme-color" content="#F9C73B" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="/games-mgm.js?v=20260924a"></script>
+  <script src="/games-mgm.js?v=20261001b"></script>
   <style>
     /* ── OpenRice 九月轉盤 ─────────────────────────────────────────
        設計準據：openrice-september-wheel-ready-state-v1.png
@@ -966,6 +966,7 @@
               line_user_id: profile.userId,
               line_display_name: profile.displayName || null,
               id_token: idToken,
+              access_token: liff.getAccessToken() || '',
               play_key: pendingPlayKey
             })
           }).then(function (r) { return r.json(); });

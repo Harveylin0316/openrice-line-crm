@@ -19,7 +19,7 @@ const {
   selectPrizeAndRecord, computeUserQuota, registerReferral
 } = require('../core/gamePlayEngine');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
-const { verifyOaFollower } = require('../core/oaFollower');
+const { verifyGameOaFollower } = require('../core/oaFollower');
 
 /** 從 Authorization: Bearer xxx 取出 LIFF id token（GET 端點用；token 不放網址列） */
 function bearerToken(req) {
@@ -79,10 +79,10 @@ function registerGameType(app, deps, opts) {
          (v.attempts > 1 ? (' try' + v.attempts) : '')]
       );
     } catch (e) { console.error('probe insert failed:', e && e.message); }
-    if (!enforce) return { pass: true, verifiedSub: verified && v.sub ? v.sub : null };
+    if (!enforce) return { pass: true, verifiedSub: verified && v.sub ? v.sub : null, channelId };
     if (!verified) return { pass: false, reject: { status: 401, code: 'token_invalid', detail: '身分驗證失敗，請重新開啟頁面。' } };
     if (!matches) return { pass: false, reject: { status: 403, code: 'identity_mismatch', detail: '身分不符，無法進行。' } };
-    return { pass: true, verifiedSub: v.sub };
+    return { pass: true, verifiedSub: v.sub, channelId };
   }
 
   // ----- 不在 LINE 裡打開時的「用 LINE 繼續」QR Code -----
@@ -194,7 +194,7 @@ function registerGameType(app, deps, opts) {
             })
         : Promise.resolve();
       const [quota] = await Promise.all([quotaTask, campaignTask]);
-      if (verifiedUid) {
+      if (verifiedUid && req.query.preview !== '1') {
         await query(`INSERT INTO activity_user_events (activity_id,line_user_id,event_name) VALUES ($1,$2,'enter')`, [a.id, verifiedUid]).catch(e => console.error('activity enter track failed:', e.message));
       }
       res.json({ ok: true, activity: a, prizes, quota });
@@ -213,16 +213,18 @@ function registerGameType(app, deps, opts) {
     // 防重複扣次數的鑰匙也用來去重行為事件：網路斷線重送不能被算成玩了兩次。
     const rawKey = String((req.body || {}).play_key || '').trim();
     const playKey = /^[A-Za-z0-9_-]{8,64}$/.test(rawKey) ? rawKey : null;
-    // 一次查活動旗標，再把「token 驗證」「加好友驗證」兩個 LINE API 並行跑（不要一個等一個 → 加速「準備中」）
+    // 先確認活動與 token 所屬 Login channel，再驗證同一用戶的 OA 好友資格。
     let actRow = null;
-    try { actRow = (await query(`SELECT require_follow_oa, liff_id_override FROM activities WHERE slug = $1 AND game_type = $2 LIMIT 1`, [slug, gameType])).rows[0] || null; } catch (e) { /* ignore */ }
+    try { actRow = (await query(`SELECT require_follow_oa, liff_id_override FROM activities WHERE slug = $1 AND game_type = $2 LIMIT 1`, [slug, gameType])).rows[0] || null; }
+    catch (_e) { return res.status(503).json({ ok: false, error: 'activity_check_unavailable', detail: '活動設定暫時讀不到，請稍後再試。' }); }
     const needFollow = !!(actRow && actRow.require_follow_oa);
-    const [idCheck, followerOk] = await Promise.all([
-      verifyGameIdentity('play', slug, lineUserId, idToken, actRow),
-      needFollow ? verifyOaFollower(lineUserId) : Promise.resolve(true)
-    ]);
+    const idCheck = await verifyGameIdentity('play', slug, lineUserId, idToken, actRow);
     if (!idCheck.pass) return res.status(idCheck.reject.status).json({ ok: false, error: idCheck.reject.code, detail: idCheck.reject.detail });
+    const followerOk = needFollow ? await verifyGameOaFollower(lineUserId, {
+      accessToken: (req.body || {}).access_token, channelId: idCheck.channelId
+    }) : true;
     if (followerOk === false) return res.status(403).json({ ok: false, error: 'must_follow_oa', detail: '請先加入官方帳號好友才能參加。' });
+    if (followerOk !== true) return res.status(503).json({ ok: false, error: 'follow_check_unavailable', detail: '暫時無法確認好友狀態，請稍後再試；若持續出現，請關閉後從 LINE 重新開啟。' });
     const trackedActivity = await query(`SELECT id FROM activities WHERE slug=$1 AND game_type=$2 LIMIT 1`, [slug, gameType]);
     const trackedActivityId = trackedActivity.rows[0] && trackedActivity.rows[0].id;
     if (trackedActivityId) await query(
@@ -290,7 +292,8 @@ function registerGameType(app, deps, opts) {
     }
     try {
       const result = await registerReferral({
-        query, activitySlug: slug, gameType, inviterId, inviteeId
+        query, activitySlug: slug, gameType, inviterId, inviteeId,
+        accessToken: (req.body || {}).access_token, channelId: idCheck.channelId
       });
       if (result.error) {
         await logReferralAttempt(slug, inviterId, inviteeId, result.error.code);

@@ -47,14 +47,16 @@ function fakeQuery({ firstSeenAt, notFollowerAttemptAt }) {
 async function runCase(state) {
   const db = fakeQuery(state);
   const oldFetch = global.fetch;
-  global.fetch = async () => ({ status: 200, ok: true, json: async () => ({ displayName: 'Josh' }) });
+  global.fetch = async url => ({ status: 200, ok: true, json: async () =>
+    String(url).includes('/oauth2/') ? { client_id: '2000000000', expires_in: 300 } :
+    String(url).includes('/friendship/') ? { friendFlag: true } : { userId: INVITEE, displayName: 'Josh' } });
   try {
     const result = await registerReferral({
       query: db.query,
       activitySlug: 'share-miles',
       gameType: 'mgm',
       inviterId: INVITER,
-      inviteeId: INVITEE
+      inviteeId: INVITEE, accessToken: 'test-access', channelId: '2000000000'
     });
     return { ...db, result };
   } finally {

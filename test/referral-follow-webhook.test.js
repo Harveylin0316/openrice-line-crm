@@ -115,8 +115,8 @@ test('webhook 與瀏覽器同時補登時，唯一鍵競態不會重複計次或
       referralInsertCalls++;
       return { rows: [] }; // 另一條請求已先寫入
     }
-    if (/SELECT inviter_line_user_id FROM activity_referrals/.test(flat)) {
-      return { rows: [{ inviter_line_user_id: INVITER }] };
+    if (/SELECT inviter_line_user_id, invitee_was_existing FROM activity_referrals/.test(flat)) {
+      return { rows: [{ inviter_line_user_id: INVITER, invitee_was_existing: false }] };
     }
     if (/COUNT\(\*\) AS c FROM activity_referrals|INSERT INTO line_push_logs/.test(flat)) {
       notifyQueries++;

@@ -86,11 +86,11 @@ function registerMgmMilesRoutes(app, deps) {
     if (!enforce) return { pass: true, uid: claimedUid };
     if (!v.ok || !v.sub) return { pass: false, reject: { status: 401, code: 'token_invalid', detail: '身分驗證失敗，請重新開啟頁面。' } };
     if (claimedUid && v.sub !== claimedUid) return { pass: false, reject: { status: 403, code: 'identity_mismatch', detail: '身分不符。' } };
-    return { pass: true, uid: v.sub };
+    return { pass: true, uid: v.sub, channelId };
   }
 
-  function logAttempt(slug, inviterId, inviteeId, outcome) {
-    query(
+  async function logAttempt(slug, inviterId, inviteeId, outcome) {
+    await query(
       `INSERT INTO activity_referral_attempts (activity_slug, game_type, inviter_line_user_id, invitee_line_user_id, outcome)
        VALUES ($1, 'mgm', $2, $3, $4)`,
       [slug, inviterId || null, inviteeId || null, String(outcome || 'unknown').slice(0, 60)]
@@ -172,22 +172,23 @@ function registerMgmMilesRoutes(app, deps) {
     const inviterId = String((req.body || {}).inviter_line_user_id || '').trim();
     const id = await verifyIdentity(inviteeId, String((req.body || {}).id_token || '').trim());
     if (!id.pass) {
-      logAttempt(slug, inviterId, inviteeId, id.reject.code);
+      await logAttempt(slug, inviterId, inviteeId, id.reject.code);
       return jsonErr(res, id.reject.status, id.reject.code, { detail: id.reject.detail });
     }
     try {
       const preCampaign = await mgmEngine.loadCampaignBySlug(slug);
       if (preCampaign && preCampaign.testUids && preCampaign.testUids.length > 0 &&
           (!mgmEngine.isTester(preCampaign, inviteeId) || !mgmEngine.isTester(preCampaign, inviterId))) {
-        logAttempt(slug, inviterId, inviteeId, 'test_mode_blocked');
+        await logAttempt(slug, inviterId, inviteeId, 'test_mode_blocked');
         return res.status(400).json({ ok: false, error: 'activity_not_active', detail: '活動還沒開始' });
       }
-      const result = await registerReferral({ query, activitySlug: slug, gameType: 'mgm', inviterId, inviteeId });
+      const result = await registerReferral({ query, activitySlug: slug, gameType: 'mgm', inviterId, inviteeId,
+        accessToken: (req.body || {}).access_token, channelId: id.channelId });
       if (result.error) {
-        logAttempt(slug, inviterId, inviteeId, result.error.code);
+        await logAttempt(slug, inviterId, inviteeId, result.error.code);
         return res.status(result.error.status).json({ ok: false, error: result.error.code, detail: result.error.detail });
       }
-      logAttempt(slug, inviterId, inviteeId, result.counted ? 'counted' : 'duplicate');
+      await logAttempt(slug, inviterId, inviteeId, result.counted ? 'counted' : 'duplicate');
       // 里程碑判定必須在回應前做完（serverless 回應後凍結）。
       // 既有好友點開不計獎（計數只算新朋友），跳過省兩次查詢
       if (result.counted && result.invitee_was_existing !== true) {
@@ -199,7 +200,7 @@ function registerMgmMilesRoutes(app, deps) {
       res.json(result);
     } catch (err) {
       console.error('mgm referral error:', err && err.message);
-      logAttempt(slug, inviterId, inviteeId, 'server_error');
+      await logAttempt(slug, inviterId, inviteeId, 'server_error');
       jsonErr(res, 500, 'referral_failed', { detail: '系統忙線，等一下會自動再試。' });
     }
   });

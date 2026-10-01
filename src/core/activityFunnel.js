@@ -178,10 +178,12 @@ async function loadActivityFunnelInRange(query, activityId, range) {
        COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'complete') AS completers,
        COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'share')    AS sharers,
        COUNT(*)                       FILTER (WHERE e.event_name = 'share')    AS shares,
-       COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'enter'
-                                                AND e.created_at >= NOW() - INTERVAL '24 hours') AS openers_24h,
-       COUNT(DISTINCT e.line_user_id) FILTER (WHERE e.event_name = 'enter'
-                                                AND e.created_at >= NOW() - INTERVAL '7 days')   AS openers_7d,
+       (SELECT COUNT(DISTINCT recent.line_user_id) FROM activity_user_events recent
+         WHERE recent.activity_id = $1 AND recent.event_name = 'enter'
+           AND recent.created_at >= NOW() - INTERVAL '24 hours') AS openers_24h,
+       (SELECT COUNT(DISTINCT recent.line_user_id) FROM activity_user_events recent
+         WHERE recent.activity_id = $1 AND recent.event_name = 'enter'
+           AND recent.created_at >= NOW() - INTERVAL '7 days') AS openers_7d,
        MIN(e.created_at) FILTER (WHERE e.event_name = 'enter') AS first_open_at,
        MAX(e.created_at) FILTER (WHERE e.event_name = 'enter') AS last_open_at
        FROM ranged_events e

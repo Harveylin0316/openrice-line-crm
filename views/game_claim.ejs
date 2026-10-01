@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#211713" media="(prefers-color-scheme: dark)" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="/games-mgm.js?v=20260924a"></script>
+  <script src="/games-mgm.js?v=20261001b"></script>
   <style>
     /* ── 領取優惠券頁（claim）─────────────────────────────────────
        設計準據：openrice-line-oa-powerbank-flow-v1.png 設計板第三屏。
@@ -506,7 +506,8 @@
             body: JSON.stringify({
               line_user_id: profile.userId,
               line_display_name: profile.displayName || '',
-              id_token: idToken || ''
+              id_token: idToken || '',
+              access_token: liff.getAccessToken() || ''
             })
           }).then(function(r){ return r.json(); });
 

@@ -61,8 +61,10 @@ test('安全預覽不會觸發正式自動化', async () => {
   const routes = {};
   const app = { get(path, handler) { routes['GET ' + path] = handler; }, post() {} };
   const triggered = [];
+  let entered = 0;
   const query = async sql => {
     const q = String(sql).replace(/\s+/g, ' ');
+    if (/INSERT INTO activity_user_events/.test(q)) entered++;
     if (/SELECT liff_id_override FROM activities/.test(q)) return { rows: [{ liff_id_override: null }], rowCount: 1 };
     if (/INSERT INTO liff_token_probe/.test(q)) return { rows: [], rowCount: 1 };
     if (/SELECT id, slug, name, description, status/.test(q)) return { rows: [{ id: 6, slug: 'share-miles',
@@ -86,5 +88,6 @@ test('安全預覽不會觸發正式自動化', async () => {
     }, res);
     assert.equal(res.body.ok, true);
     assert.equal(triggered.length, 0);
+    assert.equal(entered, 0, '即使附合法 LINE token，安全預覽也不能污染開啟成效');
   } finally { global.fetch = originalFetch; }
 });

@@ -339,7 +339,8 @@
     var body = {
       line_user_id: me,
       inviter_line_user_id: rec.i,
-      id_token: (typeof o.getIdToken === 'function' ? (o.getIdToken() || '') : '')
+      id_token: (typeof o.getIdToken === 'function' ? (o.getIdToken() || '') : ''),
+      access_token: (function () { try { return w.liff.getAccessToken() || ''; } catch (_e) { return ''; } })()
     };
 
     var resp;

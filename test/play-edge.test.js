@@ -22,7 +22,7 @@ async function boot(opts){
     w.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){},addListener(){},removeListener(){}});
     w.HTMLCanvasElement.prototype.getContext=()=>fakeCtx();
     w.liff={init:async()=>{},isLoggedIn:()=>true,isInClient:()=>true,isApiAvailable:()=>false,
-            getIDToken:()=>'tok',login(){},getProfile:async()=>({userId:'U'+'a'.repeat(32),displayName:'測試員'}),
+            getIDToken:()=>'tok',getAccessToken:()=>'access-tok',login(){},getProfile:async()=>({userId:'U'+'a'.repeat(32),displayName:'測試員'}),
             shareTargetPicker:async()=>({})};
     w.fetch=(u,o)=>{
       calls.push(u);
