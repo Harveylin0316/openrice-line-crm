@@ -6,6 +6,8 @@
  *   GET /admin/api/dashboard  統計 JSON
  */
 
+const { RECOVERED_SQL } = require('../core/pushLogDiagnostics');
+
 function registerAdminDashboardRoutes(app, deps) {
   const { query, authCore } = deps;
   const { requireAdmin } = authCore;
@@ -57,8 +59,9 @@ function registerAdminDashboardRoutes(app, deps) {
       //   會永遠卡在固定數字一直誤報；新版 MGM 走 activity_referrals + 即時通知，不需此提醒）
       const alertRs = await query(`
         SELECT
-          (SELECT COUNT(*)::int FROM line_push_logs
-            WHERE status = 'failed' AND created_at >= NOW() - interval '24 hours') AS push_failed_24h,
+          (SELECT COUNT(*)::int FROM line_push_logs l
+            WHERE l.status = 'failed' AND l.created_at >= NOW() - interval '24 hours'
+              AND NOT ${RECOVERED_SQL}) AS push_failed_24h,
           -- status='failed' 從來沒有程式路徑會寫入（整批失敗最後也是 done），
           -- 真正要盯的是「已結案但有失敗收件人」的批次
           (SELECT COUNT(*)::int FROM admin_broadcasts b

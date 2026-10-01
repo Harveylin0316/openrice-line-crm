@@ -10,6 +10,7 @@
       <div class="admin-toolbar">
         <a class="btn" href="/admin/prizes">獎品設定</a>
         <a class="btn" href="/admin/line/webhooks">LINE Webhook</a>
+        <a class="btn primary" href="/admin/push-logs?status=failed&range=24h">查推播失敗：收件人與處理方式</a>
       </div>
 
       <div class="report-grid">
@@ -22,8 +23,8 @@
         <div class="report-card"><span>已完成邀請</span><strong>${summary.rewardedInvites}</strong></div>
         <div class="report-card"><span>待完成邀請</span><strong>${summary.pendingInvites}</strong></div>
         <div class="report-card"><span>LINE 推播成功</span><strong>${summary.pushSuccess}</strong></div>
-        <div class="report-card"><span>LINE 推播失敗</span><strong>${summary.pushFailed}</strong></div>
-        <div class="report-card danger"><span>LINE 推播失敗(24h)</span><strong>${summary.pushFailed24h}</strong></div>
+        <a class="report-card" href="/admin/push-logs?status=failed&range=all"><span>LINE 失敗嘗試次數（全部）</span><strong>${summary.pushFailed}</strong><small>查收件人與原因 →</small></a>
+        <a class="report-card danger" href="/admin/push-logs?status=failed&range=24h"><span>LINE 失敗嘗試次數（24h）</span><strong>${summary.pushFailed24h}</strong><small>查收件人與原因 →</small></a>
         <div class="report-card danger"><span>疑似異常用戶(24h >= 20次)</span><strong>${summary.suspiciousUsers24h}</strong></div>
       </div>
 
@@ -145,6 +146,7 @@
 
       <div class="admin-section">
       <h2 class="admin-section-title">LINE 推播紀錄（最近 30 筆）</h2>
+      <p><a class="btn" href="/admin/push-logs?status=all&range=all">查看完整發送紀錄與匯出</a></p>
       ${
         Array.isArray(pushLogs) && pushLogs.length > 0
           ? `<div class="table-responsive"><table class="prize-table">
