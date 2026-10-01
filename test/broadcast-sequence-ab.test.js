@@ -245,6 +245,68 @@ test('單張卡片的 A 版：B 版「從訊息庫套用」只列同格式素材
   dom.window.close();
 });
 
+test('單張卡片快速套用 B 版素材，較慢的舊回應不得覆蓋最後一次選擇', async () => {
+  let complete, calls = 0;
+  const pending = new Promise(resolve => { complete = resolve; });
+  const flexA = { mode: 'flex_json', flex: card('原始 A', 'https://example.com/a') };
+  const latest = { id: 51, name: '最後選擇', message_config: { mode: 'flex_json', flex: card('最後選擇', 'https://example.com/latest') } };
+  const { dom, window, doc } = await openWithSequence({ aConfig: flexA,
+    fetchOverride: url => url === '/admin/broadcast/templates/51'
+      ? (++calls === 1 ? pending : { json: async () => ({ ok: true, template: latest }) }) : null
+  });
+  try {
+    doc.getElementById('ab-test-enable').checked = true;
+    doc.getElementById('ab-test-enable').dispatchEvent(new window.Event('change'));
+    await wait(80);
+    const sel = doc.getElementById('b-lib-select');
+    for (let i = 0; i < 2; i++) {
+      sel.value = '51';
+      sel.dispatchEvent(new window.Event('change'));
+      await wait(30);
+    }
+    assert.match(doc.getElementById('b-flex-json').value, /最後選擇/);
+    complete({ json: async () => ({ ok: true, template: LIB_ITEMS[51] }) });
+    await wait(80);
+    assert.match(doc.getElementById('b-flex-json').value, /最後選擇/);
+  } finally { dom.window.close(); }
+});
+
+test('較慢的舊預覽不得覆蓋新內容；最新預覽失敗時不得沿用可發送狀態', async () => {
+  let complete, active = false;
+  const pending = new Promise(resolve => { complete = resolve; });
+  const { dom, window, doc } = await openWithSequence({
+    aConfig: { mode: 'template', template: { title: '初始', ctaLabel: '前往', ctaUrl: 'https://example.com', altText: '通知' } },
+    fetchOverride: (url, options) => {
+      if (url === '/admin/broadcast/audience/preview') return { json: async () => ({ ok: true, total: 1, users: [] }) };
+      if (!active || url !== '/admin/broadcast/preview-message') return null;
+      const title = JSON.parse(options.body).message_config.template.title;
+      if (title === '舊內容') return pending;
+      if (title === '網路故障') return Promise.reject(new Error('offline'));
+      return { json: async () => ({ ok: true, messages: [{ type: 'text', text: title }] }) };
+    }
+  });
+  try {
+    doc.getElementById('btn-preview-audience').click();
+    await wait(80);
+    assert.equal(doc.getElementById('btn-send').classList.contains('btn-needs-prep'), false);
+    active = true;
+    const title = doc.getElementById('tpl-title');
+    title.value = '舊內容'; title.dispatchEvent(new window.Event('input'));
+    assert.equal(doc.getElementById('btn-send').classList.contains('btn-needs-prep'), true, '修改後立即停止沿用舊的預覽通過狀態');
+    await wait(600);
+    title.value = '新內容'; title.dispatchEvent(new window.Event('input'));
+    await wait(650);
+    assert.match(doc.getElementById('msg-preview').textContent, /新內容/);
+    complete({ json: async () => ({ ok: true, messages: [{ type: 'text', text: '舊內容' }] }) });
+    await wait(80);
+    assert.match(doc.getElementById('msg-preview').textContent, /新內容/);
+    title.value = '網路故障'; title.dispatchEvent(new window.Event('input'));
+    await wait(650);
+    assert.match(doc.getElementById('msg-status').textContent, /網路錯誤/);
+    assert.equal(doc.getElementById('btn-send').classList.contains('btn-needs-prep'), true, '網路失敗時不可送出');
+  } finally { dom.window.close(); }
+});
+
 // ---------- 伺服器：建立批次 ----------
 function harness() {
   const routes = {};

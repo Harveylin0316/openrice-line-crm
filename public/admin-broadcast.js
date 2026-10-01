@@ -1219,6 +1219,7 @@
       if (seq) return;
       var sel = $(key + '-lib-select');
       loadLibraryList().then(function (list) {
+        if (state.mode === 'sequence' || (state.mode === 'flex_json' ? 'flex_json' : 'template') !== aMode) return;
         sel.innerHTML = libraryOptionsHtml(list, [aMode], '選擇同格式（' + MODE_NAMES[aMode] + '）的素材…');
       });
     });
@@ -1245,15 +1246,29 @@
       }
     }
   }
+  var variantLibraryRequests = { b: 0, c: 0 };
   ['b', 'c'].forEach(function (key) {
     var sel = $(key + '-lib-select');
     if (!sel) return;
     sel.addEventListener('change', function () {
       var id = sel.value;
+      var request = ++variantLibraryRequests[key];
       if (!id) return;
+      var mode = state.mode;
+      var aBefore = JSON.stringify(collectMessageConfig());
+      var variantBefore = JSON.stringify(key === 'b' ? collectVariantBMessageConfig() : collectVariantCMessageConfig());
+      function isCurrentRequest() {
+        return request === variantLibraryRequests[key] && state.mode === mode &&
+          JSON.stringify(collectMessageConfig()) === aBefore &&
+          JSON.stringify(key === 'b' ? collectVariantBMessageConfig() : collectVariantCMessageConfig()) === variantBefore;
+      }
       var status = $(key + '-lib-status');
       if (status) status.textContent = '套用中…';
       loadLibraryItem(id).then(function (tpl) {
+        if (!isCurrentRequest()) {
+          if (request === variantLibraryRequests[key] && status) status.textContent = '設定已變更，未套用舊素材；需要時請重新選擇。';
+          return;
+        }
         applyLibraryToVariant(key, tpl);
         if (status) status.textContent = '已套用「' + (tpl.name || ('素材 #' + tpl.id)) + '」，可再微調';
         sel.value = '';
@@ -1262,6 +1277,7 @@
         saveDraft();
         schedulePreview();
       }).catch(function (e) {
+        if (!isCurrentRequest()) return;
         if (status) status.textContent = '';
         sel.value = '';
         alert('無法套用：' + e.message);
@@ -1312,12 +1328,17 @@
   // ------------------------------------------------------------------
   // 自動預覽（debounce 500ms）— user 編欄位、切 mode、上傳、套用 URL 都觸發
   var previewTimer = null;
+  var previewRevision = 0;
   function schedulePreview() {
+    ++previewRevision;
+    state.messagePreviewed = false;
+    updateSendButton();
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = setTimeout(runPreview, 500);
   }
 
   function runPreview() {
+    var revision = previewRevision;
     var statusEl = $('msg-status');
     var previewEl = $('msg-preview');
     var cfg = collectMessageConfig();
@@ -1345,6 +1366,7 @@
     });
     Promise.all(fetches)
       .then(function (results) {
+        if (revision !== previewRevision) return;
         var dataA = results[0];
         var failed = variants.filter(function (_variant, idx) { return !results[idx] || !results[idx].ok; });
         var successful = variants.filter(function (_variant, idx) { return results[idx] && results[idx].ok; });
@@ -1415,7 +1437,12 @@
           : '已顯示可預覽版本；請完成版本 ' + failed.map(function (v) { return v.label; }).join('、') + ' 後再送出';
         updateSendButton();
       })
-      .catch(function (e) { statusEl.textContent = '網路錯誤：' + e.message; });
+      .catch(function (e) {
+        if (revision !== previewRevision) return;
+        state.messagePreviewed = false;
+        updateSendButton();
+        statusEl.textContent = '網路錯誤：' + e.message;
+      });
   }
 
   // 所有訊息相關欄位變動 → schedulePreview

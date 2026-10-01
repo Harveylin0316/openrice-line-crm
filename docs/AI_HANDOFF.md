@@ -437,6 +437,9 @@ route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-pl
 
 #### 多段訊息也能 A/B 與 Campaign Testing（2026-10-01）
 
+非同步素材套用只接受最後一次選擇；等待期間若 A 或該版已改動，舊回應不覆蓋新內容。
+預覽以編輯版本序號排除慢回應；內容一修改便取消舊的預覽通過狀態，最新預覽成功前不可正式送出，網路失敗亦不可沿用舊狀態。
+
 訊息庫的多段訊息（文字＋圖文、Carousel 等，`mode='sequence'`）以前一選就自動關掉 A/B 與 Campaign Testing。
 現在 B／C 版會完整複製 A 版（`state.seqVariants`），在 `#pane-b-sequence`／`#pane-c-sequence` 只改要測的部分：
 文字段的文字、單張圖片網址（預覽圖原本同一張就一起換）、模板卡的通知文字／標題／副標／優惠碼／按鈕文字與連結、
