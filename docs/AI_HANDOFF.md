@@ -456,6 +456,28 @@ PR #25 審核補強：手動改文字／網址後立即提供單段還原；還�
 圖片預覽同步依修改前的該版圖片判斷，保留刻意使用不同縮圖的設定。測試包含延遲回應、A/B/C 成功建立、無 CTA 擋下與跨卡片追蹤反查。
 Campaign Testing 的 B 版標頭依目前設定比例顯示，不再固定標 50%；未修改段落的還原按鈕確實隱藏（避免既有 `.btn` CSS 蓋過 `hidden`）。
 
+#### 滿版圖文訊息（LINE 原生 imagemap，2026-10-01）
+
+群發編輯器「訊息內容」上方新增訊息樣式：「卡片訊息」（原本的 template／進階 Flex，邏輯未改）與
+「滿版圖文訊息 / Rich Message」。後者是 LINE Messaging API 原生 `type: "imagemap"`，不是用 Flex 模擬。
+
+- `message_config = { mode: 'imagemap', imagemap: { assetId, baseWidth: 1040, baseHeight, sourceWidth, sourceHeight,
+  altText, layout: 'full'|'top_bottom'|'left_right'|'custom', areas: [{ x, y, width, height, type: 'uri'|'message', uri|text, label? }] } }`。
+  座標以寬 1040 為準。`buildLineMessages()` 產生
+  `{ type:'imagemap', baseUrl: <公開 https 網址>/p/line-imagemap/<assetId>, altText, baseSize:{width:1040,height}, actions:[{type:'uri',linkUri,area,label?}|{type:'message',text,area,label?}] }`。
+  驗證：要有 assetId、altText 1～400、1～50 區、區域在圖內、uri 為 http(s)/line:///tel:、需要 https 公開網址。
+- 圖片：`POST /admin/broadcast/imagemap/upload`（欄位 `image`，PNG/JPEG ≤10MB）→ `src/core/imagemapMedia.js` 用 `jimp`（純 JS，可被 esbuild 打包）
+  產生 1040／700／460／300／240 五種寬度（等比例、不裁切；非 1:1 只警告；寬剛好 1040 的版本用原檔不重壓），
+  存進既有 `line_push_media`，各寬度 id = `deriveMediaId(assetId, width)`（固定雜湊成 UUID）。**沒有新資料表、沒有 migration。**
+  `GET /p/line-imagemap/<assetId>/<1040|700|460|300|240>`（無副檔名，符合 LINE 的 `baseUrl/{寬度}` 規則）長快取 immutable。
+- 點擊追蹤：`messageTapTracking.walkUriActions` 認得 imagemap 的 `{type:'uri', linkUri, area}`，群發時每個開啟網址的區域包成
+  `/r/b/<批次>/<收件人>/<序號>`（與卡片按鈕同一套反查）；imagemap 沒有可放追蹤圖的位置，不估算「看過」。
+- 編輯器：上傳、版型（整張／上下／左右／自訂）、區域清單；自訂可在圖上拖拉新增（可畫在其他區上面）、拖編號移動、點選、改數字。
+  預覽與 Flex 分開（`.line-mock.is-imagemap` 拿掉 bubble 外框），維持比例、虛線標出各區、點區域可開該網址測試。
+  訊息庫卡片預覽、發送紀錄（`imagemapSummary`）、近期群發成效名稱都認得新類型。第一版不支援 A/B、不能放進多段訊息。
+- **驗收必須在有 LINE token 的環境實際測**（Staging 沒有發送金鑰）：Test Send 到 iOS／Android，各確認整張與上下兩區連結。
+回歸測試 `test/line-imagemap.test.js`。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`

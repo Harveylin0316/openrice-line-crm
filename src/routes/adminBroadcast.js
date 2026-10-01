@@ -153,6 +153,16 @@ function registerAdminBroadcastRoutes(app, deps) {
     }
   });
 
+  // 滿版圖文訊息（imagemap）原圖：LINE 允許每張 10 MB，後端會自動產生五種寬度
+  const uploadImagemap = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype === 'image/png' || file.mimetype === 'image/jpeg') cb(null, true);
+      else cb(new Error('INVALID_IMAGEMAP_IMAGE_TYPE'));
+    }
+  });
+
   // ---------- helpers ----------
 
   function publicOriginOrEmpty(req) {
@@ -776,6 +786,49 @@ function registerAdminBroadcastRoutes(app, deps) {
         return res.json({ ok: true, mediaId: newId, url });
       } catch (err) {
         console.error('hero upload error:', err.message);
+        return safeJsonError(res, 500, 'upload_failed');
+      }
+    }
+  );
+
+  // ---------- 3b. 滿版圖文訊息（imagemap）圖片上傳 ----------
+  // 上傳一次原圖 → 產生 1040/700/460/300/240 五種寬度 → 存進 line_push_media（id 由 assetId 推導）。
+  // 回傳 baseUrl 給前端預覽；真正送出時 buildLineMessages 會用當下的公開網址重組 baseUrl。
+  app.post(
+    '/admin/broadcast/imagemap/upload',
+    requireAdmin,
+    (req, res, next) => {
+      uploadImagemap.single('image')(req, res, err => {
+        if (err) {
+          if (err.code === 'LIMIT_FILE_SIZE') return safeJsonError(res, 400, 'file_too_large_max_10mb');
+          if (err.message === 'INVALID_IMAGEMAP_IMAGE_TYPE') return safeJsonError(res, 400, 'only_png_or_jpeg');
+          return next(err);
+        }
+        next();
+      });
+    },
+    async (req, res) => {
+      try {
+        const file = req.file;
+        if (!file || !file.buffer) return safeJsonError(res, 400, 'no_file');
+        const { processImagemapUpload, storeImagemapFiles, imagemapBaseUrl } = require('../core/imagemapMedia');
+        const out = await processImagemapUpload(file.buffer, file.mimetype);
+        if (!out.ok) return safeJsonError(res, 400, out.error);
+        await storeImagemapFiles(query, out.assetId, out.files);
+        const origin = publicOriginOrEmpty(req);
+        return res.json({
+          ok: true,
+          assetId: out.assetId,
+          baseWidth: out.baseWidth,
+          baseHeight: out.baseHeight,
+          sourceWidth: out.sourceWidth,
+          sourceHeight: out.sourceHeight,
+          warnings: out.warnings,
+          baseUrl: origin ? imagemapBaseUrl(origin, out.assetId) : null,
+          sizes: out.files.map(f => ({ width: f.width, height: f.height, bytes: f.buffer.length }))
+        });
+      } catch (err) {
+        console.error('imagemap upload error:', err && err.message);
         return safeJsonError(res, 500, 'upload_failed');
       }
     }

@@ -184,6 +184,7 @@ function buildBroadcastLabel(cfg) {
   const sub = typeof t.subtitle === 'string' ? t.subtitle.trim() : '';
   if (sub) return clip(sub, 60);
   if (c.mode === 'flex_json') return '自訂 Flex 訊息';
+  if (c.mode === 'imagemap') return clip((c.imagemap && c.imagemap.altText) || '滿版圖文訊息', 60);
   return '未命名訊息';
 }
 

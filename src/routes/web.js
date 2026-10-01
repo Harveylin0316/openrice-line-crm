@@ -211,6 +211,27 @@ function registerWebRoutes(app, deps) {
     }
   });
 
+  // 滿版圖文訊息（imagemap）：LINE 會抓 <baseUrl>/<寬度>（不能有副檔名）。
+  // 只開放 LINE 規定的五種寬度；檔案內容不會變（每次上傳都是新的 assetId），可長時間快取。
+  app.get('/p/line-imagemap/:assetId/:width(1040|700|460|300|240)', async (req, res, next) => {
+    try {
+      const { isAssetId, deriveMediaId } = require('../core/imagemapMedia');
+      const { assetId, width } = req.params;
+      if (!isAssetId(assetId)) return res.status(404).type('text/plain').send('Not found');
+      const rs = await query('SELECT mime_type, body FROM line_push_media WHERE id = $1', [deriveMediaId(assetId, Number(width))]);
+      if (rs.rowCount === 0) return res.status(404).type('text/plain').send('Not found');
+      const row = rs.rows[0];
+      const buf = Buffer.isBuffer(row.body) ? row.body : Buffer.from(row.body);
+      res.setHeader('Content-Type', row.mime_type);
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.setHeader('Content-Length', String(buf.length));
+      return res.send(buf);
+    } catch (e) {
+      return next(e);
+    }
+  });
+
   function renderAdminLogin(res, error = null, nextPath = '/admin') {
     return res.render('login', {
       error,

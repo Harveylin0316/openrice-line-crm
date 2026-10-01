@@ -479,6 +479,43 @@
               </label>
             </div>
 
+            <!-- 訊息樣式：卡片（Flex）或 LINE 原生滿版圖文訊息（imagemap）。只有 LINE 管道 -->
+            <div class="msg-style-chooser channel-line-only" id="msg-style-chooser" role="radiogroup" aria-label="訊息樣式">
+              <button type="button" class="msg-style-btn active" data-msg-style="card" role="radio" aria-checked="true">
+                <b>卡片訊息</b><small>Flex 卡片：標題、說明、按鈕</small>
+              </button>
+              <button type="button" class="msg-style-btn" data-msg-style="imagemap" role="radio" aria-checked="false">
+                <b>滿版圖文訊息 / Rich Message</b><small>一張 1040 × 1040 圖片，聊天室接近滿版寬度</small>
+              </button>
+            </div>
+
+            <div class="broadcast-tab-pane" id="pane-imagemap" hidden>
+              <div class="im-spec">建議素材 <b>1040 × 1040 px（1:1）</b>，PNG 或 JPEG，10 MB 以內。上傳一次即可，系統會自動產生 LINE 需要的 5 種尺寸；不會裁切或變形圖片。</div>
+              <div class="broadcast-inline-field" style="margin:10px 0;">
+                <input type="file" id="im-file" accept="image/png,image/jpeg" />
+                <button type="button" class="btn" id="im-upload">上傳圖片</button>
+                <span id="im-status" class="muted">尚未上傳</span>
+              </div>
+              <div id="im-warnings" class="im-warnings" hidden></div>
+              <div class="im-layouts" role="radiogroup" aria-label="點擊區域版型">
+                <span class="im-layouts-label">點擊區域版型</span>
+                <button type="button" class="im-layout-btn active" data-im-layout="full">整張</button>
+                <button type="button" class="im-layout-btn" data-im-layout="top_bottom">上 / 下</button>
+                <button type="button" class="im-layout-btn" data-im-layout="left_right">左 / 右</button>
+                <button type="button" class="im-layout-btn" data-im-layout="custom">自訂</button>
+              </div>
+              <div class="im-custom-hint muted" id="im-custom-hint" hidden>自訂：在圖片上拖拉就能新增區域（可以畫在其他區域上面）；拖拉區域左上角的編號可以移動；點一下區域可選取，也可以在下方直接改數字。</div>
+              <div class="im-editor">
+                <div class="im-canvas" id="im-canvas" aria-label="圖片與點擊區域">
+                  <div class="im-canvas-empty" id="im-canvas-empty">上傳圖片後會顯示在這裡</div>
+                  <img id="im-image" alt="" hidden />
+                  <div class="im-overlay" id="im-overlay"></div>
+                </div>
+                <div class="im-areas" id="im-areas"></div>
+              </div>
+              <button type="button" class="btn" id="im-add-area" hidden>＋ 新增一個區域</button>
+            </div>
+
             <div class="broadcast-tab-pane" id="pane-sequence" hidden>
               <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:13px 14px;margin-bottom:14px;">
                 <strong id="sequence-template-name">已選擇文字／圖片／卡片組合</strong>
@@ -2279,6 +2316,47 @@
       .send-confirm-overlay{position:fixed;inset:0;background:rgba(15,15,16,.5);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;}
       /* hidden 屬性會被上面的 display:flex 蓋掉（UA 的 display:none 輸給作者樣式），必須明確補回 */
       .send-confirm-overlay[hidden]{display:none;}
+      .msg-style-chooser{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 14px}
+      .msg-style-chooser[hidden]{display:none}
+      .msg-style-btn{text-align:left;border:1.5px solid #E5E7EB;background:#fff;border-radius:12px;padding:10px 12px;cursor:pointer;font-family:inherit}
+      .msg-style-btn b{display:block;font-size:14px;color:#111827}
+      .msg-style-btn small{display:block;font-size:12px;color:#6B7280;margin-top:2px;line-height:1.5}
+      .msg-style-btn.active{border-color:#F59E0B;background:#FFFBEB;box-shadow:0 0 0 2px rgba(245,158,11,.15)}
+      .im-spec{font-size:12.5px;color:#374151;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:10px;padding:9px 12px;line-height:1.6}
+      .im-warnings{font-size:12.5px;color:#92400E;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:8px 12px;margin-bottom:10px;line-height:1.6}
+      .im-warnings[hidden],.im-custom-hint[hidden],#im-add-area[hidden]{display:none}
+      .im-layouts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
+      .im-layouts-label{font-size:12px;color:#6B7280;margin-right:4px}
+      .im-layout-btn{font-family:inherit;font-size:13px;padding:6px 12px;border-radius:999px;border:1px solid #E5E7EB;background:#fff;cursor:pointer}
+      .im-layout-btn.active{background:#FCC726;border-color:#E8B400;font-weight:700}
+      .im-custom-hint{font-size:12px;margin-bottom:8px}
+      .im-editor{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:14px;align-items:start}
+      @media (max-width:900px){.im-editor{grid-template-columns:1fr}}
+      .im-canvas{position:relative;width:100%;aspect-ratio:1/1;background:#F3F4F6;border:1px dashed #D1D5DB;border-radius:4px;overflow:hidden;touch-action:none;user-select:none}
+      .im-canvas img{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block;pointer-events:none}
+      .im-canvas-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:#9CA3AF}
+      .im-overlay{position:absolute;inset:0}
+      .im-area{position:absolute;border:2px solid #2563EB;background:rgba(37,99,235,.14);box-sizing:border-box;display:flex;align-items:flex-start;justify-content:flex-start}
+      .im-area.selected{border-color:#F59E0B;background:rgba(245,158,11,.2)}
+      .im-area b{font-size:11px;background:#2563EB;color:#fff;padding:1px 6px;border-radius:0 0 6px 0}
+      .im-area.selected b{background:#F59E0B}
+      .im-area.drawing{border-style:dashed}
+      .im-areas{display:grid;gap:8px}
+      .im-area-row{border:1px solid #E5E7EB;border-radius:10px;padding:8px 10px;background:#fff;display:grid;gap:6px;font-size:12px}
+      .im-area-row.selected{border-color:#F59E0B;background:#FFFBEB}
+      .im-area-row .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+      .im-area-row input,.im-area-row select{font-family:inherit;font-size:12.5px;padding:5px 7px;border:1px solid #E5E7EB;border-radius:7px}
+      .im-area-row input.wide{flex:1;min-width:160px}
+      .im-area-row input.num{width:64px}
+      .im-area-row .idx{font-weight:700;color:#2563EB}
+      .im-area-row .lbl{flex:0 0 52px;color:#6B7280}
+      .im-area-row input.num{width:58px}
+      .line-mock.is-imagemap{background:transparent;box-shadow:none;border-radius:0;overflow:visible;padding:0}
+      .im-mock-label{font-size:11px;color:#6B7280;margin:0 0 6px 2px}
+      .im-mock{position:relative;width:100%;overflow:hidden;background:#E5E7EB}
+      .im-mock img{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block}
+      .im-mock a,.im-mock span.im-mock-area{position:absolute;border:1.5px dashed rgba(37,99,235,.9);background:rgba(37,99,235,.08);box-sizing:border-box;color:#1E3A8A;font-size:10px;font-weight:700;text-decoration:none;display:flex;align-items:flex-start;padding:2px 4px}
+      .im-mock a:hover{background:rgba(37,99,235,.22)}
       .seq-variant-pane{margin-top:10px}
       .seq-var-intro{font-size:12px;color:#6B7280;line-height:1.6;margin:0 0 10px}
       .seq-var-item{border:1px solid #ECECEE;border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff}

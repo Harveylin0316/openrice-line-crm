@@ -230,6 +230,9 @@
       updateCampaignTestUI();
     }
     if (state.mode === 'sequence' && $('msg-alt-text-block')) $('msg-alt-text-block').hidden = true;
+    if (state.mode === 'sequence' && $('msg-style-chooser')) $('msg-style-chooser').hidden = true;
+    // 滿版圖文訊息只能走 LINE：切到 Email 就回到卡片
+    if (emailMode && state.mode === 'imagemap') setMessageStyle('card', { silent: true });
   }
   $$('.tab-btn[data-channel]').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -789,6 +792,7 @@
   }
   function collectMessageConfig() {
     var topAlt = getTopAltText();
+    if (state.mode === 'imagemap') return collectImagemapConfig();
     if (state.mode === 'sequence' && state.sequenceConfig) {
       return JSON.parse(JSON.stringify(state.sequenceConfig));
     }
@@ -872,6 +876,7 @@
   function messageConfigHasContent(config) {
     if (!config || typeof config !== 'object') return false;
     if (config.mode === 'sequence') return Array.isArray(config.items) && config.items.length > 0;
+    if (config.mode === 'imagemap') return !!(config.imagemap && config.imagemap.assetId);
     if (config.mode === 'flex_json') return !!(config.flex && typeof config.flex === 'object');
     var t = config.template || {};
     return !!(t.heroMediaId || t.title || t.subtitle || t.couponCode);
@@ -949,7 +954,7 @@
         return d.template;
       });
   }
-  var MODE_NAMES = { template: '一般卡片', flex_json: '自訂卡片', sequence: '多段訊息' };
+  var MODE_NAMES = { template: '一般卡片', flex_json: '自訂卡片', sequence: '多段訊息', imagemap: '滿版圖文訊息' };
   function libraryOptionsHtml(list, modes, placeholder) {
     var opts = list.filter(function (t) { return modes.indexOf(String(t.mode || 'template')) >= 0; });
     return '<option value="">' + escapeHtml(placeholder) + '</option>' + opts.map(function (t) {
@@ -1475,8 +1480,59 @@
   // ------------------------------------------------------------------
   // 7. render Flex mock (支援 bubble 跟 carousel，含 header/hero/body/footer)
   // ------------------------------------------------------------------
+  // 滿版圖文訊息（imagemap）預覽：與 Flex 分開，不套 bubble 的寬度上限／內距／圓角；
+  // 維持原比例、顯示每個點擊區，點區域可直接開啟該區網址測試。
+  function buildImagemapMock(message) {
+    var wrap = document.createElement('div');
+    var label = document.createElement('div');
+    label.className = 'im-mock-label';
+    label.textContent = 'Rich Message（LINE imagemap）預覽 · 寬 1040 基準 · 虛線框為點擊區，點一下可測試連結';
+    wrap.appendChild(label);
+    var bw = message.baseSize && Number(message.baseSize.width) || 1040;
+    var bh = message.baseSize && Number(message.baseSize.height) || 1040;
+    var box = document.createElement('div');
+    box.className = 'im-mock';
+    box.style.aspectRatio = bw + ' / ' + bh;
+    var img = document.createElement('img');
+    img.alt = message.altText || '';
+    img.src = String(message.baseUrl || '') + '/1040';
+    box.appendChild(img);
+    (message.actions || []).forEach(function (a, i) {
+      var area = a.area || {};
+      var el;
+      if (a.type === 'uri' && /^https?:\/\//i.test(String(a.linkUri || ''))) {
+        el = document.createElement('a');
+        el.href = a.linkUri;
+        el.target = '_blank';
+        el.rel = 'noopener noreferrer';
+        el.title = (a.label ? a.label + '：' : '') + a.linkUri;
+      } else {
+        el = document.createElement('span');
+        el.className = 'im-mock-area';
+        el.title = a.type === 'message' ? '傳送文字：' + (a.text || '') : String(a.linkUri || '');
+      }
+      el.setAttribute('data-im-mock-area', String(i));
+      el.textContent = String(i + 1);
+      el.style.left = (area.x / bw * 100) + '%';
+      el.style.top = (area.y / bh * 100) + '%';
+      el.style.width = (area.width / bw * 100) + '%';
+      el.style.height = (area.height / bh * 100) + '%';
+      box.appendChild(el);
+    });
+    wrap.appendChild(box);
+    return wrap;
+  }
+
   function renderLineMessagesMock(messages, container, editable) {
     var list = Array.isArray(messages) ? messages : [];
+    var onlyImagemap = list.length === 1 && list[0] && list[0].type === 'imagemap';
+    container.classList.toggle('is-imagemap', onlyImagemap);
+    if (onlyImagemap) {
+      container.classList.remove('empty');
+      container.innerHTML = '';
+      container.appendChild(buildImagemapMock(list[0]));
+      return;
+    }
     if (list.length === 1 && list[0] && list[0].type === 'flex') {
       renderFlexMock(list[0], container, editable);
       return;
@@ -1499,6 +1555,8 @@
       if (message && message.type === 'text') {
         body.style.cssText = 'background:#fff;border-radius:14px;padding:11px 13px;white-space:pre-wrap;word-break:break-word;line-height:1.5;box-shadow:0 1px 3px rgba(0,0,0,.12);';
         body.textContent = String(message.text || '');
+      } else if (message && message.type === 'imagemap') {
+        body.appendChild(buildImagemapMock(message));
       } else if (message && message.type === 'image') {
         body.style.cssText = 'background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.12);';
         var image = document.createElement('img');
@@ -2639,6 +2697,11 @@
       invalid_recipient_selection: '指定發送人數不正確',
       audience_changed_repreview: '收件名單在預覽後有變動，請重新預覽',
       campaign_experiment_requires_tracked_template: 'Campaign Testing 請使用一般訊息編輯器或訊息庫的多段訊息，才能可靠計算 CTA 點擊率',
+      file_too_large_max_10mb: '圖片超過 10 MB',
+      image_unreadable: '讀不到這張圖片，請改用 PNG 或 JPEG',
+      image_too_large_pixels: '圖片尺寸過大（單邊超過 4096 px），請縮小後再上傳',
+      image_too_tall: '圖片太長（高度超過寬度的 2 倍），請改用 1:1 素材',
+      resized_too_large: '轉換後的圖片超過 10 MB，請壓縮後再上傳',
       campaign_experiment_requires_cta_button: 'Campaign Testing 的每個版本至少要有一顆「開啟網址」按鈕，才算得出點擊率',
       experiment_allocation_must_total_100: 'A/B/C 與保留名單的比例合計必須是 100%',
       experiment_needs_min_recipients: '收件人太少，無法讓每個測試版本與保留名單都有人',
@@ -2928,12 +2991,368 @@
       });
   }
 
+  // ==================================================================
+  // 滿版圖文訊息（LINE 原生 imagemap，不是 Flex 模擬）
+  //   上傳一次原圖 → 後端產生 5 種寬度；點擊區座標一律以寬 1040 為準。
+  //   版型：整張／上下／左右（自動算區域）、自訂（在圖上拖拉新增／移動）。
+  // ==================================================================
+  var IM_W = 1040;
+  state.imagemap = { assetId: null, baseHeight: 1040, sourceWidth: null, sourceHeight: null, previewUrl: null,
+    warnings: [], layout: 'full', areas: [{ x: 0, y: 0, width: 1040, height: 1040, type: 'uri', uri: '', text: '', label: '' }], selected: 0 };
+  function imLayoutRects(layout, h) {
+    var half = Math.round(h / 2);
+    if (layout === 'top_bottom') return [{ x: 0, y: 0, width: IM_W, height: half }, { x: 0, y: half, width: IM_W, height: h - half }];
+    if (layout === 'left_right') return [{ x: 0, y: 0, width: 520, height: h }, { x: 520, y: 0, width: 520, height: h }];
+    return [{ x: 0, y: 0, width: IM_W, height: h }];
+  }
+  function imBlankArea(rect) {
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, type: 'uri', uri: '', text: '', label: '' };
+  }
+  function imApplyLayout(layout) {
+    var im = state.imagemap;
+    var prev = im.areas || [];
+    im.layout = layout;
+    if (layout !== 'custom') {
+      // 換版型時保留同順序區域已填的連結／標籤，只重算位置
+      im.areas = imLayoutRects(layout, im.baseHeight).map(function (r, i) {
+        var keep = prev[i] || {};
+        return { x: r.x, y: r.y, width: r.width, height: r.height, type: keep.type || 'uri', uri: keep.uri || '', text: keep.text || '', label: keep.label || '' };
+      });
+    } else if (!prev.length) {
+      im.areas = [imBlankArea({ x: 0, y: 0, width: IM_W, height: im.baseHeight })];
+    }
+    im.selected = Math.min(im.selected || 0, im.areas.length - 1);
+  }
+  function imClampArea(a) {
+    var h = state.imagemap.baseHeight;
+    a.width = Math.max(1, Math.min(IM_W, Math.round(Number(a.width) || 1)));
+    a.height = Math.max(1, Math.min(h, Math.round(Number(a.height) || 1)));
+    a.x = Math.max(0, Math.min(IM_W - a.width, Math.round(Number(a.x) || 0)));
+    a.y = Math.max(0, Math.min(h - a.height, Math.round(Number(a.y) || 0)));
+    return a;
+  }
+  function imChanged() {
+    state.messagePreviewed = false;
+    updateSendButton();
+    saveDraft();
+    schedulePreview();
+  }
+  function imRender() {
+    var im = state.imagemap;
+    var canvas = $('im-canvas');
+    if (!canvas) return;
+    canvas.style.aspectRatio = IM_W + ' / ' + im.baseHeight;
+    var img = $('im-image');
+    var empty = $('im-canvas-empty');
+    if (im.previewUrl) { img.src = im.previewUrl; img.hidden = false; empty.hidden = true; }
+    else { img.hidden = true; img.removeAttribute('src'); empty.hidden = false; }
+    var warn = $('im-warnings');
+    warn.hidden = !(im.warnings && im.warnings.length);
+    warn.textContent = (im.warnings || []).join(' ');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-im-layout]'), function (b) {
+      var on = b.getAttribute('data-im-layout') === im.layout;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+    var custom = im.layout === 'custom';
+    $('im-custom-hint').hidden = !custom;
+    $('im-add-area').hidden = !custom || im.areas.length >= 50;
+    var overlay = $('im-overlay');
+    overlay.innerHTML = im.areas.map(function (a, i) {
+      return '<div class="im-area' + (i === im.selected ? ' selected' : '') + '" data-im-area="' + i + '" style="left:' +
+        (a.x / IM_W * 100) + '%;top:' + (a.y / im.baseHeight * 100) + '%;width:' + (a.width / IM_W * 100) + '%;height:' +
+        (a.height / im.baseHeight * 100) + '%"><b>' + (i + 1) + '</b></div>';
+    }).join('');
+    var list = $('im-areas');
+    list.innerHTML = im.areas.map(function (a, i) {
+      var ro = custom ? '' : ' readonly';
+      var isMsg = a.type === 'message';
+      return '<div class="im-area-row' + (i === im.selected ? ' selected' : '') + '" data-im-row="' + i + '">' +
+        '<div class="row"><span class="idx">區域 ' + (i + 1) + '</span>' +
+          '<select data-im-field="type" data-i="' + i + '"><option value="uri"' + (isMsg ? '' : ' selected') + '>開啟網址</option>' +
+          '<option value="message"' + (isMsg ? ' selected' : '') + '>傳送文字</option></select>' +
+          (custom && im.areas.length > 1 ? '<button type="button" class="link-btn" data-im-del="' + i + '" style="color:#dc2626;margin-left:auto;">刪除</button>' : '') +
+        '</div>' +
+        '<label class="row"><span class="lbl">' + (isMsg ? '傳送文字' : '連結') + '</span>' +
+          '<input class="wide" type="text" data-im-field="' + (isMsg ? 'text' : 'uri') + '" data-i="' + i + '" value="' + escapeHtml(isMsg ? a.text : a.uri) + '" placeholder="' + (isMsg ? '用戶點了會自動送出的文字' : 'https://…') + '" /></label>' +
+        '<label class="row"><span class="lbl">標籤</span><input class="wide" type="text" data-im-field="label" data-i="' + i + '" value="' + escapeHtml(a.label || '') + '" maxlength="100" placeholder="選填，給讀屏與報表辨識用" /></label>' +
+        '<div class="row muted">x <input class="num" type="number" data-im-field="x" data-i="' + i + '" value="' + a.x + '"' + ro + ' />' +
+          ' y <input class="num" type="number" data-im-field="y" data-i="' + i + '" value="' + a.y + '"' + ro + ' />' +
+          ' 寬 <input class="num" type="number" data-im-field="width" data-i="' + i + '" value="' + a.width + '"' + ro + ' />' +
+          ' 高 <input class="num" type="number" data-im-field="height" data-i="' + i + '" value="' + a.height + '"' + ro + ' /></div>' +
+      '</div>';
+    }).join('');
+  }
+  function imSetStatus(text) { var el = $('im-status'); if (el) el.textContent = text; }
+  // 後台檢查（伺服器另有完整驗證）：缺圖、缺連結、範圍外
+  function imagemapClientError() {
+    var im = state.imagemap;
+    if (!im.assetId) return '滿版圖文訊息：請先上傳圖片';
+    if (!getTopAltText()) return '滿版圖文訊息：請填 LINE 通知預覽文字';
+    for (var i = 0; i < im.areas.length; i++) {
+      var a = im.areas[i];
+      if (a.type === 'message') { if (!String(a.text || '').trim()) return '滿版圖文訊息：區域 ' + (i + 1) + ' 要填傳送文字'; }
+      else if (!/^(https?:\/\/\S+|line:\/\/\S+|tel:\S+)$/i.test(String(a.uri || '').trim())) return '滿版圖文訊息：區域 ' + (i + 1) + ' 的連結要是 https:// 開頭的網址';
+      if (a.x + a.width > IM_W || a.y + a.height > im.baseHeight) return '滿版圖文訊息：區域 ' + (i + 1) + ' 超出圖片範圍';
+    }
+    return null;
+  }
+  function collectImagemapConfig() {
+    var im = state.imagemap;
+    return {
+      mode: 'imagemap',
+      imagemap: {
+        assetId: im.assetId,
+        baseWidth: IM_W,
+        baseHeight: im.baseHeight,
+        sourceWidth: im.sourceWidth,
+        sourceHeight: im.sourceHeight,
+        altText: getTopAltText(),
+        layout: im.layout,
+        areas: im.areas.map(function (a) {
+          var out = { x: a.x, y: a.y, width: a.width, height: a.height, type: a.type === 'message' ? 'message' : 'uri' };
+          if (out.type === 'message') out.text = String(a.text || '').trim(); else out.uri = String(a.uri || '').trim();
+          if (String(a.label || '').trim()) out.label = String(a.label).trim();
+          return out;
+        })
+      }
+    };
+  }
+  function loadImagemapConfig(cfg) {
+    var src = cfg && cfg.imagemap ? cfg.imagemap : {};
+    var im = state.imagemap;
+    im.assetId = src.assetId || null;
+    im.baseHeight = Number(src.baseHeight) || 1040;
+    im.sourceWidth = src.sourceWidth || null;
+    im.sourceHeight = src.sourceHeight || null;
+    im.previewUrl = im.assetId ? '/p/line-imagemap/' + im.assetId + '/1040' : null;
+    im.warnings = [];
+    im.layout = ['full', 'top_bottom', 'left_right', 'custom'].indexOf(src.layout) >= 0 ? src.layout : 'custom';
+    im.areas = (Array.isArray(src.areas) && src.areas.length ? src.areas : imLayoutRects('full', im.baseHeight)).map(function (a) {
+      return { x: Number(a.x) || 0, y: Number(a.y) || 0, width: Number(a.width) || 1, height: Number(a.height) || 1,
+        type: a.type === 'message' ? 'message' : 'uri', uri: a.uri || '', text: a.text || '', label: a.label || '' };
+    });
+    im.selected = 0;
+    imSetStatus(im.assetId ? '已載入圖片' : '尚未上傳');
+    var topAltEl = document.getElementById('msg-alt-text');
+    if (topAltEl && src.altText != null) topAltEl.value = src.altText;
+  }
+  // 切換訊息樣式：卡片（template／進階 Flex）或滿版圖文訊息
+  function setMessageStyle(style, opts) {
+    var useIm = style === 'imagemap';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-msg-style]'), function (b) {
+      var on = b.getAttribute('data-msg-style') === (useIm ? 'imagemap' : 'card');
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+    var paneIm = $('pane-imagemap');
+    var adv = $('advanced-json-block');
+    var testing = $('message-testing-settings');
+    if (paneIm) paneIm.hidden = !useIm;
+    if (useIm) {
+      if (state.mode === 'sequence') { state.sequenceConfig = null; setSequencePane(false); }
+      state.mode = 'imagemap';
+      $('pane-template').hidden = true;
+      if (adv) { if (adv.open) { state.suppressAdvancedToggle = true; adv.open = false; setTimeout(function () { state.suppressAdvancedToggle = false; }, 0); } adv.hidden = true; }
+      // 第一版不支援 A/B：開著就關掉並告知
+      var hadTest = state.abTestEnabled || state.campaignTestEnabled;
+      if ($('campaign-test-enable') && $('campaign-test-enable').checked) { $('campaign-test-enable').checked = false; updateCampaignTestUI(); }
+      if ($('ab-test-enable') && $('ab-test-enable').checked) { $('ab-test-enable').checked = false; $('ab-test-enable').dispatchEvent(new Event('change')); }
+      if (testing) testing.hidden = true;
+      if (hadTest && !(opts && opts.silent)) imSetStatus('滿版圖文訊息目前不支援 A/B 測試，已關閉 A/B 設定');
+      imRender();
+    } else {
+      if (state.mode === 'imagemap') {
+        state.mode = adv && adv.open ? 'flex_json' : 'template';
+        $('pane-template').hidden = state.mode !== 'template';
+      }
+      if (adv) adv.hidden = state.mode === 'sequence';
+      if (testing) testing.hidden = false;
+    }
+    if (!(opts && opts.silent)) imChanged();
+  }
+  function imUpload() {
+    var input = $('im-file');
+    var file = input && input.files && input.files[0];
+    if (!file) { imSetStatus('請先選擇圖片檔'); return; }
+    if (file.size > 10 * 1024 * 1024) { imSetStatus('圖片超過 10 MB，請壓縮後再上傳'); return; }
+    var btn = $('im-upload');
+    btn.disabled = true;
+    imSetStatus('上傳並產生 5 種尺寸中…');
+    var fd = new FormData();
+    fd.append('image', file);
+    fetch('/admin/broadcast/imagemap/upload', { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btn.disabled = false;
+        if (!d || !d.ok) { imSetStatus('上傳失敗：' + (errorMap(d && d.error) || (d && d.error) || '未知錯誤')); return; }
+        var im = state.imagemap;
+        var heightChanged = im.baseHeight !== d.baseHeight;
+        im.assetId = d.assetId;
+        im.baseHeight = d.baseHeight;
+        im.sourceWidth = d.sourceWidth;
+        im.sourceHeight = d.sourceHeight;
+        im.previewUrl = '/p/line-imagemap/' + d.assetId + '/1040';
+        im.warnings = d.warnings || [];
+        if (heightChanged) {
+          if (im.layout === 'custom') im.areas.forEach(imClampArea);
+          else imApplyLayout(im.layout);
+        }
+        imSetStatus('已上傳（原圖 ' + d.sourceWidth + ' × ' + d.sourceHeight + '）');
+        imRender();
+        imChanged();
+      })
+      .catch(function (e) { btn.disabled = false; imSetStatus('上傳失敗：' + e.message); });
+  }
+  // 自訂版型：在圖上拖拉新增區域、拖拉既有區域移動
+  var imDrag = null;
+  function imPoint(ev) {
+    var rect = $('im-canvas').getBoundingClientRect();
+    var px = (ev.clientX - rect.left) / (rect.width || 1);
+    var py = (ev.clientY - rect.top) / (rect.height || 1);
+    return { x: Math.max(0, Math.min(IM_W, Math.round(px * IM_W))), y: Math.max(0, Math.min(state.imagemap.baseHeight, Math.round(py * state.imagemap.baseHeight))) };
+  }
+  // 操作方式（自訂版型）：在圖上任意處拖拉＝新增區域（可以畫在其他區域上面）；
+  // 拖拉區域左上角的「編號」＝移動該區域；點一下（沒拖動）＝選取最上層那一區。
+  function imPointerDown(ev) {
+    var im = state.imagemap;
+    var hit = ev.target && ev.target.closest ? ev.target.closest('[data-im-area]') : null;
+    var onBadge = !!(hit && ev.target.tagName === 'B');
+    var p0 = imPoint(ev);
+    if (im.layout !== 'custom') {
+      if (hit) { im.selected = Number(hit.getAttribute('data-im-area')); imRender(); }
+      return;
+    }
+    if (onBadge) {
+      im.selected = Number(hit.getAttribute('data-im-area'));
+      var a0 = im.areas[im.selected];
+      imDrag = { mode: 'move', start: p0, orig: { x: a0.x, y: a0.y } };
+    } else {
+      if (!im.assetId) return;
+      imDrag = { mode: 'draw', start: p0, hit: hit ? Number(hit.getAttribute('data-im-area')) : null };
+    }
+    if ($('im-canvas').setPointerCapture && ev.pointerId != null) { try { $('im-canvas').setPointerCapture(ev.pointerId); } catch (e) {} }
+    ev.preventDefault();
+    imRender();
+  }
+  function imPointerMove(ev) {
+    if (!imDrag) return;
+    var im = state.imagemap;
+    var p = imPoint(ev);
+    if (imDrag.mode === 'move') {
+      var a = im.areas[im.selected];
+      a.x = imDrag.orig.x + (p.x - imDrag.start.x);
+      a.y = imDrag.orig.y + (p.y - imDrag.start.y);
+      imClampArea(a);
+      imRender();
+    } else {
+      imDrag.current = p;
+      var r = imDrag;
+      var x = Math.min(r.start.x, p.x), y = Math.min(r.start.y, p.y);
+      var w = Math.abs(p.x - r.start.x), h = Math.abs(p.y - r.start.y);
+      var overlay = $('im-overlay');
+      var ghost = overlay.querySelector('.drawing');
+      if (!ghost) { ghost = document.createElement('div'); ghost.className = 'im-area drawing'; overlay.appendChild(ghost); }
+      ghost.style.left = (x / IM_W * 100) + '%'; ghost.style.top = (y / im.baseHeight * 100) + '%';
+      ghost.style.width = (w / IM_W * 100) + '%'; ghost.style.height = (h / im.baseHeight * 100) + '%';
+    }
+  }
+  function imPointerUp() {
+    if (!imDrag) return;
+    var im = state.imagemap;
+    var added = false;
+    if (imDrag.mode === 'draw') {
+      var s = imDrag.start, p = imDrag.current || imDrag.start;
+      var rect = { x: Math.min(s.x, p.x), y: Math.min(s.y, p.y), width: Math.abs(p.x - s.x), height: Math.abs(p.y - s.y) };
+      if (rect.width >= 20 && rect.height >= 20 && im.areas.length < 50) {
+        im.areas.push(imClampArea(imBlankArea(rect)));
+        im.selected = im.areas.length - 1;
+        added = true;
+      } else if (imDrag.hit != null) {
+        im.selected = imDrag.hit;                         // 沒拖動：當成點選
+      }
+    }
+    var moved = imDrag.mode === 'move';
+    imDrag = null;
+    imRender();
+    if (added || moved) imChanged();
+  }
+  function initImagemapEditor() {
+    if (!$('pane-imagemap')) return;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-msg-style]'), function (b) {
+      b.addEventListener('click', function () { setMessageStyle(b.getAttribute('data-msg-style')); });
+    });
+    $('im-upload').addEventListener('click', imUpload);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-im-layout]'), function (b) {
+      b.addEventListener('click', function () { imApplyLayout(b.getAttribute('data-im-layout')); imRender(); imChanged(); });
+    });
+    $('im-add-area').addEventListener('click', function () {
+      var im = state.imagemap;
+      var w = Math.min(400, IM_W), h = Math.min(300, im.baseHeight);
+      im.areas.push(imClampArea(imBlankArea({ x: Math.round((IM_W - w) / 2), y: Math.round((im.baseHeight - h) / 2), width: w, height: h })));
+      im.selected = im.areas.length - 1;
+      imRender(); imChanged();
+    });
+    var canvas = $('im-canvas');
+    canvas.addEventListener('pointerdown', imPointerDown);
+    canvas.addEventListener('pointermove', imPointerMove);
+    canvas.addEventListener('pointerup', imPointerUp);
+    canvas.addEventListener('pointercancel', imPointerUp);
+    var list = $('im-areas');
+    list.addEventListener('input', function (ev) {
+      var el = ev.target;
+      var f = el.getAttribute && el.getAttribute('data-im-field');
+      if (!f) return;
+      var a = state.imagemap.areas[Number(el.getAttribute('data-i'))];
+      if (!a) return;
+      if (f === 'x' || f === 'y' || f === 'width' || f === 'height') {
+        a[f] = Number(el.value);
+        imClampArea(a);
+        // 只更新圖上的框，不重畫整個清單（避免游標跳走）
+        var box = document.querySelector('[data-im-area="' + el.getAttribute('data-i') + '"]');
+        var bh = state.imagemap.baseHeight;
+        if (box) { box.style.left = (a.x / IM_W * 100) + '%'; box.style.top = (a.y / bh * 100) + '%'; box.style.width = (a.width / IM_W * 100) + '%'; box.style.height = (a.height / bh * 100) + '%'; }
+      } else if (f !== 'type') {
+        a[f] = el.value;
+      }
+      imChanged();
+    });
+    list.addEventListener('change', function (ev) {
+      var el = ev.target;
+      if (el.getAttribute && el.getAttribute('data-im-field') === 'type') {
+        state.imagemap.areas[Number(el.getAttribute('data-i'))].type = el.value === 'message' ? 'message' : 'uri';
+        imRender(); imChanged();
+      } else if (el.getAttribute && /^(x|y|width|height)$/.test(el.getAttribute('data-im-field') || '')) {
+        imRender();   // 夾回範圍後的數字回填
+      }
+    });
+    list.addEventListener('click', function (ev) {
+      var del = ev.target.closest && ev.target.closest('[data-im-del]');
+      if (del) {
+        state.imagemap.areas.splice(Number(del.getAttribute('data-im-del')), 1);
+        state.imagemap.selected = 0;
+        imRender(); imChanged();
+        return;
+      }
+      var row = ev.target.closest && ev.target.closest('[data-im-row]');
+      if (row && !/INPUT|SELECT/.test(ev.target.tagName)) {
+        state.imagemap.selected = Number(row.getAttribute('data-im-row'));
+        imRender();
+      }
+    });
+    imRender();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initImagemapEditor);
+  else initImagemapEditor();
+
   function setSequencePane(active, messageConfig, templateMeta) {
     var sequencePane = $('pane-sequence');
     var altBlock = $('msg-alt-text-block');
     var advancedBlock = $('advanced-json-block');
     var testingSettings = $('message-testing-settings');
     if (sequencePane) sequencePane.hidden = !active;
+    var chooser = $('msg-style-chooser');
+    if (chooser) chooser.hidden = active || getActiveChannel() === 'email';
     if (altBlock) altBlock.hidden = active || getActiveChannel() === 'email';
     if (advancedBlock) advancedBlock.hidden = active;
     // 多段訊息也可以 A/B：測試設定保持可見，B／C 版改用「沿用 A 版、只改要測的部分」的編輯區
@@ -2994,6 +3413,17 @@
     }
     state.sequenceConfig = null;
     setSequencePane(false);
+    if (messageConfig.mode === 'imagemap') {
+      var lineTabIm = document.querySelector('.tab-btn[data-channel="line"]');
+      if (lineTabIm && !lineTabIm.classList.contains('active')) lineTabIm.click();
+      loadImagemapConfig(messageConfig);
+      setMessageStyle('imagemap', { silent: true });
+      state.messagePreviewed = false;
+      updateSendButton();
+      schedulePreview();
+      return;
+    }
+    if (state.mode === 'imagemap') setMessageStyle('card', { silent: true });
     if (messageConfig.mode === 'flex_json') {
       if (state.campaignTestEnabled) {
         var warning = $('campaign-mode-warning');
@@ -3181,6 +3611,10 @@
     var playGrantError = validatePlayGrant();
     if (playGrantError) {
       return { ok: false, reason: playGrantError, focusEl: 'pg-activity' };
+    }
+    if (state.mode === 'imagemap') {
+      var imErr = imagemapClientError();
+      if (imErr) return { ok: false, reason: imErr, focusEl: 'pane-imagemap' };
     }
     if (!state.messagePreviewed) {
       return { ok: false, reason: '預覽尚未產生 — 請編輯訊息或從訊息模板選一個，等預覽顯示後再送', focusEl: 'msg-preview' };
@@ -3536,6 +3970,7 @@
         sequenceConfig: state.mode === 'sequence' && state.sequenceConfig
           ? JSON.parse(JSON.stringify(state.sequenceConfig))
           : null,
+        imagemap: state.mode === 'imagemap' ? collectImagemapConfig().imagemap : null,
         seqVariants: state.mode === 'sequence' ? seqClone(state.seqVariants) : null,
         seqVariantsEdited: state.mode === 'sequence' ? seqClone(state.seqVariantsEdited) : null,
         hero: { mediaId: state.heroMediaId || null, url: state.heroUrl || null },
@@ -3689,6 +4124,9 @@
           });
           syncSeqVariantPanes();
         }
+      } else if (d.mode === 'imagemap' && d.imagemap) {
+        loadImagemapConfig({ imagemap: d.imagemap });
+        setMessageStyle('imagemap', { silent: true });
       } else if (d.mode === 'flex_json') {
         // 展開進階 JSON 區塊會觸發其 toggle handler，把 state.mode 設成 flex_json
         var advBlock = document.getElementById('advanced-json-block');
