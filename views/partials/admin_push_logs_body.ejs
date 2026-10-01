@@ -26,11 +26,11 @@
  <% if(!rows.length) { %><div class="pl-empty"><strong>這個篩選沒有發送紀錄。</strong><p>較早的通知可改看「近 7 天失敗」或「全部失敗」。<% if(filters.after) { %>目前已到最後一頁，可回到篩選結果第一頁。<% } %></p></div><% } %>
  <% for(const row of rows) { %>
  <article class="pl-row">
-  <div class="pl-meta"><span>紀錄 #<%= row.id %> · <%= taipeiTime(row.created_at) %></span><span class="pl-badge <%= row.status==='success'?'success':row.status==='skipped'?'skipped':'' %>"><%= row.status==='success'?'LINE 已接受':row.status==='skipped'?'未送出':'失敗' %></span></div>
+  <div class="pl-meta"><span>紀錄 #<%= row.id %> · <%= taipeiTime(row.created_at) %></span><span class="pl-badge <%= row.status==='success'||row.recovered?'success':row.status==='skipped'?'skipped':'' %>"><%= row.recovered?'原失敗，後續已接受':row.status==='success'?'LINE 已接受':row.status==='skipped'?'未送出':'失敗' %></span></div>
   <h3><%= row.person %></h3><div class="pl-id">LINE User ID：<%= row.line_user_id || '此紀錄未保存' %><% if(row.blocked_at) { %> · 目前有封鎖紀錄<% } %><% if(row.archived_at) { %> · 舊官方帳號會員<% } %></div>
   <p class="muted"><%= row.source %><% if(row.sourceHref) { %> · <a href="<%= row.sourceHref %>">查看原<%= row.broadcast_id?'群發紀錄':'流程' %></a><% } %></p>
   <div class="pl-message"><%= row.message %></div>
-  <div class="pl-diagnosis"><p><strong><%= row.cause %></strong></p><p><%= row.action %></p></div>
+  <div class="pl-diagnosis"><p><strong><%= row.cause %></strong></p><p><strong>下一步：</strong><%= row.action %></p></div>
   <% if(row.status==='failed') { %><p class="pl-followup"><%= row.followUp %><% if(row.flow_status==='active' && row.next_run_at) { %> 流程下次執行：<%= taipeiTime(row.next_run_at) %>。<% } %></p><% } %>
   <details><summary>LINE 原始回應（給管理員排查）</summary><p>HTTP：<%= row.http_status || '未收到 HTTP 回應' %></p><pre><%= row.detail || '沒有保存回應文字' %></pre></details>
  </article><% } %>

@@ -58,6 +58,7 @@ function decoratePush(row) {
   const sourceHref = row.broadcast_id ? `/admin/broadcast/${row.broadcast_id}` : row.flow_id ? '/admin/flows' : '';
   return { ...row, ...diagnosis, source: (sourceName ? `${source} · ${sourceName}` : source) + (typeof material === 'string' && material ? ` · ${material.slice(0, 200)}` : ''),
     sourceHref, message: messageSummary(row.payload),
+    action: row.status === 'failed' && row.recovered ? '同一則後續已被 LINE 接受，不需另行補發。這仍不是已讀或實際送達的證明。' : diagnosis.action,
     person: row.line_display_name || row.username || '未找到 CRM 名稱（以 LINE 編號核對）',
     followUp: row.recovered ? '同一則後續已被 LINE 接受，不需另行補發。' :
       row.flow_status === 'active' ? '原流程仍在執行；請先查看流程狀態，不要另外補發。' :

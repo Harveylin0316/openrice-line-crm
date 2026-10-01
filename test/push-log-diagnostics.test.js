@@ -76,6 +76,7 @@ test('pending and recovered filters only operate on failed attempts; another suc
   assert.equal(parseFilters({ status: 'success', followup: 'pending' }).filters.followup, 'all');
   assert.throws(() => parseFilters({ followup: 'invalid' }));
   assert.match(decoratePush({ ...fixture(), recovered: true }).followUp, /不需另行補發/);
+  assert.match(decoratePush({ ...fixture(), recovered: true }).action, /不需另行補發/);
   assert.match(decoratePush({ ...fixture(), recovered: false }).followUp, /仍在執行/);
 });
 
