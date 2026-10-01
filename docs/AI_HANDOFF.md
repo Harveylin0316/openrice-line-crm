@@ -435,6 +435,21 @@ route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-pl
 
 以上 SQL 已在真 PostgreSQL 驗證（重置只清測試帳號、庫存歸還上限、觀察期 7 vs 14 天、分界日切分、重開不重算、中獎排除銘謝惠顧）。
 
+#### 多段訊息也能 A/B 與 Campaign Testing（2026-10-01）
+
+訊息庫的多段訊息（文字＋圖文、Carousel 等，`mode='sequence'`）以前一選就自動關掉 A/B 與 Campaign Testing。
+現在 B／C 版會完整複製 A 版（`state.seqVariants`），在 `#pane-b-sequence`／`#pane-c-sequence` 只改要測的部分：
+文字段的文字、單張圖片網址（預覽圖原本同一張就一起換）、模板卡的通知文字／標題／副標／優惠碼／按鈕文字與連結、
+自訂 Flex 卡片內每個 text、image url、uri 按鈕的 label 與 uri。段數、類型、順序固定與 A 版相同；改過的欄位標黃，
+有「恢復成與 A 版相同」。換 A 版素材時 B／C 重新從新 A 版複製。草稿會保存 B／C 改動（段數相同才還原）。
+整段操作：卡片段可「整張換成訊息庫的其他卡片」（只列單張卡片 template／flex_json，換入後欄位跟著新卡片，記 `source_message_id`、`source_name`）；
+圖片段可直接上傳新圖（`/admin/broadcast/hero/upload`，必須 https，原圖與預覽圖一起換）；每段可單獨「這段恢復成 A 版」。
+A 版是單張卡片時，B／C 有「從訊息庫套用到版本 B／C」，只列與 A 同格式的素材（一般卡片對一般卡片、自訂卡片對自訂卡片），
+套用後填進該版編輯區可再微調。`GET /admin/broadcast/templates` 多回傳 `mode` 供篩選。
+伺服器：Campaign Testing 允許 `template` 與 `sequence`；多段訊息的每個版本至少要有一顆可追蹤的「開啟網址」按鈕
+（`listBroadcastButtons`），否則回 `campaign_experiment_requires_cta_button`。自訂 Flex JSON 仍維持原本限制。
+回歸測試 `test/broadcast-sequence-ab.test.js`。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`

@@ -785,7 +785,8 @@ function registerAdminBroadcastRoutes(app, deps) {
   app.get('/admin/broadcast/templates', requireAdmin, async (_req, res) => {
     try {
       const rs = await query(
-        `SELECT id, name, description, created_by, created_at
+        `SELECT id, name, description, created_by, created_at,
+                COALESCE(message_config->>'mode', 'template') AS mode
          FROM admin_message_templates
          ORDER BY id DESC`
       );
@@ -1337,8 +1338,18 @@ function registerAdminBroadcastRoutes(app, deps) {
       const normalizedExperiment = normalizeCampaignExperiment(rawExperiment);
       if (!normalizedExperiment.ok) return safeJsonError(res, 400, normalizedExperiment.error);
       const experiment = normalizedExperiment.value;
-      if (experiment && (!messageConfig || messageConfig.mode !== 'template')) {
+      // Campaign Testing 以 CTA 點擊率選勝出：一般模板與訊息庫多段訊息都會逐顆追蹤按鈕；
+      // 每個版本至少要有一顆「開啟網址」按鈕，否則點擊率永遠是 0、勝出沒有意義。
+      // （自訂 Flex JSON 維持原本限制。）
+      const experimentModeOk = (cfg) => Boolean(cfg && (cfg.mode === 'template' || cfg.mode === 'sequence'));
+      const hasTrackableButton = (cfg) => {
+        try { return listBroadcastButtons(cfg, { heroImageBaseUrl: origin }).length > 0; } catch (e) { return false; }
+      };
+      if (experiment && !experimentModeOk(messageConfig)) {
         return safeJsonError(res, 400, 'campaign_experiment_requires_tracked_template');
+      }
+      if (experiment && messageConfig.mode === 'sequence' && !hasTrackableButton(messageConfig)) {
+        return safeJsonError(res, 400, 'campaign_experiment_requires_cta_button');
       }
 
       // A/B test：可選的 variant B。Campaign Testing 一律需要 B。
@@ -1348,8 +1359,11 @@ function registerAdminBroadcastRoutes(app, deps) {
         if (!variantBConfig || typeof variantBConfig !== 'object') {
           return safeJsonError(res, 400, 'variant_b_message_config_required');
         }
-        if (experiment && variantBConfig.mode !== 'template') {
+        if (experiment && !experimentModeOk(variantBConfig)) {
           return safeJsonError(res, 400, 'campaign_experiment_requires_tracked_template');
+        }
+        if (experiment && variantBConfig.mode === 'sequence' && !hasTrackableButton(variantBConfig)) {
+          return safeJsonError(res, 400, 'campaign_experiment_requires_cta_button');
         }
         if (channel === 'line') {
           const builtB = buildLineMessages(variantBConfig, { heroImageBaseUrl: origin });
@@ -1377,8 +1391,11 @@ function registerAdminBroadcastRoutes(app, deps) {
         if (!variantCConfig || typeof variantCConfig !== 'object') {
           return safeJsonError(res, 400, 'variant_c_message_config_required');
         }
-        if (variantCConfig.mode !== 'template') {
+        if (!experimentModeOk(variantCConfig)) {
           return safeJsonError(res, 400, 'campaign_experiment_requires_tracked_template');
+        }
+        if (variantCConfig.mode === 'sequence' && !hasTrackableButton(variantCConfig)) {
+          return safeJsonError(res, 400, 'campaign_experiment_requires_cta_button');
         }
         const builtC = buildLineMessages(variantCConfig, { heroImageBaseUrl: origin });
         if (!builtC.ok) return safeJsonError(res, 400, 'variant_c_invalid:' + builtC.error);
