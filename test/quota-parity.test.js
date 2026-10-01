@@ -20,7 +20,7 @@ function makeDb(st){
       return {rows:[{c:n}]};
     }
     if (/FROM activity_referrals/.test(f)) {
-      if (/FILTER/.test(f)) return {rows:[{c:st.newFriends, existing:st.oldFriends}]};
+      if (/FILTER/.test(f)) return {rows:[{c:st.newFriends, existing:st.oldFriends, unknown:st.unknownFriends||0}]};
       return {rows:[{c:st.newFriends+st.oldFriends}]};   // 沒過濾的舊寫法會拿到這個
     }
     if (/activity_bonus_plays/.test(f)) return {rows:[{b:st.manualBonus}]};

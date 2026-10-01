@@ -474,7 +474,10 @@ function registerAdminActivitiesRoutes(app, deps) {
              AND r.invitee_was_existing IS FALSE) AS referrals,
           (SELECT COUNT(*) FROM activity_referrals r
            WHERE r.activity_id = $1 AND r.inviter_line_user_id = pl.line_user_id
-             AND r.invitee_was_existing IS NOT FALSE) AS referrals_existing,
+             AND r.invitee_was_existing IS TRUE) AS referrals_existing,
+          (SELECT COUNT(*) FROM activity_referrals r
+           WHERE r.activity_id = $1 AND r.inviter_line_user_id = pl.line_user_id
+             AND r.invitee_was_existing IS NULL) AS referrals_unknown,
           (SELECT COALESCE(SUM(b.plays),0) FROM activity_bonus_plays b
             WHERE b.activity_id = $1 AND b.line_user_id = pl.line_user_id) AS manual_bonus,
           (SELECT r.inviter_line_user_id FROM activity_referrals r
@@ -548,6 +551,7 @@ function registerAdminActivitiesRoutes(app, deps) {
           quota_granted_by: o.granted_by,
           referrals: 0,
           referrals_existing: 0,
+          referrals_unknown: 0,
           manual_bonus: 0,
           invited_by_uid: null, invited_by_name: null, invited_was_existing: null,
           crm_display_name: o.crm_display_name

@@ -10,15 +10,15 @@ catch (e) {
 const U=n=>'U'+String(n).padStart(32,'0');
 const DATA={ok:true,players:[
  {line_user_id:U(1),line_display_name:'林御恒 Hen',crm_display_name:'林御恒 Hen',plays:6,wins:1,grand_wins:0,
-  last_played_at:'2026-08-18T03:54:00Z',referrals:0,referrals_existing:1,manual_bonus:0,
+  last_played_at:'2026-08-18T03:54:00Z',referrals:0,referrals_existing:1,referrals_unknown:0,manual_bonus:0,
   max_plays_override:99,quota_note:null,quota_granted_by:null,quota_total:99,quota_remaining:93,
   invited_by_uid:null,invited_by_name:null,invited_was_existing:null},
  {line_user_id:U(2),line_display_name:'Ice Chen',crm_display_name:'Ice Chen',plays:1,wins:0,grand_wins:0,
-  last_played_at:'2026-08-18T04:42:00Z',referrals:0,referrals_existing:1,manual_bonus:0,
+  last_played_at:'2026-08-18T04:42:00Z',referrals:0,referrals_existing:1,referrals_unknown:0,manual_bonus:0,
   max_plays_override:null,quota_note:null,quota_granted_by:null,quota_total:1,quota_remaining:0,
   invited_by_uid:U(1),invited_by_name:'林御恒 Hen',invited_was_existing:true},
  {line_user_id:U(3),line_display_name:'小新',crm_display_name:'小新',plays:1,wins:1,grand_wins:1,
-  last_played_at:'2026-08-18T05:00:00Z',referrals:2,referrals_existing:0,manual_bonus:1,
+  last_played_at:'2026-08-18T05:00:00Z',referrals:2,referrals_existing:0,referrals_unknown:1,manual_bonus:1,
   max_plays_override:null,quota_note:null,quota_granted_by:null,quota_total:4,quota_remaining:3,
   invited_by_uid:U(2),invited_by_name:'Ice Chen',invited_was_existing:false}],
  stats:{players:3,plays:8,wins:2}};
@@ -48,6 +48,7 @@ const DATA={ok:true,players:[
     /自己來的/.test(rows[0].cells[1].textContent) &&
     rows[0].cells[2].textContent.indexOf('99')>=0 &&
     rows[0].cells[4].textContent.indexOf('93')>=0 &&
+    /好友狀態不明/.test(rows[2].cells[6].textContent) &&
     rows[2].cells[2].textContent.indexOf('含人工補 1 次')>=0;
   console.log(ok?'\n結果：被誰邀請、總次數／已用／剩下都正確':'\n結果：有問題');
   process.exit(ok?0:1);

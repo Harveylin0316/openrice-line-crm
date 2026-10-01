@@ -552,6 +552,8 @@ LINE 驗證後的 `sub`，同一人同一網址同一分鐘以 DB unique constra
 
 - 被邀請者原本已經是 LINE OA 好友：仍可使用自己的基礎遊玩次數。
 - 只有 `invitee_was_existing IS FALSE` 的有效新好友，才計入邀請人的加碼。
+- `invitee_was_existing` 是三態欄位：`FALSE`＝確認為新好友、可計獎；`TRUE`＝確認原本已是好友、不計獎；`NULL`＝歷史資料無法判定、不計獎。後台不得用 `IS NOT FALSE` 或 `COALESCE(..., false)` 把 `NULL` 混入既有好友或新好友。
+- 邀請加碼不是另一筆待派送工作：遊戲每次讀取配額時，會依 `activity_referrals` 中的有效新好友即時計算。活動成效頁的「邀請機會對帳」會檢查已確認成功但未入帳與可能的歷史交界紀錄；它只提示人工複核，不會自動補發。
 - 新好友通常會先得到 `invitee_not_follower`，這筆 pending 必須先落庫，才能讓使用者開始加好友。
 - LINE 發出已驗簽的 follow webhook 時，`src/core/activityReferralFollow.js` 會在同一個 webhook request 內直接完成 pending referral；使用者不需要返回頁面，也不需要按「我加好了」。
 - 前端的自動重查與異常情況才顯示的「重新確認」，只是 webhook 或 LINE 同步延遲時的備援，不是正常入帳步驟。

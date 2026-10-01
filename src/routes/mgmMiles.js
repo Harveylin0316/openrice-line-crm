@@ -14,7 +14,7 @@
  *   POST /admin/mgm/api/config            存設定（限管理員）
  *   POST /admin/mgm/api/mark-granted      批次標記「已發放」（人工入帳完成）
  */
-const { registerReferral } = require('../core/gamePlayEngine');
+const { registerReferral, computeUserQuota } = require('../core/gamePlayEngine');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 
 const MAX_REPORT_RANGE_DAYS = 366;
@@ -281,7 +281,8 @@ function registerMgmMilesRoutes(app, deps) {
            FROM activity_plays p WHERE p.activity_id = $1${playRangeSql}`, reportParams)).rows[0];
       const refs = (await query(
         `SELECT COUNT(*) FILTER (WHERE invitee_was_existing IS FALSE)::int AS c,
-                COUNT(*) FILTER (WHERE invitee_was_existing IS NOT FALSE)::int AS existing,
+                COUNT(*) FILTER (WHERE invitee_was_existing IS TRUE)::int AS existing,
+                COUNT(*) FILTER (WHERE invitee_was_existing IS NULL)::int AS unknown,
                 COUNT(DISTINCT inviter_line_user_id)
                   FILTER (WHERE invitee_was_existing IS FALSE)::int AS inviters
            FROM activity_referrals r WHERE r.activity_id = $1${referralRangeSql}`, reportParams)).rows[0];
@@ -329,7 +330,8 @@ function registerMgmMilesRoutes(app, deps) {
         `SELECT r.inviter_line_user_id AS uid,
                 COALESCE(u.line_display_name, '(沒有名字)') AS display_name,
                 COUNT(*) FILTER (WHERE r.invitee_was_existing IS FALSE)::int AS new_friends,
-                COUNT(*) FILTER (WHERE r.invitee_was_existing IS NOT FALSE)::int AS existing_friends,
+                COUNT(*) FILTER (WHERE r.invitee_was_existing IS TRUE)::int AS existing_friends,
+                COUNT(*) FILTER (WHERE r.invitee_was_existing IS NULL)::int AS unknown_friends,
                 MAX(r.created_at) AS last_at
            FROM activity_referrals r
            LEFT JOIN users u ON u.line_user_id = r.inviter_line_user_id
@@ -344,12 +346,86 @@ function registerMgmMilesRoutes(app, deps) {
                 COALESCE(ui.line_display_name, '(沒有名字)') AS inviter_name,
                 r.invitee_line_user_id AS invitee_uid,
                 COALESCE(uv.line_display_name, '(沒有名字)') AS invitee_name,
-                COALESCE(r.invitee_was_existing, false) AS was_existing
+                r.invitee_was_existing AS was_existing
            FROM activity_referrals r
            LEFT JOIN users ui ON ui.line_user_id = r.inviter_line_user_id
            LEFT JOIN users uv ON uv.line_user_id = r.invitee_line_user_id
           WHERE r.activity_id = $1${referralRangeSql}
           ORDER BY r.created_at DESC LIMIT 5000`, reportParams)).rows;
+
+      // 次數對帳固定檢查整檔活動，不受上方報表日期影響。
+      // 「疑似歷史漏記」只做人工複核提示，不會自動補次數，避免把自然加入的人誤判成邀請。
+      const referralAudit = (await query(
+        `WITH inviter_counts AS (
+           SELECT inviter_line_user_id,
+                  COUNT(*) FILTER (WHERE invitee_was_existing IS FALSE)::int AS new_friends
+             FROM activity_referrals
+            WHERE activity_id = $1
+            GROUP BY inviter_line_user_id
+         ), candidate_rows AS (
+           SELECT DISTINCT ON (t.invitee_line_user_id)
+                  t.inviter_line_user_id AS inviter_uid,
+                  COALESCE(ui.line_display_name, '(沒有名字)') AS inviter_name,
+                  t.invitee_line_user_id AS invitee_uid,
+                  COALESCE(uv.line_display_name, '(沒有名字)') AS invitee_name,
+                  t.created_at AS attempted_at,
+                  COALESCE(ic.new_friends, 0)::int AS current_new_friends
+             FROM activity_referral_attempts t
+             JOIN users uv ON uv.line_user_id = t.invitee_line_user_id
+                          AND uv.archived_at IS NULL AND uv.blocked_at IS NULL
+             LEFT JOIN users ui ON ui.line_user_id = t.inviter_line_user_id
+             LEFT JOIN inviter_counts ic ON ic.inviter_line_user_id = t.inviter_line_user_id
+            WHERE t.activity_slug = $2
+              AND t.outcome = 'invitee_not_follower'
+              AND uv.created_at >= t.created_at
+              AND uv.created_at <= t.created_at + INTERVAL '10 minutes'
+              AND NOT EXISTS (
+                SELECT 1 FROM activity_referrals ar
+                 WHERE ar.activity_id = $1
+                   AND ar.invitee_line_user_id = t.invitee_line_user_id
+              )
+            ORDER BY t.invitee_line_user_id, t.created_at DESC
+         ), candidate_counts AS (
+           SELECT inviter_uid, COUNT(*)::int AS candidate_count
+             FROM candidate_rows GROUP BY inviter_uid
+         ), confirmed_gaps AS (
+           SELECT DISTINCT t.invitee_line_user_id
+             FROM activity_referral_attempts t
+            WHERE t.activity_slug = $2
+              AND t.outcome IN ('counted', 'counted_by_follow_webhook')
+              AND NOT EXISTS (
+                SELECT 1 FROM activity_referrals ar
+                 WHERE ar.activity_id = $1
+                   AND ar.invitee_line_user_id = t.invitee_line_user_id
+              )
+         )
+         SELECT
+           (SELECT COUNT(*)::int FROM activity_referrals
+             WHERE activity_id = $1 AND invitee_was_existing IS FALSE) AS confirmed_new_friends,
+           (SELECT COALESCE(SUM(LEAST($3::int,
+                    FLOOR(ic.new_friends::numeric / GREATEST($4::int, 1))::int * $5::int)), 0)::int
+              FROM inviter_counts ic) AS calculated_bonus_chances,
+           (SELECT COUNT(*)::int FROM confirmed_gaps) AS confirmed_attempts_without_referral,
+           (SELECT COUNT(*)::int FROM candidate_rows) AS review_candidates,
+           (SELECT COALESCE(SUM(GREATEST(0,
+                    LEAST($3::int, FLOOR((COALESCE(ic.new_friends, 0) + cc.candidate_count)::numeric / GREATEST($4::int, 1))::int * $5::int)
+                    - LEAST($3::int, FLOOR(COALESCE(ic.new_friends, 0)::numeric / GREATEST($4::int, 1))::int * $5::int)
+                  )), 0)::int
+              FROM candidate_counts cc
+              LEFT JOIN inviter_counts ic ON ic.inviter_line_user_id = cc.inviter_uid) AS potential_extra_chances,
+           (SELECT COALESCE(JSON_AGG(JSON_BUILD_OBJECT(
+                    'inviter_uid', inviter_uid, 'inviter_name', inviter_name,
+                    'invitee_uid', invitee_uid, 'invitee_name', invitee_name,
+                    'attempted_at', attempted_at, 'current_new_friends', current_new_friends,
+                    'extra_chances_if_confirmed', GREATEST(0,
+                      LEAST($3::int, FLOOR((current_new_friends + 1)::numeric / GREATEST($4::int, 1))::int * $5::int)
+                      - LEAST($3::int, FLOOR(current_new_friends::numeric / GREATEST($4::int, 1))::int * $5::int)
+                    )
+                  ) ORDER BY attempted_at DESC), '[]'::json)
+              FROM candidate_rows) AS candidates`,
+        [aid, act.slug, Number(act.referral_bonus_max || 0),
+          Math.max(1, Number(act.referral_invites_per_bonus || 1)), Number(act.referral_bonus_per || 0)]
+      )).rows[0] || {};
 
       const prizeInventory = (await query(
         `SELECT ap.id, ap.name, ap.prize_type, ap.stock_total, ap.stock_remaining,
@@ -373,13 +449,15 @@ function registerMgmMilesRoutes(app, deps) {
           referral_invites_per_bonus: act.referral_invites_per_bonus,
           referral_bonus_max: act.referral_bonus_max,
           stats: {
-            referrals: refs.c, referrals_existing: refs.existing, inviters: refs.inviters,
+            referrals: refs.c, referrals_existing: refs.existing, referrals_unknown: refs.unknown,
+            inviters: refs.inviters,
             miles_total: stats.miles_total, miles_pending: stats.miles_pending,
             wins: stats.wins, wins_pending: stats.wins_pending,
             plays: stats.plays, people: stats.people
           }
         },
         people, ledger, inviters, pairs, prize_inventory: prizeInventory,
+        referral_audit: referralAudit,
         report_range: {
           filtered: reportRange.filtered,
           from: reportRange.from,
@@ -577,29 +655,21 @@ function registerMgmMilesRoutes(app, deps) {
       // 次數怎麼算出來的
       const refCount = (await query(
         `SELECT COUNT(*) FILTER (WHERE invitee_was_existing IS FALSE)::int AS new_friends,
-                COUNT(*) FILTER (WHERE invitee_was_existing IS NOT FALSE)::int AS existing_friends
+                COUNT(*) FILTER (WHERE invitee_was_existing IS TRUE)::int AS existing_friends,
+                COUNT(*) FILTER (WHERE invitee_was_existing IS NULL)::int AS unknown_friends
            FROM activity_referrals WHERE activity_id = $1 AND inviter_line_user_id = $2`,
         [act.id, uid])).rows[0];
-      const playedRow = (await query(
-        `SELECT COUNT(*)::int AS c FROM activity_plays
-          WHERE activity_id = $1 AND line_user_id = $2
-            AND COALESCE(prize_snapshot->>'kind','') <> 'draw_win'`, [act.id, uid])).rows[0];
-      const bonusRow = (await query(
-        `SELECT COALESCE(SUM(plays),0)::int AS b FROM activity_bonus_plays
-          WHERE activity_id = $1 AND line_user_id = $2`, [act.id, uid])).rows[0];
+      // 與玩家真正進入遊戲時共用同一套配額算法，包含個別 override。
+      const computedQuota = await computeUserQuota(query, act, uid);
       const perBonus = Math.max(1, Number(act.referral_invites_per_bonus || 1));
       const refPer = Number(act.referral_bonus_per || 0);
       const refMax = Number(act.referral_bonus_max || 0);
-      const referralBonus = Math.min(refMax, Math.floor(refCount.new_friends / perBonus) * refPer);
       const base = Number(act.base_plays_per_user || 0);
-      const bonus = Number(bonusRow.b || 0);
-      const total = base + referralBonus + bonus;
-      const played = Number(playedRow.c || 0);
 
       const referrals = (await query(
         `SELECT r.created_at, r.invitee_line_user_id AS uid,
                 COALESCE(u.line_display_name, '(沒有名字)') AS display_name,
-                COALESCE(r.invitee_was_existing, false) AS was_existing
+                r.invitee_was_existing AS was_existing
            FROM activity_referrals r
            LEFT JOIN users u ON u.line_user_id = r.invitee_line_user_id
           WHERE r.activity_id = $1 AND r.inviter_line_user_id = $2
@@ -639,9 +709,12 @@ function registerMgmMilesRoutes(app, deps) {
         user: { uid: uid, display_name: prof ? prof.display_name : '(查不到這個人)',
                 is_member: !!prof && !prof.archived_at, blocked: !!(prof && prof.blocked_at),
                 joined_at: prof ? prof.created_at : null },
-        quota: { base: base, referral_bonus: referralBonus, manual_bonus: bonus,
-                 total: total, played: played, remaining: Math.max(0, total - played),
-                 new_friends: refCount.new_friends, existing_friends: refCount.existing_friends },
+        quota: { base: computedQuota.base, referral_bonus: computedQuota.referral_bonus,
+                 manual_bonus: computedQuota.bonus_plays,
+                 total: computedQuota.total, played: computedQuota.played,
+                 remaining: computedQuota.remaining, override: computedQuota.override,
+                 new_friends: refCount.new_friends, existing_friends: refCount.existing_friends,
+                 unknown_friends: refCount.unknown_friends },
         referrals, attempts, plays, bonuses });
     } catch (err) {
       console.error('user lookup error:', err && err.message);

@@ -761,7 +761,9 @@ function registerAdminUsersRoutes(app, deps) {
            UNION ALL
            SELECT '邀請朋友成功',
                   COALESCE(u2.line_display_name, r.invitee_line_user_id) ||
-                  CASE WHEN r.invitee_was_existing IS FALSE THEN '' ELSE '（本來就是好友，不計獎）' END,
+                  CASE WHEN r.invitee_was_existing IS FALSE THEN ''
+                       WHEN r.invitee_was_existing IS TRUE THEN '（本來就是好友，不計獎）'
+                       ELSE '（好友狀態不明，不計獎）' END,
                   r.created_at
              FROM activity_referrals r LEFT JOIN users u2 ON u2.line_user_id = r.invitee_line_user_id
             WHERE r.inviter_line_user_id = $1

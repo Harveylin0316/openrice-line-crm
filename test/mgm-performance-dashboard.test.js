@@ -72,8 +72,12 @@ test('活動成效 API 把同一期間套到 KPI、邀請、得獎名單與庫�
     { rows: [{ id: 6, slug: 'share-miles', name: '分享超有哩', game_type: 'wheel', status: 'active' }] },
     { rows: [{ id: 6, slug: 'share-miles', name: '分享超有哩', game_type: 'wheel', status: 'active', rules: {} }] },
     { rows: [{ miles_total: 10000, miles_pending: 10000, wins: 1, wins_pending: 1, plays: 2, people: 2 }] },
-    { rows: [{ c: 1, existing: 0, inviters: 1 }] },
-    { rows: [] }, { rows: [] }, { rows: [] }, { rows: [] }, { rows: [] }
+    { rows: [{ c: 1, existing: 0, unknown: 0, inviters: 1 }] },
+    { rows: [] }, { rows: [] }, { rows: [] }, { rows: [] },
+    { rows: [{ confirmed_new_friends: 1, calculated_bonus_chances: 1,
+      confirmed_attempts_without_referral: 0, review_candidates: 0,
+      potential_extra_chances: 0, candidates: [] }] },
+    { rows: [] }
   ];
   const handlers = buildDataRoute(async (sql, params) => {
     calls.push({ sql: String(sql).replace(/\s+/g, ' '), params: params || [] });
@@ -88,8 +92,8 @@ test('活動成效 API 把同一期間套到 KPI、邀請、得獎名單與庫�
     filtered: true, from: '2026-09-01', to: '2026-09-08', days: 8, timezone: 'Asia/Taipei'
   });
   const reportQueries = calls.slice(2);
-  assert.equal(reportQueries.length, 7);
-  reportQueries.forEach(call => {
+  assert.equal(reportQueries.length, 8);
+  reportQueries.filter((_, i) => i !== 6).forEach(call => {
     assert.equal(call.params.length, 3);
     assert.equal(call.params[1], '2026-09-01T00:00:00+08:00');
     assert.equal(call.params[2], '2026-09-09T00:00:00+08:00');
@@ -98,6 +102,10 @@ test('活動成效 API 把同一期間套到 KPI、邀請、得獎名單與庫�
   });
   assert.match(reportQueries[1].sql, /COUNT\(DISTINCT inviter_line_user_id\) FILTER \(WHERE invitee_was_existing IS FALSE\)/);
   assert.match(reportQueries[4].sql, /HAVING COUNT\(\*\) FILTER \(WHERE r\.invitee_was_existing IS FALSE\) > 0/);
+  assert.match(reportQueries[1].sql, /invitee_was_existing IS TRUE/);
+  assert.match(reportQueries[1].sql, /invitee_was_existing IS NULL/);
+  assert.doesNotMatch(reportQueries[1].sql, /IS NOT FALSE/);
+  assert.deepEqual(reportQueries[6].params, [6, 'share-miles', 0, 1, 0]);
 });
 
 test('活動成效 API 遇到不完整日期時先拒絕，不執行報表查詢', async () => {
@@ -171,7 +179,7 @@ test('活動成效頁同頁顯示分享超有哩 KPI、獎項庫存與得獎名�
       base_plays_per_user: 1, referral_bonus_per: 1, referral_invites_per_bonus: 1,
       referral_bonus_max: 3,
       stats: {
-        referrals: 4, referrals_existing: 1, inviters: 2, people: 8,
+        referrals: 4, referrals_existing: 1, referrals_unknown: 1, inviters: 2, people: 8,
         plays: 12, wins: 7, wins_pending: 3, miles_pending: 20000
       }
     },
@@ -189,11 +197,24 @@ test('活動成效頁同頁顯示分享超有哩 KPI、獎項庫存與得獎名�
       prize_name: '【三獎】10,000 哩', prize_type: 'badge', miles: 10000,
       coupon_code: null, granted_done: false, played_at: '2026-09-04T08:00:00Z'
     }],
-    inviters: [{ uid: 'U1234567890abcdef', display_name: 'Ice', new_friends: 4, existing_friends: 1, last_at: '2026-09-04T08:00:00Z' }],
+    inviters: [{ uid: 'U1234567890abcdef', display_name: 'Ice', new_friends: 4, existing_friends: 1, unknown_friends: 1, last_at: '2026-09-04T08:00:00Z' }],
     pairs: [{
       created_at: '2026-09-04T08:00:00Z', inviter_uid: 'U1234567890abcdef', inviter_name: 'Ice',
       invitee_uid: 'Uabcdef1234567890', invitee_name: 'Josh', was_existing: false
+    }, {
+      created_at: '2026-09-04T09:00:00Z', inviter_uid: 'U1234567890abcdef', inviter_name: 'Ice',
+      invitee_uid: 'U0000000000000000', invitee_name: 'Unknown', was_existing: null
     }],
+    referral_audit: {
+      confirmed_new_friends: 4, calculated_bonus_chances: 3,
+      confirmed_attempts_without_referral: 0, review_candidates: 1,
+      potential_extra_chances: 0,
+      candidates: [{
+        attempted_at: '2026-08-18T04:50:55Z', inviter_uid: 'U1234567890abcdef', inviter_name: 'Ice',
+        invitee_uid: 'Uabcdef1234567890', invitee_name: 'Josh', current_new_friends: 4,
+        extra_chances_if_confirmed: 0
+      }]
+    },
     report_range: { filtered: true, from: '2026-09-01', to: '2026-09-08', days: 8, timezone: 'Asia/Taipei' }
   };
 
@@ -213,6 +234,10 @@ test('活動成效頁同頁顯示分享超有哩 KPI、獎項庫存與得獎名�
   assert.equal(document.querySelector('#mg-act option:checked').textContent, '分享超有哩（幸運轉盤）');
   assert.match(document.getElementById('mg-stats').textContent, /成功邀請新好友/);
   assert.match(document.getElementById('mg-stats').textContent, /成功邀請的會員/);
+  assert.match(document.getElementById('mg-stats').textContent, /好友狀態不明/);
+  assert.match(document.getElementById('mg-ref-audit').textContent, /目前沒有需要人工補發/);
+  assert.match(document.getElementById('mg-ref-audit').textContent, /已達上限，不需補次數/);
+  assert.match(document.getElementById('mg-pairs').textContent, /好友狀態不明/);
   assert.match(document.getElementById('mg-stats').textContent, /20,000/);
   assert.equal(document.querySelectorAll('#mg-inventory .mg-prize').length, 2);
   assert.match(document.getElementById('mg-inventory').textContent, /剩餘/);

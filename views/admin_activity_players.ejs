@@ -517,7 +517,8 @@
             '<td>' + (p.invited_by_uid
                 ? ('<div style="font-size:12.5px;">' + esc(p.invited_by_name || '(沒有名字)') + '</div>' +
                    '<div class="muted" style="font-size:10.5px;">' + esc(shortUid(p.invited_by_uid)) +
-                   (p.invited_was_existing ? '｜本來就是好友，不加次數' : '｜計獎') + '</div>')
+                   (p.invited_was_existing === false ? '｜新加入好友，計獎'
+                     : (p.invited_was_existing === true ? '｜本來就是好友，不加次數' : '｜好友狀態不明，不加次數')) + '</div>')
                 : '<span class="muted" style="font-size:11.5px;">自己來的</span>') + '</td>' +
             '<td style="text-align:right;font-weight:700;font-size:15px;">' + fmt(p.quota_total) +
               (Number(p.manual_bonus) > 0 ? '<div class="muted" style="font-size:10.5px;">含人工補 ' + fmt(p.manual_bonus) + ' 次</div>' : '') + '</td>' +
@@ -529,6 +530,9 @@
             '<td style="text-align:right;">' + fmt(p.referrals) +
               (Number(p.referrals_existing) > 0
                 ? '<div class="muted" style="font-size:11px;line-height:1.4;">另 ' + fmt(p.referrals_existing) + ' 位本來就是好友<br>（不加次數）</div>'
+                : '') +
+              (Number(p.referrals_unknown) > 0
+                ? '<div class="muted" style="font-size:11px;line-height:1.4;">另 ' + fmt(p.referrals_unknown) + ' 位好友狀態不明<br>（不加次數）</div>'
                 : '') + '</td>' +
             '<td style="font-size:12px;color:#6b7280;">' + fmtTime(p.last_played_at) + '</td>' +
             '<td>' + override + '</td>' +

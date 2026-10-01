@@ -38,6 +38,12 @@
     </section>
 
     <section class="card">
+      <h2 style="margin:0 0 4px;">邀請機會對帳</h2>
+      <p class="muted" style="font-size:13px;margin-bottom:10px;">自動核對整檔活動的成功邀請、應增加次數與歷史疑點；不受上方日期篩選影響，也不會自動補發。</p>
+      <div id="mg-ref-audit"><p class="muted">載入中…</p></div>
+    </section>
+
+    <section class="card">
       <h2 style="margin:0 0 4px;">獎項庫存</h2>
       <p class="muted" style="font-size:13px;margin-bottom:10px;">每一個獎項的設定總量、已抽出與目前剩餘；數字會隨正式抽獎即時更新。</p>
       <div id="mg-inventory"><p class="muted">載入中…</p></div>
@@ -131,6 +137,9 @@
       .mg-table th{background:#FAFAFA;font-size:11px;color:#6B6B70;font-weight:600;letter-spacing:.04em;}
       .mg-done{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:700;background:#ECFDF5;color:#047857;}
       .mg-wait{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:700;background:#FFFBEB;color:#92400E;}
+      .mg-audit-ok,.mg-audit-warn{border-radius:10px;padding:13px 15px;font-size:13px;line-height:1.7;}
+      .mg-audit-ok{background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;}
+      .mg-audit-warn{background:#FFFBEB;border:1px solid #FDE68A;color:#78350F;}
     </style>
 
     <script>
@@ -144,6 +153,11 @@
       function who(name,uid){return esc(name)+'<br><span class="muted" style="font-size:11px;" title="'+esc(uid||'')+'">'+esc(uidShort(uid))+'</span>';}
       function empty(id,msg){$(id).innerHTML='<p class="muted" style="font-size:13px;">'+msg+'</p>';}
       function stat(v,k){return '<div class="mg-stat"><div class="v">'+(Number(v||0)).toLocaleString()+'</div><div class="k">'+k+'</div></div>';}
+      function referralStatus(v){
+        if(v===false)return '<span class="mg-tag">算，新加入好友</span>';
+        if(v===true)return '<span class="muted">不算，當時已是好友</span>';
+        return '<span class="mg-wait">不算，好友狀態不明</span>';
+      }
       function gameLabel(t){return ({wheel:'幸運轉盤',scratch:'刮刮樂',slot:'老虎機',fortune:'每日抽籤',claim:'領取優惠券',mgm:'好友推薦'})[t]||t;}
       function statusLabel(s){return ({draft:'草稿（還沒開放）',active:'進行中',paused:'暫停',ended:'已結束'})[s]||s;}
 
@@ -226,11 +240,33 @@
           stat(s.referrals,'成功邀請新好友')+
           stat(s.inviters,'成功邀請的會員')+
           stat(s.referrals_existing,'原本已是好友（不加次數）')+
+          stat(s.referrals_unknown,'好友狀態不明（不加次數）')+
           stat(s.people,'參與人數')+
           stat(s.plays,'總遊玩次數')+
           stat(s.wins,'得獎次數')+
           stat(s.wins_pending,'尚未發放獎項')+
           stat(s.miles_pending,'尚未發放里數');
+      }
+
+      function renderReferralAudit(audit){
+        var a=audit||{}, confirmedGap=Number(a.confirmed_attempts_without_referral||0);
+        var candidates=Array.isArray(a.candidates)?a.candidates:[];
+        var extra=Number(a.potential_extra_chances||0);
+        var good=confirmedGap===0&&extra===0;
+        var html='<div class="'+(good?'mg-audit-ok':'mg-audit-warn')+'"><b>'+(
+          good?'目前沒有需要人工補發的抽獎機會':'發現可能影響抽獎次數的紀錄，請逐筆確認')+'</b><br>'+
+          '已確認新好友邀請 <b>'+Number(a.confirmed_new_friends||0).toLocaleString()+'</b> 筆，依每人上限合計增加 <b>'+Number(a.calculated_bonus_chances||0).toLocaleString()+'</b> 次。'+
+          (confirmedGap?('<br>另有 <b>'+confirmedGap+'</b> 筆已標記成功、但沒有邀請入帳，需工程檢查。'):'')+
+          (candidates.length?('<br>另有 <b>'+candidates.length+'</b> 筆歷史紀錄疑似在加好友前後交界漏記；其中最多會影響 <b>'+extra+'</b> 次。'):'')+
+          '</div>';
+        if(candidates.length){
+          html+='<table class="mg-table"><thead><tr><th>時間</th><th>邀請人</th><th>被邀請人</th><th>若確認成立</th></tr></thead><tbody>'+candidates.map(function(r){
+            var n=Number(r.extra_chances_if_confirmed||0);
+            return '<tr><td>'+tw(r.attempted_at)+'</td><td>'+who(r.inviter_name,r.inviter_uid)+'</td><td>'+who(r.invitee_name,r.invitee_uid)+'</td><td>'+
+              (n>0?('<span class="mg-wait">可能需補 '+n+' 次</span>'):'<span class="muted">邀請人已達上限，不需補次數</span>')+'</td></tr>';
+          }).join('')+'</tbody></table>';
+        }
+        $('mg-ref-audit').innerHTML=html;
       }
 
       function renderInventory(rows){
@@ -261,18 +297,18 @@
           rows.map(function(r){
             return '<tr><td>'+tw(r.created_at)+'</td><td>'+who(r.inviter_name,r.inviter_uid)+'</td>'+
               '<td>'+who(r.invitee_name,r.invitee_uid)+'</td>'+
-              '<td>'+(r.was_existing?'<span class="muted">不算，本來就是好友</span>':'<span class="mg-tag">算</span>')+'</td></tr>';
+              '<td>'+referralStatus(r.was_existing)+'</td></tr>';
           }).join('')+'</tbody></table>';
       }
 
       function renderInviters(rows){
         if(!rows||!rows.length)return empty('mg-inviters','這檔活動還沒有人邀請。');
         $('mg-inviters').innerHTML='<table class="mg-table"><thead><tr>'+
-          '<th>會員</th><th>邀請成功</th><th>不算的（本來就是好友）</th><th>最後一次</th></tr></thead><tbody>'+
+          '<th>會員</th><th>邀請成功</th><th>原本已是好友</th><th>狀態不明</th><th>最後一次</th></tr></thead><tbody>'+
           rows.map(function(r){
             return '<tr><td>'+who(r.display_name,r.uid)+'</td>'+
               '<td style="font-weight:700;font-size:16px;">'+r.new_friends+'</td>'+
-              '<td class="muted">'+r.existing_friends+'</td><td>'+tw(r.last_at)+'</td></tr>';
+              '<td class="muted">'+r.existing_friends+'</td><td class="muted">'+Number(r.unknown_friends||0)+'</td><td>'+tw(r.last_at)+'</td></tr>';
           }).join('')+'</tbody></table>';
       }
 
@@ -321,7 +357,7 @@
           if(!d.ok){
             var reason=esc(d.detail||d.error||'未知原因');
             $('mg-rule').innerHTML='<span style="color:#B42318;font-weight:700;">資料載入失敗：</span>'+reason;
-            ['mg-stats','mg-inventory','mg-pairs','mg-inviters','mg-people'].forEach(function(id){
+            ['mg-stats','mg-ref-audit','mg-inventory','mg-pairs','mg-inviters','mg-people'].forEach(function(id){
               empty(id,'資料暫時無法顯示，請重新整理。');
             });
             return;
@@ -330,6 +366,7 @@
           $('mg-range-note').textContent=rangeLabel(d.report_range);
           renderPicker(d.activities||[], ACT);
           renderRule(ACT); renderStats(ACT);
+          renderReferralAudit(d.referral_audit);
           renderInventory(d.prize_inventory);
           renderPairs(d.pairs); renderInviters(d.inviters);
           renderPeople(d.people); renderLedger(d.ledger);
@@ -427,7 +464,7 @@
           '　＝　總共 <b style="font-size:17px;">'+q.total+'</b> 次<br>'+
           '已經玩掉 <b>'+q.played+'</b> 次，<b>還能玩 '+q.remaining+' 次</b></div>');
         lines.push('<div class="muted" style="font-size:12.5px;margin-top:8px;line-height:1.8;">'+
-          '成功邀請到 '+q.new_friends+' 位新朋友（本來就是好友的 '+q.existing_friends+' 位不算次數）。'+
+          '成功邀請到 '+q.new_friends+' 位新朋友（原本已是好友 '+q.existing_friends+' 位、好友狀態不明 '+Number(q.unknown_friends||0)+' 位，兩者都不加次數）。'+
           '這檔活動的規則是每邀 '+a.referral_invites_per_bonus+' 位新朋友多 '+a.referral_bonus_per+
           ' 次，最多加 '+a.referral_bonus_max+' 次。'+
           (q.new_friends > 0 && q.referral_bonus >= a.referral_bonus_max
@@ -454,7 +491,7 @@
             d.referrals.map(function(x){
               return '<tr><td>'+tw(x.created_at)+'</td><td>'+esc(x.display_name)+
                 '<br><span class="muted" style="font-size:11px;">'+esc(uidShort(x.uid))+'</span></td>'+
-                '<td>'+(x.was_existing?'<span class="muted">不算，本來就是好友</span>':'<span class="mg-tag">算</span>')+'</td></tr>';
+                '<td>'+referralStatus(x.was_existing)+'</td></tr>';
             }).join('')+'</tbody></table>');
         }
 
@@ -523,7 +560,7 @@
         if(!rows.length){$('mg-pairs-note').textContent='還沒有紀錄';return;}
         downloadCsv(['時間','誰邀請的','邀請人 LINE ID','被邀請的人','被邀請人 LINE ID','有沒有算'],
           rows.map(function(r){return [twFull(r.created_at),r.inviter_name,r.inviter_uid,
-            r.invitee_name,r.invitee_uid,r.was_existing?'不算，本來就是好友':'算'];}),
+            r.invitee_name,r.invitee_uid,r.was_existing===false?'算，新加入好友':(r.was_existing===true?'不算，當時已是好友':'不算，好友狀態不明')];}),
           '誰邀請誰.csv');
         $('mg-pairs-note').textContent='下載了 '+rows.length+' 筆';
       });
@@ -531,8 +568,8 @@
       $('mg-inv-csv').addEventListener('click',function(){
         var rows=(DATA&&DATA.inviters)||[];
         if(!rows.length){$('mg-inv-note').textContent='還沒有紀錄';return;}
-        downloadCsv(['會員','LINE ID','邀請成功','不算的','最後一次'],
-          rows.map(function(r){return [r.display_name,r.uid,r.new_friends,r.existing_friends,twFull(r.last_at)];}),
+        downloadCsv(['會員','LINE ID','邀請成功','原本已是好友','好友狀態不明','最後一次'],
+          rows.map(function(r){return [r.display_name,r.uid,r.new_friends,r.existing_friends,r.unknown_friends||0,twFull(r.last_at)];}),
           '邀請了幾個人.csv');
         $('mg-inv-note').textContent='下載了 '+rows.length+' 人';
       });
