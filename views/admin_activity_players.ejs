@@ -69,6 +69,7 @@
       <p class="muted" style="font-size:12px;margin:6px 0 14px;line-height:1.6;">
         從用戶打開活動頁（LINE 身分驗證成功）算起：開啟 → 開始玩 → 拿到結果 → 分享給朋友。全部以<strong>不重複用戶</strong>計算，安全預覽不計入。
       </p>
+      <div class="funnel-coverage-note" id="funnel-coverage-note" hidden></div>
       <div class="funnel-grid">
         <div class="funnel-step"><div class="v" id="fn-openers">—</div><div class="k" data-metric="fn_open">開啟活動</div><div class="r" id="fn-openers-r">&nbsp;</div></div>
         <div class="funnel-step"><div class="v" id="fn-starters">—</div><div class="k" data-metric="fn_start">開始玩</div><div class="r" id="fn-start-rate">&nbsp;</div></div>
@@ -224,7 +225,7 @@
       <div data-metric-glossary="${activity.game_type === 'claim' ? 'overview,claim,players,testers' : 'overview,funnel,dist,players,testers'}"></div>
     </section>
 
-    <script src="/activity-metric-defs.js?v=20260930a"></script>
+    <script src="/activity-metric-defs.js?v=20261001a"></script>
     <script>
     (function () {
       var activityId = ${activity.id};
@@ -362,7 +363,7 @@
             document.getElementById('ov-wins').textContent = fmt(ov.total_wins);
             document.getElementById('ov-24h').textContent = fmt(ov.plays_24h);
             document.getElementById('ov-7d').textContent = fmt(ov.plays_7d);
-            renderFunnel(resp.funnel, resp.grants);
+            renderFunnel(resp.funnel, resp.grants, ov);
             renderPlayDistribution(resp.play_distribution);
             if (isClaim) renderClaimFunnel(resp.claim_funnel);
             if (window.ActivityMetricDefs) ActivityMetricDefs.init(document);
@@ -455,10 +456,12 @@
           })
           .catch(function (e) { btn.disabled = false; doneEl.textContent = '錯誤：' + e.message; });
       }
-      function renderFunnel(f, grants) {
+      function renderFunnel(f, grants, overview) {
         var meta = document.getElementById('funnel-meta');
+        var coverageNote = document.getElementById('funnel-coverage-note');
         if (!f) {
           if (meta) meta.textContent = '成效資料暫時讀不到';
+          if (coverageNote) coverageNote.hidden = true;
           return;
         }
         document.getElementById('fn-openers').textContent = fmt(f.openers);
@@ -471,6 +474,33 @@
         document.getElementById('fn-share-rate').textContent = '分享率 ' + pct(f.share_rate) + '（共 ' + fmt(f.shares) + ' 次）';
         document.getElementById('fn-openers-24h').textContent = '24 小時內 ' + fmt(f.openers_24h);
         if (meta) meta.textContent = f.last_open_at ? ('最後一次開啟 ' + fmtTime(f.last_open_at)) : '還沒有人開啟過';
+        if (coverageNote) {
+          var coverage = f.coverage || {};
+          var startedAt = coverage.tracking_started_at;
+          var before = Number(coverage.players_before_tracking) || 0;
+          var after = Number(coverage.players_after_tracking) || 0;
+          var withoutEnter = Number(coverage.players_without_enter) || 0;
+          var openOnly = Number(coverage.openers_without_play) || 0;
+          var missing = Number(coverage.players_missing_enter_after_tracking) || 0;
+          if (startedAt && before > 0) {
+            var comparison = '';
+            if (!f.ranged) {
+              comparison = '目前 ' + fmt(overview && overview.unique_players) + ' 位玩家中，有 ' + fmt(withoutEnter) +
+                ' 位沒有舊的開啟紀錄；另有 ' + fmt(openOnly) + ' 位只開啟、還沒玩，所以兩邊相差 ' +
+                fmt(Math.max(0, withoutEnter - openOnly)) + ' 人。';
+            }
+            var status = missing === 0
+              ? '追蹤上線後才開始玩的 ' + fmt(after) + ' 位都有開啟紀錄，沒有漏記。'
+              : '追蹤上線後仍有 ' + fmt(missing) + ' 位玩家缺少開啟紀錄，需檢查。';
+            coverageNote.className = 'funnel-coverage-note' + (missing > 0 ? ' has-warning' : '');
+            coverageNote.innerHTML = '<strong>為什麼「獨立玩家」會比較多？</strong>' +
+              '<span>' + esc(comparison) + '開啟追蹤從 ' + esc(fmtTime(startedAt)) + ' 才開始；在此之前已有 ' + fmt(before) +
+              ' 位玩家。' + esc(status) + '</span>';
+            coverageNote.hidden = false;
+          } else {
+            coverageNote.hidden = true;
+          }
+        }
         var trend = document.getElementById('funnel-trend');
         var rows = (f.trend || []);
         if (trend) {
@@ -870,6 +900,10 @@
       .play-dist-cell .done { font-size: 12px; line-height: 1.5; }
       .play-dist-cell .done a { color: #2563eb; }
       .funnel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+      .funnel-coverage-note { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 14px; padding: 11px 13px; border: 1px solid #EED27B; border-radius: 9px; background: #FFFDF5; color: #5F4D3F; font-size: 12px; line-height: 1.6; }
+      .funnel-coverage-note[hidden] { display: none; }
+      .funnel-coverage-note strong { color: #3E2C28; white-space: nowrap; }
+      .funnel-coverage-note.has-warning { border-color: #F3A6A6; background: #FFF7F7; color: #8B1D1D; }
       .funnel-step { background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 12px; padding: 12px 14px; }
       .funnel-step .v { font-size: 24px; font-weight: 700; line-height: 1; }
       .funnel-step .k { font-size: 12px; color: #6B6B70; margin-top: 6px; }

@@ -16,6 +16,9 @@ test('漏斗以不重複用戶計算並回傳轉換率', async () => {
     if (/AS openers,/.test(c) && /first_open_at/.test(c)) {
       return { rows: [{ openers: '200', starters: '120', completers: '100', sharers: '25', shares: '31', openers_24h: '9', openers_7d: '80', first_open_at: '2026-09-01T00:00:00Z', last_open_at: '2026-09-21T10:00:00Z' }] };
     }
+    if (/AS players_before_tracking/.test(c)) {
+      return { rows: [{ tracking_started_at: '2026-09-01T00:00:00Z', players_before_tracking: '18', players_after_tracking: '182', players_without_enter: '17', openers_without_play: '2', players_missing_enter_after_tracking: '0' }] };
+    }
     return { rows: [{ day: new Date('2026-09-20T00:00:00Z'), openers: '5', completers: '3', sharers: '1' }, { day: '2026-09-21', openers: '7', completers: '4', sharers: '2' }] };
   };
   const f = await loadActivityFunnel(query, 9);
@@ -24,6 +27,8 @@ test('漏斗以不重複用戶計算並回傳轉換率', async () => {
   assert.equal(f.complete_rate, 50);
   assert.equal(f.share_rate, 12.5);
   assert.equal(f.shares, 31);
+  assert.equal(f.coverage.players_before_tracking, 18);
+  assert.equal(f.coverage.players_missing_enter_after_tracking, 0);
   assert.deepEqual(f.trend.map(t => t.day), ['2026-09-20', '2026-09-21']);
   assert.equal(f.trend[1].openers, 7);
   assert.match(calls[0].sql, /COUNT\(DISTINCT line_user_id\) FILTER \(WHERE event_name = 'enter'\)/);
@@ -32,7 +37,7 @@ test('漏斗以不重複用戶計算並回傳轉換率', async () => {
 });
 
 test('沒有任何事件時轉換率為 null 而不是 0 或 NaN', async () => {
-  const query = async (sql) => (/first_open_at/.test(sql) ? { rows: [{}] } : { rows: [] });
+  const query = async (sql) => (/first_open_at/.test(sql) ? { rows: [{}] } : (/players_before_tracking/.test(sql) ? { rows: [{}] } : { rows: [] }));
   const f = await loadActivityFunnel(query, 9);
   assert.equal(f.openers, 0);
   assert.equal(f.start_rate, null);
@@ -49,8 +54,8 @@ test('玩家數據頁渲染漏斗區塊，且成效讀不到時清單照常顯�
     url: 'https://example.test/admin/activities/9/players',
     beforeParse(window) {
       window.fetch = async () => ({ json: async () => ({
-        ok: true, players: [], overview: { total_plays: 4 },
-        funnel: { openers: 40, starters: 30, completers: 28, sharers: 4, shares: 5, openers_24h: 2, openers_7d: 10, start_rate: 75, complete_rate: 70, share_rate: 10, last_open_at: '2026-09-21T10:00:00Z', trend: [{ day: '2026-09-21', openers: 10, completers: 8, sharers: 1 }] },
+        ok: true, players: [], overview: { total_plays: 4, unique_players: 55 },
+        funnel: { openers: 40, starters: 30, completers: 28, sharers: 4, shares: 5, openers_24h: 2, openers_7d: 10, start_rate: 75, complete_rate: 70, share_rate: 10, last_open_at: '2026-09-21T10:00:00Z', coverage: { tracking_started_at: '2026-09-01T00:00:00Z', players_before_tracking: 18, players_after_tracking: 182, players_without_enter: 17, openers_without_play: 2, players_missing_enter_after_tracking: 0 }, trend: [{ day: '2026-09-21', openers: 10, completers: 8, sharers: 1 }] },
         grants: { broadcasts: 2, grantedUsers: 30, grantedPlays: 60 }
       }) });
     }
@@ -60,6 +65,9 @@ test('玩家數據頁渲染漏斗區塊，且成效讀不到時清單照常顯�
   assert.equal(doc.getElementById('fn-openers').textContent, '40');
   assert.match(doc.getElementById('fn-complete-rate').textContent, /70%/);
   assert.match(doc.getElementById('funnel-trend').textContent, /09-21/);
+  assert.equal(doc.getElementById('funnel-coverage-note').hidden, false);
+  assert.match(doc.getElementById('funnel-coverage-note').textContent, /相差 15 人/);
+  assert.match(doc.getElementById('funnel-coverage-note').textContent, /追蹤上線後才開始玩的 182 位都有開啟紀錄/);
   const grant = doc.getElementById('grant-summary');
   assert.equal(grant.hidden, false);
   assert.match(grant.textContent, /2/);

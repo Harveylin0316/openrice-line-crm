@@ -34,6 +34,62 @@ function rangeCond(fromIdx, toIdx) {
        AND ($${toIdx}::date IS NULL OR created_at < (($${toIdx}::date + 1)::timestamp AT TIME ZONE 'Asia/Taipei')))`;
 }
 
+async function loadTrackingCoverage(query, activityId) {
+  const { rows } = await query(
+    `WITH tracking AS (
+       SELECT MIN(created_at) FILTER (WHERE event_name = 'enter') AS tracking_started_at
+         FROM activity_user_events
+        WHERE activity_id = $1
+     ),
+     players AS (
+       SELECT line_user_id, MIN(played_at) AS first_play_at
+         FROM activity_plays
+        WHERE activity_id = $1
+          AND COALESCE(prize_snapshot->>'kind', '') <> 'draw_win'
+        GROUP BY line_user_id
+     ),
+     entered AS (
+       SELECT DISTINCT line_user_id
+         FROM activity_user_events
+        WHERE activity_id = $1 AND event_name = 'enter' AND line_user_id IS NOT NULL
+     )
+     SELECT
+       t.tracking_started_at,
+       COUNT(p.line_user_id) FILTER (
+         WHERE t.tracking_started_at IS NOT NULL AND p.first_play_at < t.tracking_started_at
+       ) AS players_before_tracking,
+       COUNT(p.line_user_id) FILTER (
+         WHERE t.tracking_started_at IS NOT NULL AND p.first_play_at >= t.tracking_started_at
+       ) AS players_after_tracking,
+       COUNT(p.line_user_id) FILTER (
+         WHERE e.line_user_id IS NULL
+       ) AS players_without_enter,
+       (SELECT COUNT(*)
+          FROM entered open_only
+          LEFT JOIN players played ON played.line_user_id = open_only.line_user_id
+         WHERE played.line_user_id IS NULL) AS openers_without_play,
+       COUNT(p.line_user_id) FILTER (
+         WHERE t.tracking_started_at IS NOT NULL
+           AND p.first_play_at >= t.tracking_started_at
+           AND e.line_user_id IS NULL
+       ) AS players_missing_enter_after_tracking
+       FROM tracking t
+       LEFT JOIN players p ON TRUE
+       LEFT JOIN entered e ON e.line_user_id = p.line_user_id
+      GROUP BY t.tracking_started_at`,
+    [Number(activityId)]
+  );
+  const r = rows[0] || {};
+  return {
+    tracking_started_at: r.tracking_started_at || null,
+    players_before_tracking: toInt(r.players_before_tracking),
+    players_after_tracking: toInt(r.players_after_tracking),
+    players_without_enter: toInt(r.players_without_enter),
+    openers_without_play: toInt(r.openers_without_play),
+    players_missing_enter_after_tracking: toInt(r.players_missing_enter_after_tracking)
+  };
+}
+
 /**
  * range（可選）：{ from, to } 台北曆日 YYYY-MM-DD，含起訖。
  * 沒給 range 時行為與原本一致（全部期間＋近 14 天趨勢）。
@@ -71,6 +127,7 @@ async function loadActivityFunnel(query, activityId, range) {
       ORDER BY 1 ASC`,
     [id, TREND_DAYS]
   );
+  const coverage = await loadTrackingCoverage(query, id);
   const openers = toInt(r.openers);
   const starters = toInt(r.starters);
   const completers = toInt(r.completers);
@@ -88,6 +145,7 @@ async function loadActivityFunnel(query, activityId, range) {
     start_rate: rate(starters, openers),
     complete_rate: rate(completers, openers),
     share_rate: rate(sharers, openers),
+    coverage,
     trend: trendRows.map(t => ({
       day: t.day instanceof Date ? t.day.toISOString().slice(0, 10) : String(t.day).slice(0, 10),
       openers: toInt(t.openers),
@@ -154,6 +212,7 @@ async function loadActivityFunnelInRange(query, activityId, range) {
       LIMIT $4`,
     [id, from, to, MAX_RANGE_TREND_DAYS]
   );
+  const coverage = await loadTrackingCoverage(query, id);
   const openers = toInt(r.openers);
   const starters = toInt(r.starters);
   const completers = toInt(r.completers);
@@ -168,6 +227,7 @@ async function loadActivityFunnelInRange(query, activityId, range) {
     start_rate: rate(starters, openers),
     complete_rate: rate(completers, openers),
     share_rate: rate(sharers, openers),
+    coverage,
     ranged: true,
     trend: trendRows.slice().reverse().map(t => ({
       day: t.day instanceof Date ? t.day.toISOString().slice(0, 10) : String(t.day).slice(0, 10),
