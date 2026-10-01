@@ -830,6 +830,12 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 
 ## 15. Git、部署與驗收流程
 
+### Staging 圖片網址與手機群發版面（2026-10-01）
+
+- `resolvePublicSiteOrigin()` 在 `SAFE_PREVIEW_MODE=1` 或 `APP_ENV=staging` 時使用目前 request 的 origin（包含代理轉送的 host／protocol），避免繼承 Netlify `URL` 或正式公開網址設定而把隔離資料庫中的圖片指向正式站。正式環境沿用原本公開網址設定的優先順序；此變更不搬移圖片、不修改資料庫 schema。既有已儲存的錯誤網址不會自動回填，請重新上傳或在 Staging 編輯素材。
+- 群發頁手機單欄 grid 使用 `minmax(0, 1fr)`，表單、預覽與 fieldset 允許縮至可用寬度，避免預設 min-content 撐出水平捲軸。驗收需包含 390px、完整設定及逐步模式。
+- 網址回歸測試：`test/public-site-origin.test.js`。
+
 ```bash
 git fetch origin
 git status --short --branch
