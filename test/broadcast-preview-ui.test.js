@@ -184,7 +184,8 @@ test('訊息庫的文字加卡片組合可直接帶入群發，並依原順序�
   assert.equal(window.document.getElementById('pane-sequence').hidden, false);
   assert.equal(window.document.getElementById('pane-template').hidden, true);
   assert.equal(window.document.getElementById('advanced-json-block').hidden, true);
-  assert.equal(window.document.getElementById('message-testing-settings').hidden, true);
+  // 多段訊息現在也能 A/B：測試設定保持可見（B 版改用「沿用 A 版、只改要測的部分」編輯區）
+  assert.equal(window.document.getElementById('message-testing-settings').hidden, false);
   assert.match(window.document.getElementById('sequence-template-name').textContent, /文字＋圖文訊息/);
   assert.match(window.document.getElementById('sequence-template-summary').textContent, /第 1 段 文字/);
   assert.match(window.document.getElementById('sequence-template-summary').textContent, /第 2 段 卡片/);
