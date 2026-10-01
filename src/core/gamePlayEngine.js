@@ -491,6 +491,8 @@ async function notifyInviterOfReferral({ query, activity, activitySlug, gameType
   });
   await linePush.pushLineMessages(inviterId, [text], {
     pushType: 'referral_inviter_notify',
+    activityId: activity.id,
+    activityName: activity.name || '',
     retryKey: 'referral-notify:' + activity.id + ':' + inviterId + ':' + inviteeId
   });
 }

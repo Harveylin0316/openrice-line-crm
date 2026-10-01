@@ -2633,7 +2633,7 @@
       name_ambiguous: '有多人符合，請改填 LINE userId',
       no_recipient: '送給自己時你的帳號未綁定 LINE，請填入收件人',
       invalid_line_message: '訊息內容不符合 LINE 規格',
-      push_failed: 'LINE push 失敗（請至 line_push_logs 查 detail）',
+      push_failed: 'LINE 推播失敗，請到「推播失敗與發送紀錄」查看收件人及處理方式。',
       label_required: '請填顯示名',
       duplicate_line_user_id: '這個 LINE userId 已在清單',
       invalid_recipient_selection: '指定發送人數不正確',

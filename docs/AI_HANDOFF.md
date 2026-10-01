@@ -12,6 +12,15 @@
 
 ## 1. 一分鐘理解整個應用
 
+### 2026-10-01：推播失敗明細與處理指引
+
+- `/admin/push-logs`（`src/routes/adminPushLogs.js`、`src/core/pushLogDiagnostics.js`）受現有 `requireAdmin` 保護，查收件人、當時訊息摘要、來源、LINE 錯誤與白話處理指引；可依台灣日期、狀態、來源、姓名／LINE ID、失敗後是否有成功紀錄篩選。每頁 50 筆，以完整微秒時間＋ID 游標分頁；CSV 匯出全部篩選結果，上限 10,000 筆，不會默默截斷。
+- 首頁失敗提醒連到 `status=failed&range=24h&followup=pending`。只在同一 LINE ID、來源、`retryKey` 後來有 success 時，標示「同一則後續已被 LINE 接受」，不再列入首頁未恢復提醒；失敗歷史不刪除。不同訊息的成功不能蓋掉原失敗；沒有 retryKey 就保留待查，不假稱沒收到或已補送。
+- 群發、流程與邀請通知增加現有 log payload 的來源 metadata，不更動 LINE request／去重鍵／寄送規則。舊群發與流程可由既有 retryKey 解析來源；舊紀錄缺名稱／內容時明說缺資料。素材摘要不載入圖片，避免排查紀錄製造假曝光。
+- 429 monthly limit 是當時 LINE 回報的額度限制，要到 OA Manager 查目前用量／方案／加購上限；不能據歷史回應推論今天仍額度用完。5xx／逾時可能已送出；409 代表去重，不能直接新鍵重送。
+- 此頁只有讀取與匯出，沒有自動重發／補發按鈕，沒有 migration。恢復資料必須先核對原流程是否仍重試、再處理；不允許用這個頁面改獎項、邀請次數或大量重發客戶訊息。
+- 回歸測試：`test/push-log-diagnostics.test.js`；包含 XSS、CSV formula injection、登入保護、台灣日期邊界、分頁微秒、匯出完整性、錯誤不顯示為零、metadata 不進入實際 LINE payload。
+
 這是一套 OpenRice Taiwan 使用的 LINE CRM 與活動平台，不只是一個抽獎頁。它同時處理：
 
 - LINE 官方帳號會員、好友狀態、標籤、受眾名單與第二 OA 聯絡人。
