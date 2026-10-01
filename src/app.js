@@ -174,7 +174,9 @@ const LINE_PUSH_PUBLIC_BASE_URL = normalizeLinePushPublicBaseUrl(
 
 /** 後台上傳圖推播、/p/line-media 公開網址組裝（LINE 僅接受 https 圖片網址） */
 function resolvePublicSiteOrigin(req) {
-  if (LINE_PUSH_PUBLIC_BASE_URL) return LINE_PUSH_PUBLIC_BASE_URL;
+  // Netlify's URL (and inherited public URL settings) can point at production
+  // on a branch deploy. Preview media lives in the current environment's DB.
+  if (!isSafePreview && LINE_PUSH_PUBLIC_BASE_URL) return LINE_PUSH_PUBLIC_BASE_URL;
   if (!req || typeof req.get !== 'function') return '';
   const proto = String(req.get('x-forwarded-proto') || req.protocol || 'https')
     .split(',')[0]

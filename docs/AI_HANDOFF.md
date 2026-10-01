@@ -435,6 +435,24 @@ route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-pl
 
 以上 SQL 已在真 PostgreSQL 驗證（重置只清測試帳號、庫存歸還上限、觀察期 7 vs 14 天、分界日切分、重開不重算、中獎排除銘謝惠顧）。
 
+#### 多段訊息也能 A/B 與 Campaign Testing（2026-10-01）
+
+訊息庫的多段訊息（文字＋圖文、Carousel 等，`mode='sequence'`）以前一選就自動關掉 A/B 與 Campaign Testing。
+現在 B／C 版會完整複製 A 版（`state.seqVariants`），在 `#pane-b-sequence`／`#pane-c-sequence` 只改要測的部分：
+文字段的文字、單張圖片網址（預覽圖原本同一張就一起換）、模板卡的通知文字／標題／副標／優惠碼／按鈕文字與連結、
+自訂 Flex 卡片內每個 text、image url、uri 按鈕的 label 與 uri。段數、類型、順序固定與 A 版相同；改過的欄位標黃，
+有「恢復成與 A 版相同」。換 A 版素材時 B／C 重新從新 A 版複製。草稿會保存 B／C 改動（段數相同才還原）。
+整段操作：卡片段可「整張換成訊息庫的其他卡片」（只列單張卡片 template／flex_json，換入後欄位跟著新卡片，記 `source_message_id`、`source_name`）；
+圖片段可直接上傳新圖（`/admin/broadcast/hero/upload`，必須 https，原圖與預覽圖一起換）；每段可單獨「這段恢復成 A 版」。
+A 版是單張卡片時，B／C 有「從訊息庫套用到版本 B／C」，只列與 A 同格式的素材（一般卡片對一般卡片、自訂卡片對自訂卡片），
+套用後填進該版編輯區可再微調。`GET /admin/broadcast/templates` 多回傳 `mode` 供篩選。
+伺服器：Campaign Testing 允許 `template` 與 `sequence`；兩種格式的每個版本都至少要有一顆可追蹤的「開啟網址」按鈕
+（`listBroadcastButtons`），否則回 `campaign_experiment_requires_cta_button`。自訂 Flex JSON 仍維持原本限制。
+回歸測試 `test/broadcast-sequence-ab.test.js`。
+PR #25 審核補強：手動改文字／網址後立即提供單段還原；還原、重建編輯區或切換 A 素材後，舊上傳／換卡片回應不得覆蓋最新設定。
+圖片預覽同步依修改前的該版圖片判斷，保留刻意使用不同縮圖的設定。測試包含延遲回應、A/B/C 成功建立、無 CTA 擋下與跨卡片追蹤反查。
+Campaign Testing 的 B 版標頭依目前設定比例顯示，不再固定標 50%；未修改段落的還原按鈕確實隱藏（避免既有 `.btn` CSS 蓋過 `hidden`）。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
@@ -816,6 +834,12 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 - Production 不得靠 runtime DDL；正式套 migration 前先確認 schema。Staging 使用 `crm_staging` search path 時可套同一 migration，但必須先確認 current user/schema，不可碰 `public`。
 
 ## 15. Git、部署與驗收流程
+
+### Staging 圖片網址與手機群發版面（2026-10-01）
+
+- `resolvePublicSiteOrigin()` 在 `SAFE_PREVIEW_MODE=1` 或 `APP_ENV=staging` 時使用目前 request 的 origin（包含代理轉送的 host／protocol），避免繼承 Netlify `URL` 或正式公開網址設定而把隔離資料庫中的圖片指向正式站。正式環境沿用原本公開網址設定的優先順序；此變更不搬移圖片、不修改資料庫 schema。既有已儲存的錯誤網址不會自動回填，請重新上傳或在 Staging 編輯素材。
+- 群發頁手機單欄 grid 使用 `minmax(0, 1fr)`，表單、預覽與 fieldset 允許縮至可用寬度，避免預設 min-content 撐出水平捲軸。驗收需包含 390px、完整設定及逐步模式。
+- 網址回歸測試：`test/public-site-origin.test.js`。
 
 ```bash
 git fetch origin
