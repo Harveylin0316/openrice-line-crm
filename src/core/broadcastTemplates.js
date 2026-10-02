@@ -576,6 +576,20 @@ function buildImagemapMessage(im, { origin, recipientName } = {}) {
   return { ok: true, message };
 }
 
+/**
+ * 存檔用的驗證（訊息庫、群發模板）：只檢查內容是否完整，不需要公開網址。
+ * 以前直接拿 buildLineMessages(cfg) 驗，滿版圖文訊息因為組 baseUrl 需要 https 公開網址而一律失敗，存不進訊息庫。
+ */
+function validateMessageConfig(messageConfig) {
+  if (!messageConfig || typeof messageConfig !== 'object') return { ok: false, error: '訊息設定缺失' };
+  if (messageConfig.mode === 'imagemap') {
+    const err = validateImagemapConfig(messageConfig.imagemap);
+    return err ? { ok: false, error: err } : { ok: true };
+  }
+  const built = buildLineMessages(messageConfig);
+  return built.ok ? { ok: true } : { ok: false, error: built.error };
+}
+
 function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, variant, recipientId, recipientName } = {}) {
   const variantSuffix = variant === 'a' || variant === 'b' || variant === 'c' ? `?v=${variant}` : '';
   // recipient id segment：有提供就嵌入 URL，後續 track endpoint 可寫入 line_user_id 對應
@@ -760,6 +774,7 @@ module.exports = {
   buildLineMessages,
   BROADCAST_WALK_OPTS,
   validateImagemapConfig,
+  validateMessageConfig,
   imagemapLayoutAreas,
   applyBroadcastClickTracking,
   appendBroadcastViewPixel,

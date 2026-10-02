@@ -466,7 +466,8 @@ Campaign Testing 的 B 版標頭依目前設定比例顯示，不再固定標 50
   座標以寬 1040 為準。`buildLineMessages()` 產生
   `{ type:'imagemap', baseUrl: <公開 https 網址>/p/line-imagemap/<assetId>, altText, baseSize:{width:1040,height}, actions:[{type:'uri',linkUri,area,label?}|{type:'message',text,area,label?}] }`。
   驗證：要有 assetId、altText 1～400、1～50 區、區域在圖內、uri 為 http(s)/line:///tel:、需要 https 公開網址。
-- 圖片：`POST /admin/broadcast/imagemap/upload`（欄位 `image`，PNG/JPEG ≤10MB）→ `src/core/imagemapMedia.js` 用 `jimp`（純 JS，可被 esbuild 打包）
+- 圖片：`POST /admin/broadcast/imagemap/upload`（欄位 `image`，PNG/JPEG **≤4MB**：LINE 允許 10MB，但 Netlify 同步函式請求／回應上限 6MB、
+  二進位 Base64 約 +30%，實際約 4.5MB；上傳檔與產生的每種寬度都限 4MB，前端、multer、`imagemapMedia.MAX_UPLOAD_BYTES` 一致）→ `src/core/imagemapMedia.js` 用 `jimp`（純 JS，可被 esbuild 打包）
   產生 1040／700／460／300／240 五種寬度（等比例、不裁切；非 1:1 只警告；寬剛好 1040 的版本用原檔不重壓），
   存進既有 `line_push_media`，各寬度 id = `deriveMediaId(assetId, width)`（固定雜湊成 UUID）。**沒有新資料表、沒有 migration。**
   `GET /p/line-imagemap/<assetId>/<1040|700|460|300|240>`（無副檔名，符合 LINE 的 `baseUrl/{寬度}` 規則）長快取 immutable。
@@ -476,7 +477,12 @@ Campaign Testing 的 B 版標頭依目前設定比例顯示，不再固定標 50
   預覽與 Flex 分開（`.line-mock.is-imagemap` 拿掉 bubble 外框），維持比例、虛線標出各區、點區域可開該網址測試。
   訊息庫卡片預覽、發送紀錄（`imagemapSummary`）、近期群發成效名稱都認得新類型。第一版不支援 A/B、不能放進多段訊息。
 - **驗收必須在有 LINE token 的環境實際測**（Staging 沒有發送金鑰）：Test Send 到 iOS／Android，各確認整張與上下兩區連結。
-回歸測試 `test/line-imagemap.test.js`。
+- 存檔（群發「儲存為模板」、訊息庫新增／修改）用 `validateMessageConfig()`：滿版圖文只驗結構，不需要公開網址
+  （以前用 `buildLineMessages(cfg)` 驗，組 baseUrl 需要 https 網址而一律失敗、存不進訊息庫）。訊息庫預覽帶 `resolvePublicSiteOrigin`。
+- 慢速上傳：每次上傳有請求序號，載入其他素材（訊息庫、草稿、換樣式）時素材版本 +1 並解鎖上傳鈕；
+  回來的結果只有在「仍是最新請求、素材未換、仍是滿版圖文模式」才套用。只改點擊區連結不算換素材。
+- 載入非滿版圖文素材（含多段訊息）時 `resetImagemapStyleUi()` 收起滿版圖文編輯區、樣式切回卡片，並放回進階區與 A/B 設定。
+回歸測試 `test/line-imagemap.test.js`、`test/line-imagemap-review.test.js`（PR #27 審查四項）。
 
 ### 數據與歸因
 

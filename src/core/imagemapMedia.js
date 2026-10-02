@@ -5,7 +5,11 @@
  * LINE 的規定（官方 Messaging API reference「Imagemap message」）：
  *   - baseUrl 必須是 HTTPS（TLS 1.2+），LINE 會依裝置解析度去抓
  *     `${baseUrl}/1040`、`/700`、`/460`、`/300`、`/240`，網址「不能有副檔名」
- *   - 圖片 JPEG 或 PNG，單檔 10 MB 以內
+ *   - 圖片 JPEG 或 PNG，單檔 10 MB 以內（LINE 的上限）
+ *
+ * 但本系統跑在 Netlify Functions：同步函式的請求／回應上限 6 MB，二進位會再經 Base64（約 +30%），
+ * 實際可用約 4.5 MB。上傳（請求）與 LINE 抓圖（回應）都走函式，所以這裡把「上傳檔」與「產生的每一張」
+ * 都限制在 4 MB，留安全餘裕；超過就明確擋下，不讓主機回不明錯誤。
  *   - baseSize.width 固定 1040；baseSize.height = 寬 1040 時的高度
  *
  * 所以後台只上傳一次原圖，這裡負責：
@@ -20,7 +24,8 @@ const crypto = require('crypto');
 
 const IMAGEMAP_WIDTHS = [1040, 700, 460, 300, 240];
 const BASE_WIDTH = 1040;
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;         // LINE：每張 10 MB 以內
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;          // Netlify 函式實際約 4.5 MB；LINE 本身允許 10 MB
+const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;          // 每一種寬度也要能被函式回應出去
 const MAX_SOURCE_SIDE = 4096;                       // 避免超大圖把伺服器記憶體吃光
 const MAX_BASE_HEIGHT = 2080;                       // 最長 1:2（直式），超過擋下
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -48,7 +53,7 @@ async function processImagemapUpload(buffer, mimetype) {
   const mime = String(mimetype || '').toLowerCase();
   if (mime !== 'image/png' && mime !== 'image/jpeg') return { ok: false, error: 'only_png_or_jpeg' };
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) return { ok: false, error: 'no_file' };
-  if (buffer.length > MAX_UPLOAD_BYTES) return { ok: false, error: 'file_too_large_max_10mb' };
+  if (buffer.length > MAX_UPLOAD_BYTES) return { ok: false, error: 'file_too_large_max_4mb' };
   const { Jimp } = require('jimp');
   let img;
   try { img = await Jimp.read(buffer); } catch (e) { return { ok: false, error: 'image_unreadable' }; }
@@ -76,7 +81,7 @@ async function processImagemapUpload(buffer, mimetype) {
       copy.resize({ w, h });
       body = await copy.getBuffer(outMime, outMime === 'image/jpeg' ? { quality: 88 } : undefined);
     }
-    if (body.length > MAX_UPLOAD_BYTES) return { ok: false, error: 'resized_too_large' };
+    if (body.length > MAX_OUTPUT_BYTES) return { ok: false, error: 'resized_too_large' };
     files.push({ width: w, height: h, mime: outMime, buffer: body });
   }
   return {
@@ -105,6 +110,7 @@ module.exports = {
   BASE_WIDTH,
   MAX_BASE_HEIGHT,
   MAX_UPLOAD_BYTES,
+  MAX_OUTPUT_BYTES,
   isAssetId,
   deriveMediaId,
   imagemapBaseUrl,

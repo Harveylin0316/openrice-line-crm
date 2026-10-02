@@ -19,6 +19,7 @@ const multer = require('multer');
 
 const {
   buildLineMessages,
+  validateMessageConfig,
   normalizeTemplateInput,
   resolveBroadcastButtonTarget,
   listBroadcastButtons,
@@ -153,10 +154,10 @@ function registerAdminBroadcastRoutes(app, deps) {
     }
   });
 
-  // 滿版圖文訊息（imagemap）原圖：LINE 允許每張 10 MB，後端會自動產生五種寬度
+  // 滿版圖文訊息（imagemap）原圖：LINE 允許 10 MB，但 Netlify 函式請求實際約 4.5 MB → 限 4 MB
   const uploadImagemap = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024 },
+    limits: { fileSize: require('../core/imagemapMedia').MAX_UPLOAD_BYTES },
     fileFilter: (_req, file, cb) => {
       if (file.mimetype === 'image/png' || file.mimetype === 'image/jpeg') cb(null, true);
       else cb(new Error('INVALID_IMAGEMAP_IMAGE_TYPE'));
@@ -800,7 +801,7 @@ function registerAdminBroadcastRoutes(app, deps) {
     (req, res, next) => {
       uploadImagemap.single('image')(req, res, err => {
         if (err) {
-          if (err.code === 'LIMIT_FILE_SIZE') return safeJsonError(res, 400, 'file_too_large_max_10mb');
+          if (err.code === 'LIMIT_FILE_SIZE') return safeJsonError(res, 400, 'file_too_large_max_4mb');
           if (err.message === 'INVALID_IMAGEMAP_IMAGE_TYPE') return safeJsonError(res, 400, 'only_png_or_jpeg');
           return next(err);
         }
@@ -877,9 +878,9 @@ function registerAdminBroadcastRoutes(app, deps) {
       if (!messageConfig || typeof messageConfig !== 'object') {
         return safeJsonError(res, 400, 'message_config_required');
       }
-      // 簡單驗：用 buildLineMessages 跑一次（沒 broadcastId / origin）看會不會 fail
-      const built = buildLineMessages(messageConfig);
-      if (!built.ok) return safeJsonError(res, 400, 'message_config_invalid:' + built.error);
+      // 存檔只驗內容是否完整（不需要公開網址；滿版圖文的 baseUrl 等真正送出時才組）
+      const valid = validateMessageConfig(messageConfig);
+      if (!valid.ok) return safeJsonError(res, 400, 'message_config_invalid:' + valid.error);
 
       const createdBy = (req.authUser && (req.authUser.un || req.authUser.username)) || 'admin';
       try {

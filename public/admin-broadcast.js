@@ -2697,11 +2697,11 @@
       invalid_recipient_selection: '指定發送人數不正確',
       audience_changed_repreview: '收件名單在預覽後有變動，請重新預覽',
       campaign_experiment_requires_tracked_template: 'Campaign Testing 請使用一般訊息編輯器或訊息庫的多段訊息，才能可靠計算 CTA 點擊率',
-      file_too_large_max_10mb: '圖片超過 10 MB',
+      file_too_large_max_4mb: '圖片超過 4 MB（系統主機單次上傳上限約 4.5 MB）',
       image_unreadable: '讀不到這張圖片，請改用 PNG 或 JPEG',
       image_too_large_pixels: '圖片尺寸過大（單邊超過 4096 px），請縮小後再上傳',
       image_too_tall: '圖片太長（高度超過寬度的 2 倍），請改用 1:1 素材',
-      resized_too_large: '轉換後的圖片超過 10 MB，請壓縮後再上傳',
+      resized_too_large: '轉換後的圖片超過 4 MB，請壓縮後再上傳',
       campaign_experiment_requires_cta_button: 'Campaign Testing 的每個版本至少要有一顆「開啟網址」按鈕，才算得出點擊率',
       experiment_allocation_must_total_100: 'A/B/C 與保留名單的比例合計必須是 100%',
       experiment_needs_min_recipients: '收件人太少，無法讓每個測試版本與保留名單都有人',
@@ -2997,6 +2997,7 @@
   //   版型：整張／上下／左右（自動算區域）、自訂（在圖上拖拉新增／移動）。
   // ==================================================================
   var IM_W = 1040;
+  var IM_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;   // 與伺服器 imagemapMedia.MAX_UPLOAD_BYTES 相同（Netlify 函式限制）
   state.imagemap = { assetId: null, baseHeight: 1040, sourceWidth: null, sourceHeight: null, previewUrl: null,
     warnings: [], layout: 'full', areas: [{ x: 0, y: 0, width: 1040, height: 1040, type: 'uri', uri: '', text: '', label: '' }], selected: 0 };
   function imLayoutRects(layout, h) {
@@ -3119,6 +3120,7 @@
     };
   }
   function loadImagemapConfig(cfg) {
+    imBumpMaterial();
     var src = cfg && cfg.imagemap ? cfg.imagemap : {};
     var im = state.imagemap;
     im.assetId = src.assetId || null;
@@ -3162,6 +3164,7 @@
       if (hadTest && !(opts && opts.silent)) imSetStatus('滿版圖文訊息目前不支援 A/B 測試，已關閉 A/B 設定');
       imRender();
     } else {
+      imBumpMaterial();
       if (state.mode === 'imagemap') {
         state.mode = adv && adv.open ? 'flex_json' : 'template';
         $('pane-template').hidden = state.mode !== 'template';
@@ -3171,12 +3174,28 @@
     }
     if (!(opts && opts.silent)) imChanged();
   }
+  // 上傳請求序號與「素材版本」：載入其他素材（訊息庫、草稿、換樣式）時素材版本 +1。
+  // 慢速上傳回來時，若期間已有新的上傳、已換素材或已不是滿版圖文模式，一律不套用，避免蓋掉後來選的素材。
+  // （只是改點擊區連結不算換素材，上傳照常套用。）
+  var imUploadRequest = 0;
+  var imMaterialRevision = 0;
+  function imBumpMaterial() {
+    imMaterialRevision += 1;
+    // 換了素材：進行中的上傳已作廢，不用等它回來才能再上傳
+    var btn = $('im-upload');
+    if (btn) btn.disabled = false;
+  }
   function imUpload() {
     var input = $('im-file');
     var file = input && input.files && input.files[0];
     if (!file) { imSetStatus('請先選擇圖片檔'); return; }
-    if (file.size > 10 * 1024 * 1024) { imSetStatus('圖片超過 10 MB，請壓縮後再上傳'); return; }
+    if (file.size > IM_MAX_UPLOAD_BYTES) { imSetStatus('圖片超過 4 MB，請壓縮後再上傳（系統主機單次上傳上限約 4.5 MB）'); return; }
     var btn = $('im-upload');
+    var request = ++imUploadRequest;
+    var materialAtStart = imMaterialRevision;
+    var isCurrent = function () {
+      return request === imUploadRequest && materialAtStart === imMaterialRevision && state.mode === 'imagemap';
+    };
     btn.disabled = true;
     imSetStatus('上傳並產生 5 種尺寸中…');
     var fd = new FormData();
@@ -3184,7 +3203,11 @@
     fetch('/admin/broadcast/imagemap/upload', { method: 'POST', body: fd })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        btn.disabled = false;
+        if (request === imUploadRequest) btn.disabled = false;
+        if (!isCurrent()) {
+          if (request === imUploadRequest) imSetStatus('素材已變更，未套用剛才的上傳；需要時請重新上傳。');
+          return;
+        }
         if (!d || !d.ok) { imSetStatus('上傳失敗：' + (errorMap(d && d.error) || (d && d.error) || '未知錯誤')); return; }
         var im = state.imagemap;
         var heightChanged = im.baseHeight !== d.baseHeight;
@@ -3202,7 +3225,11 @@
         imRender();
         imChanged();
       })
-      .catch(function (e) { btn.disabled = false; imSetStatus('上傳失敗：' + e.message); });
+      .catch(function (e) {
+        if (request !== imUploadRequest) return;
+        btn.disabled = false;
+        if (isCurrent()) imSetStatus('上傳失敗：' + e.message);
+      });
   }
   // 自訂版型：在圖上拖拉新增區域、拖拉既有區域移動
   var imDrag = null;
@@ -3385,8 +3412,24 @@
     }
   }
 
+  // 載入「不是滿版圖文」的素材時：收起滿版圖文編輯區、樣式切回卡片，並讓進行中的上傳失效
+  function resetImagemapStyleUi() {
+    imBumpMaterial();
+    var paneIm = $('pane-imagemap');
+    if (paneIm) paneIm.hidden = true;
+    // 滿版圖文模式會藏起進階 Flex 區與 A/B 設定；換回其他素材要放回來（多段訊息稍後由 setSequencePane 再處理）
+    if ($('advanced-json-block')) $('advanced-json-block').hidden = false;
+    if ($('message-testing-settings')) $('message-testing-settings').hidden = false;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-msg-style]'), function (b) {
+      var on = b.getAttribute('data-msg-style') === 'card';
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+
   function applyMessageConfigToForm(messageConfig, templateMeta) {
     if (!messageConfig || typeof messageConfig !== 'object') return;
+    if (messageConfig.mode !== 'imagemap') resetImagemapStyleUi();
     var topAltEl = document.getElementById('msg-alt-text');
     if (messageConfig.mode === 'sequence') {
       var lineTab = document.querySelector('.tab-btn[data-channel="line"]');
@@ -3423,7 +3466,6 @@
       schedulePreview();
       return;
     }
-    if (state.mode === 'imagemap') setMessageStyle('card', { silent: true });
     if (messageConfig.mode === 'flex_json') {
       if (state.campaignTestEnabled) {
         var warning = $('campaign-mode-warning');
