@@ -242,7 +242,56 @@ function createLinePushService({ query, lineChannelAccessToken }) {
     }
   }
 
-  return { logLinePush, pushLineMessages, validatePushMessages, replyLineMessages };
+  /**
+   * 與 replyLineMessages 相同，但回傳三種結果（A/B 測試要分得出來）：
+   *   accepted  LINE 明確回 2xx（不代表已讀或已送達）
+   *   rejected  LINE 明確回 4xx/5xx，或 token／訊息缺失沒送出
+   *   uncertain 逾時或網路中斷：不知道 LINE 有沒有收下 → 不算成功、也不重送（reply token 只能用一次）
+   * 既有 replyLineMessages 行為不變。
+   */
+  async function replyLineMessagesDetailed(replyToken, messages, extra = {}) {
+    const normalizedMessages = Array.isArray(messages)
+      ? messages.map(normalizeLinePushMessageItem).filter(Boolean)
+      : [];
+    const pushType = typeof extra.pushType === 'string' && extra.pushType.trim() ? extra.pushType.trim() : 'keyword_reply';
+    const timeoutMs = Number(extra.timeoutMs) > 0 ? Number(extra.timeoutMs) : 8000;
+    const { pushType: _pt, timeoutMs: _tm, ...extraForBody } = extra;
+    const logPayload = {
+      userId: extra.userId || null,
+      lineUserId: extra.lineUserId || null,
+      pushType,
+      body: { messages: normalizedMessages, ...extraForBody }
+    };
+    if (!replyToken || !lineChannelAccessToken || normalizedMessages.length === 0) {
+      const detail = !replyToken ? 'missing_reply_token' : !lineChannelAccessToken ? 'missing_channel_access_token' : 'empty_messages';
+      await logLinePush({ ...logPayload, status: 'skipped', detail });
+      return { status: 'rejected', httpStatus: null, detail };
+    }
+    let response;
+    try {
+      response = await fetch('https://api.line.me/v2/bot/message/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineChannelAccessToken}` },
+        body: JSON.stringify({ replyToken, messages: normalizedMessages }),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+    } catch (err) {
+      const detail = String((err && err.message) || 'network_error').slice(0, 1500);
+      console.error('LINE reply uncertain:', detail);
+      await logLinePush({ ...logPayload, status: 'failed', detail: 'uncertain: ' + detail });
+      return { status: 'uncertain', httpStatus: null, detail };
+    }
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      console.error('LINE reply failed:', response.status, detail);
+      await logLinePush({ ...logPayload, status: 'failed', httpStatus: Number(response.status), detail: detail ? String(detail).slice(0, 1500) : 'line_api_error' });
+      return { status: 'rejected', httpStatus: Number(response.status), detail };
+    }
+    await logLinePush({ ...logPayload, status: 'success', httpStatus: Number(response.status) });
+    return { status: 'accepted', httpStatus: Number(response.status) };
+  }
+
+  return { logLinePush, pushLineMessages, validatePushMessages, replyLineMessages, replyLineMessagesDetailed };
 }
 
 module.exports = { createLinePushService, normalizeLinePushMessageItem };

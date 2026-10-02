@@ -493,6 +493,50 @@ Campaign Testing 的 B 版標頭依目前設定比例顯示，不再固定標 50
 - 載入非滿版圖文素材（含多段訊息）時 `resetImagemapStyleUi()` 收起滿版圖文編輯區、樣式切回卡片，並放回進階區與 A/B 設定。
 回歸測試 `test/line-imagemap.test.js`、`test/line-imagemap-review.test.js`（PR #27 審查四項）。
 
+#### 關鍵字回覆 A/B 測試（2026-10-02）
+
+**需要 migration**：`supabase/migrations/20261002090000_keyword_reply_ab_tests.sql`（只新增 4 張表、開 RLS、不寫死 schema），
+回滾 `supabase/rollbacks/20261002090000_keyword_reply_ab_tests_rollback.sql`。Staging 要由有權限的人以
+`search_path = crm_staging` 套用；正式站套用前須 Hen 確認。**程式在表不存在時會照原本規則回覆、規則清單照常顯示（不出現 A/B 按鈕）**，
+所以程式可以先上、migration 後到。
+
+Staging 權限驗收補強：原 migration 僅 service_role policy，不能讓無 BYPASSRLS 的
+`crm_staging_app` 使用。修正版只在 `current_schema()='crm_staging'` 時建立四表的專用
+CRUD policy／table grants 與三個 sequence 的 USAGE／SELECT；不給正式 public 權限或
+service_role membership。表與 sequence 都撤銷 PUBLIC／anon／authenticated，四表維持 RLS。
+以 `node scripts/staging/keyword-ab-migration.js` 產生套用 SQL（需在同一交易執行），
+固定 SET LOCAL search_path、schema 存在檢查與跨 schema 外鍵／正式存取檢查；不會讀憑證或自動連線。
+`scripts/staging/verify-keyword-ab-permissions.sql` 以實際角色驗證四表 CRUD，虛構負數 ID
+且一律 ROLLBACK、不推播；請用 crm_staging_app 直接連線或可 SET ROLE 的管理連線，
+Supabase postgres 管理工具不一定允許 SET ROLE，不能為此擴大角色權限。
+回滾只在隔離本機資料庫測，不可用來清空同事的測試實驗。
+新增權限回歸 `test/keyword-ab-staging-permissions.test.js`；實際套用是否完成以交接紀錄為準。
+
+- 後台「關鍵字回覆」每條規則（兜底規則除外）有「A/B 測試」：選 A、B 兩則訊息庫素材（任何可回覆的格式，可不同格式）、
+  期間 7／14／28 天或自訂（台灣時間；少於 7 天提醒不禁止）、暫停或結束後回覆的固定版本（預設 A）、主要點擊目標（預設全部可追蹤連結）。
+  建立前「預覽並比對兩版」：並排顯示兩版內容與封面，比對通知文字／文字（含卡片標題）／圖片／按鈕連結／格式，只有圖片不同才標「適合測封面」。
+- 建立即開始（或指定開始時間），兩版內容與可追蹤連結清單鎖成快照（`keyword_reply_experiments.variant_*_config`、`targets`）；
+  之後改訊息庫不影響。同一規則只能有一個未結束的測試（partial unique index）。結束後不可重開，再測建立新的；可暫停／繼續／延長，全部記入 `change_log`。
+- 2026-10-02 審查補強：建立新測試時，在同一個 SQL statement 先將该規則已到期 running／paused 收尾為 ended，寫 `expire` 調整紀錄，再新增，失敗全部回滾；不再被舊 partial unique index 卡住。已到期資料可 end 收尾，不能延長／resume。
+  狀態更新帶 `xmin` row version＋舊 status compare-and-set，避免兩個分頁／管理員同時操作將 ended 復活或覆蓋延長；衝突回 409 請重新整理。不可用 JS Date 精度比對完整 PG 微秒 timestamp。
+  開始時間須先驗證非法值，再處理留空＝現在。預覽採 generation／規則／素材檢查，舊回應不得開啟開始鈕；開始前再核對素材，預覽斷線禁止開始，建立／操作斷線提示先查現況，不連續重按。
+  `scripts/qa/keyword-ab-lifecycle-check.cjs` 只允許 localhost 隔離 port 55439，真 PG 驗證到期新建、手動收尾、並行 end/resume、五連線分組／事件去重、延長 row version 與並行新建；合成資料交易 rollback 或精確清除本次新建 QA schema，不連 LINE。
+  正式發布用 `node scripts/production/keyword-ab-migration.js` 產生 SQL，由已授權管理連線交易執行；固定 public、lock／statement timeout、RLS／跨 schema FK／匿名與測試角色隔離斷言，不讀密碼也不自動部署。執行後驗證現場，不可把 staging history 當成正式建表完成。
+- webhook（`replyKeywordWithExperiment`，`src/routes/lineWebhook.js`）：關鍵字比對、優先序、兜底、內建指令都不變，只在送出那一刻決定內容。
+  `decideReply()`：沒有實驗或尚未開始→原本規則；進行中且是一對一聊天有 userId→實驗；沒有 userId（群組等）→原本規則；暫停／到期／結束→固定版本快照（不追蹤、不進實驗）。
+  實驗中：`assignVariant`（分組表主鍵，並行不重複分組、同一人固定同一版）→ `claimDelivery`（`webhook_event_id` 唯一，LINE 重送同一事件不再回、不膨脹）
+  → `buildExperimentMessages`（快照組訊息；有 LIFF 才把可追蹤連結換成 `https://liff.line.me/<LIFF>/t/x/<隨機代碼>_<序號>`，連結不含 LINE User ID）
+  → `linePush.replyLineMessagesDetailed`（accepted／rejected／uncertain，8 秒逾時；不確定不算成功、不重送）→ `finishDelivery`（成功才設 `first_success_at`）。
+  任何實驗查詢錯誤都退回原本規則回覆。
+- 點擊：`GET /t/x/:code`（與 `/games/t/x/:code`）渲染既有 `tap_bounce` → 一律導向**快照**裡的原目的地；`POST .../hit` 用 LINE ID token 伺服器驗證，
+  **點擊者必須就是該次收件人**才寫 `keyword_reply_experiment_clicks`（轉傳給別人點的不算）。只追蹤「開啟網址」動作（含滿版圖文點擊區、自家 LIFF 連結）；
+  純文字裡的網址、傳送文字動作不追蹤。在 LINE App 外打開無法驗證身分，不計入。
+- 報表（`experimentReport`）：觸發次數、分組人數、成功回覆次數／人數、失敗、結果不確定、目標點擊次數、不重複點擊人數；
+  點擊率＝觀察期（每人第一次成功回覆起 7 天，重複觸發不延長）內點過主要目標的不重複人數 ÷ 成功回覆人數；
+  分「觀察中」與「已完成觀察」，正式比較用已完成觀察；沒有可追蹤目標→「不適用」，分母 0→「尚無資料」；任一版不可比較就不顯示差距。不自動判定勝出。
+- 既有沒有 A/B 的關鍵字規則、舊的關鍵字點擊追蹤（`/t/m/...`）、群發 A/B 都沒改。
+回歸測試 `test/keyword-reply-ab.test.js`；另以真 PostgreSQL（`crm_staging` schema）驗證 migration、重跑、rollback 與完整流程。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
