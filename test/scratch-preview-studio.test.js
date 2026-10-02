@@ -141,7 +141,7 @@ test('preview_ui 可在未存檔前覆寫畫面設定', async () => {
 test('分享卡片是 Flex Message，封面／標題／說明沿用活動，CTA 保留 ref', async () => {
   const { window } = await renderScratch('ready', { copy: { share_cta: '來刮一張', share_card_desc: '限時三天' } }, null, { cover: 'https://example.test/cover.jpg' });
   const built = window.__scratchBuildShare();
-  assert.equal(built.url, 'https://liff.line.me/test-liff/scratch/summer-scratch?ref=PREVIEW');
+  assert.equal(built.url, 'https://example.test/invite/scratch/summer-scratch?ref=PREVIEW');
   const flex = built.flex;
   assert.equal(flex.type, 'flex');
   assert.equal(flex.contents.hero.url, 'https://example.test/cover.jpg');

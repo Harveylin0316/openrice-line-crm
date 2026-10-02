@@ -16,6 +16,9 @@
  */
 const { registerReferral, computeUserQuota } = require('../core/gamePlayEngine');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
+const { loadReferralReview } = require('../core/referralReview');
+const { registerReferralEntry } = require('./gamesGeneric');
+const { claimReferralJourney } = require('../core/referralJourney');
 
 const MAX_REPORT_RANGE_DAYS = 366;
 
@@ -69,6 +72,7 @@ function parseReportDateRange(rawFrom, rawTo) {
 function registerMgmMilesRoutes(app, deps) {
   const { query, authCore, mgmEngine, defaultLiffId } = deps;
   const { requireAdmin, requireOwner } = authCore;
+  registerReferralEntry(app, query, { gameType: 'mgm', defaultLiffId });
   const jsonErr = (res, s, e, extra = {}) => res.status(s).json({ ok: false, error: e, ...extra });
 
   // 身分驗證：比照遊戲頁——一律以 id token 的 sub 為準（LIFF_TOKEN_ENFORCE=0 才放行裸 uid）
@@ -83,10 +87,10 @@ function registerMgmMilesRoutes(app, deps) {
     let v;
     try { v = await verifyLiffIdToken(idToken, channelId); }
     catch (e) { v = { ok: false }; }
-    if (!enforce) return { pass: true, uid: claimedUid };
+    if (!enforce) return { pass: true, uid: claimedUid, verifiedSub: v.ok && v.sub || null, channelId };
     if (!v.ok || !v.sub) return { pass: false, reject: { status: 401, code: 'token_invalid', detail: '身分驗證失敗，請重新開啟頁面。' } };
     if (claimedUid && v.sub !== claimedUid) return { pass: false, reject: { status: 403, code: 'identity_mismatch', detail: '身分不符。' } };
-    return { pass: true, uid: v.sub, channelId };
+    return { pass: true, uid: v.sub, verifiedSub: v.sub, channelId };
   }
 
   async function logAttempt(slug, inviterId, inviteeId, outcome) {
@@ -182,8 +186,18 @@ function registerMgmMilesRoutes(app, deps) {
         await logAttempt(slug, inviterId, inviteeId, 'test_mode_blocked');
         return res.status(400).json({ ok: false, error: 'activity_not_active', detail: '活動還沒開始' });
       }
+      let journeyStartedAt = null;
+      const proof = String((req.body || {}).journey || '');
+      if (proof) {
+        if (id.verifiedSub !== inviteeId) return jsonErr(res, 401, 'token_required');
+        journeyStartedAt = await claimReferralJourney({ query, proof, slug, gameType: 'mgm', inviterId, inviteeId });
+        if (!journeyStartedAt) {
+          await logAttempt(slug, inviterId, inviteeId, 'journey_invalid');
+          return jsonErr(res, 400, 'journey_invalid');
+        }
+      }
       const result = await registerReferral({ query, activitySlug: slug, gameType: 'mgm', inviterId, inviteeId,
-        accessToken: (req.body || {}).access_token, channelId: id.channelId });
+        accessToken: (req.body || {}).access_token, channelId: id.channelId, journeyStartedAt });
       if (result.error) {
         await logAttempt(slug, inviterId, inviteeId, result.error.code);
         return res.status(result.error.status).json({ ok: false, error: result.error.code, detail: result.error.detail });
@@ -442,6 +456,7 @@ function registerMgmMilesRoutes(app, deps) {
       res.json({
         ok: true,
         activities: list,
+        referral_review: await loadReferralReview(query, act),
         activity: {
           id: act.id, slug: act.slug, name: act.name, game_type: act.game_type, status: act.status,
           start_at: act.start_at, end_at: act.end_at,

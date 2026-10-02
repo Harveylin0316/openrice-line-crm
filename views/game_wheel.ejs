@@ -97,7 +97,7 @@
   <meta name="theme-color" content="#F9C73B" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="/games-mgm.js?v=20261001b"></script>
+  <script src="/games-mgm.js?v=20261002a"></script>
   <style>
     /* ── OpenRice 九月轉盤 ─────────────────────────────────────────
        設計準據：openrice-september-wheel-ready-state-v1.png
@@ -1588,11 +1588,8 @@
           alert('身分驗證中，稍等一下再試');
           return;
         }
-        // 邀請連結：LIFF 短網址帶 ref query 跟 sub-path
-        // 注意：LIFF 短網址子路徑會被 append 到 endpoint URL
-        // /wheel/<slug>?ref=<my_id> 會解析到 /games/wheel/<slug>?ref=<my_id>
-        var inviteUrl = 'https://liff.line.me/' + liffId +
-          '/wheel/' + encodeURIComponent(slug) + '?ref=' + encodeURIComponent((profile && profile.userId) || 'PREVIEW');
+        // 先記錄邀請入口，再進 LINE 同意／加好友畫面。
+        var inviteUrl = location.origin + '/invite/wheel/' + encodeURIComponent(slug) + '?ref=' + encodeURIComponent((profile && profile.userId) || 'PREVIEW');
         var msg = formatCopy('share_message', { name: activityMeta.name });
 
         // LINE Share Target Picker 可以直接送 Flex Message。封面與文案沿用活動後台，

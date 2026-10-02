@@ -875,6 +875,16 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 
 ## 15. Git、部署與驗收流程
 
+### 邀請入口先於 LINE 同意畫面（2026-10-02）
+
+- 遊戲與 MGM 新分享連結改成同站 `/invite/<type>/<slug>?ref=<inviter>`。伺服器先記錄旅程再 302 到活動 LIFF URL；LINE 同意畫面可能在 app 載入前加好友，不能等 `liff.init()` 後才建立來源證據。入口具每 IP／類型 60 次／分鐘限制、no-store／no-referrer，沒有 enter／play 事件，不授予任何次數。
+- 只使用現有 `activity_referral_attempts`：`journey_open:<SHA256 nonce>` 保存開始時間，invitee 初始 NULL；網址上的 `journey=<row id>.<256-bit nonce>` 只可在真實 LINE id token sub 核對後以單筆條件 UPDATE 綁定第一位被邀請人。nonce、活動、類型、邀請人、72 小時期限和已綁 UID 都必須符合。同 UID 重送可繼續，其他 UID 不能重放。前端儲存、手機跳 LINE、QR 都保留憑證；重新分享自己的邀請不轉傳別人的憑證。
+- 同一活動／邀請人／已驗證用戶重開連結，保留 72 小時內最早的已綁定旅程，避免後續開啟蓋掉加好友前的證據。瀏覽器若早於 webhook log，僅就資格同步延遲最多追加三次短重試；沒有 localStorage 也不能無限重試。已入帳快照與 UNIQUE 去重仍有效。
+- `referralJourney.detectJourneyExisting()` 以旅程開始時間交叉檢查已驗簽的 LINE follow／unfollow／message／postback。較早好友事件或解除封鎖 → 舊友；僅有較早會員紀錄但缺好友證據 → 待確認；旅程之後首次 follow 且 `isUnblocked=false`、沒有較早會員／好友證據 → 新友。LINE 旗標不是單獨的資格保證。資料／旗標缺漏維持 NULL，不占 referral 唯一鍵、不算次數。
+- follow webhook 傳入當次內部已驗簽 follow 證據，可接續已綁旅程，不必等同一事件的 log 寫完。HTTP 不接受前端傳入開始時間或 isUnblocked。既有 referral 快照不改判；UNIQUE(activity_id, invitee) 及原配額／上限仍保留。
+- 舊 LIFF 分享連結沒有 pre-login 證據：剛加好友卻未入帳的可疑紀錄留待複核，不再猜成舊友。已入帳歷史不回填。現有 `/admin/mgm/api/data` 管理員驗證後新增 `referral_review`；整檔活動的近 30 分鐘歷史疑點與資格待確認名單可查看／下載 CSV（最多 5,000 筆、超限明示），排除兩方都是現行測試帳號的紀錄。此清單不是已確認補發名單，沒有任何自動改判／補發／推播操作。
+- 無 migration、無新增環境變數。驗證：`test/referral-journey.test.js`、既有 follow／邀請／配額／preview 測試；`node scripts/audit-referral-eligibility-fixtures.js` 只輸出合成資料的唯讀 SQL，可在 READ ONLY 交易中驗证 Postgres 實際 CASE，不連 DB 或讀憑證。iOS／Android 真實 LINE 同意→活動入口仍需指定測試帳號驗收，mock／HTTP／桌機模擬不代表手機實收。
+
 ### Staging 圖片網址與手機群發版面（2026-10-01）
 
 - `resolvePublicSiteOrigin()` 在 `SAFE_PREVIEW_MODE=1` 或 `APP_ENV=staging` 時使用目前 request 的 origin（包含代理轉送的 host／protocol），避免繼承 Netlify `URL` 或正式公開網址設定而把隔離資料庫中的圖片指向正式站。正式環境沿用原本公開網址設定的優先順序；此變更不搬移圖片、不修改資料庫 schema。既有已儲存的錯誤網址不會自動回填，請重新上傳或在 Staging 編輯素材。

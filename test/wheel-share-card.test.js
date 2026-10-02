@@ -88,7 +88,7 @@ test('邀請好友會送出含活動封面、說明與 CTA 的 LINE Flex 卡片'
   try {
     assert.equal(shared.length, 1);
     const message = shared[0][0];
-    const expectedUrl = 'https://liff.line.me/2007974193-3AWiL11Y/wheel/share-miles?ref=' + USER_ID;
+    const expectedUrl = 'https://openrice-line-crm.netlify.app/invite/wheel/share-miles?ref=' + USER_ID;
     assert.equal(message.type, 'flex');
     assert.match(message.altText, /分享超有哩/);
     assert.equal(message.contents.type, 'bubble');
