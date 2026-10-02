@@ -29,6 +29,19 @@ function normalizeLinePushMessageItem(item) {
     if (!altText || !contents || typeof contents !== 'object') return null;
     return { type: 'flex', altText, contents };
   }
+  if (item && typeof item === 'object' && item.type === 'imagemap') {
+    const baseUrl = String(item.baseUrl || '').trim();
+    const altText = String(item.altText || '').trim();
+    const baseSize = item.baseSize;
+    const actions = item.actions;
+    // Builders validate the areas and links; preserve their native payload here.
+    // Without this branch the shared sender silently dropped the entire segment.
+    if (!/^https:\/\//i.test(baseUrl) || !altText || !baseSize ||
+        baseSize.width !== 1040 || !Number.isInteger(baseSize.height) || baseSize.height < 1 ||
+        !Array.isArray(actions) || actions.length < 1 || actions.length > 50) return null;
+    return { type: 'imagemap', baseUrl, altText, baseSize, actions,
+      ...(item.video && typeof item.video === 'object' ? { video: item.video } : {}) };
+  }
   return null;
 }
 

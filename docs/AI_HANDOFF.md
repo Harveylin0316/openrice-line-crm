@@ -1026,6 +1026,7 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 
 ## 20. 多段訊息加入滿版圖文（2026-10-02）
 
+- 正式發送層回歸補強：`linePush.normalizeLinePushMessageItem` 必須保留原生 `imagemap`，包含 baseUrl／baseSize／actions；先前 builder／webhook mock 正常，但共用 sender 不認得此類型會靜默濾掉圖文，甚至回報剩餘文字送出成功。push／validation／plain reply／A/B detailed reply 共用該 normalization。`test/line-imagemap-sender.test.js` 及實際 sender 的 webhook 回歸攔截 HTTP body，不可只 mock 整個 linePush service。
 - `/admin/messages/sequence` 新增「＋滿版圖文訊息」，從訊息庫選已建立的原生 imagemap。沿用 `items[].type='card'` 與 `message_config.mode='imagemap'` 的巢狀格式，`content_kind='imagemap'` 僅協助空白段落的素材選擇；沒有 schema migration。
 - 複製完整圖片 assetId、尺寸、通知文字、各點擊區與 URI／傳送文字動作。可與文字、圖片、影片、Flex 卡片混排，仍限 1～5 段；發送沿用共用 builder，關鍵字回覆一次 reply 呼叫送完整陣列。
 - `validateMessageConfig` 對多段中的素材做結構驗證，不因存檔時沒有公開 origin 而拒絕 imagemap；實際組裝圖片 baseUrl 仍要求 HTTPS origin。

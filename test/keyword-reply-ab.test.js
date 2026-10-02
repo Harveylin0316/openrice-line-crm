@@ -205,7 +205,7 @@ test('Reply API 結果：2xx＝成功、4xx＝失敗、逾時／網路中斷＝�
 });
 
 // ---------------------------------------------------------------- webhook 整合
-function webhookHarness({ experiment = exp(), assignVariant = 'b', replyStatus = 'accepted', lookupFails = false } = {}) {
+function webhookHarness({ experiment = exp(), assignVariant = 'b', replyStatus = 'accepted', lookupFails = false, realSender = false } = {}) {
   const state = { assignments: new Map(), deliveries: [], finished: [], replies: [], hit: 0, events: new Set() };
   const pool = {
     query: async (sql, p = []) => {
@@ -234,7 +234,9 @@ function webhookHarness({ experiment = exp(), assignVariant = 'b', replyStatus =
       return { rowCount: 0, rows: [] };
     }
   };
-  const linePush = {
+  const linePush = realSender ? require('../src/core/linePush').createLinePushService({
+    query: pool.query, lineChannelAccessToken: 'SYNTHETIC_NOT_A_REAL_TOKEN'
+  }) : {
     replyLineMessages: async (token, messages) => { state.replies.push({ token, messages, path: 'plain' }); return true; },
     replyLineMessagesDetailed: async (token, messages) => { state.replies.push({ token, messages, path: 'detailed' }); return { status: replyStatus, httpStatus: replyStatus === 'accepted' ? 200 : null }; }
   };
@@ -251,6 +253,37 @@ function webhookHarness({ experiment = exp(), assignVariant = 'b', replyStatus =
 const textEvent = (eventId, userId = U('b'), sourceType = 'user') => ({
   type: 'message', webhookEventId: eventId, replyToken: 'REPLY_' + eventId,
   source: Object.assign({ type: sourceType }, userId ? { userId } : {}), message: { type: 'text', text: '透過 OpenRice 訂位' }
+});
+
+test('webhook A/B with the real sender preserves text+imagemap and only replies once on event redelivery', async () => {
+  const previousFetch = global.fetch;
+  const previousOrigin = process.env.LINE_PUSH_PUBLIC_BASE_URL;
+  const previousLiff = process.env.GAMES_LIFF_ID;
+  process.env.LINE_PUSH_PUBLIC_BASE_URL = 'https://staging.example';
+  process.env.GAMES_LIFF_ID = 'L-SYNTHETIC';
+  const requests = [];
+  global.fetch = async (url, options) => {
+    requests.push({ url, body: JSON.parse(options.body) });
+    return { ok: true, status: 200 };
+  };
+  try {
+    const config = { mode: 'sequence', items: [{ type: 'text', text: 'SYNTHETIC intro' },
+      { type: 'card', message_config: IMAGEMAP }] };
+    const h = webhookHarness({ realSender: true, experiment: exp({ variant_a_config: config, variant_b_config: config }) });
+    await h.send([textEvent('SYNTHETIC-MAP-1')]);
+    await h.send([textEvent('SYNTHETIC-MAP-1')]);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, 'https://api.line.me/v2/bot/message/reply');
+    assert.deepEqual(requests[0].body.messages.map(m => m.type), ['text', 'imagemap']);
+    assert.match(requests[0].body.messages[1].actions[0].linkUri, /^https:\/\/liff\.line\.me\/L-SYNTHETIC\/t\/x\/[A-Za-z0-9_-]+_0$/);
+    assert.equal(requests[0].body.messages[1].actions[1].text, '我要更改');
+    assert.deepEqual(h.state.finished, ['accepted']);
+    assert.equal(h.state.deliveries.length, 1);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousOrigin === undefined) delete process.env.LINE_PUSH_PUBLIC_BASE_URL; else process.env.LINE_PUSH_PUBLIC_BASE_URL = previousOrigin;
+    if (previousLiff === undefined) delete process.env.GAMES_LIFF_ID; else process.env.GAMES_LIFF_ID = previousLiff;
+  }
 });
 
 test('webhook：實驗中依分組回覆 B 版（連結已換成跳板），結果寫回並計入命中', async () => {

@@ -52,6 +52,8 @@ test('new rich-message segment copies chosen library content and supports remova
 test('keyword webhook replies once with ordered text and native imagemap',async()=>{
  const crypto=require('node:crypto');
  const {createLineWebhookHandler}=require('../src/routes/lineWebhook');
+ const {createLinePushService}=require('../src/core/linePush');
+ const previousFetch=global.fetch;
  const previous=process.env.LINE_PUSH_PUBLIC_BASE_URL;process.env.LINE_PUSH_PUBLIC_BASE_URL='https://staging.example';
  const replies=[];
  const pool={query:async(sql)=>{
@@ -59,10 +61,12 @@ test('keyword webhook replies once with ordered text and native imagemap',async(
  if(sql.includes('SELECT message_config FROM admin_message_templates'))return {rowCount:1,rows:[{message_config:seq}]};
  return {rowCount:0,rows:[]};
  }};
- const handler=createLineWebhookHandler({pool,channelSecret:'STAGING_TEST_SECRET',linePush:{replyLineMessages:async(token,messages)=>{replies.push({token,messages});return true;}}});
+ global.fetch=async(_url,options)=>{const payload=JSON.parse(options.body);replies.push({token:payload.replyToken,messages:payload.messages});return {ok:true,status:200};};
+ const linePush=createLinePushService({query:pool.query,lineChannelAccessToken:'STAGING_NOT_A_REAL_TOKEN'});
+ const handler=createLineWebhookHandler({pool,channelSecret:'STAGING_TEST_SECRET',linePush});
  const body=Buffer.from(JSON.stringify({events:[{type:'message',replyToken:'STAGING_REPLY_TOKEN',message:{type:'text',text:'STAGING'}}]}));
  const signature=crypto.createHmac('sha256','STAGING_TEST_SECRET').update(body).digest('base64');
  const res={status(c){this.code=c;return this;},send(b){this.body=b;return this;},json(b){this.body=b;return this;}};
  try{await handler({body,get:()=>signature},res);assert.equal(replies.length,1);assert.deepEqual(replies[0].messages.map(m=>m.type),['text','imagemap']);assert.equal(replies[0].messages[1].actions[1].text,'STAGING');}
- finally{if(previous===undefined)delete process.env.LINE_PUSH_PUBLIC_BASE_URL;else process.env.LINE_PUSH_PUBLIC_BASE_URL=previous;}
+ finally{global.fetch=previousFetch;if(previous===undefined)delete process.env.LINE_PUSH_PUBLIC_BASE_URL;else process.env.LINE_PUSH_PUBLIC_BASE_URL=previous;}
 });
