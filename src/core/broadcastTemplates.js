@@ -586,6 +586,26 @@ function validateMessageConfig(messageConfig) {
     const err = validateImagemapConfig(messageConfig.imagemap);
     return err ? { ok: false, error: err } : { ok: true };
   }
+  if (messageConfig.mode === 'sequence') {
+    const items = messageConfig.items;
+    if (!Array.isArray(items) || items.length < 1 || items.length > 5) {
+      return { ok: false, error: '多段訊息需要 1～5 個內容區塊。' };
+    }
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      let valid;
+      if (item && item.type === 'card') {
+        const nested = item.message_config;
+        valid = !nested || nested.mode === 'sequence'
+          ? { ok: false, error: '卡片內容缺失。' }
+          : validateMessageConfig(nested);
+      } else {
+        valid = buildLineMessages({ mode: 'sequence', items: [item] });
+      }
+      if (!valid.ok) return { ok: false, error: '第 ' + (i + 1) + ' 個內容：' + valid.error };
+    }
+    return { ok: true };
+  }
   const built = buildLineMessages(messageConfig);
   return built.ok ? { ok: true } : { ok: false, error: built.error };
 }
