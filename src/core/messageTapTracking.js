@@ -74,9 +74,27 @@ function walkUriActions(config, visit, opts) {
     }
     index += 1;
   };
+  // 滿版圖文訊息（imagemap）的點擊區：{ type:'uri', linkUri, area } 直接是 action 本身
+  const considerImagemapArea = (node) => {
+    const uri = String(node.linkUri || '');
+    if (!/^https?:\/\//i.test(uri)) return;
+    if (isTrackerUri(uri)) return;
+    if (!includeOwnLiff && !isTrackableUri(uri)) return;
+    const item = { index, uri, label: node.label || null };
+    found.push(item);
+    if (typeof visit === 'function') {
+      const replaced = visit(item);
+      if (typeof replaced === 'string' && replaced) node.linkUri = replaced;
+    }
+    index += 1;
+  };
   const walk = (node) => {
     if (!node || typeof node !== 'object') return;
     if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (node.type === 'uri' && typeof node.linkUri === 'string' && node.area && typeof node.area === 'object') {
+      considerImagemapArea(node);
+      return;
+    }
     // 節點自己帶 action（button / box / image 都可能帶）
     consider(node, node.text || null);
     for (const k of Object.keys(node)) {

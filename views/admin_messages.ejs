@@ -177,6 +177,17 @@
                 seq.appendChild(el);
               });stage.appendChild(seq);return;
             }
+            if(cfg&&cfg.mode==='imagemap'&&cfg.imagemap){
+              /* 滿版圖文訊息：維持原比例、虛線框標出點擊區 */
+              var imc=cfg.imagemap,bh=Number(imc.baseHeight)||1040;
+              var imw=document.createElement('div');imw.style.cssText='width:100%';
+              var tagIm=document.createElement('div');tagIm.className='lm-cara-tag';tagIm.textContent='滿版圖文訊息 · '+((imc.areas||[]).length)+' 個點擊區';imw.appendChild(tagIm);
+              var imbox=document.createElement('div');imbox.style.cssText='position:relative;width:100%;aspect-ratio:1040 / '+bh+';background:#E5E7EB;overflow:hidden';
+              if(imc.assetId){var imimg=document.createElement('img');imimg.src='/p/line-imagemap/'+imc.assetId+'/1040';imimg.alt='';imimg.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block';imbox.appendChild(imimg);}
+              (imc.areas||[]).forEach(function(a,i){var ar=document.createElement('div');ar.textContent=String(i+1);ar.title=a.type==='message'?('傳送文字：'+(a.text||'')):(a.uri||'');
+                ar.style.cssText='position:absolute;box-sizing:border-box;border:1.5px dashed rgba(37,99,235,.9);background:rgba(37,99,235,.08);color:#1E3A8A;font-size:10px;font-weight:700;padding:2px 4px;left:'+(a.x/1040*100)+'%;top:'+(a.y/bh*100)+'%;width:'+(a.width/1040*100)+'%;height:'+(a.height/bh*100)+'%';imbox.appendChild(ar);});
+              imw.appendChild(imbox);stage.appendChild(imw);return;
+            }
             if(cfg&&cfg.mode==='template'&&cfg.template){stage.appendChild(renderTemplateMock(cfg.template));return;}
             var flex=cfg&&cfg.flex;
             var contents=flex&&flex.contents;

@@ -19,6 +19,7 @@ const multer = require('multer');
 
 const {
   buildLineMessages,
+  validateMessageConfig,
   normalizeTemplateInput,
   resolveBroadcastButtonTarget,
   listBroadcastButtons,
@@ -150,6 +151,16 @@ function registerAdminBroadcastRoutes(app, deps) {
       } else {
         cb(new Error('INVALID_HERO_IMAGE_TYPE'));
       }
+    }
+  });
+
+  // 滿版圖文訊息（imagemap）原圖：LINE 允許 10 MB，但 Netlify 函式請求實際約 4.5 MB → 限 4 MB
+  const uploadImagemap = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: require('../core/imagemapMedia').MAX_UPLOAD_BYTES },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype === 'image/png' || file.mimetype === 'image/jpeg') cb(null, true);
+      else cb(new Error('INVALID_IMAGEMAP_IMAGE_TYPE'));
     }
   });
 
@@ -784,6 +795,49 @@ function registerAdminBroadcastRoutes(app, deps) {
     }
   );
 
+  // ---------- 3b. 滿版圖文訊息（imagemap）圖片上傳 ----------
+  // 上傳一次原圖 → 產生 1040/700/460/300/240 五種寬度 → 存進 line_push_media（id 由 assetId 推導）。
+  // 回傳 baseUrl 給前端預覽；真正送出時 buildLineMessages 會用當下的公開網址重組 baseUrl。
+  app.post(
+    '/admin/broadcast/imagemap/upload',
+    requireAdmin,
+    (req, res, next) => {
+      uploadImagemap.single('image')(req, res, err => {
+        if (err) {
+          if (err.code === 'LIMIT_FILE_SIZE') return safeJsonError(res, 400, 'file_too_large_max_4mb');
+          if (err.message === 'INVALID_IMAGEMAP_IMAGE_TYPE') return safeJsonError(res, 400, 'only_png_or_jpeg');
+          return next(err);
+        }
+        next();
+      });
+    },
+    async (req, res) => {
+      try {
+        const file = req.file;
+        if (!file || !file.buffer) return safeJsonError(res, 400, 'no_file');
+        const { processImagemapUpload, storeImagemapFiles, imagemapBaseUrl } = require('../core/imagemapMedia');
+        const out = await processImagemapUpload(file.buffer, file.mimetype);
+        if (!out.ok) return safeJsonError(res, 400, out.error);
+        await storeImagemapFiles(query, out.assetId, out.files);
+        const origin = publicOriginOrEmpty(req);
+        return res.json({
+          ok: true,
+          assetId: out.assetId,
+          baseWidth: out.baseWidth,
+          baseHeight: out.baseHeight,
+          sourceWidth: out.sourceWidth,
+          sourceHeight: out.sourceHeight,
+          warnings: out.warnings,
+          baseUrl: origin ? imagemapBaseUrl(origin, out.assetId) : null,
+          sizes: out.files.map(f => ({ width: f.width, height: f.height, bytes: f.buffer.length }))
+        });
+      } catch (err) {
+        console.error('imagemap upload error:', err && err.message);
+        return safeJsonError(res, 500, 'upload_failed');
+      }
+    }
+  );
+
   // ---------- 2c. message templates CRUD ----------
   app.get('/admin/broadcast/templates', requireAdmin, async (_req, res) => {
     try {
@@ -827,9 +881,9 @@ function registerAdminBroadcastRoutes(app, deps) {
       if (!messageConfig || typeof messageConfig !== 'object') {
         return safeJsonError(res, 400, 'message_config_required');
       }
-      // 簡單驗：用 buildLineMessages 跑一次（沒 broadcastId / origin）看會不會 fail
-      const built = buildLineMessages(messageConfig);
-      if (!built.ok) return safeJsonError(res, 400, 'message_config_invalid:' + built.error);
+      // 存檔只驗內容是否完整（不需要公開網址；滿版圖文的 baseUrl 等真正送出時才組）
+      const valid = validateMessageConfig(messageConfig);
+      if (!valid.ok) return safeJsonError(res, 400, 'message_config_invalid:' + valid.error);
 
       const createdBy = (req.authUser && (req.authUser.un || req.authUser.username)) || 'admin';
       try {

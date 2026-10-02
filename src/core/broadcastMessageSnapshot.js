@@ -109,6 +109,29 @@ function flexSummary(config) {
   return summary;
 }
 
+function imagemapSummary(config, options = {}) {
+  const im = config && config.imagemap && typeof config.imagemap === 'object' ? config.imagemap : {};
+  const origin = String(options.origin || options.heroImageBaseUrl || '').replace(/\/+$/, '');
+  const assetOk = /^[0-9a-f-]{36}$/i.test(String(im.assetId || ''));
+  const image = assetOk && origin ? `${origin}/p/line-imagemap/${String(im.assetId).toLowerCase()}/1040` : '';
+  const areas = Array.isArray(im.areas) ? im.areas : [];
+  return {
+    mode: 'imagemap',
+    modeLabel: '滿版圖文訊息',
+    notificationText: clean(im.altText, 400),
+    title: clean(im.altText, 200),
+    texts: [],
+    couponCode: '',
+    images: image ? [image] : [],
+    actions: areas.map((a, i) => {
+      if (a && a.type === 'message') return { type: 'message', label: clean(a.label, 200) || ('區域 ' + (i + 1)), text: clean(a.text, 400) };
+      const url = safeHttpUrl(a && a.uri);
+      return { type: 'uri', label: clean(a && a.label, 200) || ('區域 ' + (i + 1)), url, invalidUrl: !url };
+    }),
+    segments: []
+  };
+}
+
 function summarizeConfig(config, options = {}, depth = 0) {
   const safe = config && typeof config === 'object' ? config : {};
   if (safe.mode === 'sequence' && depth < 2) {
@@ -162,6 +185,7 @@ function summarizeConfig(config, options = {}, depth = 0) {
     };
   }
   if (safe.mode === 'flex_json') return flexSummary(safe);
+  if (safe.mode === 'imagemap') return imagemapSummary(safe, options);
   return templateSummary(safe, options);
 }
 

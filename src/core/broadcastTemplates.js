@@ -493,6 +493,103 @@ function applyBroadcastTracking(messages, opts) {
   return messages;
 }
 
+/* ============================================================
+ * 滿版圖文訊息（LINE 原生 imagemap，不是 Flex 模擬）
+ * messageConfig = { mode: 'imagemap', imagemap: {
+ *   assetId, baseWidth: 1040, baseHeight, altText,
+ *   layout: 'full'|'top_bottom'|'left_right'|'custom',
+ *   areas: [{ x, y, width, height, type: 'uri'|'message', uri?, text?, label? }] } }
+ * 座標一律以 baseSize（寬 1040）為準。
+ * ============================================================ */
+const IMAGEMAP_MAX_AREAS = 50;
+const IMAGEMAP_LABEL_MAX = 100;
+const IMAGEMAP_TEXT_MAX = 400;
+
+function isImagemapLinkUri(s) {
+  if (isValidHttpUrl(s)) return true;
+  const v = String(s || '').trim();
+  // LINE imagemap 的 linkUri 另外接受 line:// 與 tel:
+  return /^line:\/\/\S+$/i.test(v) || /^tel:[0-9+\-()# *]+$/i.test(v);
+}
+
+/** 依版型產生預設點擊區（與後台編輯器同一套算法） */
+function imagemapLayoutAreas(layout, baseHeight) {
+  const W = 1040;
+  const H = Number(baseHeight) || 1040;
+  const half = Math.round(H / 2);
+  if (layout === 'top_bottom') return [{ x: 0, y: 0, width: W, height: half }, { x: 0, y: half, width: W, height: H - half }];
+  if (layout === 'left_right') return [{ x: 0, y: 0, width: 520, height: H }, { x: 520, y: 0, width: 520, height: H }];
+  return [{ x: 0, y: 0, width: W, height: H }];
+}
+
+function validateImagemapConfig(im) {
+  if (!im || typeof im !== 'object') return '滿版圖文訊息設定缺失。';
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(im.assetId || ''))) return '請先上傳圖片。';
+  const bh = Number(im.baseHeight);
+  if (!Number.isInteger(bh) || bh < 1 || bh > 2080) return '圖片高度資訊不正確，請重新上傳圖片。';
+  const alt = String(im.altText || '').trim();
+  if (alt.length < 1 || alt.length > FIELD_LIMITS.altText) return 'LINE 通知預覽文字必填，長度 1～400 字。';
+  const areas = Array.isArray(im.areas) ? im.areas : [];
+  if (areas.length < 1) return '至少要設定 1 個點擊區域。';
+  if (areas.length > IMAGEMAP_MAX_AREAS) return '點擊區域最多 50 個。';
+  for (let i = 0; i < areas.length; i++) {
+    const a = areas[i] || {};
+    const pos = '第 ' + (i + 1) + ' 個點擊區域：';
+    const nums = ['x', 'y', 'width', 'height'].map(k => Number(a[k]));
+    if (!nums.every(Number.isInteger)) return pos + '位置與大小必須是整數。';
+    const [x, y, w, h] = nums;
+    if (x < 0 || y < 0 || w < 1 || h < 1) return pos + '位置不能小於 0，寬高至少 1。';
+    if (x + w > 1040 || y + h > bh) return pos + '超出圖片範圍（寬 1040、高 ' + bh + '）。';
+    const type = a.type === 'message' ? 'message' : 'uri';
+    if (type === 'uri' && !isImagemapLinkUri(a.uri)) return pos + '連結要是 https:// 或 http:// 開頭的網址（也可用 line:// 或 tel:）。';
+    if (type === 'message') {
+      const t = String(a.text || '').trim();
+      if (t.length < 1 || t.length > IMAGEMAP_TEXT_MAX) return pos + '傳送文字必填，最多 400 字。';
+    }
+    if (a.label != null && String(a.label).length > IMAGEMAP_LABEL_MAX) return pos + '標籤最多 100 字。';
+  }
+  return null;
+}
+
+function buildImagemapMessage(im, { origin, recipientName } = {}) {
+  const base = String(origin || '').replace(/\/+$/, '');
+  if (!/^https:\/\//i.test(base)) {
+    return { ok: false, error: '滿版圖文訊息需要 https 的公開網址才能讓 LINE 讀取圖片（請在正式或測試站操作）。' };
+  }
+  let alt = String(im.altText || '').trim();
+  if (recipientName != null) alt = applyPersonalization(alt, recipientName);
+  const message = {
+    type: 'imagemap',
+    baseUrl: base + '/p/line-imagemap/' + String(im.assetId).toLowerCase(),
+    altText: clip(alt, FIELD_LIMITS.altText),
+    baseSize: { width: 1040, height: Number(im.baseHeight) },
+    actions: im.areas.map(a => {
+      const area = { x: Number(a.x), y: Number(a.y), width: Number(a.width), height: Number(a.height) };
+      const label = a.label != null && String(a.label).trim() ? clip(String(a.label).trim(), IMAGEMAP_LABEL_MAX) : undefined;
+      if (a.type === 'message') {
+        const text = recipientName != null ? applyPersonalization(String(a.text || '').trim(), recipientName) : String(a.text || '').trim();
+        return Object.assign({ type: 'message', text: clip(text, IMAGEMAP_TEXT_MAX), area }, label ? { label } : {});
+      }
+      return Object.assign({ type: 'uri', linkUri: String(a.uri).trim(), area }, label ? { label } : {});
+    })
+  };
+  return { ok: true, message };
+}
+
+/**
+ * 存檔用的驗證（訊息庫、群發模板）：只檢查內容是否完整，不需要公開網址。
+ * 以前直接拿 buildLineMessages(cfg) 驗，滿版圖文訊息因為組 baseUrl 需要 https 公開網址而一律失敗，存不進訊息庫。
+ */
+function validateMessageConfig(messageConfig) {
+  if (!messageConfig || typeof messageConfig !== 'object') return { ok: false, error: '訊息設定缺失' };
+  if (messageConfig.mode === 'imagemap') {
+    const err = validateImagemapConfig(messageConfig.imagemap);
+    return err ? { ok: false, error: err } : { ok: true };
+  }
+  const built = buildLineMessages(messageConfig);
+  return built.ok ? { ok: true } : { ok: false, error: built.error };
+}
+
 function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, variant, recipientId, recipientName } = {}) {
   const variantSuffix = variant === 'a' || variant === 'b' || variant === 'c' ? `?v=${variant}` : '';
   // recipient id segment：有提供就嵌入 URL，後續 track endpoint 可寫入 line_user_id 對應
@@ -553,6 +650,18 @@ function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, varia
     // 多段訊息：所有卡片建好後統一套追蹤（按鈕序號是整串訊息一起數的）
     applyBroadcastTracking(messages, { origin: heroImageBaseUrl, broadcastId, recipientId, variant });
     return { ok: true, messages };
+  }
+  if (messageConfig.mode === 'imagemap') {
+    const im = messageConfig.imagemap;
+    const err = validateImagemapConfig(im);
+    if (err) return { ok: false, error: err };
+    const built = buildImagemapMessage(im, { origin: heroImageBaseUrl, recipientName });
+    if (!built.ok) return built;
+    const imMessages = [built.message];
+    // 點擊追蹤：每個開啟網址的區域包成 /r/b/<批次>/<收件人>/<序號>（與卡片按鈕同一套）；
+    // imagemap 沒有可塞追蹤圖的地方，「看過」不估算
+    applyBroadcastTracking(imMessages, { origin: heroImageBaseUrl, broadcastId, recipientId, variant });
+    return { ok: true, messages: imMessages };
   }
   if (messageConfig.mode === 'flex_json') {
     const flex = messageConfig.flex;
@@ -664,6 +773,9 @@ module.exports = {
   resolveRecipientName,
   buildLineMessages,
   BROADCAST_WALK_OPTS,
+  validateImagemapConfig,
+  validateMessageConfig,
+  imagemapLayoutAreas,
   applyBroadcastClickTracking,
   appendBroadcastViewPixel,
   resolveBroadcastButtonTarget,

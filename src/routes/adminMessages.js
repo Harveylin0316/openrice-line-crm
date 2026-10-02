@@ -15,6 +15,10 @@
 
 function registerAdminMessagesRoutes(app, deps) {
   const { query, authCore, buildLineMessages } = deps;
+  // 存檔驗證不需要公開網址（滿版圖文訊息存得進訊息庫）；預覽要用公開網址組滿版圖文的圖片位置
+  const validateMessageConfig = deps.validateMessageConfig ||
+    ((cfg) => { const b = buildLineMessages(cfg); return b.ok ? { ok: true } : { ok: false, error: b.error }; });
+  const resolvePublicSiteOrigin = typeof deps.resolvePublicSiteOrigin === 'function' ? deps.resolvePublicSiteOrigin : () => '';
   const { requireAdmin } = authCore;
 
   function jsonErr(res, status, error, extra = {}) {
@@ -77,8 +81,8 @@ function registerAdminMessagesRoutes(app, deps) {
 
   function validateConfig(messageConfig) {
     if (!messageConfig || typeof messageConfig !== 'object') return { ok: false, error: 'message_config_required' };
-    const built = buildLineMessages(messageConfig);
-    if (!built.ok) return { ok: false, error: 'message_config_invalid:' + built.error };
+    const valid = validateMessageConfig(messageConfig);
+    if (!valid.ok) return { ok: false, error: 'message_config_invalid:' + valid.error };
     return { ok: true };
   }
 
@@ -162,7 +166,8 @@ function registerAdminMessagesRoutes(app, deps) {
   app.post('/admin/messages/api/preview', requireAdmin, (req, res) => {
     try {
       const messageConfig = req.body && req.body.message_config;
-      const built = buildLineMessages(messageConfig);
+      const origin = String(resolvePublicSiteOrigin(req) || '').replace(/\/+$/, '');
+      const built = buildLineMessages(messageConfig, origin ? { heroImageBaseUrl: origin } : undefined);
       if (!built.ok) return res.json({ ok: false, error: built.error });
       return res.json({ ok: true, messages: built.messages });
     } catch (err) {

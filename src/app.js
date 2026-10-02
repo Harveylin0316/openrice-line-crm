@@ -18,7 +18,7 @@ const { registerAdminBroadcastRoutes } = require('./routes/adminBroadcast');
 const { registerAdminLeaderboardRoutes } = require('./routes/adminLeaderboard');
 const bookingLeaderboard = require('./core/bookingLeaderboard');
 const { registerAdminMessagesRoutes } = require('./routes/adminMessages');
-const { buildLineMessages: buildLineMessagesForLib } = require('./core/broadcastTemplates');
+const { buildLineMessages: buildLineMessagesForLib, validateMessageConfig } = require('./core/broadcastTemplates');
 const { registerAdminFlowsRoutes } = require('./routes/adminFlows');
 const { registerAdminKeywordRepliesRoutes } = require('./routes/adminKeywordReplies');
 const { createFlowEngine } = require('./core/flowEngine');
@@ -583,7 +583,9 @@ registerAdminLeaderboardRoutes(app, {
 registerAdminMessagesRoutes(app, {
   query,
   authCore,
-  buildLineMessages: buildLineMessagesForLib
+  buildLineMessages: buildLineMessagesForLib,
+  validateMessageConfig,
+  resolvePublicSiteOrigin
 });
 
 registerAdminFlowsRoutes(app, { query, pool, flowEngine, authCore });
