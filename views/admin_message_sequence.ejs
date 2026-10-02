@@ -61,7 +61,7 @@
       function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
       function typeName(t){return {text:'文字',image:'圖片',video:'影片',card:'既有卡片'}[t]||t}
       function isRich(it){return it.content_kind==='imagemap'||!!(it.message_config&&it.message_config.mode==='imagemap')}
-      function cardOptions(selected,it){var rich=isRich(it),h='<option value="">請選訊息庫裡的'+(rich?'滿版圖文訊息':'卡片')+'</option>',found=false;cards.forEach(function(c){if(c.message_config&&c.message_config.mode!=='sequence'&&(c.message_config.mode==='imagemap')===rich){if(String(selected)===String(c.id))found=true;h+='<option value="'+c.id+'"'+(String(selected)===String(c.id)?' selected':'')+'>'+esc(c.name)+'</option>'}});if(selected&&!found)h+='<option value="'+selected+'" selected>已儲存內容（原素材已移除）</option>';return h}
+      function cardOptions(selected,it){var rich=isRich(it),h='<option value="">請選訊息庫裡的'+(rich?'滿版圖文訊息':'卡片')+'</option>',found=false;cards.forEach(function(c){if(c.message_config&&c.message_config.mode!=='sequence'&&(c.message_config.mode==='imagemap')===rich){if(String(selected)===String(c.id))found=true;h+='<option value="'+esc(c.id)+'"'+(String(selected)===String(c.id)?' selected':'')+'>'+esc(c.name)+'</option>'}});if(selected&&!found)h+='<option value="'+esc(selected)+'" selected>已儲存版本（原素材目前無法取得）</option>';return h}
       function itemHtml(it,i){
         var body='';
         if(it.type==='text')body='<label class="msq-field"><span>文字內容</span><textarea rows="4" data-f="text" data-i="'+i+'" maxlength="5000" placeholder="可使用 {暱稱} 做個人化">'+esc(it.text||'')+'</textarea></label>';

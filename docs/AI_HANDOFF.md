@@ -967,5 +967,8 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 - 複製完整圖片 assetId、尺寸、通知文字、各點擊區與 URI／傳送文字動作。可與文字、圖片、影片、Flex 卡片混排，仍限 1～5 段；發送沿用共用 builder，關鍵字回覆一次 reply 呼叫送完整陣列。
 - `validateMessageConfig` 對多段中的素材做結構驗證，不因存檔時沒有公開 origin 而拒絕 imagemap；實際組裝圖片 baseUrl 仍要求 HTTPS origin。
 - 編輯器只在使用者選取素材時複製內容。重開、預覽、排序或儲存不會用原素材的新內容覆蓋快照；原素材刪除也保留既有內容。重新選取素材才更新。
+- 原素材無法取得時顯示「已儲存版本」，素材編號一律以安全 attribute escaping 顯示，避免歷史／異常資料注入 HTML。存檔與發送 builder 都驗證 `source_message_id`／legacy `message_id`：只允許安全正整數（含純數字字串）或空值，不要求原素材仍存在，保留合法刪除素材的快照。
 - 滿版圖文預覽保留圖片比例、標示區域編號，列出各區的網址或傳送文字。預覽區不會實際觸發傳送文字動作。
+- 本次未擴充滿版圖文 A/B 替換：多段 B／C 仍可修改文字或 Flex 卡片，但 native imagemap 段沿用 A 版，不能在該區換另一張 native imagemap；不要宣稱可比較兩張滿版圖文。
 - 回歸：`test/sequence-imagemap.test.js`（結構／上限、原生 payload、編輯快照與排序、關鍵字 webhook mock）。固定 Staging 不含正式 LINE 憑證，LINE 真機送達與點擊仍需獲授權後驗證。
+- 安全回歸：`test/sequence-source-id-security.test.js`，涵蓋兩種編號、合法與異常格式、存檔路由零寫入、舊資料安全顯示與刪除素材後排序／儲存／發送順序。
