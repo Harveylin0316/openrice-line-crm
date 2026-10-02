@@ -3,7 +3,7 @@
 -- 不寫死 schema 名稱：在 Staging 以 search_path = crm_staging 套用，正式站以 public 套用。
 --
 -- 影響評估
---   * 新表 4 張，皆為空表，套用時不鎖既有表、不回填資料。
+--   * 新表 4 張，皆為空表、不回填資料；建立外鍵會短暫取得參照表的鎖。
 --   * 既有關鍵字規則在沒有建立實驗前，行為完全不變。
 --   * admin_keyword_replies 被刪除時，實驗保留（rule_id 設為 NULL），數據不消失。
 -- 回滾：supabase/rollbacks/20261002090000_keyword_reply_ab_tests_rollback.sql
@@ -90,22 +90,34 @@ CREATE TABLE IF NOT EXISTS keyword_reply_experiment_clicks (
 );
 CREATE INDEX IF NOT EXISTS keyword_reply_experiment_clicks_exp_idx
   ON keyword_reply_experiment_clicks (experiment_id, variant, line_user_id);
+CREATE INDEX IF NOT EXISTS keyword_reply_experiment_clicks_delivery_idx
+  ON keyword_reply_experiment_clicks (delivery_id);
 
--- 權限：與既有後端資料表一致，只給後端 service_role，前台匿名角色完全不可讀寫
+-- 權限：正式後端 service_role；隔離測試區另給 crm_staging_app，匿名角色不可讀寫。
 ALTER TABLE keyword_reply_experiments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE keyword_reply_experiment_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE keyword_reply_experiment_deliveries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE keyword_reply_experiment_clicks ENABLE ROW LEVEL SECURITY;
 
 DO $$
+DECLARE
+  table_name text;
 BEGIN
+  REVOKE ALL ON TABLE keyword_reply_experiments, keyword_reply_experiment_assignments,
+    keyword_reply_experiment_deliveries, keyword_reply_experiment_clicks FROM PUBLIC;
+  REVOKE ALL ON SEQUENCE keyword_reply_experiments_id_seq,
+    keyword_reply_experiment_deliveries_id_seq, keyword_reply_experiment_clicks_id_seq FROM PUBLIC;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
     EXECUTE 'REVOKE ALL ON TABLE keyword_reply_experiments, keyword_reply_experiment_assignments,
              keyword_reply_experiment_deliveries, keyword_reply_experiment_clicks FROM anon';
+    EXECUTE 'REVOKE ALL ON SEQUENCE keyword_reply_experiments_id_seq,
+             keyword_reply_experiment_deliveries_id_seq, keyword_reply_experiment_clicks_id_seq FROM anon';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
     EXECUTE 'REVOKE ALL ON TABLE keyword_reply_experiments, keyword_reply_experiment_assignments,
              keyword_reply_experiment_deliveries, keyword_reply_experiment_clicks FROM authenticated';
+    EXECUTE 'REVOKE ALL ON SEQUENCE keyword_reply_experiments_id_seq,
+             keyword_reply_experiment_deliveries_id_seq, keyword_reply_experiment_clicks_id_seq FROM authenticated';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
     EXECUTE 'GRANT ALL ON TABLE keyword_reply_experiments, keyword_reply_experiment_assignments,
@@ -120,6 +132,27 @@ BEGIN
     EXECUTE 'CREATE POLICY keyword_reply_experiment_deliveries_service_all ON keyword_reply_experiment_deliveries FOR ALL TO service_role USING (true) WITH CHECK (true)';
     EXECUTE 'DROP POLICY IF EXISTS keyword_reply_experiment_clicks_service_all ON keyword_reply_experiment_clicks';
     EXECUTE 'CREATE POLICY keyword_reply_experiment_clicks_service_all ON keyword_reply_experiment_clicks FOR ALL TO service_role USING (true) WITH CHECK (true)';
+  END IF;
+
+  -- Default table grants 不會繞過 RLS。只在隔離 schema 建測試後端 policy；
+  -- 套到正式 schema 時絕不授予 crm_staging_app 正式表的權限。
+  IF current_schema() = 'crm_staging' THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_staging_app') THEN
+      RAISE EXCEPTION 'Missing isolated staging database role';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_staging_app' AND (rolsuper OR rolbypassrls)) THEN
+      RAISE EXCEPTION 'Staging role must not bypass RLS';
+    END IF;
+    FOREACH table_name IN ARRAY ARRAY['keyword_reply_experiments',
+      'keyword_reply_experiment_assignments', 'keyword_reply_experiment_deliveries',
+      'keyword_reply_experiment_clicks']
+    LOOP
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO crm_staging_app', current_schema(), table_name);
+      EXECUTE format('DROP POLICY IF EXISTS keyword_reply_staging_app ON %I.%I', current_schema(), table_name);
+      EXECUTE format('CREATE POLICY keyword_reply_staging_app ON %I.%I FOR ALL TO crm_staging_app USING (true) WITH CHECK (true)', current_schema(), table_name);
+    END LOOP;
+    GRANT USAGE, SELECT ON SEQUENCE keyword_reply_experiments_id_seq,
+      keyword_reply_experiment_deliveries_id_seq, keyword_reply_experiment_clicks_id_seq TO crm_staging_app;
   END IF;
 END $$;
 

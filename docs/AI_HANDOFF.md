@@ -500,6 +500,18 @@ Campaign Testing 的 B 版標頭依目前設定比例顯示，不再固定標 50
 `search_path = crm_staging` 套用；正式站套用前須 Hen 確認。**程式在表不存在時會照原本規則回覆、規則清單照常顯示（不出現 A/B 按鈕）**，
 所以程式可以先上、migration 後到。
 
+Staging 權限驗收補強：原 migration 僅 service_role policy，不能讓無 BYPASSRLS 的
+`crm_staging_app` 使用。修正版只在 `current_schema()='crm_staging'` 時建立四表的專用
+CRUD policy／table grants 與三個 sequence 的 USAGE／SELECT；不給正式 public 權限或
+service_role membership。表與 sequence 都撤銷 PUBLIC／anon／authenticated，四表維持 RLS。
+以 `node scripts/staging/keyword-ab-migration.js` 產生套用 SQL（需在同一交易執行），
+固定 SET LOCAL search_path、schema 存在檢查與跨 schema 外鍵／正式存取檢查；不會讀憑證或自動連線。
+`scripts/staging/verify-keyword-ab-permissions.sql` 以實際角色驗證四表 CRUD，虛構負數 ID
+且一律 ROLLBACK、不推播；請用 crm_staging_app 直接連線或可 SET ROLE 的管理連線，
+Supabase postgres 管理工具不一定允許 SET ROLE，不能為此擴大角色權限。
+回滾只在隔離本機資料庫測，不可用來清空同事的測試實驗。
+新增權限回歸 `test/keyword-ab-staging-permissions.test.js`；實際套用是否完成以交接紀錄為準。
+
 - 後台「關鍵字回覆」每條規則（兜底規則除外）有「A/B 測試」：選 A、B 兩則訊息庫素材（任何可回覆的格式，可不同格式）、
   期間 7／14／28 天或自訂（台灣時間；少於 7 天提醒不禁止）、暫停或結束後回覆的固定版本（預設 A）、主要點擊目標（預設全部可追蹤連結）。
   建立前「預覽並比對兩版」：並排顯示兩版內容與封面，比對通知文字／文字（含卡片標題）／圖片／按鈕連結／格式，只有圖片不同才標「適合測封面」。
