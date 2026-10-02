@@ -759,7 +759,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
   // 設定錯誤（訊息不存在 / 內容組不出來）會 throw FlowConfigError，呼叫端直接標 failed。
   async function sendMessage(lineUserId, userId, messageId, opts = {}) {
     if (!messageId) throw new FlowConfigError('send_node_missing_message');
-    const rs = await query(`SELECT message_config FROM admin_message_templates WHERE id = $1`, [messageId]);
+    const rs = await query(`SELECT message_config, name FROM admin_message_templates WHERE id = $1`, [messageId]);
     if (rs.rowCount === 0) throw new FlowConfigError('message_template_not_found');
     const cfg = rs.rows[0].message_config;
     const recipientName = await resolveRecipientName(userId, lineUserId);
@@ -782,7 +782,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     }
     // 冪等鍵：同一 enrollment 的同一節點重跑時，LINE 端去重，避免崩潰/逾時後重發
     const retryKey = opts.enrollmentId ? `flow-${opts.enrollmentId}-${opts.nodeKey || messageId}` : undefined;
-    return await linePush.pushLineMessages(lineUserId, built.messages, { userId, pushType: 'flow', retryKey });
+    return await linePush.pushLineMessages(lineUserId, built.messages, { userId, pushType: 'flow', retryKey, enrollmentId: opts.enrollmentId || null, messageId, messageName: rs.rows[0].name || '' });
   }
 
   function waitMs(cfg) {

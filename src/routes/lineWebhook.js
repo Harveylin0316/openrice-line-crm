@@ -634,6 +634,10 @@ function createLineWebhookHandler({
           activityReferralResults = await completePendingActivityReferralsForFollow({
             query: pool.query.bind(pool),
             inviteeId: lineUserId,
+            followEvidence: {
+              at: Number.isFinite(Number(event.timestamp)) && Number(event.timestamp) > 0 ? new Date(Number(event.timestamp)).toISOString() : null,
+              isUnblocked: event.follow && event.follow.isUnblocked
+            },
             onCounted: async (item) => {
               if (item.gameType !== 'mgm' || item.result.invitee_was_existing === true ||
                   !mgmEngine || typeof mgmEngine.loadCampaignBySlug !== 'function') return;

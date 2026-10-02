@@ -14,7 +14,7 @@
   <meta name="theme-color" content="#FFFBEB" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="/games-mgm.js?v=20261001b"></script>
+  <script src="/games-mgm.js?v=20261002a"></script>
   <style>
     :root {
       --bg: #FAFAFA; --surface: #FFFFFF;
@@ -1264,8 +1264,7 @@
       // 分享卡片：LINE Flex Message。封面／標題／說明沿用活動與後台文案，
       // 「馬上玩」CTA 的 URI 必須保留 ref，否則卡片再漂亮邀請也不會入帳。
       function buildInviteUrl() {
-        return 'https://liff.line.me/' + liffId + '/scratch/' + encodeURIComponent(slug) +
-          '?ref=' + encodeURIComponent(profile.userId);
+        return location.origin + '/invite/scratch/' + encodeURIComponent(slug) + '?ref=' + encodeURIComponent(profile.userId);
       }
       function buildInviteFlexMessage(inviteUrl) {
         var title = String(ui.copy.share_card_title || activityMeta.name || '邀請你一起刮').trim().slice(0, 80);

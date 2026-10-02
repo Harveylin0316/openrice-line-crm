@@ -12,6 +12,15 @@
 
 ## 1. 一分鐘理解整個應用
 
+### 2026-10-01：推播失敗明細與處理指引
+
+- `/admin/push-logs`（`src/routes/adminPushLogs.js`、`src/core/pushLogDiagnostics.js`）受現有 `requireAdmin` 保護，查收件人、當時訊息摘要、來源、LINE 錯誤與白話處理指引；可依台灣日期、狀態、來源、姓名／LINE ID、失敗後是否有成功紀錄篩選。每頁 50 筆，以完整微秒時間＋ID 游標分頁；CSV 匯出全部篩選結果，上限 10,000 筆，不會默默截斷。
+- 首頁失敗提醒連到 `status=failed&range=24h&followup=pending`。只在同一 LINE ID、來源、`retryKey` 後來有 success 時，標示「同一則後續已被 LINE 接受」，不再列入首頁未恢復提醒；失敗歷史不刪除。不同訊息的成功不能蓋掉原失敗；沒有 retryKey 就保留待查，不假稱沒收到或已補送。
+- 群發、流程與邀請通知增加現有 log payload 的來源 metadata，不更動 LINE request／去重鍵／寄送規則。舊群發與流程可由既有 retryKey 解析來源；舊紀錄缺名稱／內容時明說缺資料。素材摘要不載入圖片，避免排查紀錄製造假曝光。
+- 429 monthly limit 是當時 LINE 回報的額度限制，要到 OA Manager 查目前用量／方案／加購上限；不能據歷史回應推論今天仍額度用完。5xx／逾時可能已送出；409 代表去重，不能直接新鍵重送。
+- 此頁只有讀取與匯出，沒有自動重發／補發按鈕，沒有 migration。恢復資料必須先核對原流程是否仍重試、再處理；不允許用這個頁面改獎項、邀請次數或大量重發客戶訊息。
+- 回歸測試：`test/push-log-diagnostics.test.js`；包含 XSS、CSV formula injection、登入保護、台灣日期邊界、分頁微秒、匯出完整性、錯誤不顯示為零、metadata 不進入實際 LINE payload。
+
 這是一套 OpenRice Taiwan 使用的 LINE CRM 與活動平台，不只是一個抽獎頁。它同時處理：
 
 - LINE 官方帳號會員、好友狀態、標籤、受眾名單與第二 OA 聯絡人。
@@ -865,6 +874,16 @@ Netlify production install 可能移除 dev dependency `jsdom`。若 build 後�
 - Production 不得靠 runtime DDL；正式套 migration 前先確認 schema。Staging 使用 `crm_staging` search path 時可套同一 migration，但必須先確認 current user/schema，不可碰 `public`。
 
 ## 15. Git、部署與驗收流程
+
+### 邀請入口先於 LINE 同意畫面（2026-10-02）
+
+- 遊戲與 MGM 新分享連結改成同站 `/invite/<type>/<slug>?ref=<inviter>`。伺服器先記錄旅程再 302 到活動 LIFF URL；LINE 同意畫面可能在 app 載入前加好友，不能等 `liff.init()` 後才建立來源證據。入口具每 IP／類型 60 次／分鐘限制、no-store／no-referrer，沒有 enter／play 事件，不授予任何次數。
+- 只使用現有 `activity_referral_attempts`：`journey_open:<SHA256 nonce>` 保存開始時間，invitee 初始 NULL；網址上的 `journey=<row id>.<256-bit nonce>` 只可在真實 LINE id token sub 核對後以單筆條件 UPDATE 綁定第一位被邀請人。nonce、活動、類型、邀請人、72 小時期限和已綁 UID 都必須符合。同 UID 重送可繼續，其他 UID 不能重放。前端儲存、手機跳 LINE、QR 都保留憑證；重新分享自己的邀請不轉傳別人的憑證。
+- 同一活動／邀請人／已驗證用戶重開連結，保留 72 小時內最早的已綁定旅程，避免後續開啟蓋掉加好友前的證據。瀏覽器若早於 webhook log，僅就資格同步延遲最多追加三次短重試；沒有 localStorage 也不能無限重試。已入帳快照與 UNIQUE 去重仍有效。
+- `referralJourney.detectJourneyExisting()` 以旅程開始時間交叉檢查已驗簽的 LINE follow／unfollow／message／postback。較早好友事件或解除封鎖 → 舊友；僅有較早會員紀錄但缺好友證據 → 待確認；旅程之後首次 follow 且 `isUnblocked=false`、沒有較早會員／好友證據 → 新友。LINE 旗標不是單獨的資格保證。資料／旗標缺漏維持 NULL，不占 referral 唯一鍵、不算次數。
+- follow webhook 傳入當次內部已驗簽 follow 證據，可接續已綁旅程，不必等同一事件的 log 寫完。HTTP 不接受前端傳入開始時間或 isUnblocked。既有 referral 快照不改判；UNIQUE(activity_id, invitee) 及原配額／上限仍保留。
+- 舊 LIFF 分享連結沒有 pre-login 證據：剛加好友卻未入帳的可疑紀錄留待複核，不再猜成舊友。已入帳歷史不回填。現有 `/admin/mgm/api/data` 管理員驗證後新增 `referral_review`；整檔活動的近 30 分鐘歷史疑點與資格待確認名單可查看／下載 CSV（最多 5,000 筆、超限明示），排除兩方都是現行測試帳號的紀錄。此清單不是已確認補發名單，沒有任何自動改判／補發／推播操作。
+- 無 migration、無新增環境變數。驗證：`test/referral-journey.test.js`、既有 follow／邀請／配額／preview 測試；`node scripts/audit-referral-eligibility-fixtures.js` 只輸出合成資料的唯讀 SQL，可在 READ ONLY 交易中驗证 Postgres 實際 CASE，不連 DB 或讀憑證。iOS／Android 真實 LINE 同意→活動入口仍需指定測試帳號驗收，mock／HTTP／桌機模擬不代表手機實收。
 
 ### Staging 圖片網址與手機群發版面（2026-10-01）
 

@@ -17,7 +17,12 @@ for (const f of routeFiles) {
   while ((m = re.exec(src))) {
     const view = m[1];
     // 兩種寫法都要抓：「key: value」與簡寫的「key,」
-    const body = m[2].replace(/\/\/[^\n]*/g, '');
+    let body = m[2].replace(/\/\/[^\n]*/g, '');
+    // Shared render locals are as real as explicit properties (new diagnostic pages use ...base).
+    if (/\.\.\.base\b/.test(body)) {
+      const base = /const base = \{([^\n]+)\};/.exec(src);
+      if (base) body += '\n{' + base[1] + '}';
+    }
     const keys = [
       ...[...body.matchAll(/(?:^|[,{\n])\s*([a-zA-Z_][\w]*)\s*:/g)].map(x => x[1]),
       ...[...body.matchAll(/(?:^|[,{\n])\s*([a-zA-Z_][\w]*)\s*(?=,|\s*$)/gm)].map(x => x[1])
@@ -46,6 +51,10 @@ function fake(k) {
     error: null, notice: null, message: null, page: 1, totalCount: 0,
     hasPrevPage: false, hasNextPage: false, authDegraded: false
   };
+  const diagnostic = require('../src/core/pushLogDiagnostics');
+  const pushRoutes = require('../src/routes/adminPushLogs');
+  Object.assign(known, { SOURCES: diagnostic.SOURCES, taipeiTime: diagnostic.taipeiTime, filterUrl: pushRoutes.filterUrl,
+    filters: pushRoutes.parseFilters().filters, stats: {}, nextHref: '' });
   if (k in known) return known[k];
   if (/^(is|has|can|show)/.test(k)) return false;
   if (/(count|total|limit|num|page|size)$/i.test(k)) return 0;

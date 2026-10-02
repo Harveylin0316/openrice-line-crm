@@ -312,6 +312,9 @@ function registerAdminBroadcastRoutes(app, deps) {
     const pushed = await linePush.pushLineMessages(target, built.messages, {
       userId: recipient.user_id,
       pushType: 'admin_broadcast',
+      broadcastId: broadcast.id,
+      recipientId: recipient.id,
+      variant: useVariant,
       // 冪等鍵：sweep 退回 pending 重送時 LINE 端去重，避免對真用戶重複投遞
       retryKey: `bc-${broadcast.id}-${recipient.id}`
     });

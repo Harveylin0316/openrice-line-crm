@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#FFFBEB" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="/games-mgm.js?v=20261001b"></script>
+  <script src="/games-mgm.js?v=20261002a"></script>
   <style>
     :root {
       --bg: #FAFAFA; --surface: #FFFFFF;
@@ -1005,7 +1005,7 @@
       if (inviteBtn) inviteBtn.addEventListener('click', shareWithFriend);
       async function shareWithFriend() {
         if (!profile || !profile.userId) return;
-        var inviteUrl = 'https://liff.line.me/' + liffId + '/slot/' + encodeURIComponent(slug) + '?ref=' + encodeURIComponent(profile.userId);
+        var inviteUrl = location.origin + '/invite/slot/' + encodeURIComponent(slug) + '?ref=' + encodeURIComponent(profile.userId);
         var msg = '快來玩「' + activityMeta.name + '」老虎機！';
         try {
           if (liff.isApiAvailable && liff.isApiAvailable('shareTargetPicker')) {
