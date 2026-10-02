@@ -88,6 +88,35 @@ test('新分享入口先記錄再轉 LINE；無效 ref 與非會員不寫入旅�
   assert.equal(missing.code,404);
 });
 
+test('真 serverless-http 缺 socket IP 不回 500，CDN IP 分流且保留 60 次限制', async () => {
+  const express = require('express'), serverless = require('serverless-http');
+  const app = express(); app.set('trust proxy', 1);
+  let queries = 0;
+  require('../src/routes/gamesGeneric').registerReferralEntry(app, async sql => {
+    queries++;
+    if (/FROM activities/.test(sql)) return { rows: [{ status: 'active', referral_bonus_per: 1 }] };
+    if (/FROM users/.test(sql)) return { rows: [{}] };
+    if (/INSERT/.test(sql)) return { rows: [{ id: 1 }] };
+    throw Error('Unexpected fixture query');
+  },
+    { gameType: 'wheel', defaultLiffId: 'mock-liff' });
+  const handler = serverless(app);
+  function event(ip) { return { httpMethod: 'GET', path: '/invite/wheel/a',
+    queryStringParameters: { ref: 'invalid' }, headers: ip ? { 'x-nf-client-connection-ip': ip } : {},
+    requestContext: { identity: {} }, body: null, isBase64Encoded: false }; }
+  assert.equal((await handler(event())).statusCode, 400);
+  assert.equal((await handler(event('not-an-ip'))).statusCode, 400);
+  for (let i = 0; i < 60; i++) assert.equal((await handler(event('198.51.100.1'))).statusCode, 400);
+  assert.equal((await handler(event('198.51.100.1'))).statusCode, 429);
+  assert.equal((await handler(event('198.51.100.2'))).statusCode, 400);
+  assert.equal(queries, 0);
+  const valid = event('198.51.100.3'); valid.queryStringParameters.ref = INVITER;
+  const redirect = await handler(valid);
+  assert.equal(redirect.statusCode, 302);
+  assert.match(redirect.headers.location, /journey=1\.[A-Za-z0-9_-]{43}/);
+  assert.equal(queries, 3);
+});
+
 test('即使關閉 token 強制模式，旅程仍只能綁給 LINE 已驗證的 sub', async () => {
   const old=process.env.LIFF_TOKEN_ENFORCE;
   process.env.LIFF_TOKEN_ENFORCE='0';

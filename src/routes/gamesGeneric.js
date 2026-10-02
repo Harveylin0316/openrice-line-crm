@@ -21,7 +21,8 @@ const {
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 const { verifyGameOaFollower } = require('../core/oaFollower');
 const { createReferralJourney, claimReferralJourney, PROOF_RE } = require('../core/referralJourney');
-const { rateLimit } = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
+const { isIP } = require('node:net');
 
 /** 從 Authorization: Bearer xxx 取出 LIFF id token（GET 端點用；token 不放網址列） */
 function bearerToken(req) {
@@ -43,7 +44,16 @@ function buildOpenInLineUrl(liffId, gameType, slug, ref, journey) {
 
 function registerReferralEntry(app, query, { gameType, defaultLiffId }) {
   // 新分享連結必須先經過這裡，不能先打 LIFF（同意畫面可能已先加好友）。
-  app.get('/invite/' + gameType + '/:slug', rateLimit({ windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res) => {
+  // Netlify serverless-http 沒有 socket sourceIp；缺值不可送進 draft-8 的雜湊。
+  // 優先既有 Express proxy IP，缺值才使用 CDN 的連線 IP；不接受任意字串或自選 query key。
+  const entryLimiter = rateLimit({
+    windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false,
+    keyGenerator(req) {
+      const ip = req.ip || req.get('x-nf-client-connection-ip');
+      return ip && isIP(ip) ? ipKeyGenerator(ip) : 'unknown-connection';
+    }
+  });
+  app.get('/invite/' + gameType + '/:slug', entryLimiter, async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('CDN-Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
