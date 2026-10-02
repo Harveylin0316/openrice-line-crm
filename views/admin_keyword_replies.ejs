@@ -109,6 +109,7 @@
       // ================= A/B 測試 =================
       var abRuleId = null;
       var abCompared = null;
+      var abGeneration = 0;
       function abStateLabel(s) {
         return { running: '進行中', paused: '已暫停', scheduled: '尚未開始', ended: '已結束' }[s] || '';
       }
@@ -129,6 +130,7 @@
           .then(function (r) { return r.json(); });
       }
       function openAb(ruleId) {
+        var generation = ++abGeneration;
         abRuleId = ruleId;
         abCompared = null;
         var rule = allRules.filter(function (r) { return r.id === ruleId; })[0] || {};
@@ -137,13 +139,17 @@
         $('kr-ab-body').innerHTML = '<div class="muted">載入中…</div>';
         $('kr-ab-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
         abApi('/admin/keyword-replies/api/' + ruleId + '/experiments').then(function (d) {
+          if (generation !== abGeneration || abRuleId !== ruleId) return;
           if (!d.ok) { $('kr-ab-body').innerHTML = '<div class="muted">載入失敗：' + esc(d.detail || d.error) + '</div>'; return; }
           var latest = d.experiments[0];
           var open = latest && (latest.state === 'running' || latest.state === 'paused' || latest.state === 'scheduled');
           $('kr-ab-body').innerHTML = (latest ? renderExperiment(latest, d.report, open) : '') + (open ? '' : renderCreateForm(!!latest));
           if (latest) bindExperimentActions(latest);
           if (!open) bindCreateForm();
-        }).catch(function (e) { $('kr-ab-body').innerHTML = '<div class="muted">載入失敗：' + esc(e.message) + '</div>'; });
+        }).catch(function (e) {
+          if (generation !== abGeneration || abRuleId !== ruleId) return;
+          $('kr-ab-body').innerHTML = '<div class="muted">載入失敗：' + esc(e.message) + '</div>';
+        });
       }
       function renderReport(rep) {
         if (!rep) return '';
@@ -179,7 +185,7 @@
             '<span class="muted" id="kr-ab-act-status"></span></div>';
         }
         var log = (exp.change_log || []).map(function (l) {
-          var what = { create: '建立', pause: '暫停', resume: '繼續', end: '結束', extend: '延長結束時間' }[l.action] || l.action;
+          var what = { create: '建立', pause: '暫停', resume: '繼續', end: '結束', expire: '到期結束', extend: '延長結束時間' }[l.action] || l.action;
           return '<li>' + esc(twTime(l.at)) + '｜' + esc(l.by || '') + '｜' + esc(what) + (l.action === 'extend' ? '：' + esc(twTime(l.from)) + ' → ' + esc(twTime(l.to)) : '') + '</li>';
         }).join('');
         return '<div class="kr-ab-exp">' +
@@ -202,11 +208,17 @@
             }
             if (act === 'end' && !window.confirm('結束後不能重新開啟；要再測請建立新的測試。確定結束？')) return;
             btn.disabled = true;
+            var ruleId = abRuleId, generation = abGeneration;
             abApi('/admin/keyword-replies/api/experiments/' + exp.id + '/' + act, body).then(function (d) {
+              if (generation !== abGeneration || abRuleId !== ruleId) return;
               btn.disabled = false;
               if (!d.ok) { $('kr-ab-act-status').textContent = d.detail || d.error; return; }
               openAb(abRuleId);
               load();
+            }).catch(function () {
+              if (generation !== abGeneration || abRuleId !== ruleId) return;
+              btn.disabled = false;
+              $('kr-ab-act-status').textContent = '連線中斷，操作結果尚未確認；請重新整理查看，不要連續重按';
             });
           });
         });
@@ -274,14 +286,18 @@
         });
         $('kr-ab-start').addEventListener('change', syncWeekWarn);
         $('kr-ab-end').addEventListener('change', syncWeekWarn);
-        var invalidate = function () { abCompared = null; $('kr-ab-start-btn').disabled = true; $('kr-ab-compare-out').innerHTML = ''; };
+        var invalidate = function () { ++abGeneration; abCompared = null; $('kr-ab-start-btn').disabled = true; $('kr-ab-compare-out').innerHTML = ''; };
         $('kr-ab-a').addEventListener('change', invalidate);
         $('kr-ab-b').addEventListener('change', invalidate);
         $('kr-ab-compare').addEventListener('click', function () {
           var a = $('kr-ab-a').value, b = $('kr-ab-b').value;
           if (!a || !b) { $('kr-ab-create-status').textContent = '請先選 A、B 兩則素材'; return; }
+          var generation = ++abGeneration, ruleId = abRuleId;
+          abCompared = null;
+          $('kr-ab-start-btn').disabled = true;
           $('kr-ab-compare-out').innerHTML = '<div class="muted">比對中…</div>';
           abApi('/admin/keyword-replies/api/experiments/compare', { a_template_id: Number(a), b_template_id: Number(b) }).then(function (d) {
+            if (generation !== abGeneration || abRuleId !== ruleId || $('kr-ab-a').value !== a || $('kr-ab-b').value !== b) return;
             if (!d.ok) { $('kr-ab-compare-out').innerHTML = '<div class="kr-ab-warn">' + esc(d.detail || d.error) + '</div>'; return; }
             abCompared = { a: Number(a), b: Number(b) };
             var cmp = d.comparison || { differs: [] };
@@ -293,10 +309,18 @@
               '<div class="kr-ab-preview"><div><h4>A 版</h4>' + summaryHtml(d.summaries.a, d.targets.a, 'a') + '</div>' +
               '<div><h4>B 版</h4>' + summaryHtml(d.summaries.b, d.targets.b, 'b') + '</div></div>';
             $('kr-ab-start-btn').disabled = false;
+          }).catch(function () {
+            if (generation !== abGeneration || abRuleId !== ruleId) return;
+            abCompared = null;
+            $('kr-ab-start-btn').disabled = true;
+            $('kr-ab-compare-out').textContent = '預覽載入失敗，請重新比對後再開始';
           });
         });
         $('kr-ab-start-btn').addEventListener('click', function () {
           if (!abCompared) return;
+          if (Number($('kr-ab-a').value) !== abCompared.a || Number($('kr-ab-b').value) !== abCompared.b) {
+            invalidate(); $('kr-ab-create-status').textContent = '素材已變更，請重新預覽並比對'; return;
+          }
           var body = {
             name: $('kr-ab-name').value.trim(),
             a_template_id: abCompared.a, b_template_id: abCompared.b,
@@ -315,15 +339,20 @@
           }
           if (!body.name) { $('kr-ab-create-status').textContent = '請填測試名稱'; return; }
           $('kr-ab-start-btn').disabled = true;
-          abApi('/admin/keyword-replies/api/' + abRuleId + '/experiments', body).then(function (d) {
+          var generation = abGeneration, ruleId = abRuleId;
+          abApi('/admin/keyword-replies/api/' + ruleId + '/experiments', body).then(function (d) {
+            if (generation !== abGeneration || abRuleId !== ruleId) return;
             if (!d.ok) { $('kr-ab-start-btn').disabled = false; $('kr-ab-create-status').textContent = d.detail || d.error; return; }
             if (d.warnings && d.warnings.length) window.alert('已開始測試。提醒：' + d.warnings.join(' '));
             openAb(abRuleId);
             load();
+          }).catch(function () {
+            if (generation !== abGeneration || abRuleId !== ruleId) return;
+            $('kr-ab-create-status').textContent = '連線中斷，建立結果尚未確認；請重新整理查看，不要重複建立';
           });
         });
       }
-      $('kr-ab-close').addEventListener('click', function () { $('kr-ab-card').hidden = true; abRuleId = null; });
+      $('kr-ab-close').addEventListener('click', function () { ++abGeneration; abCompared = null; $('kr-ab-card').hidden = true; abRuleId = null; });
 
       function matchTypeLabel(t) {
         if (t === 'fallback') return '兜底';

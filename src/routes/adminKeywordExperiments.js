@@ -108,8 +108,9 @@ function registerAdminKeywordExperimentRoutes(app, deps) {
       const name = String(body.name || '').trim().slice(0, 100);
       if (!name) return jsonErr(res, 400, 'name_required', '請填測試名稱');
       const now = new Date();
-      const startAt = parseTime(body.start_at) || now;
-      if (startAt === undefined) return jsonErr(res, 400, 'bad_start', '開始時間格式不正確');
+      const parsedStart = parseTime(body.start_at);
+      if (parsedStart === undefined) return jsonErr(res, 400, 'bad_start', '開始時間格式不正確');
+      const startAt = parsedStart || now;
       let endAt = parseTime(body.end_at);
       if (endAt === undefined) return jsonErr(res, 400, 'bad_end', '結束時間格式不正確');
       if (!endAt) {
@@ -139,10 +140,20 @@ function registerAdminKeywordExperimentRoutes(app, deps) {
       let rows;
       try {
         ({ rows } = await query(
-          `INSERT INTO keyword_reply_experiments
+          `WITH expired AS (
+             UPDATE keyword_reply_experiments
+                SET status = 'ended', ended_at = COALESCE(ended_at, statement_timestamp()),
+                    updated_at = statement_timestamp(),
+                    change_log = change_log || jsonb_build_array(jsonb_build_object(
+                      'action','expire','at',statement_timestamp(),'by',$14::text))
+              WHERE rule_id = $1 AND status IN ('running','paused') AND end_at <= statement_timestamp()
+              RETURNING id
+           )
+           INSERT INTO keyword_reply_experiments
              (rule_id, name, status, variant_a_template_id, variant_b_template_id, variant_a_name, variant_b_name,
               variant_a_config, variant_b_config, targets, start_at, end_at, fallback_variant, attribution_days, change_log, created_by)
-           VALUES ($1,$2,'running',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,7,$13,$14)
+           SELECT $1,$2,'running',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,7,$13,$14
+             FROM (SELECT count(*) FROM expired) AS expiry_barrier
            RETURNING *`,
           [ruleId, name, prepared.a.id, prepared.b.id, prepared.a.name, prepared.b.name,
             JSON.stringify(prepared.a.message_config), JSON.stringify(prepared.b.message_config), JSON.stringify(targets),
@@ -160,17 +171,24 @@ function registerAdminKeywordExperimentRoutes(app, deps) {
   });
 
   async function loadExp(id) {
-    const { rows } = await query(`SELECT * FROM keyword_reply_experiments WHERE id = $1`, [Number(id)]);
+    const { rows } = await query(`SELECT *, xmin::text AS row_version FROM keyword_reply_experiments WHERE id = $1`, [Number(id)]);
     return rows[0] || null;
   }
-  async function saveExp(id, fields, logEntry) {
+  async function saveExp(exp, fields, logEntry) {
     const sets = [];
-    const params = [Number(id)];
+    const params = [Number(exp.id)];
     Object.keys(fields).forEach(k => { params.push(fields[k]); sets.push(`${k} = $${params.length}`); });
+    params.push(exp.status);
+    const statusParam = '$' + params.length;
+    params.push(exp.row_version);
+    const versionParam = '$' + params.length;
     params.push(JSON.stringify([logEntry]));
     sets.push(`change_log = change_log || $${params.length}::jsonb`);
     sets.push('updated_at = now()');
-    const { rows } = await query(`UPDATE keyword_reply_experiments SET ${sets.join(', ')} WHERE id = $1 RETURNING *`, params);
+    // Compare-and-set: another tab/admin must not resurrect an ended test or overwrite an extension.
+    const { rows } = await query(`UPDATE keyword_reply_experiments SET ${sets.join(', ')}
+      WHERE id = $1 AND status = ${statusParam} AND xmin::text = ${versionParam}
+        ${logEntry.action === 'end' ? '' : 'AND end_at > statement_timestamp()'} RETURNING *`, params);
     return rows[0];
   }
 
@@ -182,24 +200,25 @@ function registerAdminKeywordExperimentRoutes(app, deps) {
       const state = ke.effectiveState(exp, now);
       const by = adminName(req);
       const action = req.params.action;
-      if (state === 'ended') return jsonErr(res, 400, 'already_ended', '測試已結束，不能再操作；要再測請建立新的測試');
+      if (exp.status === 'ended' || (state === 'ended' && action !== 'end')) return jsonErr(res, 400, 'already_ended', '測試已結束，不能再操作；要再測請建立新的測試');
       let updated;
       if (action === 'pause') {
         if (exp.status !== 'running') return jsonErr(res, 400, 'not_running', '只有進行中的測試可以暫停');
-        updated = await saveExp(exp.id, { status: 'paused' }, { at: now.toISOString(), by, action: 'pause' });
+        updated = await saveExp(exp, { status: 'paused' }, { at: now.toISOString(), by, action: 'pause' });
       } else if (action === 'resume') {
         if (exp.status !== 'paused') return jsonErr(res, 400, 'not_paused', '只有暫停中的測試可以繼續');
-        updated = await saveExp(exp.id, { status: 'running' }, { at: now.toISOString(), by, action: 'resume' });
+        updated = await saveExp(exp, { status: 'running' }, { at: now.toISOString(), by, action: 'resume' });
       } else if (action === 'end') {
-        updated = await saveExp(exp.id, { status: 'ended', ended_at: now.toISOString() }, { at: now.toISOString(), by, action: 'end' });
+        updated = await saveExp(exp, { status: 'ended', ended_at: now.toISOString() }, { at: now.toISOString(), by, action: 'end' });
       } else {
         const newEnd = parseTime((req.body || {}).end_at);
         if (!newEnd) return jsonErr(res, 400, 'bad_end', '請填新的結束時間');
         if (newEnd <= new Date(exp.end_at)) return jsonErr(res, 400, 'not_extended', '新的結束時間要晚於目前的結束時間');
         if (newEnd.getTime() - new Date(exp.start_at).getTime() > ke.MAX_DURATION_DAYS * DAY_MS) return jsonErr(res, 400, 'too_long', '測試最長 90 天');
-        updated = await saveExp(exp.id, { end_at: newEnd.toISOString() },
+        updated = await saveExp(exp, { end_at: newEnd.toISOString() },
           { at: now.toISOString(), by, action: 'extend', from: new Date(exp.end_at).toISOString(), to: newEnd.toISOString() });
       }
+      if (!updated) return jsonErr(res, 409, 'state_changed', '測試狀態已變更，請重新整理後再操作');
       return res.json({ ok: true, experiment: updated, state: ke.effectiveState(updated, now) });
     } catch (err) {
       console.error('keyword experiment action error:', err && err.message);

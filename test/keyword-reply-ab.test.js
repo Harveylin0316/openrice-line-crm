@@ -335,7 +335,7 @@ function adminRoutes(state) {
         if (state.open) { const e = new Error('dup'); e.code = '23505'; throw e; }
         state.inserted = p; return { rows: [{ id: 21 }] };
       }
-      if (s.includes('SELECT * FROM keyword_reply_experiments WHERE id')) return { rows: state.exp ? [state.exp] : [] };
+      if (s.includes('FROM keyword_reply_experiments WHERE id')) return { rows: state.exp ? [{...state.exp,row_version:'1'}] : [] };
       if (s.includes('UPDATE keyword_reply_experiments SET')) { state.updates.push({ s, p }); return { rows: [Object.assign({}, state.exp, { status: s.includes("status = $2") ? p[1] : state.exp.status })] }; }
       return { rows: [] };
     },
@@ -561,4 +561,91 @@ test('畫面：A/B 資料表還沒建立時，規則清單照常、不出現 A/B
   assert.equal(doc.querySelectorAll('#kr-tbody tr').length, 2);
   assert.equal(doc.querySelectorAll('.kr-ab-btn').length, 0);
   dom.window.close();
+});
+
+test('建立：非法開始時間回 400、不寫入；空值仍允許立即開始', async () => {
+  const state = { templates: {1:{id:1,name:'A',message_config:CFG_A},2:{id:2,name:'B',message_config:CFG_B}}, updates: [] };
+  const call = adminRoutes(state);
+  const body = {name:'STAGING invalid',a_template_id:1,b_template_id:2,start_at:'not-a-date',duration_days:7};
+  const bad = await call(CREATE,{params:{ruleId:'7'},body});
+  assert.equal(bad.statusCode,400);assert.equal(bad.body.error,'bad_start');assert.equal(state.inserted,undefined);
+  assert.equal((await call(CREATE,{params:{ruleId:'7'},body:{...body,start_at:''}})).body.ok,true);
+});
+
+test('到期可收尾 end；其他操作仍不能延長／重新開啟', async () => {
+  const state = {templates:{},updates:[],exp:exp({status:'paused',end_at:new Date(Date.now()-1000).toISOString()})};
+  const call=adminRoutes(state);
+  assert.equal((await call(ACTION,{params:{id:'11',action:'resume'}})).body.error,'already_ended');
+  assert.equal((await call(ACTION,{params:{id:'11',action:'end'}})).body.ok,true);
+  assert.match(state.updates[0].s,/AND status = \$\d+ AND xmin::text = \$\d+/);
+});
+
+test('並行狀態變更 compare-and-set 沒有更新時回 409，不假裝成功', async () => {
+  const {registerAdminKeywordExperimentRoutes}=require('../src/routes/adminKeywordExperiments');
+  const routes={};let update;
+  registerAdminKeywordExperimentRoutes({get(){},post(p,...h){routes[p]=h.at(-1);}},{authCore:{requireAdmin:(_q,_s,n)=>n()},query:async(s,p)=>{
+    if(s.startsWith('SELECT *'))return {rows:[exp({status:'paused',row_version:'1'})]};
+    update={s,p};return {rows:[]};
+  }});
+  const res={statusCode:200,status(n){this.statusCode=n;return this;},json(b){this.body=b;return this;}};
+  await Object.values(routes).find((_h,i)=>Object.keys(routes)[i].includes(':action'))({params:{id:'11',action:'resume'},body:{}},res);
+  assert.equal(res.statusCode,409);assert.equal(res.body.error,'state_changed');
+  assert.match(update.s,/AND end_at > statement_timestamp\(\)/);
+});
+
+function deferredResult() {let resolve,reject;const promise=new Promise((r,j)=>{resolve=r;reject=j;});return {promise,resolve,reject};}
+const previewResult=()=>({ok:true,comparison:{differs:['圖片'],onlyImages:true},summaries:{a:summarizeConfig(CFG_A,{}),b:summarizeConfig(CFG_B,{})},targets:{a:[],b:[]}});
+async function uiUntil(fn) {const deadline=Date.now()+3000;while(!fn()){if(Date.now()>deadline)throw Error('UI condition timeout');await wait(10);}}
+
+test('慢比對返回後不能覆蓋新素材；重新比對只送目前選擇', async () => {
+  const old=deferredResult();let compares=0;
+  const {dom,doc,posts}=await openKeywordPage((url,opts)=>{
+    if(url.endsWith('/api/list'))return {...LIST(null),templates:[...LIST(null).templates,{id:3,name:'STAGING C'}]};
+    if(url.endsWith('/experiments/compare'))return ++compares===1?old.promise:previewResult();
+    if(opts&&opts.method==='POST')return {ok:false,error:'synthetic-no-write'};
+    return {ok:true,experiments:[],report:null};
+  });
+  try {
+    doc.querySelector('.kr-ab-btn').click();await uiUntil(()=>doc.getElementById('kr-ab-a'));
+    doc.getElementById('kr-ab-name').value='STAGING race';
+    doc.getElementById('kr-ab-a').value='1';doc.getElementById('kr-ab-b').value='2';doc.getElementById('kr-ab-compare').click();
+    doc.getElementById('kr-ab-b').value='3';doc.getElementById('kr-ab-b').dispatchEvent(new dom.window.Event('change'));
+    old.resolve(previewResult());await wait(30);
+    assert.equal(doc.getElementById('kr-ab-start-btn').disabled,true);assert.equal(doc.getElementById('kr-ab-compare-out').textContent,'');
+    doc.getElementById('kr-ab-compare').click();await uiUntil(()=>!doc.getElementById('kr-ab-start-btn').disabled);
+    doc.getElementById('kr-ab-start-btn').click();await uiUntil(()=>posts.some(p=>/api\/7\/experiments$/.test(p.url)));
+    assert.equal(posts.find(p=>/api\/7\/experiments$/.test(p.url)).body.b_template_id,3);
+    await uiUntil(()=>/synthetic-no-write/.test(doc.getElementById('kr-ab-create-status').textContent));
+  } finally {dom.window.close();}
+});
+
+test('慢比對遇到关闭／切換規則不污染新面板；預覽斷線仍禁止開始', async () => {
+  const old=deferredResult();let compares=0;
+  const {dom,doc}=await openKeywordPage(url=>{
+    if(url.endsWith('/api/list'))return LIST(null);
+    if(url.endsWith('/experiments/compare'))return ++compares===1?old.promise:Promise.reject(Error('offline'));
+    return {ok:true,experiments:[],report:null};
+  });
+  try {
+    doc.querySelector('.kr-ab-btn').click();await uiUntil(()=>doc.getElementById('kr-ab-a'));
+    doc.getElementById('kr-ab-a').value='1';doc.getElementById('kr-ab-b').value='2';doc.getElementById('kr-ab-compare').click();
+    doc.getElementById('kr-ab-close').click();doc.querySelector('.kr-ab-btn').click();await uiUntil(()=>doc.getElementById('kr-ab-a'));
+    old.resolve(previewResult());await wait(30);
+    assert.equal(doc.getElementById('kr-ab-start-btn').disabled,true);assert.equal(doc.getElementById('kr-ab-compare-out').textContent,'');
+    doc.getElementById('kr-ab-a').value='1';doc.getElementById('kr-ab-b').value='2';doc.getElementById('kr-ab-compare').click();
+    await uiUntil(()=>/預覽載入失敗/.test(doc.getElementById('kr-ab-compare-out').textContent));
+    assert.equal(doc.getElementById('kr-ab-start-btn').disabled,true);
+  } finally {dom.window.close();}
+});
+
+test('開始前再次核對素材，即使未觸發 change 也不會送舊版本', async () => {
+  const {dom,doc,posts}=await openKeywordPage(url=>url.endsWith('/api/list')?{...LIST(null),templates:[...LIST(null).templates,{id:3,name:'C'}]}:url.endsWith('/experiments/compare')?previewResult():{ok:true,experiments:[],report:null});
+  try {
+    doc.querySelector('.kr-ab-btn').click();await uiUntil(()=>doc.getElementById('kr-ab-a'));
+    doc.getElementById('kr-ab-name').value='STAGING';doc.getElementById('kr-ab-a').value='1';doc.getElementById('kr-ab-b').value='2';doc.getElementById('kr-ab-compare').click();
+    await uiUntil(()=>!doc.getElementById('kr-ab-start-btn').disabled);
+    doc.getElementById('kr-ab-b').value='3';doc.getElementById('kr-ab-start-btn').click();
+    assert.equal(posts.filter(p=>/api\/7\/experiments$/.test(p.url)).length,0);
+    assert.match(doc.getElementById('kr-ab-create-status').textContent,/素材已變更/);
+  } finally {dom.window.close();}
 });

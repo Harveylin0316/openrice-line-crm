@@ -42,3 +42,16 @@ test('actual-role verification is rollback-only and synthetic; no existing data 
   assert.match(sql, /STAGING_SYNTHETIC_PERMISSION_PROBE/);
   assert.doesNotMatch(sql, /INSERT INTO admin_|UPDATE admin_|DELETE FROM admin_|nextval\(|COMMIT;|DROP TABLE/);
 });
+
+test('production emitter pins public and denies anonymous/authenticated/staging roles without role escalation',()=>{
+  const {buildProductionMigration}=require('../scripts/production/keyword-ab-migration');
+  const sql=buildProductionMigration();
+  assert.ok(sql.startsWith('SET LOCAL search_path = public;'));
+  assert.match(sql,/to_regclass\('public.admin_keyword_replies'\) IS NULL/);
+  assert.match(sql,/SET LOCAL lock_timeout = '5s'/);
+  assert.match(sql,/SET LOCAL statement_timeout = '30s'/);
+  assert.match(sql,/REVOKE ALL ON TABLE public\.%I FROM crm_staging_app/);
+  assert.match(sql,/has_table_privilege\(r,format\('public\.%I',t\),'SELECT,INSERT,UPDATE,DELETE'\)/);
+  assert.match(sql,/tn.nspname<>'public'/);
+  assert.doesNotMatch(read('scripts/production/keyword-ab-migration.js'),/process\.env|require\(['"]pg['"]\)|ALTER ROLE|GRANT service_role TO/);
+});

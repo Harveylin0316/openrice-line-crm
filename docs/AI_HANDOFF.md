@@ -517,6 +517,11 @@ Supabase postgres 管理工具不一定允許 SET ROLE，不能為此擴大角�
   建立前「預覽並比對兩版」：並排顯示兩版內容與封面，比對通知文字／文字（含卡片標題）／圖片／按鈕連結／格式，只有圖片不同才標「適合測封面」。
 - 建立即開始（或指定開始時間），兩版內容與可追蹤連結清單鎖成快照（`keyword_reply_experiments.variant_*_config`、`targets`）；
   之後改訊息庫不影響。同一規則只能有一個未結束的測試（partial unique index）。結束後不可重開，再測建立新的；可暫停／繼續／延長，全部記入 `change_log`。
+- 2026-10-02 審查補強：建立新測試時，在同一個 SQL statement 先將该規則已到期 running／paused 收尾為 ended，寫 `expire` 調整紀錄，再新增，失敗全部回滾；不再被舊 partial unique index 卡住。已到期資料可 end 收尾，不能延長／resume。
+  狀態更新帶 `xmin` row version＋舊 status compare-and-set，避免兩個分頁／管理員同時操作將 ended 復活或覆蓋延長；衝突回 409 請重新整理。不可用 JS Date 精度比對完整 PG 微秒 timestamp。
+  開始時間須先驗證非法值，再處理留空＝現在。預覽採 generation／規則／素材檢查，舊回應不得開啟開始鈕；開始前再核對素材，預覽斷線禁止開始，建立／操作斷線提示先查現況，不連續重按。
+  `scripts/qa/keyword-ab-lifecycle-check.cjs` 只允許 localhost 隔離 port 55439，真 PG 驗證到期新建、手動收尾、並行 end/resume、五連線分組／事件去重、延長 row version 與並行新建；合成資料交易 rollback 或精確清除本次新建 QA schema，不連 LINE。
+  正式發布用 `node scripts/production/keyword-ab-migration.js` 產生 SQL，由已授權管理連線交易執行；固定 public、lock／statement timeout、RLS／跨 schema FK／匿名與測試角色隔離斷言，不讀密碼也不自動部署。執行後驗證現場，不可把 staging history 當成正式建表完成。
 - webhook（`replyKeywordWithExperiment`，`src/routes/lineWebhook.js`）：關鍵字比對、優先序、兜底、內建指令都不變，只在送出那一刻決定內容。
   `decideReply()`：沒有實驗或尚未開始→原本規則；進行中且是一對一聊天有 userId→實驗；沒有 userId（群組等）→原本規則；暫停／到期／結束→固定版本快照（不追蹤、不進實驗）。
   實驗中：`assignVariant`（分組表主鍵，並行不重複分組、同一人固定同一版）→ `claimDelivery`（`webhook_event_id` 唯一，LINE 重送同一事件不再回、不膨脹）
