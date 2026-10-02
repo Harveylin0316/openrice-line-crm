@@ -58,7 +58,28 @@ function registerAdminKeywordRepliesRoutes(app, deps) {
          WHERE COALESCE(channel, 'line') = 'line'
          ORDER BY id DESC`
       );
-      return res.json({ ok: true, rules: rules.rows, templates: templates.rows });
+      // A/B 測試狀態：另外查、失敗就當作沒有（例如 migration 尚未套用），規則清單照常顯示
+      let abEnabled = true;
+      const abByRule = {};
+      try {
+        const { effectiveState } = require('../core/keywordExperiments');
+        const ab = await query(
+          `SELECT DISTINCT ON (rule_id) id, rule_id, name, status, start_at, end_at
+             FROM keyword_reply_experiments WHERE rule_id IS NOT NULL
+            ORDER BY rule_id, id DESC`
+        );
+        const now = new Date();
+        ab.rows.forEach(e => { abByRule[e.rule_id] = { id: Number(e.id), name: e.name, state: effectiveState(e, now) }; });
+      } catch (e) {
+        abEnabled = false;
+        console.error('keyword experiment status unavailable:', e && e.message);
+      }
+      return res.json({
+        ok: true,
+        rules: rules.rows.map(r => Object.assign({}, r, { ab: abByRule[r.id] || null })),
+        templates: templates.rows,
+        ab_enabled: abEnabled
+      });
     } catch (err) {
       return jsonErr(res, 500, 'list_failed', { detail: err && err.message });
     }

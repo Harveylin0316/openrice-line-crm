@@ -37,6 +37,18 @@
       </div>
     </section>
 
+    <!-- A/B 測試面板：點規則列的「A/B 測試」打開 -->
+    <section class="card kr-ab-card" id="kr-ab-card" hidden>
+      <div class="kr-ab-head">
+        <div>
+          <h2 style="margin:0;">A/B 測試</h2>
+          <div class="muted" style="font-size:12px;margin-top:4px;" id="kr-ab-rule"></div>
+        </div>
+        <button type="button" class="kr-secondary-btn" id="kr-ab-close">關閉</button>
+      </div>
+      <div id="kr-ab-body"></div>
+    </section>
+
     <!-- 新增 / 編輯規則 modal -->
     <div id="rule-modal" class="kr-modal" hidden>
       <div class="kr-modal-inner">
@@ -86,12 +98,232 @@
       var allRules = [];
       var allTemplates = [];
       var editingId = null;
+      var abEnabled = true;
 
       function esc(s) {
         return String(s == null ? '' : s)
           .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
       }
+
+      // ================= A/B 測試 =================
+      var abRuleId = null;
+      var abCompared = null;
+      function abStateLabel(s) {
+        return { running: '進行中', paused: '已暫停', scheduled: '尚未開始', ended: '已結束' }[s] || '';
+      }
+      function twTime(v) {
+        if (!v) return '—';
+        try { return new Date(v).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }); } catch (e) { return String(v); }
+      }
+      // datetime-local 一律當台灣時間
+      function twInputToIso(v) { return v ? v + ':00+08:00' : ''; }
+      function num(v) { return v == null ? '不適用' : Number(v).toLocaleString('zh-TW'); }
+      function pctCell(rate, trackable, denom) {
+        if (!trackable) return '不適用';
+        if (!denom) return '尚無資料';
+        return rate + '%';
+      }
+      function abApi(url, body) {
+        return fetch(url, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+          .then(function (r) { return r.json(); });
+      }
+      function openAb(ruleId) {
+        abRuleId = ruleId;
+        abCompared = null;
+        var rule = allRules.filter(function (r) { return r.id === ruleId; })[0] || {};
+        $('kr-ab-rule').textContent = '規則：' + (rule.keywords || '') + '｜原本回覆：' + (rule.template_name || '（未設定）');
+        $('kr-ab-card').hidden = false;
+        $('kr-ab-body').innerHTML = '<div class="muted">載入中…</div>';
+        $('kr-ab-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        abApi('/admin/keyword-replies/api/' + ruleId + '/experiments').then(function (d) {
+          if (!d.ok) { $('kr-ab-body').innerHTML = '<div class="muted">載入失敗：' + esc(d.detail || d.error) + '</div>'; return; }
+          var latest = d.experiments[0];
+          var open = latest && (latest.state === 'running' || latest.state === 'paused' || latest.state === 'scheduled');
+          $('kr-ab-body').innerHTML = (latest ? renderExperiment(latest, d.report, open) : '') + (open ? '' : renderCreateForm(!!latest));
+          if (latest) bindExperimentActions(latest);
+          if (!open) bindCreateForm();
+        }).catch(function (e) { $('kr-ab-body').innerHTML = '<div class="muted">載入失敗：' + esc(e.message) + '</div>'; });
+      }
+      function renderReport(rep) {
+        if (!rep) return '';
+        var A = rep.variants.a, B = rep.variants.b;
+        var rows = [
+          ['觸發次數', A.triggers, B.triggers],
+          ['分組人數（不重複）', A.assigned_users, B.assigned_users],
+          ['成功回覆次數', A.replies_ok, B.replies_ok],
+          ['成功回覆人數（不重複）', A.reply_users, B.reply_users],
+          ['回覆失敗次數', A.replies_failed, B.replies_failed],
+          ['結果不確定次數', A.replies_uncertain, B.replies_uncertain],
+          ['目標點擊次數', A.target_clicks, B.target_clicks],
+          ['目標點擊人數（不重複）', A.clickers, B.clickers]
+        ].map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + num(r[1]) + '</td><td>' + num(r[2]) + '</td></tr>'; }).join('');
+        rows += '<tr><th>點擊率（觀察中）</th><td>' + pctCell(A.ctr_observing, A.trackable, A.reply_users) + '</td><td>' + pctCell(B.ctr_observing, B.trackable, B.reply_users) + '</td></tr>';
+        rows += '<tr><th>已完成觀察人數</th><td>' + num(A.matured_users) + '</td><td>' + num(B.matured_users) + '</td></tr>';
+        rows += '<tr class="kr-ab-key"><th>點擊率（已完成觀察）</th><td>' + pctCell(A.ctr_matured, A.trackable, A.matured_users) + '</td><td>' + pctCell(B.ctr_matured, B.trackable, B.matured_users) + '</td></tr>';
+        var diff = rep.comparable
+          ? 'B − A：' + (rep.diff_pp_matured > 0 ? '+' : '') + rep.diff_pp_matured + ' 個百分點（已完成觀察）'
+          : '目前無法比較：' + (!A.trackable || !B.trackable ? '有一版沒有可追蹤的點擊目標' : '已完成觀察的人數還不夠');
+        return '<div class="table-wrap"><table class="kr-ab-table"><thead><tr><th></th><th>A 版｜' + esc(A.name || '') + '</th><th>B 版｜' + esc(B.name || '') + '</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+          '<p class="kr-ab-diff">' + esc(diff) + '</p>' +
+          '<p class="muted kr-ab-note">點擊率＝觀察期（每人第一次成功回覆起 ' + rep.attribution_days + ' 天）內點過主要目標的不重複人數 ÷ 成功回覆人數。正式比較請看「已完成觀察」。' +
+          '只計算在 LINE App 內打開、且點擊者就是收件人的點擊。系統不會自動判定勝出，請依原始人數與比率人工決定。</p>';
+      }
+      function renderExperiment(exp, rep, open) {
+        var actions = '';
+        if (open) {
+          actions = '<div class="kr-ab-actions">' +
+            (exp.state === 'paused' ? '<button type="button" class="kr-secondary-btn" data-ab-act="resume">繼續測試</button>' : '<button type="button" class="kr-secondary-btn" data-ab-act="pause">暫停</button>') +
+            '<label class="kr-ab-extend">延長到 <input type="datetime-local" id="kr-ab-extend-at" /></label><button type="button" class="kr-secondary-btn" data-ab-act="extend">延長</button>' +
+            '<button type="button" class="kr-danger-btn" data-ab-act="end">結束測試</button>' +
+            '<span class="muted" id="kr-ab-act-status"></span></div>';
+        }
+        var log = (exp.change_log || []).map(function (l) {
+          var what = { create: '建立', pause: '暫停', resume: '繼續', end: '結束', extend: '延長結束時間' }[l.action] || l.action;
+          return '<li>' + esc(twTime(l.at)) + '｜' + esc(l.by || '') + '｜' + esc(what) + (l.action === 'extend' ? '：' + esc(twTime(l.from)) + ' → ' + esc(twTime(l.to)) : '') + '</li>';
+        }).join('');
+        return '<div class="kr-ab-exp">' +
+          '<div class="kr-ab-meta"><b>' + esc(exp.name) + '</b><span class="kr-ab-badge kr-ab-' + exp.state + '">' + abStateLabel(exp.state) + '</span></div>' +
+          '<div class="muted kr-ab-period">期間（台灣時間）：' + esc(twTime(exp.start_at)) + ' ～ ' + esc(twTime(exp.end_at)) +
+            '｜暫停或結束後回覆：' + (exp.fallback_variant === 'b' ? 'B 版' : 'A 版') + '</div>' +
+          actions + renderReport(rep) +
+          (log ? '<details class="kr-ab-log"><summary>調整紀錄</summary><ul>' + log + '</ul></details>' : '') +
+          '</div>';
+      }
+      function bindExperimentActions(exp) {
+        Array.prototype.forEach.call(document.querySelectorAll('[data-ab-act]'), function (btn) {
+          btn.addEventListener('click', function () {
+            var act = btn.getAttribute('data-ab-act');
+            var body = {};
+            if (act === 'extend') {
+              var v = $('kr-ab-extend-at').value;
+              if (!v) { $('kr-ab-act-status').textContent = '請選新的結束時間'; return; }
+              body.end_at = twInputToIso(v);
+            }
+            if (act === 'end' && !window.confirm('結束後不能重新開啟；要再測請建立新的測試。確定結束？')) return;
+            btn.disabled = true;
+            abApi('/admin/keyword-replies/api/experiments/' + exp.id + '/' + act, body).then(function (d) {
+              btn.disabled = false;
+              if (!d.ok) { $('kr-ab-act-status').textContent = d.detail || d.error; return; }
+              openAb(abRuleId);
+              load();
+            });
+          });
+        });
+      }
+      function renderCreateForm(hadPrevious) {
+        var opts = '<option value="">請選擇訊息庫素材</option>' + allTemplates.map(function (t) { return '<option value="' + t.id + '">' + esc(t.name) + '</option>'; }).join('');
+        return '<div class="kr-ab-form">' +
+          '<h3 style="margin:' + (hadPrevious ? '18px' : '0') + ' 0 8px;">建立新的 A/B 測試</h3>' +
+          '<p class="muted" style="font-size:12px;margin:0 0 10px;">同一個人固定看到同一版（A、B 各 50%）。建立時會鎖定兩版內容，之後修改訊息庫不影響這個測試。若只想測封面，其他內容與格式請保持一致。</p>' +
+          '<div class="kr-ab-grid">' +
+            '<label class="kr-field"><span>測試名稱</span><input type="text" id="kr-ab-name" maxlength="100" placeholder="例：獎勵卡封面 A vs B" /></label>' +
+            '<label class="kr-field"><span>A 版素材</span><select id="kr-ab-a">' + opts + '</select></label>' +
+            '<label class="kr-field"><span>B 版素材</span><select id="kr-ab-b">' + opts + '</select></label>' +
+            '<div class="kr-field"><span>測試期間</span><div class="kr-ab-chips">' +
+              '<button type="button" class="kr-ab-chip active" data-ab-days="7">7 天</button>' +
+              '<button type="button" class="kr-ab-chip" data-ab-days="14">14 天</button>' +
+              '<button type="button" class="kr-ab-chip" data-ab-days="28">28 天</button>' +
+              '<button type="button" class="kr-ab-chip" data-ab-days="custom">自訂</button></div>' +
+              '<div id="kr-ab-custom" hidden class="kr-ab-custom">開始 <input type="datetime-local" id="kr-ab-start" /> 結束 <input type="datetime-local" id="kr-ab-end" /><div class="muted" style="font-size:11px;">台灣時間；開始留空＝立刻開始</div></div>' +
+              '<div class="muted" id="kr-ab-week-warn" style="font-size:12px;color:#B45309;" hidden>未涵蓋完整一週，結果僅供初步參考。</div></div>' +
+            '<label class="kr-field"><span>暫停或結束後回覆</span><select id="kr-ab-fallback"><option value="a">A 版</option><option value="b">B 版</option></select></label>' +
+          '</div>' +
+          '<button type="button" class="kr-secondary-btn" id="kr-ab-compare">預覽並比對兩版</button>' +
+          '<div id="kr-ab-compare-out"></div>' +
+          '<div class="kr-ab-start-row"><button type="button" class="kr-primary-btn" id="kr-ab-start-btn" disabled>開始測試</button><span class="muted" id="kr-ab-create-status"></span></div>' +
+          '</div>';
+      }
+      function summaryHtml(s, targets, variant) {
+        var parts = [];
+        var segs = s.mode === 'sequence' ? (s.segments || []) : [{ summary: s }];
+        segs.forEach(function (seg, i) {
+          var x = seg.summary || {};
+          var imgs = (x.images || []).map(function (u) { return '<img src="' + esc(u) + '" alt="" loading="lazy" />'; }).join('');
+          var texts = [x.title].concat(x.texts || []).filter(function (t) { return t; }).slice(0, 6)
+            .map(function (t) { return '<div class="kr-ab-text">' + esc(t) + '</div>'; }).join('');
+          parts.push('<div class="kr-ab-seg"><div class="kr-ab-seg-type">' + (segs.length > 1 ? '第 ' + (i + 1) + ' 段・' : '') + esc(x.modeLabel || x.mode || '') + '</div>' + imgs + texts + '</div>');
+        });
+        var t = targets && targets.length
+          ? targets.map(function (g) {
+              return '<label class="kr-ab-target"><input type="checkbox" data-ab-target="' + variant + '" value="' + g.index + '" checked /> ' +
+                esc(g.label || ('連結 ' + (g.index + 1))) + '<span class="muted">' + esc(g.uri) + '</span></label>';
+            }).join('')
+          : '<div class="muted">沒有可追蹤的連結（點擊率會顯示「不適用」）</div>';
+        return parts.join('') + '<div class="kr-ab-targets"><b>主要點擊目標</b>' + t + '</div>';
+      }
+      function bindCreateForm() {
+        var days = 7;
+        function syncWeekWarn() {
+          var short = false;
+          if (days === 'custom') {
+            var s = $('kr-ab-start').value ? new Date(twInputToIso($('kr-ab-start').value)) : new Date();
+            var e = $('kr-ab-end').value ? new Date(twInputToIso($('kr-ab-end').value)) : null;
+            short = !!(e && e - s < 7 * 86400000);
+          }
+          $('kr-ab-week-warn').hidden = !short;
+        }
+        Array.prototype.forEach.call(document.querySelectorAll('[data-ab-days]'), function (c) {
+          c.addEventListener('click', function () {
+            Array.prototype.forEach.call(document.querySelectorAll('[data-ab-days]'), function (x) { x.classList.toggle('active', x === c); });
+            var v = c.getAttribute('data-ab-days');
+            days = v === 'custom' ? 'custom' : Number(v);
+            $('kr-ab-custom').hidden = days !== 'custom';
+            syncWeekWarn();
+          });
+        });
+        $('kr-ab-start').addEventListener('change', syncWeekWarn);
+        $('kr-ab-end').addEventListener('change', syncWeekWarn);
+        var invalidate = function () { abCompared = null; $('kr-ab-start-btn').disabled = true; $('kr-ab-compare-out').innerHTML = ''; };
+        $('kr-ab-a').addEventListener('change', invalidate);
+        $('kr-ab-b').addEventListener('change', invalidate);
+        $('kr-ab-compare').addEventListener('click', function () {
+          var a = $('kr-ab-a').value, b = $('kr-ab-b').value;
+          if (!a || !b) { $('kr-ab-create-status').textContent = '請先選 A、B 兩則素材'; return; }
+          $('kr-ab-compare-out').innerHTML = '<div class="muted">比對中…</div>';
+          abApi('/admin/keyword-replies/api/experiments/compare', { a_template_id: Number(a), b_template_id: Number(b) }).then(function (d) {
+            if (!d.ok) { $('kr-ab-compare-out').innerHTML = '<div class="kr-ab-warn">' + esc(d.detail || d.error) + '</div>'; return; }
+            abCompared = { a: Number(a), b: Number(b) };
+            var cmp = d.comparison || { differs: [] };
+            var msg = !cmp.differs.length ? '兩版內容完全相同，測不出差異。'
+              : cmp.onlyImages ? '兩版只有圖片不同，適合測封面。'
+              : 'A／B 不只封面不同：' + cmp.differs.join('、') + '。若只想測封面，請讓其他內容保持一致。';
+            $('kr-ab-compare-out').innerHTML =
+              '<div class="' + (cmp.onlyImages ? 'kr-ab-ok' : 'kr-ab-warn') + '">' + esc(msg) + '</div>' +
+              '<div class="kr-ab-preview"><div><h4>A 版</h4>' + summaryHtml(d.summaries.a, d.targets.a, 'a') + '</div>' +
+              '<div><h4>B 版</h4>' + summaryHtml(d.summaries.b, d.targets.b, 'b') + '</div></div>';
+            $('kr-ab-start-btn').disabled = false;
+          });
+        });
+        $('kr-ab-start-btn').addEventListener('click', function () {
+          if (!abCompared) return;
+          var body = {
+            name: $('kr-ab-name').value.trim(),
+            a_template_id: abCompared.a, b_template_id: abCompared.b,
+            fallback_variant: $('kr-ab-fallback').value,
+            primary: { a: [], b: [] }
+          };
+          Array.prototype.forEach.call(document.querySelectorAll('[data-ab-target]'), function (cb) {
+            if (cb.checked) body.primary[cb.getAttribute('data-ab-target')].push(Number(cb.value));
+          });
+          if (days === 'custom') {
+            if ($('kr-ab-start').value) body.start_at = twInputToIso($('kr-ab-start').value);
+            if (!$('kr-ab-end').value) { $('kr-ab-create-status').textContent = '請選結束時間'; return; }
+            body.end_at = twInputToIso($('kr-ab-end').value);
+          } else {
+            body.duration_days = days;
+          }
+          if (!body.name) { $('kr-ab-create-status').textContent = '請填測試名稱'; return; }
+          $('kr-ab-start-btn').disabled = true;
+          abApi('/admin/keyword-replies/api/' + abRuleId + '/experiments', body).then(function (d) {
+            if (!d.ok) { $('kr-ab-start-btn').disabled = false; $('kr-ab-create-status').textContent = d.detail || d.error; return; }
+            if (d.warnings && d.warnings.length) window.alert('已開始測試。提醒：' + d.warnings.join(' '));
+            openAb(abRuleId);
+            load();
+          });
+        });
+      }
+      $('kr-ab-close').addEventListener('click', function () { $('kr-ab-card').hidden = true; abRuleId = null; });
 
       function matchTypeLabel(t) {
         if (t === 'fallback') return '兜底';
@@ -108,6 +340,7 @@
             }
             allRules = resp.rules || [];
             allTemplates = resp.templates || [];
+            abEnabled = resp.ab_enabled !== false;
             fillTemplateOptions();
             render(allRules);
           })
@@ -150,11 +383,20 @@
             '<td style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums;">' + (r.hit_count || 0) + '</td>' +
             '<td style="white-space:nowrap;">' +
               '<button type="button" class="kr-link-btn kr-edit-btn" data-id="' + r.id + '">編輯</button>' +
+              (abEnabled && r.match_type !== 'fallback'
+                ? '<button type="button" class="kr-link-btn kr-ab-btn" data-id="' + r.id + '">A/B 測試' +
+                    (r.ab && (r.ab.state === 'running' || r.ab.state === 'paused' || r.ab.state === 'scheduled')
+                      ? ' <span class="kr-ab-badge kr-ab-' + r.ab.state + '">' + abStateLabel(r.ab.state) + '</span>' : '') +
+                  '</button>'
+                : '') +
               '<button type="button" class="kr-del-btn" data-id="' + r.id + '" data-keywords="' + esc(r.keywords) + '">刪除</button>' +
             '</td>' +
           '</tr>';
         }).join('');
 
+        tbody.querySelectorAll('.kr-ab-btn').forEach(function (b) {
+          b.addEventListener('click', function () { openAb(Number(b.getAttribute('data-id'))); });
+        });
         tbody.querySelectorAll('.kr-toggle').forEach(function (cb) {
           cb.addEventListener('change', function () {
             var id = cb.getAttribute('data-id');
@@ -294,6 +536,46 @@
 
       .table-wrap { overflow-x: auto; }
       .kr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      .kr-ab-card[hidden], #kr-ab-custom[hidden], #kr-ab-week-warn[hidden] { display: none; }
+      .kr-ab-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+      .kr-ab-head > button { flex-shrink: 0; white-space: nowrap; }
+      .kr-ab-badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: #F3F4F6; color: #374151; }
+      .kr-ab-running { background: #DCFCE7; color: #166534; }
+      .kr-ab-paused { background: #FEF3C7; color: #92400E; }
+      .kr-ab-scheduled { background: #DBEAFE; color: #1E40AF; }
+      .kr-ab-ended { background: #F3F4F6; color: #6B7280; }
+      .kr-ab-meta { font-size: 15px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+      .kr-ab-period { font-size: 12px; margin: 4px 0 10px; }
+      .kr-ab-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+      .kr-ab-extend { font-size: 12px; display: inline-flex; gap: 4px; align-items: center; }
+      .kr-ab-extend input, .kr-ab-custom input { font-family: inherit; font-size: 12px; padding: 4px 6px; border: 1px solid #E5E7EB; border-radius: 6px; max-width: 100%; }
+      .kr-danger-btn { padding: 8px 14px; background: #fff; color: #B91C1C; border: 1px solid #FCA5A5; border-radius: 8px; cursor: pointer; font-size: 13px; }
+      .kr-ab-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      .kr-ab-table th, .kr-ab-table td { padding: 8px 10px; border-bottom: 1px solid #F3F4F6; text-align: right; white-space: nowrap; }
+      .kr-ab-table th:first-child, .kr-ab-table thead th { text-align: left; }
+      .kr-ab-table thead th { font-size: 12px; color: #374151; white-space: normal; }
+      .kr-ab-key th, .kr-ab-key td { font-weight: 800; background: #FFFBEB; }
+      .kr-ab-diff { font-weight: 700; margin: 10px 0 4px; font-size: 13px; }
+      .kr-ab-note { font-size: 12px; line-height: 1.6; margin: 4px 0 0; }
+      .kr-ab-log { margin-top: 10px; font-size: 12px; }
+      .kr-ab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 14px; margin-bottom: 10px; }
+      .kr-ab-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+      .kr-ab-chip { padding: 5px 12px; border-radius: 999px; border: 1px solid #E5E7EB; background: #fff; cursor: pointer; font-size: 13px; font-family: inherit; }
+      .kr-ab-chip.active { background: #FCC726; border-color: #E8B400; font-weight: 700; }
+      .kr-ab-custom { margin-top: 6px; font-size: 12px; display: grid; gap: 4px; }
+      .kr-ab-warn { margin: 10px 0; padding: 8px 12px; border-radius: 8px; background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E; font-size: 13px; }
+      .kr-ab-ok { margin: 10px 0; padding: 8px 12px; border-radius: 8px; background: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; font-size: 13px; }
+      .kr-ab-preview { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      @media (max-width: 720px) { .kr-ab-preview { grid-template-columns: 1fr; } }
+      .kr-ab-preview h4 { margin: 0 0 6px; }
+      .kr-ab-seg { border: 1px solid #ECECEE; border-radius: 10px; padding: 8px; margin-bottom: 8px; background: #fff; }
+      .kr-ab-seg-type { font-size: 11px; color: #6B7280; margin-bottom: 4px; }
+      .kr-ab-seg img { display: block; width: 100%; max-width: 320px; border-radius: 6px; margin-bottom: 6px; }
+      .kr-ab-text { font-size: 12px; color: #374151; line-height: 1.5; word-break: break-word; }
+      .kr-ab-targets { display: grid; gap: 4px; font-size: 12px; margin-top: 6px; }
+      .kr-ab-target { display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap; word-break: break-all; }
+      .kr-ab-target .muted { font-size: 11px; }
+      .kr-ab-start-row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
       .kr-table th, .kr-table td { padding: 10px 12px; border-bottom: 1px solid #F3F4F6; vertical-align: middle; }
       .kr-table th { background: #FAFAFA; text-align: left; font-size: 11px; color: #6B6B70; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
       .kr-keywords { font-weight: 600; color: #1f2937; font-size: 14px; }

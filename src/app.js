@@ -21,6 +21,7 @@ const { registerAdminMessagesRoutes } = require('./routes/adminMessages');
 const { buildLineMessages: buildLineMessagesForLib, validateMessageConfig } = require('./core/broadcastTemplates');
 const { registerAdminFlowsRoutes } = require('./routes/adminFlows');
 const { registerAdminKeywordRepliesRoutes } = require('./routes/adminKeywordReplies');
+const { registerAdminKeywordExperimentRoutes } = require('./routes/adminKeywordExperiments');
 const { createFlowEngine } = require('./core/flowEngine');
 const { registerAdminUsersRoutes } = require('./routes/adminUsers');
 const { registerAdminRestaurantsRoutes } = require('./routes/adminRestaurants');
@@ -591,6 +592,13 @@ registerAdminMessagesRoutes(app, {
 registerAdminFlowsRoutes(app, { query, pool, flowEngine, authCore });
 
 registerAdminKeywordRepliesRoutes(app, { query, authCore });
+// 關鍵字回覆 A/B 測試（後台 API＋點擊跳板 /t/x/...）；LIFF 與關鍵字回覆追蹤用同一個
+registerAdminKeywordExperimentRoutes(app, {
+  query,
+  authCore,
+  resolvePublicSiteOrigin,
+  liffIdForTracking: () => process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || ''
+});
 
 registerAdminUsersRoutes(app, { query, authCore });
 

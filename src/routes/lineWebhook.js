@@ -3,6 +3,7 @@ const { applyInviteFollowReward } = require('../core/inviteReward');
 const { buildInviteRewardPushMessages } = require('../core/inviteRewardPushMessages');
 const { buildLineMessages } = require('../core/broadcastTemplates');
 const { withMessageTracking } = require('../core/messageTapTracking');
+const keywordExperiments = require('../core/keywordExperiments');
 const { fetchOaProfile } = require('../core/oaFollower');
 const { normalizeTwMobile, maskTwMobile } = require('../core/twPhone');
 const { completePendingActivityReferralsForFollow } = require('../core/activityReferralFollow');
@@ -271,6 +272,50 @@ function createLineWebhookHandler({
   function getKeywordReplyOrigin() {
     const o = process.env.LINE_PUSH_PUBLIC_BASE_URL || process.env.URL || process.env.PUBLIC_SITE_URL || '';
     return String(o).replace(/\/+$/, '');
+  }
+
+  /**
+   * 關鍵字規則命中後的回覆：有 A/B 實驗就依實驗回覆，沒有就照原本規則。
+   * 實驗相關任何查詢失敗都退回原本規則，回覆絕不能因為實驗中斷。
+   * 回傳 { sent, label }，label 用於 webhook 紀錄。
+   */
+  async function replyKeywordWithExperiment(rule, event) {
+    const lineUserId = event?.source?.type === 'user' ? (event?.source?.userId || null) : null;
+    let exp = null;
+    try { exp = await keywordExperiments.findLatestExperiment((s, p) => pool.query(s, p), rule.id); }
+    catch (e) { console.error('keyword experiment lookup failed:', e && e.message); exp = null; }
+    const decision = keywordExperiments.decideReply(exp, { lineUserId });
+    if (decision.mode === 'original') {
+      return { sent: await replyKeywordTemplate(rule, event.replyToken, event?.source?.userId || null), label: '' };
+    }
+    const origin = getKeywordReplyOrigin();
+    if (decision.mode === 'fallback') {
+      // 暫停／結束後：用快照的固定版本、不追蹤、不進實驗（舊的關鍵字追蹤會對到「現在」的素材，所以不能套）
+      const built = buildLineMessages(keywordExperiments.variantConfig(exp, decision.variant), { heroImageBaseUrl: origin });
+      if (!built.ok) return { sent: await replyKeywordTemplate(rule, event.replyToken, event?.source?.userId || null), label: ' ab#' + exp.id + ':fallback_invalid' };
+      const ok = await linePush.replyLineMessages(event.replyToken, built.messages, { lineUserId: event?.source?.userId || null, pushType: 'keyword_reply' });
+      return { sent: ok, label: ' ab#' + exp.id + ':fallback_' + decision.variant };
+    }
+    // 實驗中：分組 → 佔一筆回覆紀錄（同一 webhook 事件只會成功一次）→ 組訊息 → 回覆 → 記結果
+    const q = (s, p) => pool.query(s, p);
+    const { variant } = await keywordExperiments.assignVariant(q, exp.id, lineUserId);
+    const delivery = await keywordExperiments.claimDelivery(q, {
+      experimentId: exp.id, lineUserId, variant, webhookEventId: event?.webhookEventId || null
+    });
+    if (!delivery) return { sent: false, duplicate: true, label: ' ab#' + exp.id + ':duplicate_event' };
+    const liffId = process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '';
+    const built = keywordExperiments.buildExperimentMessages(keywordExperiments.variantConfig(exp, variant), {
+      origin, deliveryCode: delivery.delivery_code, liffId
+    });
+    if (!built.ok) {
+      await keywordExperiments.finishDelivery(q, { ...delivery, experiment_id: exp.id, line_user_id: lineUserId }, { status: 'rejected' });
+      return { sent: false, label: ' ab#' + exp.id + ':' + variant + ':build_failed' };
+    }
+    const result = typeof linePush.replyLineMessagesDetailed === 'function'
+      ? await linePush.replyLineMessagesDetailed(event.replyToken, built.messages, { lineUserId, pushType: 'keyword_reply_ab' })
+      : { status: (await linePush.replyLineMessages(event.replyToken, built.messages, { lineUserId, pushType: 'keyword_reply_ab' })) ? 'accepted' : 'rejected' };
+    const status = await keywordExperiments.finishDelivery(q, { ...delivery, experiment_id: exp.id, line_user_id: lineUserId }, result);
+    return { sent: status === 'accepted', label: ' ab#' + exp.id + ':' + variant + ':' + status };
   }
 
   async function replyKeywordTemplate(rule, replyToken, lineUserId) {
@@ -551,12 +596,15 @@ function createLineWebhookHandler({
             // 先比對一般關鍵字規則；都沒命中再退到兜底（fallback）規則
             const rule = await matchKeywordRule(event?.message?.text) || await matchFallbackRule();
             if (rule) {
-              const sent = await replyKeywordTemplate(rule, event.replyToken, event?.source?.userId || null);
+              const replied = await replyKeywordWithExperiment(rule, event);
+              const sent = replied.sent;
               const isFallback = rule.match_type === 'fallback';
-              krResult = sent
-                ? (isFallback ? 'keyword_fallback_replied' : 'keyword_replied')
-                : (isFallback ? 'keyword_fallback_reply_failed' : 'keyword_reply_failed');
-              krDetail = ((isFallback ? 'fallback rule#' : 'rule#') + rule.id + ' keywords=' + String(rule.keywords || '')).slice(0, 300);
+              krResult = replied.duplicate
+                ? 'keyword_ab_duplicate_event'
+                : sent
+                  ? (isFallback ? 'keyword_fallback_replied' : 'keyword_replied')
+                  : (isFallback ? 'keyword_fallback_reply_failed' : 'keyword_reply_failed');
+              krDetail = ((isFallback ? 'fallback rule#' : 'rule#') + rule.id + ' keywords=' + String(rule.keywords || '') + (replied.label || '')).slice(0, 300);
               if (sent) {
                 // 命中次數 +1：fire-and-forget，失敗不影響回覆
                 pool

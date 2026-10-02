@@ -493,6 +493,33 @@ Campaign Testing 的 B 版標頭依目前設定比例顯示，不再固定標 50
 - 載入非滿版圖文素材（含多段訊息）時 `resetImagemapStyleUi()` 收起滿版圖文編輯區、樣式切回卡片，並放回進階區與 A/B 設定。
 回歸測試 `test/line-imagemap.test.js`、`test/line-imagemap-review.test.js`（PR #27 審查四項）。
 
+#### 關鍵字回覆 A/B 測試（2026-10-02）
+
+**需要 migration**：`supabase/migrations/20261002090000_keyword_reply_ab_tests.sql`（只新增 4 張表、開 RLS、不寫死 schema），
+回滾 `supabase/rollbacks/20261002090000_keyword_reply_ab_tests_rollback.sql`。Staging 要由有權限的人以
+`search_path = crm_staging` 套用；正式站套用前須 Hen 確認。**程式在表不存在時會照原本規則回覆、規則清單照常顯示（不出現 A/B 按鈕）**，
+所以程式可以先上、migration 後到。
+
+- 後台「關鍵字回覆」每條規則（兜底規則除外）有「A/B 測試」：選 A、B 兩則訊息庫素材（任何可回覆的格式，可不同格式）、
+  期間 7／14／28 天或自訂（台灣時間；少於 7 天提醒不禁止）、暫停或結束後回覆的固定版本（預設 A）、主要點擊目標（預設全部可追蹤連結）。
+  建立前「預覽並比對兩版」：並排顯示兩版內容與封面，比對通知文字／文字（含卡片標題）／圖片／按鈕連結／格式，只有圖片不同才標「適合測封面」。
+- 建立即開始（或指定開始時間），兩版內容與可追蹤連結清單鎖成快照（`keyword_reply_experiments.variant_*_config`、`targets`）；
+  之後改訊息庫不影響。同一規則只能有一個未結束的測試（partial unique index）。結束後不可重開，再測建立新的；可暫停／繼續／延長，全部記入 `change_log`。
+- webhook（`replyKeywordWithExperiment`，`src/routes/lineWebhook.js`）：關鍵字比對、優先序、兜底、內建指令都不變，只在送出那一刻決定內容。
+  `decideReply()`：沒有實驗或尚未開始→原本規則；進行中且是一對一聊天有 userId→實驗；沒有 userId（群組等）→原本規則；暫停／到期／結束→固定版本快照（不追蹤、不進實驗）。
+  實驗中：`assignVariant`（分組表主鍵，並行不重複分組、同一人固定同一版）→ `claimDelivery`（`webhook_event_id` 唯一，LINE 重送同一事件不再回、不膨脹）
+  → `buildExperimentMessages`（快照組訊息；有 LIFF 才把可追蹤連結換成 `https://liff.line.me/<LIFF>/t/x/<隨機代碼>_<序號>`，連結不含 LINE User ID）
+  → `linePush.replyLineMessagesDetailed`（accepted／rejected／uncertain，8 秒逾時；不確定不算成功、不重送）→ `finishDelivery`（成功才設 `first_success_at`）。
+  任何實驗查詢錯誤都退回原本規則回覆。
+- 點擊：`GET /t/x/:code`（與 `/games/t/x/:code`）渲染既有 `tap_bounce` → 一律導向**快照**裡的原目的地；`POST .../hit` 用 LINE ID token 伺服器驗證，
+  **點擊者必須就是該次收件人**才寫 `keyword_reply_experiment_clicks`（轉傳給別人點的不算）。只追蹤「開啟網址」動作（含滿版圖文點擊區、自家 LIFF 連結）；
+  純文字裡的網址、傳送文字動作不追蹤。在 LINE App 外打開無法驗證身分，不計入。
+- 報表（`experimentReport`）：觸發次數、分組人數、成功回覆次數／人數、失敗、結果不確定、目標點擊次數、不重複點擊人數；
+  點擊率＝觀察期（每人第一次成功回覆起 7 天，重複觸發不延長）內點過主要目標的不重複人數 ÷ 成功回覆人數；
+  分「觀察中」與「已完成觀察」，正式比較用已完成觀察；沒有可追蹤目標→「不適用」，分母 0→「尚無資料」；任一版不可比較就不顯示差距。不自動判定勝出。
+- 既有沒有 A/B 的關鍵字規則、舊的關鍵字點擊追蹤（`/t/m/...`）、群發 A/B 都沒改。
+回歸測試 `test/keyword-reply-ab.test.js`；另以真 PostgreSQL（`crm_staging` schema）驗證 migration、重跑、rollback 與完整流程。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
