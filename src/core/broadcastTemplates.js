@@ -576,6 +576,19 @@ function buildImagemapMessage(im, { origin, recipientName } = {}) {
   return { ok: true, message };
 }
 
+function sequenceSourceIdError(item) {
+  // Optional snapshot metadata is still untrusted input (including legacy message_id).
+  for (const key of ['source_message_id', 'message_id']) {
+    const value = item[key];
+    if (value == null || value === '') continue;
+    if ((typeof value !== 'number' && typeof value !== 'string') ||
+        !/^\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value)) || Number(value) <= 0) {
+      return '素材編號格式不正確，請重新選取素材（需為正整數或留空）。';
+    }
+  }
+  return null;
+}
+
 /**
  * 存檔用的驗證（訊息庫、群發模板）：只檢查內容是否完整，不需要公開網址。
  * 以前直接拿 buildLineMessages(cfg) 驗，滿版圖文訊息因為組 baseUrl 需要 https 公開網址而一律失敗，存不進訊息庫。
@@ -585,6 +598,28 @@ function validateMessageConfig(messageConfig) {
   if (messageConfig.mode === 'imagemap') {
     const err = validateImagemapConfig(messageConfig.imagemap);
     return err ? { ok: false, error: err } : { ok: true };
+  }
+  if (messageConfig.mode === 'sequence') {
+    const items = messageConfig.items;
+    if (!Array.isArray(items) || items.length < 1 || items.length > 5) {
+      return { ok: false, error: '多段訊息需要 1～5 個內容區塊。' };
+    }
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      let valid;
+      if (item && item.type === 'card') {
+        const idError = sequenceSourceIdError(item);
+        if (idError) return { ok: false, error: '第 ' + (i + 1) + ' 個內容：' + idError };
+        const nested = item.message_config;
+        valid = !nested || nested.mode === 'sequence'
+          ? { ok: false, error: '卡片內容缺失。' }
+          : validateMessageConfig(nested);
+      } else {
+        valid = buildLineMessages({ mode: 'sequence', items: [item] });
+      }
+      if (!valid.ok) return { ok: false, error: '第 ' + (i + 1) + ' 個內容：' + valid.error };
+    }
+    return { ok: true };
   }
   const built = buildLineMessages(messageConfig);
   return built.ok ? { ok: true } : { ok: false, error: built.error };
@@ -632,6 +667,8 @@ function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, varia
         continue;
       }
       if (item.type === 'card') {
+        const idError = sequenceSourceIdError(item);
+        if (idError) return { ok: false, error: pos + idError };
         const nested = item.message_config;
         if (!nested || nested.mode === 'sequence') return { ok: false, error: pos + '卡片內容缺失。' };
         // 卡片先不帶 broadcastId 建（不在這裡包）：整串訊息建完後由 applyBroadcastTracking

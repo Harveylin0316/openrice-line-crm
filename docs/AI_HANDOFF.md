@@ -484,7 +484,7 @@ Campaign Testing 的 B 版標頭依目前設定比例顯示，不再固定標 50
   `/r/b/<批次>/<收件人>/<序號>`（與卡片按鈕同一套反查）；imagemap 沒有可放追蹤圖的位置，不估算「看過」。
 - 編輯器：上傳、版型（整張／上下／左右／自訂）、區域清單；自訂可在圖上拖拉新增（可畫在其他區上面）、拖編號移動、點選、改數字。
   預覽與 Flex 分開（`.line-mock.is-imagemap` 拿掉 bubble 外框），維持比例、虛線標出各區、點區域可開該網址測試。
-  訊息庫卡片預覽、發送紀錄（`imagemapSummary`）、近期群發成效名稱都認得新類型。第一版不支援 A/B、不能放進多段訊息。
+  訊息庫卡片預覽、發送紀錄（`imagemapSummary`）、近期群發成效名稱都認得新類型。單獨滿版圖文目前不支援 A/B；2026-10-02 起可從多段編輯器加入。
 - **驗收必須在有 LINE token 的環境實際測**（Staging 沒有發送金鑰）：Test Send 到 iOS／Android，各確認整張與上下兩區連結。
 - 存檔（群發「儲存為模板」、訊息庫新增／修改）用 `validateMessageConfig()`：滿版圖文只驗結構，不需要公開網址
   （以前用 `buildLineMessages(cfg)` 驗，組 baseUrl 需要 https 網址而一律失敗、存不進訊息庫）。訊息庫預覽帶 `resolvePublicSiteOrigin`。
@@ -979,3 +979,15 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 - referral 重送回原入帳 `invitee_was_existing` 快照；`preview=1` 即使有合法 ID token 也不得寫 enter；MGM attempt 必須 await。
 - 玩家頁只採最新日期請求、載入／失敗先清除舊數字。24h／7d 固定從現在往回，不與所選歷史期間交集；一般玩家與「目前測試名單」的數量另外列出，原始總數保留，不宣稱歷史測試名單永久可追溯。
 - 回歸覆蓋：friendship fail-closed、錯配 channel/user、並行上限、同 key 重送、台北日界線、preview、referral 快照、日期競態、失敗清空與近期 SQL。沒有補發機會、回填事件、改庫存或資料庫 migration。
+
+## 20. 多段訊息加入滿版圖文（2026-10-02）
+
+- `/admin/messages/sequence` 新增「＋滿版圖文訊息」，從訊息庫選已建立的原生 imagemap。沿用 `items[].type='card'` 與 `message_config.mode='imagemap'` 的巢狀格式，`content_kind='imagemap'` 僅協助空白段落的素材選擇；沒有 schema migration。
+- 複製完整圖片 assetId、尺寸、通知文字、各點擊區與 URI／傳送文字動作。可與文字、圖片、影片、Flex 卡片混排，仍限 1～5 段；發送沿用共用 builder，關鍵字回覆一次 reply 呼叫送完整陣列。
+- `validateMessageConfig` 對多段中的素材做結構驗證，不因存檔時沒有公開 origin 而拒絕 imagemap；實際組裝圖片 baseUrl 仍要求 HTTPS origin。
+- 編輯器只在使用者選取素材時複製內容。重開、預覽、排序或儲存不會用原素材的新內容覆蓋快照；原素材刪除也保留既有內容。重新選取素材才更新。
+- 原素材無法取得時顯示「已儲存版本」，素材編號一律以安全 attribute escaping 顯示，避免歷史／異常資料注入 HTML。存檔與發送 builder 都驗證 `source_message_id`／legacy `message_id`：只允許安全正整數（含純數字字串）或空值，不要求原素材仍存在，保留合法刪除素材的快照。
+- 滿版圖文預覽保留圖片比例、標示區域編號，列出各區的網址或傳送文字。預覽區不會實際觸發傳送文字動作。
+- 本次未擴充滿版圖文 A/B 替換：多段 B／C 仍可修改文字或 Flex 卡片，但 native imagemap 段沿用 A 版，不能在該區換另一張 native imagemap；不要宣稱可比較兩張滿版圖文。
+- 回歸：`test/sequence-imagemap.test.js`（結構／上限、原生 payload、編輯快照與排序、關鍵字 webhook mock）。固定 Staging 不含正式 LINE 憑證，LINE 真機送達與點擊仍需獲授權後驗證。
+- 安全回歸：`test/sequence-source-id-security.test.js`，涵蓋兩種編號、合法與異常格式、存檔路由零寫入、舊資料安全顯示與刪除素材後排序／儲存／發送順序。
