@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#FBF8F5" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="/games-mgm.js?v=20261001b"></script>
+  <script src="/games-mgm.js?v=20261002a"></script>
   <style>
     :root{
       --ink:#3E2723; --ink2:#8D6E63; --paper:#FBF8F5; --surface:#FFFDFB;
@@ -252,7 +252,7 @@
       // 分享：選人視窗（帶圖卡）→ 失敗退回複製連結
       async function share() {
         if (!profile || !profile.userId) { ORMGM.toast('身分驗證中，稍等一下再按'); return; }
-        var inviteUrl = 'https://liff.line.me/' + liffId + '/mgm/' + encodeURIComponent(slug) +
+        var inviteUrl = location.origin + '/invite/mgm/' + encodeURIComponent(slug) +
           '?ref=' + encodeURIComponent(profile.userId);
         var bubble = {
           type: 'bubble',

@@ -26,17 +26,23 @@ async function retryTransient(fn) {
   throw lastError;
 }
 
-async function completePendingActivityReferralsForFollow({ query, inviteeId, onCounted = null }) {
+async function completePendingActivityReferralsForFollow({ query, inviteeId, onCounted = null, followEvidence = null }) {
   if (!query || !inviteeId) return [];
 
   // 同一檔活動若開過不只一個人的分享連結，採最後一次有效點擊（last touch）。
   // 已入帳的活動不再處理；UNIQUE(activity_id, invitee_line_user_id) 仍是最後一道併發保護。
   const { rows } = await retryTransient(() => query(
     `SELECT DISTINCT ON (att.activity_slug, att.game_type)
-            att.activity_slug, att.game_type, att.inviter_line_user_id, att.created_at
+            att.activity_slug, att.game_type, att.inviter_line_user_id, att.created_at,
+            (SELECT MIN(j.created_at) FROM activity_referral_attempts j
+              WHERE j.activity_slug = att.activity_slug AND j.game_type = att.game_type
+                AND j.inviter_line_user_id = att.inviter_line_user_id
+                AND j.invitee_line_user_id = att.invitee_line_user_id
+                AND j.outcome LIKE 'journey_open:%' AND j.created_at <= att.created_at
+                AND j.created_at >= now() - ($2::text || ' hours')::interval) AS journey_started_at
        FROM activity_referral_attempts att
       WHERE att.invitee_line_user_id = $1
-        AND att.outcome = 'invitee_not_follower'
+        AND (att.outcome = 'invitee_not_follower' OR att.outcome LIKE 'journey_open:%')
         AND att.created_at >= now() - ($2::text || ' hours')::interval
         AND NOT EXISTS (
           SELECT 1
@@ -61,7 +67,9 @@ async function completePendingActivityReferralsForFollow({ query, inviteeId, onC
         gameType: pending.game_type,
         inviterId: pending.inviter_line_user_id,
         inviteeId,
-        followConfirmed: true
+        followConfirmed: true,
+        journeyStartedAt: pending.journey_started_at || null,
+        followEvidence
       }));
     } catch (error) {
       result = { error: { code: 'server_error', detail: String(error && error.message || error) } };

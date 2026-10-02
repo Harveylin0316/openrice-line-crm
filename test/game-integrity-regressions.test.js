@@ -166,10 +166,10 @@ test('所有遊戲及 MGM 分享頁都傳 Login access token，並換新版共�
   ['wheel','scratch','slot','fortune','claim'].forEach(type => {
     const html = fs.readFileSync(path.join(ROOT, 'views/game_' + type + '.ejs'), 'utf8');
     assert.match(html, /access_token:\s*liff\.getAccessToken\(\)/);
-    assert.match(html, /games-mgm\.js\?v=20261001b/);
+    assert.match(html, /games-mgm\.js\?v=20261002a/);
   });
   assert.match(fs.readFileSync(path.join(ROOT, 'public/games-mgm.js'), 'utf8'), /access_token:[\s\S]*getAccessToken/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'views/mgm_share.ejs'), 'utf8'), /games-mgm\.js\?v=20261001b/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'views/mgm_share.ejs'), 'utf8'), /games-mgm\.js\?v=20261002a/);
 });
 
 const wait = () => new Promise(resolve => setTimeout(resolve, 30));

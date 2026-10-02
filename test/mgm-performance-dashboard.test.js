@@ -77,7 +77,8 @@ test('活動成效 API 把同一期間套到 KPI、邀請、得獎名單與庫�
     { rows: [{ confirmed_new_friends: 1, calculated_bonus_chances: 1,
       confirmed_attempts_without_referral: 0, review_candidates: 0,
       potential_extra_chances: 0, candidates: [] }] },
-    { rows: [] }
+    { rows: [] },
+    { rows: [{ total: 1, historical_count: 1, pending_count: 0, candidates: [] }] }
   ];
   const handlers = buildDataRoute(async (sql, params) => {
     calls.push({ sql: String(sql).replace(/\s+/g, ' '), params: params || [] });
@@ -91,7 +92,7 @@ test('活動成效 API 把同一期間套到 KPI、邀請、得獎名單與庫�
   assert.deepEqual(res.body.report_range, {
     filtered: true, from: '2026-09-01', to: '2026-09-08', days: 8, timezone: 'Asia/Taipei'
   });
-  const reportQueries = calls.slice(2);
+  const reportQueries = calls.slice(2, 10);
   assert.equal(reportQueries.length, 8);
   reportQueries.filter((_, i) => i !== 6).forEach(call => {
     assert.equal(call.params.length, 3);
@@ -106,6 +107,8 @@ test('活動成效 API 把同一期間套到 KPI、邀請、得獎名單與庫�
   assert.match(reportQueries[1].sql, /invitee_was_existing IS NULL/);
   assert.doesNotMatch(reportQueries[1].sql, /IS NOT FALSE/);
   assert.deepEqual(reportQueries[6].params, [6, 'share-miles', 0, 1, 0]);
+  assert.deepEqual(calls[10].params, [6, 'share-miles', 'wheel']);
+  assert.equal(res.body.referral_review.historical_count, 1);
 });
 
 test('活動成效 API 遇到不完整日期時先拒絕，不執行報表查詢', async () => {
@@ -215,17 +218,29 @@ test('活動成效頁同頁顯示分享超有哩 KPI、獎項庫存與得獎名�
         extra_chances_if_confirmed: 0
       }]
     },
+    referral_review: { total: 1, historical_count: 1, pending_count: 0, candidates: [{
+      referral_id: 12, attempted_at: '2026-09-04T08:00:03Z',
+      inviter_uid: 'U11111111111111111111111111111111', inviter_name: '  =1+1',
+      invitee_uid: 'U22222222222222222222222222222222', invitee_name: '<img src=x onerror=alert(1)>',
+      first_seen_at: '2026-09-04T07:59:59Z', followed_at: '2026-09-04T08:00:01Z', reason: 'legacy_existing'
+    }] },
     report_range: { filtered: true, from: '2026-09-01', to: '2026-09-08', days: 8, timezone: 'Asia/Taipei' }
   };
 
   const fetchedUrls = [];
+  const downloads = [];
+  let fetchOverride;
 
   const dom = new JSDOM(html, {
     runScripts: 'dangerously',
     url: 'https://example.test/admin/mgm?activity_id=6&period=custom&from_date=2026-09-01&to_date=2026-09-08',
     beforeParse(window) {
-      window.fetch = async url => { fetchedUrls.push(String(url)); return { json: async () => payload }; };
+      window.fetch = async url => { fetchedUrls.push(String(url)); return fetchOverride ? fetchOverride(url) : { json: async () => payload }; };
       window.confirm = () => true;
+      window.Blob = class { constructor(parts) { this.text = parts.join(''); } };
+      window.URL.createObjectURL = blob => { downloads.push(blob.text); return 'blob:fixture'; };
+      window.URL.revokeObjectURL = () => {};
+      window.HTMLAnchorElement.prototype.click = () => {};
     }
   });
   await new Promise(resolve => setTimeout(resolve, 100));
@@ -235,7 +250,7 @@ test('活動成效頁同頁顯示分享超有哩 KPI、獎項庫存與得獎名�
   assert.match(document.getElementById('mg-stats').textContent, /成功邀請新好友/);
   assert.match(document.getElementById('mg-stats').textContent, /成功邀請的會員/);
   assert.match(document.getElementById('mg-stats').textContent, /好友狀態不明/);
-  assert.match(document.getElementById('mg-ref-audit').textContent, /目前沒有需要人工補發/);
+  assert.match(document.getElementById('mg-ref-audit').textContent, /已入帳的新好友次數對帳未發現缺口/);
   assert.match(document.getElementById('mg-ref-audit').textContent, /已達上限，不需補次數/);
   assert.match(document.getElementById('mg-pairs').textContent, /好友狀態不明/);
   assert.match(document.getElementById('mg-stats').textContent, /20,000/);
@@ -251,5 +266,30 @@ test('活動成效頁同頁顯示分享超有哩 KPI、獎項庫存與得獎名�
   assert.match(fetchedUrls[0], /to_date=2026-09-08/);
   assert.match(document.body.textContent, /完整活動紀錄，不受上方期間篩選影響/);
   assert.match(document.body.textContent, /抽獎池不受上方報表期間影響/);
+  assert.equal(document.querySelectorAll('#mg-ref-review img').length, 0);
+  document.getElementById('mg-review-csv').click();
+  assert.equal(downloads.length, 1);
+  assert.equal(downloads[0].charCodeAt(0), 0xfeff);
+  assert.match(downloads[0], /U22222222222222222222222222222222/);
+  assert.match(downloads[0], /16:00:03/);
+  assert.match(downloads[0], /"'  =1\+1"/);
+  assert.match(downloads[0], /非確認漏發/);
+  // 快速切換時，較晚回來的舊查詢不能覆蓋新的清單或重新開啟匯出。
+  const pending = [];
+  fetchOverride = () => new Promise(resolve => pending.push(resolve));
+  document.getElementById('mg-range-apply').click();
+  document.getElementById('mg-range-apply').click();
+  assert.equal(pending.length, 2);
+  pending[1]({ json: async () => ({ ...payload, referral_review: { total: 0, candidates: [] } }) });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  pending[0]({ json: async () => payload });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(document.getElementById('mg-review-csv').disabled, true);
+  assert.doesNotMatch(document.getElementById('mg-ref-review').textContent, /=1\+1/);
+  fetchOverride = async () => { throw new Error('fixture offline'); };
+  document.getElementById('mg-range-apply').click();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(document.getElementById('mg-review-csv').disabled, true);
+  assert.match(document.getElementById('mg-ref-review').textContent, /不能下載舊資料/);
   dom.window.close();
 });

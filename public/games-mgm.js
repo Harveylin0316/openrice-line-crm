@@ -28,6 +28,7 @@
     missing_ids: 1,
     self_referral: 1,       // 邀請自己
     bad_inviter: 1,         // 連結本身壞的
+    journey_invalid: 1,
     activity_not_found: 1,
     activity_ended: 1       // 活動結束，不可能再成立
   };
@@ -312,7 +313,8 @@
     return inflight;
   }
 
-  async function _referral(o) {
+  async function _referral(o, syncRetry) {
+    syncRetry = syncRetry || 0;
     var slug = o.slug, gameType = o.gameType, me = o.userId;
     if (!slug || !me) return { state: 'none' };
     if (isDone(slug)) return { state: 'skip' };
@@ -323,7 +325,10 @@
     try { urlRef = new URLSearchParams(w.location.search).get('ref'); } catch (e) {}
     if (urlRef) {
       if (UID_RE.test(urlRef) && urlRef !== me) {
-        rec = { i: urlRef, e: Date.now() + TTL_MS, a: 0, t: 0 };
+        var urlJourney = new URLSearchParams(w.location.search).get('journey') || '';
+        var previous = loadRef(slug);
+        rec = { i: urlRef, j: /^[1-9][0-9]{0,18}\.[A-Za-z0-9_-]{43}$/.test(urlJourney) ? urlJourney :
+          (previous && previous.i === urlRef ? previous.j || '' : ''), e: Date.now() + TTL_MS, a: 0, t: 0 };
         // 存得起來才准把網址上的 ref 拿掉；存不起來（無痕模式）就留著當載體
         if (saveRef(slug, rec)) stripUrlRef();
       } else {
@@ -339,6 +344,7 @@
     var body = {
       line_user_id: me,
       inviter_line_user_id: rec.i,
+      journey: rec.j || '',
       id_token: (typeof o.getIdToken === 'function' ? (o.getIdToken() || '') : ''),
       access_token: (function () { try { return w.liff.getAccessToken() || ''; } catch (_e) { return ''; } })()
     };
@@ -366,6 +372,7 @@
     var code = (resp && resp.error) || 'http_error';
     var kind = classify(code);
     if (kind === 'burn') {
+      if (code === 'journey_invalid') toast('邀請連結已失效，請朋友重新分享活動連結。你仍可參加自己的遊戲。');
       // 只清掉「這次送出的那一位」，暫存裡若已換成別人就留著
       var cur = loadRef(slug);
       if (cur && cur.i === rec.i) clearRef(slug);
@@ -373,8 +380,18 @@
     }
     rec.a = (rec.a || 0) + 1;
     rec.t = Date.now();
+    if (code === 'invitee_status_unavailable' && !rec.n && syncRetry === 0) {
+      rec.n = true;
+      toast('朋友的邀請資格確認中，尚未加計邀請次數；不影響你自己的遊戲。');
+    }
     saveRef(slug, rec);
     if (code === 'invitee_not_follower') gate.serverDenied();
+    // 登入先 follow 時，瀏覽器可能比 webhook log 寫完更快。
+    // 即使 localStorage 不可用也以獨立 retry budget 封頂，不會無限重送。
+    if (rec.j && code === 'invitee_status_unavailable' && syncRetry < 3) {
+      await new Promise(function (resolve) { w.setTimeout(resolve, [700, 1400, 2400][syncRetry]); });
+      return _referral(o, syncRetry + 1);
+    }
     return { state: 'pending', code: code, later: kind === 'later' };
   }
 
@@ -383,6 +400,7 @@
       var u = new URL(w.location.href);
       if (!u.searchParams.has('ref')) return;
       u.searchParams.delete('ref');
+      u.searchParams.delete('journey');
       w.history.replaceState({}, '', u.pathname + u.search + u.hash);
     } catch (e) {}
   }
@@ -427,7 +445,9 @@
   }
   function openInLineUrl(liffId, gameType, slug, ref) {
     var base = 'https://liff.line.me/' + encodeURIComponent(String(liffId || '')) + '/' + gameType + '/' + encodeURIComponent(String(slug || ''));
-    return ref ? base + '?ref=' + encodeURIComponent(ref) : base;
+    var journey = '';
+    try { journey = new URLSearchParams(w.location.search).get('journey') || ''; } catch (_e) {}
+    return ref ? base + '?ref=' + encodeURIComponent(ref) + (/^[1-9][0-9]{0,18}\.[A-Za-z0-9_-]{43}$/.test(journey) ? '&journey=' + encodeURIComponent(journey) : '') : base;
   }
   var OIL_CSS = '' +
     '.oil-card{margin:16px 0;padding:18px;border-radius:18px;background:#fff;border:1px solid #F0E6CC;box-shadow:0 4px 18px rgba(63,44,37,.08);text-align:center;color:#3F2C25;font-family:inherit}' +
@@ -520,7 +540,7 @@
     } else {
       title.textContent = '請開啟手機版 LINE 遊玩';
       sub.textContent = '掃描 QR Code 前往 LINE';
-      var qs = ref ? '?ref=' + encodeURIComponent(ref) : '';
+      var qs = new URL(url).search;
       var img = d.createElement('img');
       img.className = 'oil-qr';
       img.id = 'open-in-line-qr';

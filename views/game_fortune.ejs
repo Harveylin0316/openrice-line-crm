@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#FFFBEB" />
   <title><%= title %></title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="/games-mgm.js?v=20261001b"></script>
+  <script src="/games-mgm.js?v=20261002a"></script>
   <style>
     :root {
       --bg:         #FAFAFA;
@@ -947,7 +947,7 @@
 
       async function shareWithFriend() {
         if (!profile || !profile.userId) { alert('身分驗證中'); return; }
-        var inviteUrl = 'https://liff.line.me/' + liffId + '/fortune/' + encodeURIComponent(slug) + '?ref=' + encodeURIComponent(profile.userId);
+        var inviteUrl = location.origin + '/invite/fortune/' + encodeURIComponent(slug) + '?ref=' + encodeURIComponent(profile.userId);
         var msg = '快來抽「' + activityMeta.name + '」籤詩！我已經抽過了，你也來試試';
         try {
           if (liff.isApiAvailable && liff.isApiAvailable('shareTargetPicker')) {

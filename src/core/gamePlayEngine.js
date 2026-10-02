@@ -498,14 +498,15 @@ async function notifyInviterOfReferral({ query, activity, activitySlug, gameType
 }
 
 /**
- * 判斷被邀請者在「這次邀請旅程開始前」是否已經是現行會員。
+ * 舊邀請連結的相容判定；有伺服器旅程憑證時改用 detectJourneyExisting。
  *
  * 不能只在成功時查 users：新朋友按下加好友後，LINE follow webhook 會先建立 users，
  * 接著頁面重送 referral；若此時才看 users，所有剛加入的人都會被誤判成既有好友。
  * activity_referral_attempts 會留下加好友前的 invitee_not_follower，因此：
  *   - users 不存在：新朋友
  *   - 曾先被確認不是好友，之後才建立 users：新朋友
- *   - users 在第一次「不是好友」嘗試前就存在：既有會員（包含封鎖後重加）
+ *   - 剛建立會員且首次 follow 靠近邀請：證據不足，留待複核，不猜成舊友
+ *   - 其餘沿用既有快照／舊判定；users 建立時間本身並非新好友資格的證明
  */
 async function detectInviteeWasExisting({ query, activitySlug, gameType, inviterId, inviteeId }) {
   const { rows } = await query(
@@ -521,6 +522,29 @@ async function detectInviteeWasExisting({ query, activitySlug, gameType, inviter
                    AND att.outcome = 'invitee_not_follower'
                    AND att.created_at <= first_seen_at
               ) THEN FALSE
+              WHEN NOT EXISTS (
+                SELECT 1 FROM activity_referrals r JOIN activities a ON a.id=r.activity_id
+                WHERE a.slug=$2 AND a.game_type=$3 AND r.invitee_line_user_id=$1
+              ) AND EXISTS (
+                SELECT 1 FROM line_webhook_events e
+                WHERE e.line_user_id=$1 AND e.event_type='follow'
+                  AND e.event_timestamp <= now()
+                  AND e.raw_event->'follow'->>'isUnblocked'='false'
+                  AND e.event_timestamp BETWEEN first_seen_at - INTERVAL '1 minute'
+                    AND first_seen_at + INTERVAL '30 minutes'
+                  AND first_seen_at BETWEEN COALESCE((
+                    SELECT MIN(t.created_at) FROM activity_referral_attempts t
+                    WHERE t.activity_slug=$2 AND t.game_type=$3
+                      AND t.inviter_line_user_id=$4 AND t.invitee_line_user_id=$1
+                  ),now()) - INTERVAL '30 minutes' AND COALESCE((
+                    SELECT MIN(t.created_at) FROM activity_referral_attempts t
+                    WHERE t.activity_slug=$2 AND t.game_type=$3
+                      AND t.inviter_line_user_id=$4 AND t.invitee_line_user_id=$1
+                  ),now())
+                  AND NOT EXISTS (SELECT 1 FROM line_webhook_events prior
+                    WHERE prior.line_user_id=$1 AND prior.event_type IN ('follow','unfollow')
+                      AND prior.event_timestamp < e.event_timestamp)
+              ) THEN NULL
               ELSE TRUE
             END AS was_existing
        FROM (
@@ -534,7 +558,7 @@ async function detectInviteeWasExisting({ query, activitySlug, gameType, inviter
   return rows[0].was_existing;
 }
 
-async function registerReferral({ query, activitySlug, gameType, inviterId, inviteeId, followConfirmed = false, accessToken, channelId }) {
+async function registerReferral({ query, activitySlug, gameType, inviterId, inviteeId, followConfirmed = false, accessToken, channelId, journeyStartedAt = null, followEvidence = null }) {
   if (!inviteeId || !inviterId) {
     return { error: { status: 400, code: 'missing_ids' } };
   }
@@ -576,13 +600,20 @@ async function registerReferral({ query, activitySlug, gameType, inviterId, invi
   if (inv.length === 0) {
     return { error: { status: 400, code: 'inviter_not_member', detail: '邀請連結無效' } };
   }
+  // 新旅程不能改判任何已入帳快照（包含以前判成舊好友的紀錄）。
+  if (journeyStartedAt) {
+    const previous = (await query(`SELECT inviter_line_user_id, invitee_was_existing FROM activity_referrals
+      WHERE activity_id=$1 AND invitee_line_user_id=$2 LIMIT 1`, [a.id, inviteeId])).rows[0];
+    if (previous) return { ok: true, counted: false, same_inviter: previous.inviter_line_user_id === inviterId,
+      invitee_was_existing: previous.invitee_was_existing };
+  }
   // 一定要在好友驗證前判斷，並把先前失敗嘗試納入：LINE follow webhook 會在重試前建立 users。
   // 判斷查詢失敗時維持 null（不算新客），避免資料庫異常時錯發邀請獎勵。
   let inviteeWasExisting = null;
   try {
-    inviteeWasExisting = await detectInviteeWasExisting({
-      query, activitySlug, gameType, inviterId, inviteeId
-    });
+    inviteeWasExisting = journeyStartedAt
+      ? await require('./referralJourney').detectJourneyExisting({ query, inviteeId, startedAt: journeyStartedAt, followEvidence })
+      : await detectInviteeWasExisting({ query, activitySlug, gameType, inviterId, inviteeId });
   } catch (e) { /* 判斷失敗保留 null，下方會 fail-closed 且不寫入正式 referral */ }
   // 測試帳號互邀：邀請人與被邀請人都在「測試人員」名單上 → 一律算新好友，
   // 讓後台可以反覆重置、無限次測「新戶加入→分享→邀請成功」。真實用戶的判定完全不變。

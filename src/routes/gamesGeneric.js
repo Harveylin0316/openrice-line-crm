@@ -20,6 +20,8 @@ const {
 } = require('../core/gamePlayEngine');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 const { verifyGameOaFollower } = require('../core/oaFollower');
+const { createReferralJourney, claimReferralJourney, PROOF_RE } = require('../core/referralJourney');
+const { rateLimit } = require('express-rate-limit');
 
 /** 從 Authorization: Bearer xxx 取出 LIFF id token（GET 端點用；token 不放網址列） */
 function bearerToken(req) {
@@ -33,14 +35,47 @@ const QRCode = require('qrcode');
  * 活動的 LIFF 連結（跟分享邀請用的是同一個格式）；ref 必須是合法 LINE userId 才帶上。
  * 電腦／手機瀏覽器打開活動時，用這個連結讓用戶回到 LINE 裡繼續，邀請碼不會掉。
  */
-function buildOpenInLineUrl(liffId, gameType, slug, ref) {
+function buildOpenInLineUrl(liffId, gameType, slug, ref, journey) {
   const base = 'https://liff.line.me/' + encodeURIComponent(String(liffId)) + '/' + gameType + '/' + encodeURIComponent(String(slug));
-  return /^U[0-9a-f]{32}$/i.test(String(ref || '')) ? base + '?ref=' + encodeURIComponent(ref) : base;
+  if (!/^U[0-9a-f]{32}$/i.test(String(ref || ''))) return base;
+  return base + '?ref=' + encodeURIComponent(ref) + (PROOF_RE.test(String(journey || '')) ? '&journey=' + encodeURIComponent(journey) : '');
+}
+
+function registerReferralEntry(app, query, { gameType, defaultLiffId }) {
+  // 新分享連結必須先經過這裡，不能先打 LIFF（同意畫面可能已先加好友）。
+  app.get('/invite/' + gameType + '/:slug', rateLimit({ windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('CDN-Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    try {
+      const slug = String(req.params.slug || '').trim();
+      const inviterId = String(req.query.ref || '').trim();
+      if (!/^U[0-9a-f]{32}$/i.test(inviterId)) return res.status(400).type('text/plain').send('邀請連結不完整，請朋友重新分享活動連結。');
+      const a = (await query(`SELECT slug, game_type, status, start_at, end_at, referral_bonus_per, liff_id_override
+        FROM activities WHERE slug=$1 AND game_type=$2 LIMIT 1`, [slug, gameType])).rows[0];
+      if (!a) return res.status(404).type('text/plain').send('找不到活動。');
+      // MGM 現有頁面／token 驗證使用其獨立 defaultLiffId。
+      const liffId = String((gameType !== 'mgm' && a.liff_id_override) || defaultLiffId || '').trim();
+      if (!liffId) return res.status(503).type('text/plain').send('活動連結暫時無法使用，請稍後再試。');
+      const member = (await query('SELECT 1 FROM users WHERE line_user_id=$1 AND archived_at IS NULL LIMIT 1', [inviterId])).rows[0];
+      if (!member) return res.status(400).type('text/plain').send('邀請連結無效，請朋友重新分享。');
+      const now = Date.now();
+      let journey = null;
+      if (a.status === 'active' && Number(a.referral_bonus_per) > 0 && (!a.start_at || now >= new Date(a.start_at).getTime()) && (!a.end_at || now <= new Date(a.end_at).getTime())) {
+        journey = await createReferralJourney({ query, slug, gameType, inviterId });
+      }
+      return res.redirect(302, buildOpenInLineUrl(liffId, gameType, slug, inviterId, journey));
+    } catch (e) {
+      console.error('invite entry failed:', e && e.message);
+      return res.status(503).type('text/plain').send('暫時無法保留邀請，請稍後重開朋友分享的連結。');
+    }
+  });
 }
 
 function registerGameType(app, deps, opts) {
   const { query, pool, flowEngine } = deps;
   const { gameType, viewName, defaultLiffId } = opts;
+  registerReferralEntry(app, query, opts);
 
   // LIFF id token 驗證 + 紀錄探針。回傳 { pass, reject? }。
   // 強制模式（預設開，可用環境變數 LIFF_TOKEN_ENFORCE=0 關閉）：
@@ -98,10 +133,10 @@ function registerGameType(app, deps, opts) {
       const liffId = (rows[0].liff_id_override && rows[0].liff_id_override.trim()) || defaultLiffId;
       if (!liffId) return res.status(404).type('text/plain').send('Not found');
       const ref = String(req.query.ref || '').trim();
-      const url = buildOpenInLineUrl(liffId, gameType, rows[0].slug, ref);
+      const url = buildOpenInLineUrl(liffId, gameType, rows[0].slug, ref, req.query.journey);
       const svg = await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0F0F10', light: '#FFFFFF' } });
       res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
-      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.setHeader('Cache-Control', req.query.journey ? 'no-store' : 'public, max-age=300');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       return res.status(200).send(svg);
     } catch (err) {
@@ -291,9 +326,19 @@ function registerGameType(app, deps, opts) {
       return res.status(idCheck.reject.status).json({ ok: false, error: idCheck.reject.code, detail: idCheck.reject.detail });
     }
     try {
+      let journeyStartedAt = null;
+      const proof = String((req.body || {}).journey || '');
+      if (proof) {
+        if (idCheck.verifiedSub !== inviteeId) return res.status(401).json({ ok: false, error: 'token_required' });
+        journeyStartedAt = await claimReferralJourney({ query, proof, slug, gameType, inviterId, inviteeId });
+        if (!journeyStartedAt) {
+          await logReferralAttempt(slug, inviterId, inviteeId, 'journey_invalid');
+          return res.status(400).json({ ok: false, error: 'journey_invalid', detail: '邀請憑證已失效，請朋友重新分享活動連結。' });
+        }
+      }
       const result = await registerReferral({
         query, activitySlug: slug, gameType, inviterId, inviteeId,
-        accessToken: (req.body || {}).access_token, channelId: idCheck.channelId
+        accessToken: (req.body || {}).access_token, channelId: idCheck.channelId, journeyStartedAt
       });
       if (result.error) {
         await logReferralAttempt(slug, inviterId, inviteeId, result.error.code);
@@ -432,4 +477,4 @@ function registerWalletApi(app, deps) {
   });
 }
 
-module.exports = { registerGameType, registerWalletApi, buildOpenInLineUrl };
+module.exports = { registerGameType, registerWalletApi, buildOpenInLineUrl, registerReferralEntry };
