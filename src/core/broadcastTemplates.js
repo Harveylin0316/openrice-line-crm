@@ -577,6 +577,8 @@ function buildImagemapMessage(im, { origin, recipientName } = {}) {
 }
 
 function sequenceSourceIdError(item) {
+  if (!item || typeof item !== 'object') return null;
+  if (item.source_item_index != null && (!Number.isSafeInteger(item.source_item_index) || item.source_item_index < 0 || item.source_item_index > 4)) return '來源段落編號不正確。';
   // Optional snapshot metadata is still untrusted input (including legacy message_id).
   for (const key of ['source_message_id', 'message_id']) {
     const value = item[key];
@@ -606,6 +608,8 @@ function validateMessageConfig(messageConfig) {
     }
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+      const referenceError = sequenceSourceIdError(item);
+      if (referenceError) return { ok: false, error: '第 ' + (i + 1) + ' 個內容：' + referenceError };
       let valid;
       if (item && item.type === 'card') {
         const idError = sequenceSourceIdError(item);
@@ -641,6 +645,8 @@ function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, varia
     for (let i = 0; i < items.length; i++) {
       const item = items[i] && typeof items[i] === 'object' ? items[i] : {};
       const pos = '第 ' + (i + 1) + ' 個內容：';
+      const referenceError = sequenceSourceIdError(item);
+      if (referenceError) return { ok: false, error: pos + referenceError };
       if (item.type === 'text') {
         let body = String(item.text || '').trim();
         if (recipientName != null) body = applyPersonalization(body, recipientName);

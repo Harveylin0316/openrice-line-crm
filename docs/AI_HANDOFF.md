@@ -1033,6 +1033,16 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 - 編輯器只在使用者選取素材時複製內容。重開、預覽、排序或儲存不會用原素材的新內容覆蓋快照；原素材刪除也保留既有內容。重新選取素材才更新。
 - 原素材無法取得時顯示「已儲存版本」，素材編號一律以安全 attribute escaping 顯示，避免歷史／異常資料注入 HTML。存檔與發送 builder 都驗證 `source_message_id`／legacy `message_id`：只允許安全正整數（含純數字字串）或空值，不要求原素材仍存在，保留合法刪除素材的快照。
 - 滿版圖文預覽保留圖片比例、標示區域編號，列出各區的網址或傳送文字。預覽區不會實際觸發傳送文字動作。
-- 本次未擴充滿版圖文 A/B 替換：多段 B／C 仍可修改文字或 Flex 卡片，但 native imagemap 段沿用 A 版，不能在該區換另一張 native imagemap；不要宣稱可比較兩張滿版圖文。
+- 多段 B／C 現在依實際 LINE 類型提供素材替換，支援 text/image/video/Flex bubble/Carousel/imagemap。`template` 與 Flex bubble 同屬單張 Flex，Carousel 獨立分類；文字／圖片／影片素材取自訊息庫既有 sequence 的單一段落，沒有新增不存在的頂層格式。
 - 回歸：`test/sequence-imagemap.test.js`（結構／上限、原生 payload、編輯快照與排序、關鍵字 webhook mock）。固定 Staging 不含正式 LINE 憑證，LINE 真機送達與點擊仍需獲授權後驗證。
 - 安全回歸：`test/sequence-source-id-security.test.js`，涵蓋兩種編號、合法與異常格式、存檔路由零寫入、舊資料安全顯示與刪除素材後排序／儲存／發送順序。
+
+### 多段 A/B 素材替換（2026-10-02）
+
+- `public/admin-broadcast.js` 的 `slotType`／`assetSlots` 是共用分類與素材索引；新增類型時擴充此處與對應 builder，不再硬編碼只有 card 能選素材。訊息庫清單 API 提供 message_config、created_at、updated_at，選取後再次讀取素材並驗證 ID 與類型。
+- 識別使用訊息庫 `id`，多段來源另加 `source_item_index`；imagemap 內的 `assetId` 僅是圖片資源 ID。兩份訊息即使共享圖片也不合併。選取時完整 deep clone 段落／message_config，保存 `source_message_id`、`source_name` 與可選來源段落索引，原素材後續改動不影響快照。
+- B／C 編輯器提供同類型選單與可展開素材清單（名稱、縮圖、建立／更新時間、imagemap 區域與目標網址），A 摘要與 B／C 編輯器顯示來源 ID／名稱。沒有同類型素材時不跨類型替換。
+- B／C 初始化複製 A，此後 A 改動不覆蓋 B／C；只有使用者明確還原才複製 A。慢速素材回應受編輯器與 request revision 檢查，不能覆蓋較新選擇／還原。
+- 普通 A/B 與 Campaign Testing 都可在測試發送區選版本；最終 cfg 由選定版本取得。正式批次仍保存 message_config／variant_b_message_config；sender 依收件人 variant 建立訊息，追蹤跳板按該版本快照反查原 URL，保留 UTM。
+- 已合併的來源 ID 安全修正保留（HTML attribute escaping、legacy 編號驗證），本次擴充至非卡片段落的來源 metadata 與 source_item_index（0～4）驗證；無 migration。
+- 測試涵蓋同圖不同 action URL、六種 slot 類型、A 改動不覆蓋 B、測試發送選 B、正式批次快照、追蹤 URL 反查、實際 shared sender 的 HTTP payload（mock fetch，沒有對真人發送）。

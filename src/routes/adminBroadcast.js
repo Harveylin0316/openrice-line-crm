@@ -842,7 +842,7 @@ function registerAdminBroadcastRoutes(app, deps) {
   app.get('/admin/broadcast/templates', requireAdmin, async (_req, res) => {
     try {
       const rs = await query(
-        `SELECT id, name, description, created_by, created_at,
+        `SELECT id, name, description, created_by, created_at, updated_at, message_config,
                 COALESCE(message_config->>'mode', 'template') AS mode
          FROM admin_message_templates
          ORDER BY id DESC`
