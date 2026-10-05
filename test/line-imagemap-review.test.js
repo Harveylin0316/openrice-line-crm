@@ -267,7 +267,7 @@ test('#4 從滿版圖文換成一般卡片素材：編輯區收起、進階區�
   doc.querySelector('[data-msg-style="imagemap"]').click();
   await pickLibrary(61);                                     // 先載入滿版圖文
   assert.equal(doc.getElementById('pane-imagemap').hidden, false);
-  assert.equal(doc.getElementById('message-testing-settings').hidden, true);
+  assert.equal(doc.getElementById('message-testing-settings').hidden, false);
   // 換成多段 → 再換回滿版 → 切卡片：每一步都不殘留
   await pickLibrary(62);
   assert.equal(doc.getElementById('pane-imagemap').hidden, true);

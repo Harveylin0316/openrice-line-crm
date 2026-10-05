@@ -279,7 +279,7 @@ function buildYellowFlexFromTemplate(t, { heroImageUrl, heroIsBrandBar } = {}) {
  * messageConfig: { mode: 'template'|'flex_json'|'sequence', template?: {...}, flex?: {...}, items?: [...] }
  * heroImageBaseUrl: 用來組 hero 圖的 https 公開網址（line_push_media）
  * broadcastId: 若提供且 template 模式有 CTA，會把 CTA URL 包成 /r/b/<id> 中介 redirect
- *              （給點擊追蹤用）。flex_json 模式不包，由 user 自行用 utm 追蹤。
+ *              （給點擊追蹤用）。自訂 Flex／多段／imagemap 也逐顆包 URI 並以快照反查。
  * variant: 'a' | 'b' | 'c' | undefined — Campaign Testing 時帶入；URL 會加 ?v=<variant> 標記，
  *          給 redirect / view endpoint 寫進對應的 variant 欄位。
  */

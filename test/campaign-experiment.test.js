@@ -105,8 +105,7 @@ test('Campaign Testing UI exposes A/B/C, custom ratios, observation window and p
   ].forEach((id) => assert.match(view, new RegExp(`id="${id}"`)));
   assert.match(script, /variant_c_message_config/);
   assert.match(script, /collectSelectedTestMessageConfig/);
-  // 送出前檢查與伺服器一致：一般卡片與多段訊息可以，其餘格式擋下並說明替代做法
-  assert.match(script, /state\.mode !== 'template' && state\.mode !== 'sequence'/);
-  assert.match(script, /Campaign Testing 目前支援「一般卡片」與「多段訊息」/);
+  assert.match(script, /\['template', 'sequence', 'flex_json', 'imagemap'\]\.indexOf\(state\.mode\)/);
+  assert.doesNotMatch(script, /無法可靠追蹤每顆自訂 CTA/);
   assert.doesNotMatch(script, /Campaign Testing 目前請使用一般訊息編輯器/);
 });
