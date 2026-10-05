@@ -217,7 +217,7 @@ test('直接貼超過 5000 個 LINE User ID 會擋下，不會建立只含前 50
   assert.equal(ctx.calls.query.length, 0);
 });
 
-test('Campaign Testing 只接受可逐人追蹤 CTR 的一般訊息，不讓 Flex JSON 靜默選錯 Winner', async () => {
+test('Campaign Testing 自訂 Flex 必須有可追蹤 CTA，不讓無連結素材靜默選 Winner', async () => {
   const ctx = build();
   const res = await run(ctx.routes['POST /admin/broadcast/create'], {
     send_mode: 'immediate',
@@ -234,7 +234,7 @@ test('Campaign Testing 只接受可逐人追蹤 CTR 的一般訊息，不讓 Fle
   });
 
   assert.equal(res.statusCode, 400);
-  assert.equal(res.body.error, 'campaign_experiment_requires_tracked_template');
+  assert.equal(res.body.error, 'campaign_experiment_requires_cta_button');
   assert.equal(ctx.calls.query.length, 0);
 });
 

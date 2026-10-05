@@ -98,13 +98,8 @@
     advancedJsonBlock.addEventListener('toggle', function () {
       if (state.suppressAdvancedToggle) return;
       var open = advancedJsonBlock.open;
-      if (open && state.campaignTestEnabled) {
-        var modeWarning = $('campaign-mode-warning');
-        if (modeWarning) {
-          modeWarning.hidden = false;
-          modeWarning.textContent = '這個 Flex 素材可以繼續編輯與預覽，但 Campaign Testing 無法可靠追蹤每顆自訂 CTA，因此正式送出會被鎖定。請改用一般訊息編輯器，或先關閉 Campaign Testing。';
-        }
-      }
+      var modeWarning = $('campaign-mode-warning');
+      if (modeWarning) modeWarning.hidden = true;
       state.mode = open ? 'flex_json' : 'template';
       // 黃色模板區跟 JSON 區互斥（一次只顯示一種）
       $('pane-template').hidden = open;
@@ -112,7 +107,7 @@
       $('pane-b-flex-json').hidden = !open;
       if ($('pane-c-template')) $('pane-c-template').hidden = open;
       if ($('pane-c-flex-json')) $('pane-c-flex-json').hidden = !open;
-      if (state.abTestEnabled || state.campaignTestEnabled) syncVariantLibraryRows();
+      syncSeqVariantPanes();
       state.messagePreviewed = false;
       updateSendButton();
       saveDraft();
@@ -138,12 +133,7 @@
   function updateCampaignTestUI() {
     var enabled = $('campaign-test-enable').checked;
     var modeWarning = $('campaign-mode-warning');
-    if (enabled && state.mode === 'flex_json') {
-      if (modeWarning) {
-        modeWarning.hidden = false;
-        modeWarning.textContent = '目前是進階 Flex JSON：可以預覽，但 Campaign Testing 無法可靠追蹤每顆自訂 CTA，正式送出會被鎖定。請改用一般訊息編輯器，或關閉 Campaign Testing。';
-      }
-    } else if (modeWarning) {
+    if (modeWarning) {
       modeWarning.hidden = true;
       modeWarning.textContent = '';
     }
@@ -826,6 +816,7 @@
   }
 
   function collectVariantBMessageConfig() {
+    if (state.mode === 'imagemap') return seqClone(ensureSeqVariant('b').items[0].message_config);
     if (state.mode === 'sequence' && state.sequenceConfig) return seqClone(ensureSeqVariant('b'));
     if (state.mode === 'flex_json') {
       var raw = $('b-flex-json').value;
@@ -852,6 +843,7 @@
   }
 
   function collectVariantCMessageConfig() {
+    if (state.mode === 'imagemap') return seqClone(ensureSeqVariant('c').items[0].message_config);
     if (state.mode === 'sequence' && state.sequenceConfig) return seqClone(ensureSeqVariant('c'));
     if (state.mode === 'flex_json') {
       var raw = $('c-flex-json').value;
@@ -935,6 +927,14 @@
   // ------------------------------------------------------------------
   state.seqVariants = { b: null, c: null };
   state.seqVariantsEdited = { b: false, c: false };
+  // 使用同一個逐段編輯器，但單張 imagemap 與多段素材分開保存，避免切換格式時互相污染。
+  state.imVariants = { b: null, c: null };
+  function variantStore() { return state.mode === 'imagemap' ? state.imVariants : state.seqVariants; }
+  function variantSource() {
+    return state.mode === 'imagemap'
+      ? { mode: 'sequence', items: [{ type: 'card', message_config: collectImagemapConfig() }] }
+      : state.sequenceConfig;
+  }
 
   // 訊息庫清單（含格式 mode）：B／C 版「整張換掉」時只列出跟要換的那一格同格式的素材
   var libraryListPromise = null;
@@ -1018,11 +1018,14 @@
     cur[path[path.length - 1]] = value;
   }
   function ensureSeqVariant(key) {
-    if (!state.seqVariants[key] && state.sequenceConfig) state.seqVariants[key] = seqClone(state.sequenceConfig);
-    return state.seqVariants[key];
+    var store = variantStore(), source = variantSource();
+    // 先開測試、再上傳 A 圖片時，不把「尚未上傳」永久凍成 B/C。
+    if (state.mode === 'imagemap' && !store[key] && imagemapClientError()) return seqClone(source);
+    if (!store[key] && source) store[key] = seqClone(source);
+    return store[key];
   }
   function resetSeqVariant(key) {
-    state.seqVariants[key] = seqClone(state.sequenceConfig);
+    variantStore()[key] = seqClone(variantSource());
     state.seqVariantsEdited[key] = false;
     renderSeqVariantEditor(key);
     state.messagePreviewed = false;
@@ -1085,17 +1088,34 @@
       });
       return fields;
     }
+    if (mc.mode === 'imagemap' && mc.imagemap) {
+      var imFields = [{ label: '通知預覽文字', path: mp.concat(['imagemap', 'altText']) }];
+      (mc.imagemap.areas || []).forEach(function (area, n) {
+        imFields.push({ label: '區域 ' + (n + 1) + (area.type === 'message' ? ' 傳送文字' : ' 連結'),
+          path: mp.concat(['imagemap', 'areas', n, area.type === 'message' ? 'text' : 'uri']) });
+        imFields.push({ label: '區域 ' + (n + 1) + ' 標籤', path: mp.concat(['imagemap', 'areas', n, 'label']) });
+      });
+      return imFields;
+    }
     return [];
   }
   function renderSeqVariantEditor(key) {
     var pane = $('pane-' + key + '-sequence');
     if (!pane) return;
-    var a = state.sequenceConfig;
+    if (state.mode === 'imagemap' && !state.imVariants[key] && imagemapClientError()) {
+      pane.innerHTML = '<p class="muted">請先完成版本 A 的圖片、通知文字與點擊區連結，系統就會複製成版本 ' + key.toUpperCase() + '，再修改要比較的內容。</p>';
+      return;
+    }
+    var a = variantSource();
+    var editorMode = state.mode;
+    var aSnapshot = JSON.stringify(a);
     var v = ensureSeqVariant(key);
     if (!a || !v) { pane.innerHTML = ''; return; }
     var typeNames = { text: '文字', image: '圖片', video: '影片', card: '卡片' };
     var label = key.toUpperCase();
-    var html = '<p class="seq-var-intro">版本 ' + label + ' 先完整沿用 A 版的每一段，只改你要測試的地方即可；初始段數與順序和 A 版相同，之後各版本獨立保存。改過的欄位會標成黃色。</p>';
+    var html = '<p class="seq-var-intro">版本 ' + label + (editorMode === 'imagemap'
+      ? ' 先沿用 A 版的圖片與點擊區。可換成另一張滿版圖文，或只改下方連結；各版本獨立保存。'
+      : ' 先完整沿用 A 版的每一段，只改你要測試的地方即可；初始段數與順序和 A 版相同，之後各版本獨立保存。改過的欄位會標成黃色。') + '</p>';
     (v.items || []).forEach(function (vItem, i) {
       var item = (a.items || [])[i];
       var fields = seqFieldsForItem(vItem, i);
@@ -1103,7 +1123,7 @@
       var swapped = vItem && item && vItem.type === 'card' && JSON.stringify(vItem.message_config) !== JSON.stringify(item.message_config) &&
         (vItem.source_message_id !== item.source_message_id || (vItem.message_config && item.message_config && vItem.message_config.mode !== item.message_config.mode));
       html += '<div class="seq-var-item' + (changed ? ' changed' : '') + '" data-seq-item="' + i + '">' +
-        '<div class="seq-var-head"><span>第 ' + (i + 1) + ' 段 · ' + (SLOT_TYPES[slotType(vItem)] || '內容') + '</span>' +
+        '<div class="seq-var-head"><span>' + (editorMode === 'imagemap' ? '滿版圖文內容' : '第 ' + (i + 1) + ' 段 · ' + (SLOT_TYPES[slotType(vItem)] || '內容')) + '</span>' +
         (changed ? '<span class="seq-var-tag">已修改</span>' : '') + '</div>';
       // 整段操作：卡片可整張換成訊息庫的其他卡片；圖片可上傳新圖；任何一段都能單獨恢復成 A 版
       html += '<div class="seq-var-ops">';
@@ -1114,7 +1134,7 @@
         html += '<input type="file" accept="image/png,image/jpeg" data-seq-upload="' + i + '" hidden />' +
           '<button type="button" class="btn" data-seq-upload-btn="' + i + '">上傳新圖片</button>';
       }
-      if (item) html += '<button type="button" class="btn" data-seq-item-reset="' + i + '"' + (changed ? '' : ' hidden') + '>這段恢復成 A 版</button>';
+      if (item) html += '<button type="button" class="btn" data-seq-item-reset="' + i + '"' + (changed ? '' : ' hidden') + '>' + (editorMode === 'imagemap' ? '這張恢復成 A 版' : '這段恢復成 A 版') + '</button>';
       else html += '<span class="muted">A 版沒有這一段；此段保留原內容。需要全部改回 A 版時，請用下方整版還原。</span>';
       html += '</div>';
       if (vItem.source_message_id) html += '<div class="seq-var-src">目前素材：' + escapeHtml(vItem.source_name || '已儲存素材') + ' · 訊息 #' + escapeHtml(String(vItem.source_message_id)) + '</div>';
@@ -1155,15 +1175,15 @@
             seqSet(target, itemPath.concat(['previewImageUrl']), el.value);
           }
         }
-        state.seqVariantsEdited[key] = JSON.stringify(target) !== JSON.stringify(state.sequenceConfig);
+        state.seqVariantsEdited[key] = JSON.stringify(target) !== JSON.stringify(variantSource());
         var stateEl = pane.querySelector('.seq-var-state');
         if (stateEl) stateEl.textContent = state.seqVariantsEdited[key] ? '已修改，與 A 版不同' : '目前與 A 版相同';
         var field = el.closest('.seq-var-field');
-        if (field) field.classList.toggle('changed', String(el.value) !== String(seqGet(state.sequenceConfig, path) == null ? '' : seqGet(state.sequenceConfig, path)));
+        if (field) field.classList.toggle('changed', String(el.value) !== String(seqGet(variantSource(), path) == null ? '' : seqGet(variantSource(), path)));
         var box = el.closest('.seq-var-item');
         if (box) {
           var idx = Number(box.getAttribute('data-seq-item'));
-          var itemChanged = JSON.stringify(target.items[idx]) !== JSON.stringify(state.sequenceConfig.items[idx]);
+          var itemChanged = JSON.stringify(target.items[idx]) !== JSON.stringify(variantSource().items[idx]);
           box.classList.toggle('changed', itemChanged);
           var head = box.querySelector('.seq-var-head');
           var tag = head && head.querySelector('.seq-var-tag');
@@ -1182,7 +1202,7 @@
     if (resetBtn) resetBtn.addEventListener('click', function () { resetSeqVariant(key); });
     var afterSegmentChange = function () {
       var target = ensureSeqVariant(key);
-      state.seqVariantsEdited[key] = JSON.stringify(target) !== JSON.stringify(state.sequenceConfig);
+      state.seqVariantsEdited[key] = JSON.stringify(target) !== JSON.stringify(variantSource());
       renderSeqVariantEditor(key);
       state.messagePreviewed = false;
       updateSendButton();
@@ -1192,14 +1212,15 @@
     // Resetting, switching A, or rebuilding the editor invalidates pending work.
     // A late upload/library response must never undo the user's newer choice.
     var isCurrentEditor = function (control) {
-      return state.mode === 'sequence' && state.sequenceConfig === a &&
-        state.seqVariants[key] === v && pane.contains(control);
+      return state.mode === editorMode && JSON.stringify(variantSource()) === aSnapshot &&
+        variantStore()[key] === v && pane.contains(control);
     };
     Array.prototype.forEach.call(pane.querySelectorAll('[data-seq-item-reset]'), function (btn) {
       btn.addEventListener('click', function () {
         var i = Number(btn.getAttribute('data-seq-item-reset'));
-        if (!state.sequenceConfig.items[i]) return;
-        ensureSeqVariant(key).items[i] = seqClone(state.sequenceConfig.items[i]);
+        var source = variantSource();
+        if (!source || !source.items[i]) return;
+        ensureSeqVariant(key).items[i] = seqClone(source.items[i]);
         afterSegmentChange();
       });
     });
@@ -1286,7 +1307,7 @@
 
   // ---- 單張卡片的 A 版（一般卡片／自訂卡片）：B／C 可從訊息庫套用「同格式」素材到編輯區 ----
   function syncVariantLibraryRows() {
-    var seq = state.mode === 'sequence';
+    var seq = state.mode === 'sequence' || state.mode === 'imagemap';
     var aMode = state.mode === 'flex_json' ? 'flex_json' : 'template';
     ['b', 'c'].forEach(function (key) {
       var row = $(key + '-lib-row');
@@ -1296,6 +1317,7 @@
       var sel = $(key + '-lib-select');
       loadLibraryList().then(function (list) {
         if (state.mode === 'sequence' || (state.mode === 'flex_json' ? 'flex_json' : 'template') !== aMode) return;
+        if (state.mode === 'imagemap') return;
         sel.innerHTML = libraryOptionsHtml(list, [aMode], '選擇同格式（' + MODE_NAMES[aMode] + '）的素材…');
       });
     });
@@ -1362,7 +1384,7 @@
   });
   function syncSeqVariantPanes() {
     if (typeof syncVariantLibraryRows === 'function' && (state.abTestEnabled || state.campaignTestEnabled)) syncVariantLibraryRows();
-    var seq = state.mode === 'sequence' && !!state.sequenceConfig;
+    var seq = (state.mode === 'sequence' && !!state.sequenceConfig) || state.mode === 'imagemap';
     var adv = document.getElementById('advanced-json-block');
     var flexOpen = !!(adv && adv.open);
     ['b', 'c'].forEach(function (key) {
@@ -1380,7 +1402,7 @@
 
   // 開啟 A/B/C 時，空白版本先複製 A，讓預覽立即可用；已編輯過的版本絕不覆蓋。
   function seedBlankExperimentVariants(config) {
-    if (config && config.mode === 'sequence') {
+    if (config && (config.mode === 'sequence' || config.mode === 'imagemap')) {
       if (state.abTestEnabled) ensureSeqVariant('b');
       if (state.campaignTestEnabled && state.campaignVariantCount === 3) ensureSeqVariant('c');
       syncSeqVariantPanes();
@@ -1389,6 +1411,7 @@
     if (!messageConfigHasContent(config)) return;
     if (state.abTestEnabled) copyMessageConfigToVariant(config, 'b');
     if (state.campaignTestEnabled && state.campaignVariantCount === 3) copyMessageConfigToVariant(config, 'c');
+    syncSeqVariantPanes();
   }
 
   function collectSelectedTestMessageConfig() {
@@ -1533,7 +1556,10 @@
     'msg-alt-text'
   ].forEach(function (id) {
     var el = $(id);
-    if (el) el.addEventListener('input', schedulePreview);
+    if (el) el.addEventListener('input', function () {
+      if (id === 'msg-alt-text' && state.mode === 'imagemap') imChanged();
+      else schedulePreview();
+    });
   });
 
   // 配色盤的色塊在 renderColorPalette() 內各自綁定 input 事件。
@@ -2767,7 +2793,7 @@
       duplicate_line_user_id: '這個 LINE userId 已在清單',
       invalid_recipient_selection: '指定發送人數不正確',
       audience_changed_repreview: '收件名單在預覽後有變動，請重新預覽',
-      campaign_experiment_requires_tracked_template: 'Campaign Testing 請使用一般訊息編輯器或訊息庫的多段訊息，才能可靠計算 CTA 點擊率',
+      campaign_experiment_requires_tracked_template: '此訊息格式不支援 Campaign Testing；請使用一般卡片、自訂 Flex、多段訊息或滿版圖文',
       file_too_large_max_4mb: '圖片超過 4 MB（系統主機單次上傳上限約 4.5 MB）',
       image_unreadable: '讀不到這張圖片，請改用 PNG 或 JPEG',
       image_too_large_pixels: '圖片尺寸過大（單邊超過 4096 px），請縮小後再上傳',
@@ -3104,6 +3130,9 @@
     return a;
   }
   function imChanged() {
+    if (state.mode === 'imagemap' && (state.abTestEnabled || state.campaignTestEnabled)) {
+      seedBlankExperimentVariants(collectImagemapConfig());
+    }
     state.messagePreviewed = false;
     updateSendButton();
     saveDraft();
@@ -3227,12 +3256,9 @@
       state.mode = 'imagemap';
       $('pane-template').hidden = true;
       if (adv) { if (adv.open) { state.suppressAdvancedToggle = true; adv.open = false; setTimeout(function () { state.suppressAdvancedToggle = false; }, 0); } adv.hidden = true; }
-      // 第一版不支援 A/B：開著就關掉並告知
-      var hadTest = state.abTestEnabled || state.campaignTestEnabled;
-      if ($('campaign-test-enable') && $('campaign-test-enable').checked) { $('campaign-test-enable').checked = false; updateCampaignTestUI(); }
-      if ($('ab-test-enable') && $('ab-test-enable').checked) { $('ab-test-enable').checked = false; $('ab-test-enable').dispatchEvent(new Event('change')); }
-      if (testing) testing.hidden = true;
-      if (hadTest && !(opts && opts.silent)) imSetStatus('滿版圖文訊息目前不支援 A/B 測試，已關閉 A/B 設定');
+      if (testing) testing.hidden = false;
+      seedBlankExperimentVariants(collectImagemapConfig());
+      syncSeqVariantPanes();
       imRender();
     } else {
       imBumpMaterial();
@@ -3242,6 +3268,7 @@
       }
       if (adv) adv.hidden = state.mode === 'sequence';
       if (testing) testing.hidden = false;
+      syncSeqVariantPanes();
     }
     if (!(opts && opts.silent)) imChanged();
   }
@@ -3537,13 +3564,8 @@
       return;
     }
     if (messageConfig.mode === 'flex_json') {
-      if (state.campaignTestEnabled) {
-        var warning = $('campaign-mode-warning');
-        if (warning) {
-          warning.hidden = false;
-          warning.textContent = '這個素材是進階 Flex JSON：可以預覽，但無法可靠追蹤每顆 CTA，因此 Campaign Testing 正式送出會被鎖定。請改用一般訊息模板，或關閉 Campaign Testing。';
-        }
-      }
+      var warning = $('campaign-mode-warning');
+      if (warning) warning.hidden = true;
       // 自動展開「進階模式」details + 切到 flex_json mode
       var advBlock = document.getElementById('advanced-json-block');
       if (advBlock && !advBlock.open) advBlock.open = true;
@@ -3733,8 +3755,9 @@
     }
     if (state.campaignTestEnabled) {
       if (getActiveChannel() !== 'line') return { ok: false, reason: 'Campaign Testing 目前只支援 LINE 推播' };
-      if (state.mode !== 'template') {
-        return { ok: false, reason: 'Campaign Testing 目前請使用一般訊息編輯器；進階 Flex JSON 無法可靠追蹤每顆自訂按鈕的 CTR', focusEl: 'advanced-json-block' };
+      // 每版是否有可追蹤網址，仍由伺服器與 LINE 訊息驗證把關。
+      if (['template', 'sequence', 'flex_json', 'imagemap'].indexOf(state.mode) < 0) {
+        return { ok: false, reason: '這個訊息格式尚不支援 Campaign Testing', focusEl: 'message-testing-settings' };
       }
       var a = Number($('campaign-weight-a').value || 0);
       var b = Number($('campaign-weight-b').value || 0);
@@ -4085,6 +4108,7 @@
         imagemap: state.mode === 'imagemap' ? collectImagemapConfig().imagemap : null,
         seqVariants: state.mode === 'sequence' ? seqClone(state.seqVariants) : null,
         seqVariantsEdited: state.mode === 'sequence' ? seqClone(state.seqVariantsEdited) : null,
+        imVariants: state.mode === 'imagemap' ? seqClone(state.imVariants) : null,
         hero: { mediaId: state.heroMediaId || null, url: state.heroUrl || null },
         template: {
           title: $('tpl-title').value,
@@ -4241,6 +4265,12 @@
       } else if (d.mode === 'imagemap' && d.imagemap) {
         loadImagemapConfig({ imagemap: d.imagemap });
         setMessageStyle('imagemap', { silent: true });
+        ['b', 'c'].forEach(function (key) {
+          var saved = d.imVariants && d.imVariants[key];
+          if (saved && saved.mode === 'sequence' && Array.isArray(saved.items) && saved.items.length === 1 &&
+              slotType(saved.items[0]) === 'imagemap') state.imVariants[key] = seqClone(saved);
+        });
+        syncSeqVariantPanes();
       } else if (d.mode === 'flex_json') {
         // 展開進階 JSON 區塊會觸發其 toggle handler，把 state.mode 設成 flex_json
         var advBlock = document.getElementById('advanced-json-block');

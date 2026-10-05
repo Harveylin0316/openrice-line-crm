@@ -1397,8 +1397,8 @@ function registerAdminBroadcastRoutes(app, deps) {
       const experiment = normalizedExperiment.value;
       // Campaign Testing 以 CTA 點擊率選勝出：一般模板與訊息庫多段訊息都會逐顆追蹤按鈕；
       // 每個版本至少要有一顆「開啟網址」按鈕，否則點擊率永遠是 0、勝出沒有意義。
-      // （自訂 Flex JSON 維持原本限制。）
-      const experimentModeOk = (cfg) => Boolean(cfg && (cfg.mode === 'template' || cfg.mode === 'sequence'));
+      // 自訂 Flex 與原生 imagemap 共用逐顆 URI 追蹤與快照反查，不再沿用舊格式限制。
+      const experimentModeOk = (cfg) => Boolean(cfg && ['template', 'sequence', 'flex_json', 'imagemap'].includes(cfg.mode));
       const hasTrackableButton = (cfg) => {
         try { return listBroadcastButtons(cfg, { heroImageBaseUrl: origin }).length > 0; } catch (e) { return false; }
       };

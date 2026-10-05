@@ -245,13 +245,13 @@ async function openComposer() {
   return { dom, window, doc: window.document, previews };
 }
 
-test('選「滿版圖文訊息」：顯示專屬編輯區、隱藏卡片欄位與 A/B；上傳後選上下兩區、填網址，預覽送出原生 imagemap', async () => {
+test('選「滿版圖文訊息」：顯示專屬編輯區與 A/B、隱藏卡片欄位；上傳後選上下兩區、填網址，預覽送出原生 imagemap', async () => {
   const { dom, window, doc, previews } = await openComposer();
   doc.querySelector('[data-msg-style="imagemap"]').click();
   assert.equal(doc.getElementById('pane-imagemap').hidden, false);
   assert.equal(doc.getElementById('pane-template').hidden, true);
   assert.equal(doc.getElementById('advanced-json-block').hidden, true);
-  assert.equal(doc.getElementById('message-testing-settings').hidden, true, '第一版不開放 A/B');
+  assert.equal(doc.getElementById('message-testing-settings').hidden, false, '單張滿版圖文也可設定 A/B');
 
   const file = new window.File(['x'], 'rich.png', { type: 'image/png' });
   Object.defineProperty(doc.getElementById('im-file'), 'files', { value: [file] });

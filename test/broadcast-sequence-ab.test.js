@@ -365,7 +365,7 @@ test('較慢的舊預覽不得覆蓋新內容；最新預覽失敗時不得沿�
 });
 
 // ---------- 伺服器：建立批次 ----------
-function harness() {
+function harness(opts = {}) {
   const routes = {};
   const app = ['get', 'post', 'put', 'delete'].reduce((o, m) => { o[m] = (p, ...h) => { routes[m.toUpperCase() + ' ' + p] = h; }; return o; }, {});
   const audience = [1, 2, 3, 4].map(i => ({ user_id: i, line_user_id: 'U' + String(i).repeat(32) }));
@@ -381,14 +381,14 @@ function harness() {
   registerAdminBroadcastRoutes(app, {
     query: exec, pool: { connect: async () => ({ query: exec, release() {} }) },
     authCore: { requireAdmin: (_q, _s, n) => n() },
-    linePush: { validatePushMessages: async () => ({ ok: true }), pushLineMessages: async () => true },
+    linePush: { validatePushMessages: opts.validate || (async () => ({ ok: true })), pushLineMessages: async () => true },
     emailProvider: { isConfigured: () => false }, lineChannelAccessToken: 'token',
     resolvePublicSiteOrigin: () => 'https://crm.example'
   });
   return { routes, inserted };
 }
-async function create(body) {
-  const { routes, inserted } = harness();
+async function create(body, opts) {
+  const { routes, inserted } = harness(opts);
   const res = { statusCode: 200, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; } };
   const req = { body, params: {}, query: {}, authUser: { uid: 1, un: 'admin' }, get: () => 'crm.example' };
   for (const h of routes['POST /admin/broadcast/create']) {
@@ -568,4 +568,244 @@ test('actual shared sender keeps same-image A/B native payloads and UTM URLs',as
   assert.equal(requests[0].messages[1].baseUrl,requests[1].messages[1].baseUrl);
   for(const [i,v] of ['a','b'].entries())assert.equal(requests[i].messages[1].actions[0].linkUri,'https://example.com/?variant='+v+'&utm_source=staging');
  }finally{global.fetch=originalFetch;}
+});
+
+test('Campaign Testing：文字＋滿版圖文的多段訊息可以通過送出前檢查（以前被誤擋成「進階 Flex JSON」）', async () => {
+  const IMAGEMAP_SEQ = { mode: 'sequence', items: [
+    { type: 'text', text: 'STAGING 文字' },
+    { type: 'card', source_message_id: 71, source_name: 'STAGING Imagemap A', message_config: { mode: 'imagemap', imagemap: {
+      assetId: '9b8a7c6d-5e4f-4321-b0a9-8c7d6e5f4a3b', baseWidth: 1040, baseHeight: 1040, altText: 'STAGING', layout: 'full',
+      areas: [{ type: 'uri', uri: 'https://example.com/?variant=a', x: 0, y: 0, width: 1040, height: 1040 }] } } }] };
+  const alerts = [];
+  const { dom, window, doc } = await openWithSequence({
+    aConfig: IMAGEMAP_SEQ,
+    fetchOverride: (url) => url === '/admin/broadcast/audience/preview' ? { json: async () => ({ ok: true, total: 20, users: [] }) } : null
+  });
+  try {
+    window.alert = (m) => alerts.push(String(m));
+    doc.getElementById('btn-preview-audience').click();
+    await wait(80);
+    doc.getElementById('campaign-test-enable').checked = true;
+    doc.getElementById('campaign-test-enable').dispatchEvent(new window.Event('change'));
+    await wait(700);
+    doc.getElementById('btn-send').click();
+    await wait(50);
+    assert.equal(alerts.length, 0, alerts.join(' | '));
+    assert.equal(doc.getElementById('send-confirm-overlay').hidden, false);
+    assert.doesNotMatch(alerts.join(' '), /進階 Flex JSON/);
+  } finally { dom.window.close(); }
+});
+
+test('Campaign Testing：進階 Flex JSON 可通過確認，不再顯示過時的追蹤警告', async () => {
+  const alerts = [];
+  const flex = { mode: 'flex_json', flex: { type: 'flex', altText: 'x', contents: { type: 'bubble', body: { type: 'box', layout: 'vertical',
+    contents: [{ type: 'button', action: { type: 'uri', label: 'go', uri: 'https://example.com' } }] } } } };
+  const { dom, window, doc } = await openWithSequence({
+    aConfig: flex,
+    fetchOverride: (url) => url === '/admin/broadcast/audience/preview' ? { json: async () => ({ ok: true, total: 20, users: [] }) } : null
+  });
+  try {
+    window.alert = (m) => alerts.push(String(m));
+    doc.getElementById('btn-preview-audience').click();
+    await wait(80);
+    doc.getElementById('campaign-test-enable').checked = true;
+    doc.getElementById('campaign-test-enable').dispatchEvent(new window.Event('change'));
+    await wait(700);
+    doc.getElementById('btn-send').click();
+    await wait(50);
+    assert.equal(alerts.length, 0, alerts.join(' | '));
+    assert.equal(doc.getElementById('campaign-mode-warning').hidden, true);
+    assert.equal(doc.getElementById('send-confirm-overlay').hidden, false);
+  } finally { dom.window.close(); }
+});
+
+test('單張 Imagemap A/B/C：獨立圖片／連結／測試發送／預覽與草稿，並可進入 Campaign Testing 確認', async () => {
+  const a = richConfig('a');
+  const b = richConfig('b');
+  b.imagemap.assetId = '11111111-2222-4333-8444-555555555555';
+  b.imagemap.baseHeight = 1040;
+  b.imagemap.areas[0].height = 1040;
+  const assets = [
+    { id: 42, name: 'A 滿版', mode: 'imagemap', message_config: a },
+    { id: 62, name: 'B 滿版', mode: 'imagemap', message_config: b },
+    { ...LIB_ITEMS[51], mode: 'flex_json' }
+  ];
+  const sends = [], alerts = [];
+  const override = (url, options) => {
+    if (url === '/admin/broadcast/templates') return { json: async () => ({ ok: true, templates: assets }) };
+    const found = assets.find(x => url === '/admin/broadcast/templates/' + x.id);
+    if (found) return { json: async () => ({ ok: true, template: found }) };
+    if (url === '/admin/broadcast/audience/preview') return { json: async () => ({ ok: true, total: 20, users: [] }) };
+    if (url === '/admin/broadcast/test-push') {
+      sends.push(JSON.parse(options.body)); return { json: async () => ({ ok: true }) };
+    }
+    if (url === '/admin/broadcast/preview-message') {
+      const cfg = JSON.parse(options.body).message_config;
+      const built = buildLineMessages(cfg, { heroImageBaseUrl: 'https://crm.example' });
+      return { json: async () => ({ ...built, channel: 'line' }) };
+    }
+  };
+  const page = await openWithSequence({ aConfig: a, fetchOverride: override });
+  let restored;
+  try {
+    const { doc, window } = page;
+    window.alert = m => alerts.push(String(m));
+    assert.equal(doc.getElementById('message-testing-settings').hidden, false);
+    doc.getElementById('campaign-test-enable').checked = true;
+    doc.getElementById('campaign-test-enable').dispatchEvent(new window.Event('change'));
+    doc.getElementById('campaign-variant-count').value = '3';
+    doc.getElementById('campaign-variant-count').dispatchEvent(new window.Event('change'));
+    doc.getElementById('campaign-weight-c').value = '10';
+    doc.getElementById('campaign-weight-holdout').value = '70';
+    doc.getElementById('campaign-weight-c').dispatchEvent(new window.Event('input'));
+    await wait(100);
+    const picker = doc.querySelector('#pane-b-sequence [data-seq-swap="0"]');
+    assert.equal(doc.getElementById('pane-b-template').hidden, true);
+    assert.equal(doc.getElementById('b-lib-row').hidden, true);
+    assert.ok([...picker.options].some(o => o.value === '62'));
+    assert.ok(![...picker.options].some(o => o.value === '51'), '不得混入 Flex 素材');
+    picker.value = '62'; picker.dispatchEvent(new window.Event('change'));
+    await wait(650);
+    const cLink = [...doc.querySelectorAll('#pane-c-sequence [data-seq-path]')].find(el => el.value.includes('variant=a'));
+    cLink.value = 'https://example.com/?variant=c&utm_source=qa';
+    cLink.dispatchEvent(new window.Event('input'));
+    await wait(650);
+    const draft = JSON.parse(window.localStorage.getItem('broadcast_draft_v1'));
+    assert.equal(draft.mode, 'imagemap');
+    assert.equal(draft.imVariants.b.items[0].message_config.imagemap.assetId, b.imagemap.assetId);
+    assert.equal(draft.imVariants.c.items[0].message_config.imagemap.areas[0].uri, cLink.value);
+    assert.equal(draft.imagemap.areas[0].uri, a.imagemap.areas[0].uri);
+    const images = [...doc.querySelectorAll('#msg-preview img')].map(el => el.getAttribute('src'));
+    assert.ok(images.some(src => src.includes(b.imagemap.assetId)));
+    assert.ok(images.some(src => src.includes(a.imagemap.assetId)));
+    doc.getElementById('test-campaign-variant').value = 'b';
+    doc.getElementById('btn-test-push').click(); await wait(40);
+    assert.equal(sends[0].message_config.mode, 'imagemap');
+    assert.equal(sends[0].message_config.imagemap.assetId, b.imagemap.assetId);
+    restored = await openWithSequence({ draft, aConfig: a, fetchOverride: override });
+    const savedAgain = JSON.parse(restored.window.localStorage.getItem('broadcast_draft_v1'));
+    assert.equal(savedAgain.imVariants.b.items[0].message_config.imagemap.assetId, b.imagemap.assetId);
+    assert.equal(restored.doc.getElementById('campaign-test-enable').checked, true);
+    // 改 A 圖片、再改回，不覆蓋已編輯的 B/C。
+    doc.getElementById('template-select').value = '42';
+    doc.getElementById('template-select').dispatchEvent(new window.Event('change'));
+    await wait(650);
+    assert.match(doc.querySelector('#pane-b-sequence').textContent, /B 滿版/);
+    doc.getElementById('btn-preview-audience').click(); await wait(80);
+    doc.getElementById('btn-send').click(); await wait(30);
+    assert.equal(alerts.length, 0, alerts.join(' | '));
+    assert.equal(doc.getElementById('send-confirm-overlay').hidden, false);
+    doc.querySelector('#pane-b-sequence [data-seq-reset="b"]').click();
+    await wait(600);
+    const reset = JSON.parse(window.localStorage.getItem('broadcast_draft_v1'));
+    assert.equal(reset.imVariants.b.items[0].message_config.imagemap.assetId, a.imagemap.assetId);
+  } finally { page.dom.window.close(); if (restored) restored.dom.window.close(); }
+});
+
+for (const mode of ['flex_json', 'imagemap']) {
+  test('Campaign Testing 建立 ' + mode + ' A/B/C，保留各版快照與 CTA 歸屬', async () => {
+    const configs = Object.fromEntries(['a', 'b', 'c'].map(v => [v, mode === 'imagemap' ? richConfig(v)
+      : { mode: 'flex_json', flex: card(v, 'https://example.com/?variant=' + v) }]));
+    const result = await create({ channel: 'line', conditions: { allMembers: true },
+      message_config: configs.a, variant_b_message_config: configs.b, variant_c_message_config: configs.c,
+      campaign_experiment: { enabled: true, variant_count: 3, observation_hours: 24,
+        metric: 'ctr', allocations: { a: 10, b: 10, c: 10, holdout: 70 } } });
+    assert.equal(result.res.body.ok, true, JSON.stringify(result.res.body));
+    assert.deepEqual(result.res.body.variantCounts, { a: 1, b: 1, c: 1, holdout: 1 });
+    assert.deepEqual(JSON.parse(result.inserted[0][1]).experiment.variantCMessageConfig, configs.c);
+    for (const v of ['a', 'b', 'c']) {
+      const built = buildLineMessages(configs[v], { heroImageBaseUrl: 'https://crm.example', broadcastId: 77, recipientId: 11, variant: v });
+      const tracked = mode === 'imagemap' ? built.messages[0].actions[0].linkUri : built.messages[0].contents.footer.contents[0].action.uri;
+      assert.equal(tracked, 'https://crm.example/r/b/77/11/0?v=' + v);
+      assert.match(resolveBroadcastButtonTarget(configs[v], 0, { heroImageBaseUrl: 'https://crm.example' }).uri, new RegExp('variant=' + v));
+    }
+  });
+  for (const v of ['a', 'b', 'c']) {
+    test(mode + ' 版本 ' + v + ' 沒有可追蹤 CTA 不得建立實驗', async () => {
+      const configs = Object.fromEntries(['a', 'b', 'c'].map(k => [k, mode === 'imagemap' ? richConfig(k)
+        : { mode: 'flex_json', flex: card(k, k === v ? null : 'https://example.com/' + k) }]));
+      if (mode === 'imagemap') configs[v].imagemap.areas = [{ type: 'message', text: '只傳文字', x: 0, y: 0, width: 1040, height: 780 }];
+      const result = await create({ channel: 'line', conditions: { allMembers: true },
+        message_config: configs.a, variant_b_message_config: configs.b, variant_c_message_config: configs.c,
+        campaign_experiment: { enabled: true, variant_count: 3, observation_hours: 24, metric: 'ctr',
+          allocations: { a: 10, b: 10, c: 10, holdout: 70 } } });
+      assert.equal(result.res.statusCode, 400);
+      assert.equal(result.res.body.error, 'campaign_experiment_requires_cta_button');
+      assert.equal(result.inserted.length, 0);
+    });
+  }
+}
+
+test('先開滿版 Campaign Testing 再上傳：A 未完成不凍結空 B；填好 A 後複製完整內容', async () => {
+  const blank = richConfig('a'); blank.imagemap.assetId = null; blank.imagemap.areas[0].uri = '';
+  const page = await openWithSequence({ aConfig: blank, fetchOverride: url => url === '/admin/broadcast/imagemap/upload'
+    ? { json: async () => ({ ok: true, assetId: SHARED_IMAGE, baseWidth: 1040, baseHeight: 780,
+      sourceWidth: 1040, sourceHeight: 780, warnings: [] }) } : null });
+  try {
+    const { doc, window } = page;
+    doc.getElementById('campaign-test-enable').checked = true;
+    doc.getElementById('campaign-test-enable').dispatchEvent(new window.Event('change'));
+    assert.match(doc.getElementById('pane-b-sequence').textContent, /先完成版本 A/);
+    const file = new window.File(['x'], 'qa.png', { type: 'image/png' });
+    Object.defineProperty(doc.getElementById('im-file'), 'files', { value: [file] });
+    doc.getElementById('im-upload').click(); await wait(50);
+    assert.match(doc.getElementById('pane-b-sequence').textContent, /先完成版本 A/);
+    const uri = doc.querySelector('#im-areas [data-im-field="uri"]');
+    uri.value = 'https://example.com/ready'; uri.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await wait(100);
+    const saved = JSON.parse(window.localStorage.getItem('broadcast_draft_v1'));
+    assert.equal(saved.imVariants.b.items[0].message_config.imagemap.assetId, SHARED_IMAGE);
+    assert.equal(saved.imVariants.b.items[0].message_config.imagemap.areas[0].uri, 'https://example.com/ready');
+    assert.ok(doc.querySelector('#pane-b-sequence [data-seq-swap]'));
+  } finally { page.dom.window.close(); }
+});
+
+for (const action of ['reset', 'switch-format']) {
+  test('滿版 B 慢速換素材不能蓋過 ' + action, async () => {
+    let complete;
+    const pending = new Promise(resolve => { complete = resolve; });
+    const assets = [
+      { id: 42, name: 'A', mode: 'imagemap', message_config: richConfig('a') },
+      { id: 62, name: 'B', mode: 'imagemap', message_config: richConfig('b') },
+      { id: 51, name: '卡片', mode: 'flex_json', message_config: LIB_ITEMS[51].message_config }
+    ];
+    const page = await openWithSequence({ aConfig: richConfig('a'), fetchOverride: url => {
+      if (url === '/admin/broadcast/templates') return { json: async () => ({ ok: true, templates: assets }) };
+      if (url === '/admin/broadcast/templates/62') return pending;
+      const found = assets.find(x => url === '/admin/broadcast/templates/' + x.id);
+      if (found) return { json: async () => ({ ok: true, template: found }) };
+    } });
+    try {
+      const { doc, window } = page;
+      doc.getElementById('ab-test-enable').checked = true;
+      doc.getElementById('ab-test-enable').dispatchEvent(new window.Event('change')); await wait(80);
+      const picker = doc.querySelector('#pane-b-sequence [data-seq-swap]');
+      picker.value = '62'; picker.dispatchEvent(new window.Event('change'));
+      if (action === 'reset') doc.querySelector('#pane-b-sequence [data-seq-reset]').click();
+      else {
+        doc.getElementById('template-select').value = '51';
+        doc.getElementById('template-select').dispatchEvent(new window.Event('change')); await wait(150);
+      }
+      complete({ json: async () => ({ ok: true, template: assets[1] }) }); await wait(650);
+      const saved = JSON.parse(window.localStorage.getItem('broadcast_draft_v1'));
+      if (action === 'reset') assert.match(saved.imVariants.b.items[0].message_config.imagemap.areas[0].uri, /variant=a/);
+      else {
+        assert.equal(doc.getElementById('pane-b-sequence').hidden, true);
+        assert.equal(doc.getElementById('pane-b-flex-json').hidden, false);
+        assert.equal(saved.mode, 'flex_json');
+      }
+    } finally { page.dom.window.close(); }
+  });
+}
+
+test('新格式 Campaign Testing 仍必須通過 LINE 預檢，拒絕後零建立', async () => {
+  for (const mode of ['imagemap', 'flex_json']) {
+    const cfg = mode === 'imagemap' ? richConfig('a') : LIB_ITEMS[51].message_config;
+    const result = await create({ channel: 'line', conditions: { allMembers: true }, message_config: cfg,
+      variant_b_message_config: cfg, campaign_experiment: { enabled: true, variant_count: 2,
+        observation_hours: 24, metric: 'ctr', allocations: { a: 10, b: 10, c: 0, holdout: 80 } } },
+      { validate: async () => ({ ok: false, detail: 'invalid LINE payload' }) });
+    assert.equal(result.res.statusCode, 400);
+    assert.equal(result.inserted.length, 0);
+  }
 });

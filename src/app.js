@@ -642,7 +642,7 @@ registerAdminCouponsRoutes(app, { query, pool, authCore });
 
 registerGamesRoutes(app, { query, pool, flowEngine });
 registerMgmMilesRoutes(app, {
-  query, authCore,
+  query, pool, authCore,
   mgmEngine,
   defaultLiffId: process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || ''
 });
