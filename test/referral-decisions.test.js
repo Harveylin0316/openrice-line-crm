@@ -15,7 +15,8 @@ test('完整旅程／首次加好友證據才可修正，不以 30 分鐘接近�
   assert.equal(assess(base, activity, now).repairable, true);
   for (const change of [{ proof_at: null }, { is_unblocked: null }, { first_seen_at: null },
     { competing_inviter: true }, { invitee_valid: false }, { inviter_valid: false },
-    { first_seen_at: '2026-10-05T08:00:00Z' }, { has_manual_bonus: true }, { has_override: true }]) {
+    { first_seen_at: '2026-10-05T08:00:00Z' }, { first_seen_at: 'invalid' },
+    { first_seen_at: '2026-10-06T08:00:00Z' }, { has_manual_bonus: true }, { has_override: true }]) {
     const d = assess({ ...base, ...change }, activity, now);
     assert.equal(d.decision, 'insufficient'); assert.equal(d.repairable, false);
   }
@@ -33,6 +34,7 @@ test('活動時間、72h、有未來事件、結束狀態與特殊 MGM 保持 fa
     assert.equal(assess({ ...base, ...change }, activity, now).repairable, false);
   assert.equal(assess(base, { ...activity, status: 'ended' }, now).repairable, false);
   assert.equal(assess(base, { ...activity, game_type: 'mgm' }, now).decision, 'insufficient');
+  assert.equal(assess(base, { ...activity, referral_bonus_per: 0 }, now).repairable, false);
 });
 test('沿用共用配額：上限仍生效、邀兩位才一份的門檻不被繞過', () => {
   assert.equal(assess({ ...base, current_new_friends: 3 }, activity, now).extra_chances, 0);

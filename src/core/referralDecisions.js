@@ -67,7 +67,8 @@ function assess(row, activity, now = Date.now()) {
     return result('no_action', '有既有好友或解除封鎖證據，不符合新好友加碼。');
   if (!row.proof_at || !row.followed_at || row.is_unblocked !== 'false' ||
       row.competing_inviter || !row.inviter_valid || !row.invitee_valid ||
-      !row.first_seen_at || Date.parse(row.first_seen_at) < Date.parse(row.proof_at))
+      !row.first_seen_at || !Number.isFinite(Date.parse(row.first_seen_at)) ||
+      Date.parse(row.first_seen_at) > now || Date.parse(row.first_seen_at) < Date.parse(row.proof_at))
     return result('insufficient', '歷史證據不足，無法確認邀請帶來的新好友；請勿據此補發。');
   const proof = Date.parse(row.proof_at), followed = Date.parse(row.followed_at);
   const start = activity.start_at ? Date.parse(activity.start_at) : -Infinity;
@@ -80,6 +81,8 @@ function assess(row, activity, now = Date.now()) {
   const config = { refPer: Number(activity.referral_bonus_per || 0),
     refMax: Number(activity.referral_bonus_max || 0),
     invitesPer: Math.max(1, Number(activity.referral_invites_per_bonus || 1)) };
+  if (!Object.values(config).every(Number.isFinite) || config.refPer <= 0 || config.refMax <= 0)
+    return result('no_action', '活動未啟用邀請加碼，不能補次數。');
   const count = Math.max(0, Number(row.current_new_friends || 0));
   const extra = computeQuotaNumbers({ ...config, newFriends: count + 1 }).referral_bonus -
     computeQuotaNumbers({ ...config, newFriends: count }).referral_bonus;
