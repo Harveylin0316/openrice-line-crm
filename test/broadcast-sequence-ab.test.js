@@ -569,3 +569,50 @@ test('actual shared sender keeps same-image A/B native payloads and UTM URLs',as
   for(const [i,v] of ['a','b'].entries())assert.equal(requests[i].messages[1].actions[0].linkUri,'https://example.com/?variant='+v+'&utm_source=staging');
  }finally{global.fetch=originalFetch;}
 });
+
+test('Campaign Testing：文字＋滿版圖文的多段訊息可以通過送出前檢查（以前被誤擋成「進階 Flex JSON」）', async () => {
+  const IMAGEMAP_SEQ = { mode: 'sequence', items: [
+    { type: 'text', text: 'STAGING 文字' },
+    { type: 'card', source_message_id: 71, source_name: 'STAGING Imagemap A', message_config: { mode: 'imagemap', imagemap: {
+      assetId: '9b8a7c6d-5e4f-4321-b0a9-8c7d6e5f4a3b', baseWidth: 1040, baseHeight: 1040, altText: 'STAGING', layout: 'full',
+      areas: [{ type: 'uri', uri: 'https://example.com/?variant=a', x: 0, y: 0, width: 1040, height: 1040 }] } } }] };
+  const alerts = [];
+  const { dom, window, doc } = await openWithSequence({
+    aConfig: IMAGEMAP_SEQ,
+    fetchOverride: (url) => url === '/admin/broadcast/audience/preview' ? { json: async () => ({ ok: true, total: 20, users: [] }) } : null
+  });
+  try {
+    window.alert = (m) => alerts.push(String(m));
+    doc.getElementById('btn-preview-audience').click();
+    await wait(80);
+    doc.getElementById('campaign-test-enable').checked = true;
+    doc.getElementById('campaign-test-enable').dispatchEvent(new window.Event('change'));
+    await wait(700);
+    doc.getElementById('btn-send').click();
+    await wait(50);
+    assert.equal(alerts.filter(m => /Campaign Testing 目前/.test(m)).length, 0, '多段訊息不可被格式規則擋下：' + alerts.join(' | '));
+    assert.doesNotMatch(alerts.join(' '), /進階 Flex JSON/);
+  } finally { dom.window.close(); }
+});
+
+test('Campaign Testing：進階 Flex JSON 仍不支援，但提示要講清楚原因與替代做法', async () => {
+  const alerts = [];
+  const flex = { mode: 'flex_json', flex: { type: 'flex', altText: 'x', contents: { type: 'bubble', body: { type: 'box', layout: 'vertical',
+    contents: [{ type: 'button', action: { type: 'uri', label: 'go', uri: 'https://example.com' } }] } } } };
+  const { dom, window, doc } = await openWithSequence({
+    aConfig: flex,
+    fetchOverride: (url) => url === '/admin/broadcast/audience/preview' ? { json: async () => ({ ok: true, total: 20, users: [] }) } : null
+  });
+  try {
+    window.alert = (m) => alerts.push(String(m));
+    doc.getElementById('btn-preview-audience').click();
+    await wait(80);
+    doc.getElementById('campaign-test-enable').checked = true;
+    doc.getElementById('campaign-test-enable').dispatchEvent(new window.Event('change'));
+    await wait(700);
+    doc.getElementById('btn-send').click();
+    await wait(50);
+    assert.match(alerts.join(' '), /支援「一般卡片」與「多段訊息」/);
+    assert.match(alerts.join(' '), /取消勾選 Campaign Testing/);
+  } finally { dom.window.close(); }
+});

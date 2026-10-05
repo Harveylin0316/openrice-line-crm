@@ -3733,8 +3733,12 @@
     }
     if (state.campaignTestEnabled) {
       if (getActiveChannel() !== 'line') return { ok: false, reason: 'Campaign Testing 目前只支援 LINE 推播' };
-      if (state.mode !== 'template') {
-        return { ok: false, reason: 'Campaign Testing 目前請使用一般訊息編輯器；進階 Flex JSON 無法可靠追蹤每顆自訂按鈕的 CTR', focusEl: 'advanced-json-block' };
+      // 與伺服器 experimentModeOk 一致：一般卡片與多段訊息（文字＋卡片／滿版圖文等）都能做 Campaign Testing；
+      // 「每版至少一顆可追蹤的開啟網址連結」由伺服器檢查（campaign_experiment_requires_cta_button）。
+      // 以前這裡只認一般卡片，多段訊息會被擋下並誤報成「進階 Flex JSON」。
+      if (state.mode !== 'template' && state.mode !== 'sequence') {
+        var modeName = state.mode === 'imagemap' ? '單張滿版圖文訊息' : '進階 Flex JSON';
+        return { ok: false, reason: 'Campaign Testing 目前支援「一般卡片」與「多段訊息」。' + modeName + '請改用一般 A/B test（取消勾選 Campaign Testing），或放進多段訊息後再測。', focusEl: 'message-testing-settings' };
       }
       var a = Number($('campaign-weight-a').value || 0);
       var b = Number($('campaign-weight-b').value || 0);

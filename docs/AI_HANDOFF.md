@@ -537,6 +537,14 @@ Supabase postgres 管理工具不一定允許 SET ROLE，不能為此擴大角�
 - 既有沒有 A/B 的關鍵字規則、舊的關鍵字點擊追蹤（`/t/m/...`）、群發 A/B 都沒改。
 回歸測試 `test/keyword-reply-ab.test.js`；另以真 PostgreSQL（`crm_staging` schema）驗證 migration、重跑、rollback 與完整流程。
 
+#### Campaign Testing 送出前檢查與伺服器一致（2026-10-05）
+
+`checkSendReadiness()` 原本在 Campaign Testing 時只允許 `state.mode === 'template'`，多段訊息（文字＋滿版圖文等）會被擋下，
+還誤報成「進階 Flex JSON 無法追蹤」；但伺服器 `experimentModeOk` 早就允許 `template` 與 `sequence`。
+現在前端同樣允許這兩種，「每版至少一顆可追蹤開啟網址連結」仍由伺服器檢查（`campaign_experiment_requires_cta_button`）。
+自訂 Flex JSON、單張滿版圖文仍不支援 Campaign Testing，提示改用一般 A/B test 或放進多段訊息。
+回歸測試在 `test/broadcast-sequence-ab.test.js`（舊程式會失敗）。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
