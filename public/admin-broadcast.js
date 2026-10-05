@@ -125,6 +125,7 @@
   $('ab-test-enable').addEventListener('change', function () {
     state.abTestEnabled = $('ab-test-enable').checked;
     $('variant-b-pane').hidden = !state.abTestEnabled;
+    $('test-campaign-variant-wrap').hidden = !state.abTestEnabled && !state.campaignTestEnabled;
     $('variant-a-label').hidden = !state.abTestEnabled;
     if (state.abTestEnabled) seedBlankExperimentVariants(collectMessageConfig());
     syncSeqVariantPanes();
@@ -155,7 +156,7 @@
     $('campaign-test-pane').hidden = !enabled;
     $('variant-c-pane').hidden = !enabled || state.campaignVariantCount !== 3;
     $('campaign-weight-c-wrap').hidden = state.campaignVariantCount !== 3;
-    $('test-campaign-variant-wrap').hidden = !enabled;
+    $('test-campaign-variant-wrap').hidden = !enabled && !state.abTestEnabled;
     var cOption = $('test-campaign-variant').querySelector('option[value="c"]');
     if (cOption) cOption.hidden = state.campaignVariantCount !== 3;
     if (state.campaignVariantCount !== 3 && $('test-campaign-variant').value === 'c') $('test-campaign-variant').value = 'a';
@@ -947,19 +948,63 @@
     return libraryListPromise;
   }
   function loadLibraryItem(id) {
+    var expectedId = validAssetId(id);
+    if (!expectedId) return Promise.reject(new Error('素材編號不正確'));
     return fetch('/admin/broadcast/templates/' + encodeURIComponent(id))
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (!d || !d.ok || !d.template || !d.template.message_config) throw new Error((d && d.error) || '讀不到這則素材');
+        if (validAssetId(d.template.id) !== expectedId) throw new Error('素材編號不相符');
         return d.template;
       });
   }
   var MODE_NAMES = { template: '一般卡片', flex_json: '自訂卡片', sequence: '多段訊息', imagemap: '滿版圖文訊息' };
   function libraryOptionsHtml(list, modes, placeholder) {
-    var opts = list.filter(function (t) { return modes.indexOf(String(t.mode || 'template')) >= 0; });
+    var opts = list.filter(function (t) { return validAssetId(t.id) && modes.indexOf(String(t.mode || 'template')) >= 0; });
     return '<option value="">' + escapeHtml(placeholder) + '</option>' + opts.map(function (t) {
       return '<option value="' + Number(t.id) + '">' + escapeHtml(t.name || ('素材 #' + t.id)) + '（' + (MODE_NAMES[t.mode] || t.mode) + '）</option>';
     }).join('');
+  }
+  function validAssetId(value) {
+    return (typeof value === 'number' || typeof value === 'string') && /^[1-9][0-9]*$/.test(String(value)) && Number.isSafeInteger(Number(value)) ? Number(value) : null;
+  }
+  // Match the actual LINE message shape, not the storage wrapper or image URL.
+  var SLOT_TYPES = { text: '文字', image: '圖片', video: '影片', flex: 'Flex 卡片', carousel: 'Carousel 多圖卡片', imagemap: 'Imagemap 滿版圖文' };
+  function slotType(item) {
+    if (!item) return null;
+    if (item.type !== 'card') return SLOT_TYPES[item.type] ? item.type : null;
+    var cfg = item.message_config || {};
+    if (cfg.mode === 'imagemap') return 'imagemap';
+    if (cfg.mode === 'template') return 'flex';
+    if (cfg.mode === 'flex_json' && cfg.flex && cfg.flex.type === 'flex') return cfg.flex.contents && cfg.flex.contents.type === 'carousel' ? 'carousel' : 'flex';
+    return null;
+  }
+  function assetSlots(tpl) {
+    if (!tpl || !validAssetId(tpl.id) || !tpl.message_config) return [];
+    var cfg = tpl.message_config;
+    var items = cfg.mode === 'sequence' ? cfg.items : [{ type: 'card', message_config: cfg }];
+    return (Array.isArray(items) ? items : []).map(function (item, i) {
+      return { id: validAssetId(tpl.id), index: cfg.mode === 'sequence' ? i : null,
+        key: String(tpl.id) + (cfg.mode === 'sequence' ? ':' + i : ''), item: item,
+        name: (tpl.name || '未命名素材') + (cfg.mode === 'sequence' ? ' · 第 ' + (i + 1) + ' 段' : ''),
+        date: tpl.updated_at || tpl.created_at || '', kind: slotType(item) };
+    }).filter(function (x) { return x.kind; });
+  }
+  function assetSummary(item) {
+    var cfg = item && item.message_config || {}, im = cfg.imagemap;
+    if (im) return (im.areas || []).length + ' 個點擊區 · ' + (im.areas || []).map(function (a) { return a.type === 'message' ? '傳送文字：' + a.text : a.uri; }).join('；');
+    return item && item.type === 'text' ? String(item.text || '').slice(0, 100) : '';
+  }
+  function assetThumbnail(item) {
+    var cfg = item && item.message_config || {};
+    if (cfg.mode === 'imagemap' && cfg.imagemap && /^[0-9a-f-]{36}$/i.test(cfg.imagemap.assetId || '')) return '/p/line-imagemap/' + cfg.imagemap.assetId + '/1040';
+    var image = item && (item.previewImageUrl || item.originalContentUrl);
+    if (!image && cfg.flex) {
+      var c = cfg.flex.contents;
+      if (c && c.type === 'carousel') c = c.contents && c.contents[0];
+      image = c && c.hero && c.hero.url;
+    }
+    return /^https:\/\//i.test(image || '') ? image : '';
   }
   function seqClone(v) { return v == null ? v : JSON.parse(JSON.stringify(v)); }
   function seqGet(obj, path) {
@@ -1050,32 +1095,35 @@
     if (!a || !v) { pane.innerHTML = ''; return; }
     var typeNames = { text: '文字', image: '圖片', video: '影片', card: '卡片' };
     var label = key.toUpperCase();
-    var html = '<p class="seq-var-intro">版本 ' + label + ' 先完整沿用 A 版的每一段，只改你要測試的地方即可；段數與順序固定和 A 版相同。改過的欄位會標成黃色。</p>';
-    (a.items || []).forEach(function (item, i) {
-      var vItem = (v.items || [])[i] || item;
+    var html = '<p class="seq-var-intro">版本 ' + label + ' 先完整沿用 A 版的每一段，只改你要測試的地方即可；初始段數與順序和 A 版相同，之後各版本獨立保存。改過的欄位會標成黃色。</p>';
+    (v.items || []).forEach(function (vItem, i) {
+      var item = (a.items || [])[i];
       var fields = seqFieldsForItem(vItem, i);
       var changed = JSON.stringify(vItem) !== JSON.stringify(item);
       var swapped = vItem && item && vItem.type === 'card' && JSON.stringify(vItem.message_config) !== JSON.stringify(item.message_config) &&
         (vItem.source_message_id !== item.source_message_id || (vItem.message_config && item.message_config && vItem.message_config.mode !== item.message_config.mode));
       html += '<div class="seq-var-item' + (changed ? ' changed' : '') + '" data-seq-item="' + i + '">' +
-        '<div class="seq-var-head"><span>第 ' + (i + 1) + ' 段 · ' + (typeNames[item && item.type] || '內容') + '</span>' +
+        '<div class="seq-var-head"><span>第 ' + (i + 1) + ' 段 · ' + (SLOT_TYPES[slotType(vItem)] || '內容') + '</span>' +
         (changed ? '<span class="seq-var-tag">已修改</span>' : '') + '</div>';
       // 整段操作：卡片可整張換成訊息庫的其他卡片；圖片可上傳新圖；任何一段都能單獨恢復成 A 版
       html += '<div class="seq-var-ops">';
-      if (item && item.type === 'card') {
-        html += '<select data-seq-swap="' + i + '"><option value="">整張換成訊息庫的其他卡片…</option></select>';
+      if (slotType(vItem)) {
+        html += '<select aria-label="更換 ' + SLOT_TYPES[slotType(vItem)] + '" data-seq-swap="' + i + '"><option value="">載入同類型素材…</option></select><details><summary>查看可替換素材（名稱／縮圖／時間）</summary><div data-seq-catalog="' + i + '" style="display:grid;gap:8px;max-height:280px;overflow:auto"></div></details>';
       }
-      if (item && item.type === 'image') {
+      if (vItem && vItem.type === 'image') {
         html += '<input type="file" accept="image/png,image/jpeg" data-seq-upload="' + i + '" hidden />' +
           '<button type="button" class="btn" data-seq-upload-btn="' + i + '">上傳新圖片</button>';
       }
-      html += '<button type="button" class="btn" data-seq-item-reset="' + i + '"' + (changed ? '' : ' hidden') + '>這段恢復成 A 版</button>';
+      if (item) html += '<button type="button" class="btn" data-seq-item-reset="' + i + '"' + (changed ? '' : ' hidden') + '>這段恢復成 A 版</button>';
+      else html += '<span class="muted">A 版沒有這一段；此段保留原內容。需要全部改回 A 版時，請用下方整版還原。</span>';
       html += '</div>';
+      if (vItem.source_message_id) html += '<div class="seq-var-src">目前素材：' + escapeHtml(vItem.source_name || '已儲存素材') + ' · 訊息 #' + escapeHtml(String(vItem.source_message_id)) + '</div>';
+      if (slotType(vItem) === 'imagemap') html += '<div class="seq-var-src" style="overflow-wrap:anywhere">' + escapeHtml(assetSummary(vItem)) + '</div>';
       if (swapped) {
         html += '<div class="seq-var-src">已換成訊息庫素材' + (vItem.source_name ? '「' + escapeHtml(vItem.source_name) + '」' : '') + '，下方是新卡片的內容。</div>';
       }
       if (!fields.length) {
-        html += '<div class="seq-var-fixed">這一段沿用 A 版，不能在這裡修改。</div>';
+        html += '<div class="seq-var-fixed">可從上方選擇同類型素材，完整替換這一段。</div>';
       }
       fields.forEach(function (f, fi) {
         var aVal = seqGet(a, f.path);
@@ -1091,7 +1139,7 @@
       html += '</div>';
     });
     html += '<div class="seq-var-actions"><button type="button" class="btn" data-seq-reset="' + key + '">恢復成與 A 版相同</button>' +
-      '<span class="muted seq-var-state" style="font-size:12px;">' + (state.seqVariantsEdited[key] ? '已修改，與 A 版不同' : '目前與 A 版相同') + '</span></div>';
+      '<span class="muted seq-var-state" style="font-size:12px;">' + (JSON.stringify(v) !== JSON.stringify(a) ? '已修改，與 A 版不同' : '目前與 A 版相同') + '</span></div>';
     pane.innerHTML = html;
     Array.prototype.forEach.call(pane.querySelectorAll('[data-seq-path]'), function (el) {
       el.addEventListener('input', function () {
@@ -1150,6 +1198,7 @@
     Array.prototype.forEach.call(pane.querySelectorAll('[data-seq-item-reset]'), function (btn) {
       btn.addEventListener('click', function () {
         var i = Number(btn.getAttribute('data-seq-item-reset'));
+        if (!state.sequenceConfig.items[i]) return;
         ensureSeqVariant(key).items[i] = seqClone(state.sequenceConfig.items[i]);
         afterSegmentChange();
       });
@@ -1158,25 +1207,47 @@
     if (swapSelects.length) {
       loadLibraryList().then(function (list) {
         Array.prototype.forEach.call(swapSelects, function (sel) {
-          sel.innerHTML = libraryOptionsHtml(list, ['template', 'flex_json'], '整張換成訊息庫的其他卡片…');
+          if (!isCurrentEditor(sel)) return;
+          var slotIndex = Number(sel.getAttribute('data-seq-swap'));
+          var kind = slotType(v.items[slotIndex]);
+          var candidates = [].concat.apply([], list.map(assetSlots)).filter(function (x) { return x.kind === kind; });
+          sel.innerHTML = '<option value="">更換 ' + SLOT_TYPES[kind] + '…</option>' + candidates.map(function (x) {
+            return '<option value="' + escapeHtml(x.key) + '">' + escapeHtml(x.name) + ' · #' + x.id + '</option>';
+          }).join('');
+          var catalog = pane.querySelector('[data-seq-catalog="' + slotIndex + '"]');
+          candidates.forEach(function (x) {
+            var row = document.createElement('button'); row.type = 'button'; row.className = 'btn';
+            row.style.cssText = 'text-align:left;white-space:normal;overflow-wrap:anywhere';
+            var thumb = assetThumbnail(x.item);
+            if (thumb) { var img = document.createElement('img'); img.src = thumb; img.alt = x.name; img.style.cssText = 'width:72px;height:54px;object-fit:contain;float:left;margin-right:8px'; row.appendChild(img); }
+            row.appendChild(document.createTextNode(x.name + ' · 訊息 #' + x.id + (x.date ? ' · ' + x.date : '') + ' · ' + assetSummary(x.item)));
+            row.addEventListener('click', function () { if (!isCurrentEditor(sel)) return; sel.value = x.key; sel.dispatchEvent(new Event('change')); });
+            catalog.appendChild(row);
+          });
           sel.addEventListener('change', function () {
-            var id = sel.value;
-            if (!id) return;
-            var i = Number(sel.getAttribute('data-seq-swap'));
+            var selected = candidates.find(function (x) { return x.key === sel.value; });
+            if (!selected) return;
+            var i = slotIndex;
             sel.disabled = true;
-            loadLibraryItem(id).then(function (tpl) {
-              if (!isCurrentEditor(sel)) return;
-              var mc = tpl.message_config;
-              if (!mc || mc.mode === 'sequence') throw new Error('這是多段訊息，只能換成單張卡片');
-              ensureSeqVariant(key).items[i] = {
-                type: 'card', source_message_id: Number(tpl.id), source_name: tpl.name || '', message_config: seqClone(mc)
-              };
+            var request = sel.dataset.request = String(Number(sel.dataset.request || 0) + 1);
+            loadLibraryItem(selected.id).then(function (tpl) {
+              if (!isCurrentEditor(sel) || sel.dataset.request !== request) return;
+              if (validAssetId(tpl.id) !== selected.id) throw new Error('素材編號不相符');
+              var replacement = assetSlots(tpl).find(function (x) { return x.key === selected.key; });
+              if (!replacement || replacement.kind !== kind) throw new Error('素材類型已變更，請重新選擇');
+              var copied = seqClone(replacement.item);
+              copied.source_message_id = selected.id;
+              copied.source_name = replacement.name;
+              delete copied.message_id;
+              if (replacement.index == null) delete copied.source_item_index;
+              else copied.source_item_index = replacement.index;
+              ensureSeqVariant(key).items[i] = copied;
               afterSegmentChange();
             }).catch(function (e) {
-              if (!isCurrentEditor(sel)) return;
+              if (!isCurrentEditor(sel) || sel.dataset.request !== request) return;
               sel.disabled = false;
               sel.value = '';
-              alert('無法換成這張卡片：' + e.message);
+              alert('無法替換素材：' + e.message);
             });
           });
         });
@@ -1321,7 +1392,7 @@
   }
 
   function collectSelectedTestMessageConfig() {
-    if (!state.campaignTestEnabled) return collectMessageConfig();
+    if (!state.abTestEnabled && !state.campaignTestEnabled) return collectMessageConfig();
     var variant = $('test-campaign-variant').value;
     if (variant === 'b') return collectVariantBMessageConfig();
     if (variant === 'c' && state.campaignVariantCount === 3) return collectVariantCMessageConfig();
@@ -3402,7 +3473,7 @@
           var excerpt = String(item.text || '').replace(/\s+/g, ' ').trim();
           if (excerpt) detail = '：' + excerpt.slice(0, 45) + (excerpt.length > 45 ? '…' : '');
         }
-        return '第 ' + (index + 1) + ' 段 ' + (typeNames[item && item.type] || '訊息') + detail;
+        return '第 ' + (index + 1) + ' 段 ' + (SLOT_TYPES[slotType(item)] || '訊息') + (item && item.source_message_id ? ' · ' + (item.source_name || '訊息 #' + item.source_message_id) : '') + detail;
       }).join('　→　');
     }
     if (editLink) {
@@ -3436,9 +3507,8 @@
       if (lineTab && !lineTab.classList.contains('active')) lineTab.click();
       state.mode = 'sequence';
       state.sequenceConfig = JSON.parse(JSON.stringify(messageConfig));
-      // 換了 A 版素材：B／C 重新從新的 A 版複製（舊的改動對不上新素材的段落）
-      state.seqVariants = { b: null, c: null };
-      state.seqVariantsEdited = { b: false, c: false };
+      // 換 A 版素材也不覆蓋 B／C；只有明確還原才重新複製。
+      // Existing variants are independent snapshots; only seed missing versions.
       if (state.abTestEnabled) ensureSeqVariant('b');
       if (state.campaignTestEnabled && state.campaignVariantCount === 3) ensureSeqVariant('c');
       var sequenceAdvancedBlock = $('advanced-json-block');
@@ -4155,13 +4225,15 @@
       }
       if (d.mode === 'sequence' && d.sequenceConfig) {
         applyMessageConfigToForm(d.sequenceConfig);
-        // 草稿裡的 B／C 改動要放回來（只在段落結構與 A 版一致時）
+        // 各版本是獨立快照，A 段數變更不能丟棄已保存的 B／C。
         if (d.seqVariants) {
           ['b', 'c'].forEach(function (k) {
             var saved = d.seqVariants[k];
-            if (saved && Array.isArray(saved.items) && saved.items.length === (d.sequenceConfig.items || []).length) {
+            if (saved && saved.mode === 'sequence' && Array.isArray(saved.items) &&
+                saved.items.length >= 1 && saved.items.length <= 5 &&
+                saved.items.every(function (item) { return item && typeof item === 'object' && slotType(item); })) {
               state.seqVariants[k] = saved;
-              state.seqVariantsEdited[k] = !!(d.seqVariantsEdited && d.seqVariantsEdited[k]);
+              state.seqVariantsEdited[k] = JSON.stringify(saved) !== JSON.stringify(state.sequenceConfig);
             }
           });
           syncSeqVariantPanes();

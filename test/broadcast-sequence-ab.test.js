@@ -59,7 +59,7 @@ async function openWithSequence(opts = {}) {
       if (override) return override;
     }
     if (url === '/admin/broadcast/test-recipients') return { json: async () => ({ ok: true, recipients: [] }) };
-    if (url === '/admin/broadcast/templates') return { json: async () => ({ ok: true, templates: LIB }) };
+    if (url === '/admin/broadcast/templates') return { json: async () => ({ ok: true, templates: LIB.map(x=>({...x,message_config:LIB_ITEMS[x.id]?.message_config})) }) };
     if (url === '/admin/broadcast/templates/42') return { json: async () => ({ ok: true, template: { id: 42, name: '文字＋圖文訊息', message_config: opts.aConfig || SEQUENCE } }) };
     const m = /^\/admin\/broadcast\/templates\/(\d+)$/.exec(url);
     if (m && LIB_ITEMS[m[1]]) return { json: async () => ({ ok: true, template: LIB_ITEMS[m[1]] }) };
@@ -70,10 +70,67 @@ async function openWithSequence(opts = {}) {
     }
     return { json: async () => ({ ok: true }) };
   };
+  if (opts.draft) window.localStorage.setItem('broadcast_draft_v1', JSON.stringify(opts.draft));
   window.eval(source);
   await wait(900);
   return { dom, window, doc: window.document, previews };
 }
+
+test('A 換短素材後 B/C 草稿獨立還原，額外段落不提供不存在的 A 還原且圖片仍可上傳', async () => {
+  let aConfig = SEQUENCE;
+  const page = await openWithSequence({ fetchOverride: url => url === '/admin/broadcast/templates/42' ? { json: async () => ({ ok: true, template: { id: 42, name: 'A', message_config: aConfig } }) } : null });
+  const { doc, window } = page;
+  doc.getElementById('campaign-test-enable').checked = true;
+  doc.getElementById('campaign-test-enable').dispatchEvent(new window.Event('change'));
+  doc.getElementById('campaign-variant-count').value = '3';
+  doc.getElementById('campaign-variant-count').dispatchEvent(new window.Event('change'));
+  for (const key of ['b', 'c']) {
+    const text = doc.querySelector('#pane-' + key + '-sequence textarea');
+    text.value = key.toUpperCase() + ' 保留';
+    text.dispatchEvent(new window.Event('input'));
+  }
+  aConfig = { mode: 'sequence', items: [{ type: 'text', text: '新 A 一段' }] };
+  const select = doc.getElementById('template-select');
+  select.value = '42'; select.dispatchEvent(new window.Event('change'));
+  await wait(700);
+  const saved = JSON.parse(window.localStorage.getItem('broadcast_draft_v1'));
+  assert.equal(saved.sequenceConfig.items.length, 1);
+  for (const key of ['b', 'c']) {
+    const pane = doc.getElementById('pane-' + key + '-sequence');
+    assert.equal(pane.querySelectorAll('.seq-var-item').length, 3);
+    assert.equal(pane.querySelector('[data-seq-item-reset="2"]'), null);
+    assert.ok(pane.querySelector('[data-seq-upload-btn="1"]'));
+    assert.equal(pane.querySelector('.seq-var-state').textContent, '已修改，與 A 版不同');
+  }
+  const restored = await openWithSequence({ aConfig, draft: saved });
+  for (const key of ['b', 'c']) {
+    const pane = restored.doc.getElementById('pane-' + key + '-sequence');
+    assert.equal(pane.querySelectorAll('.seq-var-item').length, 3);
+    assert.equal(pane.querySelector('textarea').value, key.toUpperCase() + ' 保留');
+  }
+  assert.ok(restored.previews.some(cfg => cfg?.items?.[0]?.text === 'B 保留' && cfg.items.length === 3));
+  doc.querySelector('[data-seq-reset="b"]').click();
+  assert.equal(doc.querySelectorAll('#pane-b-sequence .seq-var-item').length, 1);
+  assert.equal(doc.querySelector('#pane-b-sequence textarea').value, '新 A 一段');
+  page.dom.window.close(); restored.dom.window.close();
+});
+
+test('A 比 B 段數多也保留 B 獨立草稿，無效段落不還原', async () => {
+  const draft = {
+    mode: 'sequence', abEnabled: true, sequenceConfig: SEQUENCE,
+    seqVariants: { b: { mode: 'sequence', items: [{ type: 'text', text: '獨立短 B' }] } },
+    seqVariantsEdited: { b: false }
+  };
+  const page = await openWithSequence({ draft });
+  assert.equal(page.doc.querySelectorAll('#pane-b-sequence .seq-var-item').length, 1);
+  assert.equal(page.doc.querySelector('#pane-b-sequence textarea').value, '獨立短 B');
+  assert.equal(page.doc.querySelector('#pane-b-sequence .seq-var-state').textContent, '已修改，與 A 版不同');
+  page.dom.window.close();
+  draft.seqVariants.b.items = [null];
+  const invalid = await openWithSequence({ draft });
+  assert.equal(invalid.doc.querySelectorAll('#pane-b-sequence .seq-var-item').length, 3);
+  invalid.dom.window.close();
+});
 
 test('多段訊息開 A/B：B 版逐段沿用 A 版，可改文字、圖片、卡片內文字與按鈕；改過的欄位標示出來', async () => {
   const { dom, window, doc, previews } = await openWithSequence();
@@ -427,4 +484,88 @@ test('多段訊息各版本保留文字／卡片順序，跨卡片 CTA 追蹤序
     assert.equal(resolveBroadcastButtonTarget(config, 1, options).uri, 'https://example.com/' + version);
     assert.equal(config.items[3].message_config.flex.contents.footer.contents.length, 1, '追蹤 pixel 不污染原素材');
   }
+});
+
+const SHARED_IMAGE = '9b8a7c6d-5e4f-4321-b0a9-8c7d6e5f4a3b';
+function richConfig(variant) { return {mode:'imagemap',imagemap:{assetId:SHARED_IMAGE,baseWidth:1040,baseHeight:780,altText:'STAGING '+variant,areas:[{type:'uri',uri:'https://example.com/?variant='+variant+'&utm_source=staging',x:0,y:0,width:1040,height:780}]}}; }
+test('same-image imagemaps remain distinct assets; each slot has same-type replacements; B test send is independent',async()=>{
+ const a={mode:'sequence',items:[{type:'text',text:'STAGING A'},{type:'card',source_message_id:61,source_name:'STAGING map A',message_config:richConfig('a')}]};
+ const assets=[{id:42,name:'STAGING sequence',mode:'sequence',message_config:a},{id:61,name:'STAGING map A',mode:'imagemap',message_config:richConfig('a')},{id:62,name:'STAGING map B',mode:'imagemap',message_config:richConfig('b')},{id:63,name:'STAGING texts',mode:'sequence',message_config:{mode:'sequence',items:[{type:'text',text:'STAGING B'},{type:'image',originalContentUrl:'https://example.com/x.jpg'}]}}];
+ const sends=[];
+ const {dom,window,doc,previews}=await openWithSequence({aConfig:a,fetchOverride:(url,options)=>{
+ if(url==='/admin/broadcast/templates')return {json:async()=>({ok:true,templates:assets})};
+ if(url==='/admin/broadcast/test-push'){sends.push(JSON.parse(options.body));return {json:async()=>({ok:true})};}
+ const found=assets.find(x=>url==='/admin/broadcast/templates/'+x.id);if(found)return {json:async()=>({ok:true,template:found})};
+ }});
+ try{
+ doc.querySelector('#ab-test-enable').checked=true;doc.querySelector('#ab-test-enable').dispatchEvent(new window.Event('change'));await wait(80);
+ const text=doc.querySelector('#pane-b-sequence [data-seq-swap="0"]');assert.ok(text);assert.ok([...text.options].some(x=>x.textContent.includes('STAGING texts')));
+ const picker=doc.querySelector('#pane-b-sequence [data-seq-swap="1"]');assert.ok([...picker.options].some(x=>x.value==='62'));assert.ok(![...picker.options].some(x=>x.textContent.includes('STAGING texts')));
+ picker.value='62';picker.dispatchEvent(new window.Event('change'));await wait(700);
+ assert.match(doc.querySelector('#pane-b-sequence').textContent,/STAGING map B/);
+ const b=previews.filter(x=>x?.items?.[1]?.source_message_id===62).pop();assert.ok(b);
+ assert.equal(b.items[1].message_config.imagemap.areas[0].uri,'https://example.com/?variant=b&utm_source=staging');
+ assert.equal(a.items[1].message_config.imagemap.areas[0].uri,'https://example.com/?variant=a&utm_source=staging');
+ assert.equal(doc.querySelector('#test-campaign-variant-wrap').hidden,false);
+ doc.querySelector('#test-campaign-variant').value='b';doc.querySelector('#btn-test-push').click();await wait(40);
+ assert.equal(sends[0].message_config.items[1].source_message_id,62);
+ const aSelect=doc.querySelector('#template-select');
+ a.items[0].text='STAGING changed A';
+ aSelect.value='42';aSelect.dispatchEvent(new window.Event('change'));await wait(700);
+ assert.match(doc.querySelector('#pane-b-sequence').textContent,/STAGING map B/);
+ assert.equal(doc.querySelector('#pane-b-sequence textarea').value,'STAGING A');
+
+ for(const [variant,cfg] of [['a',a],['b',b]]){
+  const built=buildLineMessages(cfg,{heroImageBaseUrl:'https://staging.example',broadcastId:22,recipientId:1,variant});assert.equal(built.ok,true);
+  assert.equal(resolveBroadcastButtonTarget(cfg,0,{heroImageBaseUrl:'https://staging.example'}).uri,'https://example.com/?variant='+variant+'&utm_source=staging');
+ }
+ }finally{dom.window.close();}
+});
+
+test('same-type catalog separates flex/carousel and offers text/image/video segments by message ID and slot',async()=>{
+ const carousel={mode:'flex_json',flex:{type:'flex',altText:'STAGING carousel',contents:{type:'carousel',contents:[card('STAGING','https://example.com').contents]}}};
+ const cfg={mode:'sequence',items:[{type:'text',text:'STAGING'},{type:'image',originalContentUrl:'https://example.com/x.jpg'},{type:'video',originalContentUrl:'https://example.com/x.mp4',previewImageUrl:'https://example.com/x.jpg'},{type:'card',message_config:LIB_ITEMS[51].message_config},{type:'card',message_config:carousel}]};
+ const assets=[{id:42,name:'STAGING slots',mode:'sequence',message_config:cfg},{id:80,name:'STAGING carousel',mode:'flex_json',message_config:carousel},{...LIB_ITEMS[51],mode:'flex_json'},{id:'\"><img id=bad-asset>',name:'bad',mode:'flex_json',message_config:carousel}];
+ const {dom,window,doc}=await openWithSequence({aConfig:cfg,fetchOverride:url=>url==='/admin/broadcast/templates'?{json:async()=>({ok:true,templates:assets})}:null});
+ try{
+ doc.querySelector('#ab-test-enable').checked=true;doc.querySelector('#ab-test-enable').dispatchEvent(new window.Event('change'));await wait(80);
+ for(let i=0;i<5;i++){
+ const values=[...doc.querySelector('#pane-b-sequence [data-seq-swap="'+i+'"]').options].map(o=>o.value);
+ assert.ok(values.includes('42:'+i));assert.ok(!values.includes('42:'+((i+1)%5)));
+ if(i===3){assert.ok(values.includes('51'));assert.ok(!values.includes('80'));}
+ if(i===4){assert.ok(values.includes('80'));assert.ok(!values.includes('51'));}
+ }
+ assert.equal(doc.querySelector('#bad-asset'),null);
+ }finally{dom.window.close();}
+});
+test('formal A/B batch stores separate same-image imagemap snapshots and their tracking targets',async()=>{
+ const a={mode:'sequence',items:[{type:'text',text:'STAGING A'},{type:'card',source_message_id:61,message_config:richConfig('a')}]};
+ const b={mode:'sequence',items:[{type:'text',text:'STAGING B'},{type:'card',source_message_id:62,message_config:richConfig('b')}]};
+ const {res,inserted}=await create({channel:'line',send_mode:'immediate',conditions:{allMembers:true},message_config:a,ab_test:true,variant_b_message_config:b});
+ assert.equal(res.body.ok,true,JSON.stringify(res.body));
+ const stored=inserted[0].map(p=>{try{return JSON.parse(p);}catch{return null;}}).filter(p=>p?.mode==='sequence');
+ assert.equal(stored.length,2);
+ for(const [i,version] of ['a','b'].entries()){
+ assert.equal(stored[i].items[1].source_message_id,i===0?61:62);
+ const payload=buildLineMessages(stored[i],{heroImageBaseUrl:'https://staging.example',broadcastId:77,recipientId:1,variant:version});
+ assert.equal(payload.ok,true);assert.deepEqual(payload.messages.map(m=>m.type),['text','imagemap']);
+ assert.match(payload.messages[1].actions[0].linkUri,new RegExp('v='+version));
+ assert.equal(resolveBroadcastButtonTarget(stored[i],0,{heroImageBaseUrl:'https://staging.example'}).uri,'https://example.com/?variant='+version+'&utm_source=staging');
+ }
+});
+
+test('actual shared sender keeps same-image A/B native payloads and UTM URLs',async()=>{
+ const {createLinePushService}=require('../src/core/linePush');
+ const originalFetch=global.fetch, requests=[];
+ global.fetch=async(url,options)=>{requests.push(JSON.parse(options.body));return {ok:true,status:200};};
+ try{
+  const sender=createLinePushService({lineChannelAccessToken:'STAGING_TEST_TOKEN',query:async()=>({rows:[]})});
+  for(const version of ['a','b']){
+   const cfg={mode:'sequence',items:[{type:'text',text:'STAGING '+version},{type:'card',message_config:richConfig(version)}]};
+   const built=buildLineMessages(cfg,{heroImageBaseUrl:'https://staging.example'});
+   assert.equal(await sender.pushLineMessages('U'+'0'.repeat(32),built.messages),true);
+  }
+  assert.equal(requests[0].messages[1].baseUrl,requests[1].messages[1].baseUrl);
+  for(const [i,v] of ['a','b'].entries())assert.equal(requests[i].messages[1].actions[0].linkUri,'https://example.com/?variant='+v+'&utm_source=staging');
+ }finally{global.fetch=originalFetch;}
 });

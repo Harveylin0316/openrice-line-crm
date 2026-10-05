@@ -188,7 +188,7 @@ test('訊息庫的文字加卡片組合可直接帶入群發，並依原順序�
   assert.equal(window.document.getElementById('message-testing-settings').hidden, false);
   assert.match(window.document.getElementById('sequence-template-name').textContent, /文字＋圖文訊息/);
   assert.match(window.document.getElementById('sequence-template-summary').textContent, /第 1 段 文字/);
-  assert.match(window.document.getElementById('sequence-template-summary').textContent, /第 2 段 卡片/);
+  assert.match(window.document.getElementById('sequence-template-summary').textContent, /第 2 段 Flex 卡片/);
   assert.equal(previewBodies.at(-1).mode, 'sequence');
   assert.equal(previewBodies.at(-1).items.length, 2);
   assert.match(window.document.getElementById('msg-preview').textContent, /先發這段文字/);
