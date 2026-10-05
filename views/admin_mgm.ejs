@@ -43,7 +43,7 @@
       <div id="mg-ref-audit"><p class="muted">載入中…</p></div>
       <h3 style="margin:18px 0 6px;">要不要補發？看這裡</h3>
       <p class="muted" style="font-size:13px;">系統依完整活動紀錄判斷，不受上方日期影響。「需修正入帳」可確認處理；「不需補發」不用操作；「歷史證據不足」無法判定，請勿自行猜測補發。</p>
-      <label>顯示 <select id="mg-decision-filter" class="mg-sel"><option value="actionable">需要處理與證據不足</option><option value="needs_repair">需修正入帳</option><option value="insufficient">歷史證據不足</option><option value="no_action">不需補發</option><option value="all">全部</option></select></label>
+      <label>顯示 <select id="mg-decision-filter" class="mg-sel"><option value="needs_repair">需要處理（有完整證據）</option><option value="insufficient">歷史證據不足（不用逐筆猜）</option><option value="no_action">不需補發</option><option value="all">全部</option></select></label>
       <button type="button" id="mg-review-csv" class="mg-btn2" disabled>匯出全部判斷結果 CSV</button>
       <div id="mg-ref-review" style="overflow:auto;max-height:360px;margin-top:10px;"><p class="muted">載入中…</p></div>
     </section>
@@ -303,7 +303,7 @@
             var idx=data.candidates.indexOf(r);
             return '<tr><td>'+twFull(r.attempted_at)+'</td><td>'+who(r.inviter_name,r.inviter_uid)+'<br>→ '+who(r.invitee_name,r.invitee_uid)+'</td><td>'+esc(labels[r.decision]||'無法判定')+'</td><td>'+esc(r.explanation)+'</td><td>'+(r.repairable?Number(r.extra_chances||0)+' 次':'—')+'</td><td>'+
               (r.repairable?(data.can_repair===false?'請管理員確認修正':'<button type="button" class="mg-btn1" data-ref-repair="'+idx+'" '+(REPAIR_BUSY?'disabled':'')+'>確認修正入帳</button>'):'不提供補發操作')+'</td></tr>';
-          }).join('')+'</tbody></table>':'<p>這個分類沒有紀錄。</p>')+
+          }).join('')+'</tbody></table>':(filter==='needs_repair'?'<p>目前沒有系統可確認需修正的紀錄。歷史證據不足不是已確認漏發，不需要你逐筆猜測是否補發。</p>':'<p>這個分類沒有紀錄。</p>'))+
           (data.truncated?'<p class="mg-wait">僅載入最新 5,000 筆；上方數字與匯出只計這些紀錄，不代表整檔總數。</p>':'');
       }
       function loadDecisionsFor(activityId,seq){
