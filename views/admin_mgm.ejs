@@ -41,9 +41,10 @@
       <h2 style="margin:0 0 4px;">邀請機會對帳</h2>
       <p class="muted" style="font-size:13px;margin-bottom:10px;">自動核對整檔活動的成功邀請、應增加次數與歷史疑點；不受上方日期篩選影響，也不會自動補發。</p>
       <div id="mg-ref-audit"><p class="muted">載入中…</p></div>
-      <h3 style="margin:18px 0 6px;">新舊好友待複核</h3>
-      <p class="muted" style="font-size:13px;">有些人可能在 LINE 登入時就先加好友，舊系統卻判成舊好友。以下只是疑點，不是已確認漏發；固定檢查整檔活動，不會自動改判或補次數。</p>
-      <button type="button" id="mg-review-csv" class="mg-btn2" disabled>下載待複核 CSV</button>
+      <h3 style="margin:18px 0 6px;">要不要補發？看這裡</h3>
+      <p class="muted" style="font-size:13px;">系統依完整活動紀錄判斷，不受上方日期影響。「需修正入帳」可確認處理；「不需補發」不用操作；「歷史證據不足」無法判定，請勿自行猜測補發。</p>
+      <label>顯示 <select id="mg-decision-filter" class="mg-sel"><option value="actionable">需要處理與證據不足</option><option value="needs_repair">需修正入帳</option><option value="insufficient">歷史證據不足</option><option value="no_action">不需補發</option><option value="all">全部</option></select></label>
+      <button type="button" id="mg-review-csv" class="mg-btn2" disabled>匯出全部判斷結果 CSV</button>
       <div id="mg-ref-review" style="overflow:auto;max-height:360px;margin-top:10px;"><p class="muted">載入中…</p></div>
     </section>
 
@@ -258,18 +259,11 @@
         var extra=Number(a.potential_extra_chances||0);
         var good=confirmedGap===0&&extra===0;
         var html='<div class="'+(good?'mg-audit-ok':'mg-audit-warn')+'"><b>'+(
-          good?'已入帳的新好友次數對帳未發現缺口':'發現可能影響抽獎次數的紀錄，請逐筆確認')+'</b><br>'+
+          good?'已入帳的新好友次數對帳未發現缺口':'發現需要查證的紀錄，請以下方系統判斷為準')+'</b><br>'+
           '已確認新好友邀請 <b>'+Number(a.confirmed_new_friends||0).toLocaleString()+'</b> 筆，依每人上限合計增加 <b>'+Number(a.calculated_bonus_chances||0).toLocaleString()+'</b> 次。'+
-          (confirmedGap?('<br>另有 <b>'+confirmedGap+'</b> 筆已標記成功、但沒有邀請入帳，需工程檢查。'):'')+
-          (candidates.length?('<br>另有 <b>'+candidates.length+'</b> 筆歷史紀錄疑似在加好友前後交界漏記；其中最多會影響 <b>'+extra+'</b> 次。'):'')+
+          (confirmedGap?('<br>另有 <b>'+confirmedGap+'</b> 筆已標記成功、但沒有邀請入帳；下方會再檢查完整證據，不能只憑成功標記補發。'):'')+
+          '<br>這裡只核對已入帳紀錄，不表示所有歷史邀請都正確；是否需要處理，請看下方。'+
           '</div>';
-        if(candidates.length){
-          html+='<table class="mg-table"><thead><tr><th>時間</th><th>邀請人</th><th>被邀請人</th><th>若確認成立</th></tr></thead><tbody>'+candidates.map(function(r){
-            var n=Number(r.extra_chances_if_confirmed||0);
-            return '<tr><td>'+tw(r.attempted_at)+'</td><td>'+who(r.inviter_name,r.inviter_uid)+'</td><td>'+who(r.invitee_name,r.invitee_uid)+'</td><td>'+
-              (n>0?('<span class="mg-wait">可能需補 '+n+' 次</span>'):'<span class="muted">邀請人已達上限，不需補次數</span>')+'</td></tr>';
-          }).join('')+'</tbody></table>';
-        }
         $('mg-ref-audit').innerHTML=html;
       }
 
@@ -294,16 +288,49 @@
         }).join('');
       }
 
-      function renderReferralReview(a){
-        a=a||{};
-        var rows=a.candidates||[];
-        $('mg-review-csv').disabled=!rows.length;
-        $('mg-ref-review').innerHTML='<p>歷史疑似誤判 <b>'+Number(a.historical_count||0)+'</b> 筆；資格待確認 <b>'+Number(a.pending_count||0)+'</b> 筆。</p>'+
-          (rows.length?'<table class="mg-table" style="min-width:760px;"><thead><tr><th>邀請時間</th><th>邀請人</th><th>被邀請人</th><th>會員建立</th><th>首次加好友</th><th>原因</th></tr></thead><tbody>'+rows.map(function(r){
-            return '<tr><td>'+twFull(r.attempted_at)+'</td><td>'+who(r.inviter_name,r.inviter_uid)+'</td><td>'+who(r.invitee_name,r.invitee_uid)+'</td><td>'+(r.first_seen_at?twFull(r.first_seen_at):'—')+'</td><td>'+(r.followed_at?twFull(r.followed_at):'待確認')+'</td><td>'+(r.reason==='legacy_existing'?'加好友與邀請相隔 30 分鐘內，需確認來源':'證據不足，尚未入帳')+'</td></tr>';
-          }).join('')+'</tbody></table>':'<p class="muted">目前沒有符合這項檢查的疑點；不代表所有歷史邀請都已確定正確。</p>')+
-          (Number(a.total||0)>rows.length?'<p class="muted">僅顯示／下載最新 5,000 筆，請聯絡管理員取得其餘紀錄。</p>':'');
+      var DECISIONS=null, REPAIR_BUSY=false;
+      function renderDecisions(){
+        var data=DECISIONS;
+        if(!data)return;
+        var filter=$('mg-decision-filter').value;
+        var labels={needs_repair:'需修正入帳',no_action:'不需補發',insufficient:'歷史證據不足'};
+        var rows=data.candidates.filter(function(r){return filter==='all'||(filter==='actionable'?r.decision!=='no_action':r.decision===filter);});
+        $('mg-review-csv').disabled=!data.candidates.length;
+        var c=data.counts||{};
+        $('mg-ref-review').innerHTML='<p>需修正入帳 '+Number(c.needs_repair||0)+' 筆 · 不需補發 '+Number(c.no_action||0)+' 筆 · 歷史證據不足 '+Number(c.insufficient||0)+' 筆</p>'+
+          '<p class="muted">每筆次數是目前單筆處理的估算，不可相加；確認時會依最新上限重新計算。修正入帳不會發送 LINE 通知，也不會增加獎項庫存。</p>'+
+          (rows.length?'<table class="mg-table" style="min-width:760px;"><thead><tr><th>邀請時間</th><th>邀請人／被邀請人</th><th>系統判斷</th><th>理由與下一步</th><th>預計增加</th><th>操作</th></tr></thead><tbody>'+rows.map(function(r){
+            var idx=data.candidates.indexOf(r);
+            return '<tr><td>'+twFull(r.attempted_at)+'</td><td>'+who(r.inviter_name,r.inviter_uid)+'<br>→ '+who(r.invitee_name,r.invitee_uid)+'</td><td>'+esc(labels[r.decision]||'無法判定')+'</td><td>'+esc(r.explanation)+'</td><td>'+(r.repairable?Number(r.extra_chances||0)+' 次':'—')+'</td><td>'+
+              (r.repairable?(data.can_repair===false?'請管理員確認修正':'<button type="button" class="mg-btn1" data-ref-repair="'+idx+'" '+(REPAIR_BUSY?'disabled':'')+'>確認修正入帳</button>'):'不提供補發操作')+'</td></tr>';
+          }).join('')+'</tbody></table>':'<p>這個分類沒有紀錄。</p>')+
+          (data.truncated?'<p class="mg-wait">僅載入最新 5,000 筆；上方數字與匯出只計這些紀錄，不代表整檔總數。</p>':'');
       }
+      function loadDecisionsFor(activityId,seq){
+        DECISIONS=null;$('mg-review-csv').disabled=true;
+        empty('mg-ref-review','系統判斷中…');
+        return fetch('/admin/mgm/api/referral-decisions?activity_id='+encodeURIComponent(activityId)).then(function(r){return r.json();}).then(function(d){
+          if(seq!==LOAD_SEQ)return;
+          if(!d.ok||!Array.isArray(d.candidates))throw new Error('failed');
+          DECISIONS=d;renderDecisions();
+        }).catch(function(){if(seq!==LOAD_SEQ)return;DECISIONS=null;$('mg-review-csv').disabled=true;empty('mg-ref-review','判斷資料載入失敗，不能補發。請重新整理。');});
+      }
+      $('mg-decision-filter').addEventListener('change',renderDecisions);
+      $('mg-ref-review').addEventListener('click',function(e){
+        var button=e.target.closest('[data-ref-repair]');
+        if(!button||REPAIR_BUSY||!DECISIONS||!ACT)return;
+        var row=DECISIONS.candidates[Number(button.dataset.refRepair)];
+        if(!row||!row.repairable)return;
+        var aid=ACT.id,seq=LOAD_SEQ;
+        if(!window.confirm('修正 '+row.inviter_name+' 邀請 '+row.invitee_name+' 的入帳？目前預計增加 '+row.extra_chances+' 次（確認時會重新計算）。不會寄通知；同一邀請不會重複入帳。'))return;
+        REPAIR_BUSY=true;renderDecisions();
+        fetch('/admin/mgm/api/repair-referral',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({activity_id:aid,inviter_uid:row.inviter_uid,invitee_uid:row.invitee_uid,confirm:true})})
+          .then(function(r){return r.json();}).then(function(d){
+            if(seq!==LOAD_SEQ)return;
+            window.alert(d.ok?'已修正入帳，活動上限仍生效。':(d.detail||'沒有完成修正，請重新載入確認。'));
+          }).catch(function(){if(seq===LOAD_SEQ)window.alert('連線中斷，結果尚未確認。請先重新載入，勿改用人工加次數。');})
+          .finally(function(){REPAIR_BUSY=false;if(seq===LOAD_SEQ)load(aid);else renderDecisions();});
+      });
 
       function renderPairs(rows){
         if(!rows||!rows.length)return empty('mg-pairs','這檔活動還沒有人邀請。');
@@ -366,6 +393,7 @@
       var LOAD_SEQ=0;
       function load(activityId){
         var loadSeq=++LOAD_SEQ;
+        DECISIONS=null;empty('mg-ref-review','載入中…');
         $('mg-review-csv').disabled=true;
         var q=new URLSearchParams();
         if(activityId)q.set('activity_id',activityId);
@@ -387,12 +415,12 @@
           renderPicker(d.activities||[], ACT);
           renderRule(ACT); renderStats(ACT);
           renderReferralAudit(d.referral_audit);
-          renderReferralReview(d.referral_review);
           renderInventory(d.prize_inventory);
           renderPairs(d.pairs); renderInviters(d.inviters);
           renderPeople(d.people); renderLedger(d.ledger);
           if(ACT) $('mg-draw-link').href='/admin/mgm/draw?activity_id='+ACT.id;
           updatePageUrl(ACT&&ACT.id);
+          return loadDecisionsFor(ACT.id,loadSeq);
         }).catch(function(){if(loadSeq!==LOAD_SEQ)return;DATA=null;$('mg-review-csv').disabled=true;$('mg-rule').textContent='載入失敗，請重新整理';empty('mg-ref-review','待複核清單載入失敗，不能下載舊資料。');});
       }
       $('mg-act').addEventListener('change',function(){load(this.value);});
@@ -577,12 +605,11 @@
       $('mg-q').addEventListener('keydown',function(e){if(e.key==='Enter')lookup();});
 
       $('mg-review-csv').addEventListener('click',function(){
-        var rows=(DATA&&DATA.referral_review&&DATA.referral_review.candidates)||[];
-        downloadCsv(['邀請紀錄 ID','邀請時間（台灣）','邀請人','邀請人 LINE ID','被邀請人','被邀請人 LINE ID','會員建立（台灣）','首次加好友（台灣）','待複核原因'],
-          rows.map(function(r){return [r.referral_id,twFull(r.attempted_at),r.inviter_name,r.inviter_uid,r.invitee_name,r.invitee_uid,
-            r.first_seen_at?twFull(r.first_seen_at):'',r.followed_at?twFull(r.followed_at):'',
-            r.reason==='legacy_existing'?'疑似登入時先加好友，非確認漏發':'資格證據不足，尚未入帳'];}),
-          '邀請待複核_'+(ACT?ACT.id:'')+'.csv');
+        if(!DECISIONS)return;
+        downloadCsv(['邀請紀錄 ID','邀請時間（台灣）','邀請人','邀請人 LINE ID','被邀請人','被邀請人 LINE ID','系統判斷','原因','預計增加次數（不可相加）'],
+          DECISIONS.candidates.map(function(r){return [r.referral_id,twFull(r.attempted_at),r.inviter_name,r.inviter_uid,r.invitee_name,r.invitee_uid,
+            ({needs_repair:'需修正入帳',no_action:'不需補發',insufficient:'歷史證據不足'})[r.decision],r.explanation,r.repairable?r.extra_chances:''];}),
+          '邀請判斷結果_'+(ACT?ACT.id:'')+'.csv');
       });
 
       $('mg-pairs-csv').addEventListener('click',function(){

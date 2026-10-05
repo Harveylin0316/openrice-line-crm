@@ -1,5 +1,14 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-05 邀請補發判斷與安全修正
+
+- 活動成效「要不要補發？看這裡」由 `/admin/mgm/api/referral-decisions` 讀取全活動證據，分類「需修正入帳／不需補發／歷史證據不足」。日期篩選不影響；最多 5,000 筆，截斷時明示數字不是全活動總數；CSV 包含所有已載入分類。
+- 證據須有綁定同活動／遊戲／邀請人／被邀請人的伺服器 journey 或非好友嘗試，之後 72h 內官方首次 follow、`isUnblocked=false`、不存在較早好友事件與會員；30 分鐘靠近不構成證明。多邀請人、封鎖／封存、人工加碼、個別配額及 MGM 里程碑一律不自動允許修正。
+- `/admin/mgm/api/repair-referral` 限管理員角色（requireOwner，不開放 staff）、明確確認、同源請求；同一連線交易內重查證據，與遊戲共用用戶 advisory lock。修正／補建 referral，不插入人工 bonus；配額仍由共用引擎依每幾位換一份、上限即時計算。UI 單筆增量不可相加，處理時重新查算。
+- 邀請唯一鍵、條件更新及交易防重；操作以 `admin_reconciled:<操作者>` 留在 attempts。寫 audit 失敗 rollback；連線中斷提示先重新載入，不能改用人工加碼。補建 referral 保留原加好友時間，避免把歷史事件移到今天。
+- 不新增 schema／migration，不自動修正正式營運資料，不寄 LINE 通知；歷史證據缺失無法還原來源，不能把這些人宣稱確定漏發。若要一次性補償，另取得 Hen 對政策與範圍的授權。
+- 本機真 PG 驗證：`node scripts/qa/referral-decisions-check.cjs`（只連 `/tmp` 本機 PG，合成資料、專用 schema，結束清除）；回歸 `test/referral-decisions.test.js`、`test/mgm-performance-dashboard.test.js`。正式驗證只讀。
+
 本文件讓新的 AI 或工程師不需依賴對話紀錄，即可理解產品、找到程式入口、安全修改並完成驗證。內容已更新至 2026-09-22；正式資料與部署狀態仍應在接手時重新確認。
 
 - Repo：<https://github.com/Harveylin0316/openrice-line-crm>
@@ -213,9 +222,9 @@ Email 已儲存名單）都可選「全部符合條件的人」或「隨機抽�
 成功送達，不會自動發送保留名單。管理員也能在母批次詳情手動指定版本，或取消保留名單。
 
 實驗設定與 C 版內容儲存在既有 `admin_broadcasts.audience_config.experiment` JSONB，沒有新增
-公開資料表。CTR 依帶 `recipient_id` 的追蹤網址計算，因此 Campaign Testing 限用一般訊息
-編輯器；進階 Flex JSON 的任意按鈕尚不能保證都經過 CTR 追蹤。Flex 仍可編輯及預覽，
-但畫面會立即顯示原因並鎖住正式送出，不會等到最後一步才用不明確錯誤拒絕。核心純邏輯在
+公開資料表。CTR 依帶 `recipient_id` 的追蹤網址計算。2026-10-05 起 Campaign Testing
+支援一般卡片、自訂 Flex JSON、多段訊息與單張原生 imagemap；每版至少一個可追蹤 URI。
+「傳送文字」動作不計 CTR，沒有可追蹤網址時不能建立實驗。核心純邏輯在
 `src/core/campaignExperiment.js`，route／runner 在 `src/routes/adminBroadcast.js`，回歸測試在
 `test/campaign-experiment.test.js`。
 
@@ -458,8 +467,8 @@ route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-pl
 圖片段可直接上傳新圖（`/admin/broadcast/hero/upload`，必須 https，原圖與預覽圖一起換）；每段可單獨「這段恢復成 A 版」。
 A 版是單張卡片時，B／C 有「從訊息庫套用到版本 B／C」，只列與 A 同格式的素材（一般卡片對一般卡片、自訂卡片對自訂卡片），
 套用後填進該版編輯區可再微調。`GET /admin/broadcast/templates` 多回傳 `mode` 供篩選。
-伺服器：Campaign Testing 允許 `template` 與 `sequence`；兩種格式的每個版本都至少要有一顆可追蹤的「開啟網址」按鈕
-（`listBroadcastButtons`），否則回 `campaign_experiment_requires_cta_button`。自訂 Flex JSON 仍維持原本限制。
+伺服器：Campaign Testing 允許 `template`、`sequence`、`flex_json` 與 `imagemap`；每個版本都至少要有一顆可追蹤的「開啟網址」按鈕或區域
+（`listBroadcastButtons`），否則回 `campaign_experiment_requires_cta_button`。自訂 Flex JSON 的舊限制於 2026-10-05 移除。
 回歸測試 `test/broadcast-sequence-ab.test.js`。
 PR #25 審核補強：手動改文字／網址後立即提供單段還原；還原、重建編輯區或切換 A 素材後，舊上傳／換卡片回應不得覆蓋最新設定。
 圖片預覽同步依修改前的該版圖片判斷，保留刻意使用不同縮圖的設定。測試包含延遲回應、A/B/C 成功建立、無 CTA 擋下與跨卡片追蹤反查。
@@ -484,7 +493,7 @@ Campaign Testing 的 B 版標頭依目前設定比例顯示，不再固定標 50
   `/r/b/<批次>/<收件人>/<序號>`（與卡片按鈕同一套反查）；imagemap 沒有可放追蹤圖的位置，不估算「看過」。
 - 編輯器：上傳、版型（整張／上下／左右／自訂）、區域清單；自訂可在圖上拖拉新增（可畫在其他區上面）、拖編號移動、點選、改數字。
   預覽與 Flex 分開（`.line-mock.is-imagemap` 拿掉 bubble 外框），維持比例、虛線標出各區、點區域可開該網址測試。
-  訊息庫卡片預覽、發送紀錄（`imagemapSummary`）、近期群發成效名稱都認得新類型。單獨滿版圖文目前不支援 A/B；2026-10-02 起可從多段編輯器加入。
+  訊息庫卡片預覽、發送紀錄（`imagemapSummary`）、近期群發成效名稱都認得新類型。2026-10-05 起單張满版圖文支援 A/B/C 與 Campaign Testing，不再需要包成多段訊息。
 - **驗收必須在有 LINE token 的環境實際測**（Staging 沒有發送金鑰）：Test Send 到 iOS／Android，各確認整張與上下兩區連結。
 - 存檔（群發「儲存為模板」、訊息庫新增／修改）用 `validateMessageConfig()`：滿版圖文只驗結構，不需要公開網址
   （以前用 `buildLineMessages(cfg)` 驗，組 baseUrl 需要 https 網址而一律失敗、存不進訊息庫）。訊息庫預覽帶 `resolvePublicSiteOrigin`。
@@ -1033,6 +1042,13 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 - 回歸覆蓋：friendship fail-closed、錯配 channel/user、並行上限、同 key 重送、台北日界線、preview、referral 快照、日期競態、失敗清空與近期 SQL。沒有補發機會、回填事件、改庫存或資料庫 migration。
 
 ## 20. 多段訊息加入滿版圖文（2026-10-02）
+
+### 2026-10-05：Campaign Testing 全格式與單張滿版圖文
+
+- 群發 Campaign Testing 前後端共同允許 `template/sequence/flex_json/imagemap`。沿用 `listBroadcastButtons`、LINE 官方預檢、比例、觀察期、收件人凍結與 Winner 釋出；不是只移除提示。每版無可追蹤 URI 時拒絕建立，傳送文字動作不當成 CTR。
+- 單張滿版圖文的 B/C 使用既有同類型素材選擇器，完整複製圖片、尺寸、區域、動作快照，可各自改通知文字與區域連結；送出仍是頂層 `mode='imagemap'`。內部單段包裝只供共用編輯器，不增加 LINE 訊息段數。
+- `state.imVariants` 與多段 `seqVariants` 分開，草稿加上 `imVariants`（既有 localStorage key 相容）。換 A 不覆蓋 B/C；明確還原才重新複製。A 圖片／通知／區域尚未完成時先提示完成 A，不凍結空白 B/C。慢素材回應不能蓋過還原、較新選擇或格式切換。
+- 沒有 schema migration、外部設定或自動發送既有名單。回歸含真 EJS/前端操作、獨立草稿與預覽、各版本 CTA 擋下、LINE 預檢拒絕、追蹤網址反查；本機合成資料測試不代表真人 LINE 實收。
 
 - 正式發送層回歸補強：`linePush.normalizeLinePushMessageItem` 必須保留原生 `imagemap`，包含 baseUrl／baseSize／actions；先前 builder／webhook mock 正常，但共用 sender 不認得此類型會靜默濾掉圖文，甚至回報剩餘文字送出成功。push／validation／plain reply／A/B detailed reply 共用該 normalization。`test/line-imagemap-sender.test.js` 及實際 sender 的 webhook 回歸攔截 HTTP body，不可只 mock 整個 linePush service。
 - `/admin/messages/sequence` 新增「＋滿版圖文訊息」，從訊息庫選已建立的原生 imagemap。沿用 `items[].type='card'` 與 `message_config.mode='imagemap'` 的巢狀格式，`content_kind='imagemap'` 僅協助空白段落的素材選擇；沒有 schema migration。

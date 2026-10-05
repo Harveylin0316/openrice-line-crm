@@ -17,6 +17,7 @@
 const { registerReferral, computeUserQuota } = require('../core/gamePlayEngine');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 const { loadReferralReview } = require('../core/referralReview');
+const { loadDecisions, repairReferral } = require('../core/referralDecisions');
 const { registerReferralEntry } = require('./gamesGeneric');
 const { claimReferralJourney } = require('../core/referralJourney');
 
@@ -70,7 +71,7 @@ function parseReportDateRange(rawFrom, rawTo) {
 }
 
 function registerMgmMilesRoutes(app, deps) {
-  const { query, authCore, mgmEngine, defaultLiffId } = deps;
+  const { query, pool, authCore, mgmEngine, defaultLiffId } = deps;
   const { requireAdmin, requireOwner } = authCore;
   registerReferralEntry(app, query, { gameType: 'mgm', defaultLiffId });
   const jsonErr = (res, s, e, extra = {}) => res.status(s).json({ ok: false, error: e, ...extra });
@@ -735,6 +736,41 @@ function registerMgmMilesRoutes(app, deps) {
     } catch (err) {
       console.error('user lookup error:', err && err.message);
       jsonErr(res, 500, 'lookup_failed', { detail: err && err.message });
+    }
+  });
+
+  app.get('/admin/mgm/api/referral-decisions', requireAdmin, async (req, res) => {
+    try {
+      const activity = await resolveActivity(req.query.activity_id);
+      if (!activity) return jsonErr(res, 404, 'no_activity');
+      res.json({ ok: true, activity_id: activity.id,
+        can_repair: Boolean(authCore.roleOf && authCore.roleOf(req.authUser) === 'admin'),
+        ...await loadDecisions(query, activity) });
+    } catch (err) {
+      jsonErr(res, 500, 'decisions_failed', { detail: '判斷資料載入失敗，請重新整理；此時不能補發。' });
+    }
+  });
+
+  app.post('/admin/mgm/api/repair-referral', requireAdmin, requireOwner, async (req, res) => {
+    const origin = req.get && req.get('origin');
+    if (origin) {
+      try { if (new URL(origin).host !== req.get('host')) return jsonErr(res, 403, 'cross_origin_forbidden'); }
+      catch (_) { return jsonErr(res, 403, 'cross_origin_forbidden'); }
+    }
+    if (req.get && req.get('sec-fetch-site') === 'cross-site') return jsonErr(res, 403, 'cross_origin_forbidden');
+    const body = req.body || {};
+    if (body.confirm !== true || !/^[1-9][0-9]*$/.test(String(body.activity_id || '')) ||
+        !/^U[0-9a-f]{32}$/i.test(String(body.inviter_uid || '')) ||
+        !/^U[0-9a-f]{32}$/i.test(String(body.invitee_uid || '')))
+      return jsonErr(res, 400, 'invalid_confirmation');
+    if (!pool) return jsonErr(res, 503, 'database_unavailable');
+    try {
+      res.json(await repairReferral(pool, body.activity_id, body.inviter_uid, body.invitee_uid,
+        req.authUser && req.authUser.un));
+    } catch (err) {
+      const conflict = ['not_repairable','already_changed','no_activity'].includes(err.message);
+      jsonErr(res, conflict ? 409 : 500, conflict ? err.message : 'repair_failed',
+        { detail: conflict ? '狀態已變更或證據不足，請重新載入；沒有重複補發。' : '修正失敗，請重新載入確認結果；勿改用人工加次數。' });
     }
   });
 

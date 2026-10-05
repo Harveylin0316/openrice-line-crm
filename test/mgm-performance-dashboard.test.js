@@ -21,7 +21,7 @@ function makeResponse() {
   return res;
 }
 
-function buildRoutes(query) {
+function buildRoutes(query, authOverrides = {}) {
   const routes = {};
   const app = {
     get(route, ...handlers) { routes['GET ' + route] = handlers; },
@@ -30,7 +30,7 @@ function buildRoutes(query) {
   const pass = (_req, _res, next) => next();
   registerMgmMilesRoutes(app, {
     query,
-    authCore: { requireAdmin: pass, requireOwner: pass },
+    authCore: { requireAdmin: pass, requireOwner: pass, ...authOverrides },
     mgmEngine: {},
     defaultLiffId: '123-test'
   });
@@ -235,7 +235,13 @@ test('活動成效頁同頁顯示分享超有哩 KPI、獎項庫存與得獎名�
     runScripts: 'dangerously',
     url: 'https://example.test/admin/mgm?activity_id=6&period=custom&from_date=2026-09-01&to_date=2026-09-08',
     beforeParse(window) {
-      window.fetch = async url => { fetchedUrls.push(String(url)); return fetchOverride ? fetchOverride(url) : { json: async () => payload }; };
+      window.fetch = async url => {
+        fetchedUrls.push(String(url));
+        if(String(url).includes('/referral-decisions'))return {json:async()=>({ok:true,
+          counts:{needs_repair:0,no_action:0,insufficient:1},candidates:fetchOverride?[]:
+            payload.referral_review.candidates.map(r=>({...r,decision:'insufficient',repairable:false,explanation:'歷史證據不足，非確認漏發'}))})};
+        return fetchOverride ? fetchOverride(url) : { json: async () => payload };
+      };
       window.confirm = () => true;
       window.Blob = class { constructor(parts) { this.text = parts.join(''); } };
       window.URL.createObjectURL = blob => { downloads.push(blob.text); return 'blob:fixture'; };
@@ -251,7 +257,7 @@ test('活動成效頁同頁顯示分享超有哩 KPI、獎項庫存與得獎名�
   assert.match(document.getElementById('mg-stats').textContent, /成功邀請的會員/);
   assert.match(document.getElementById('mg-stats').textContent, /好友狀態不明/);
   assert.match(document.getElementById('mg-ref-audit').textContent, /已入帳的新好友次數對帳未發現缺口/);
-  assert.match(document.getElementById('mg-ref-audit').textContent, /已達上限，不需補次數/);
+  assert.match(document.getElementById('mg-ref-audit').textContent, /不表示所有歷史邀請都正確/);
   assert.match(document.getElementById('mg-pairs').textContent, /好友狀態不明/);
   assert.match(document.getElementById('mg-stats').textContent, /20,000/);
   assert.equal(document.querySelectorAll('#mg-inventory .mg-prize').length, 2);
@@ -292,4 +298,60 @@ test('活動成效頁同頁顯示分享超有哩 KPI、獎項庫存與得獎名�
   assert.equal(document.getElementById('mg-review-csv').disabled, true);
   assert.match(document.getElementById('mg-ref-review').textContent, /不能下載舊資料/);
   dom.window.close();
+});
+
+test('邀請判斷畫面只開放有證據的修正、確認可取消、重複點擊只發一次', async () => {
+  const html=await ejs.renderFile(path.join(REPO,'views/admin_mgm.ejs'),{
+    title:'QA',user:'admin',isAdmin:true,bodyClass:'admin-shell mgm-shell'
+  },{views:[path.join(REPO,'views')]});
+  const data={ok:true,activity:{id:6,name:'QA',game_type:'wheel',stats:{}},activities:[],
+    prize_inventory:[],people:[],ledger:[],inviters:[],pairs:[],referral_audit:{}};
+  const candidates=['needs_repair','insufficient','no_action'].map((decision,i)=>({
+    decision,repairable:i===0,extra_chances:i===0?1:0,explanation:i===1?'歷史證據不足':'QA 理由',
+    inviter_name:'QA inviter',invitee_name:'QA invitee',inviter_uid:'U'+'a'.repeat(32),
+    invitee_uid:'U'+String(i+1).repeat(32),attempted_at:'2026-10-05T09:00:00Z'}));
+  let confirm=false,resolveRepair,posts=0,body;
+  const dom=new JSDOM(html,{runScripts:'dangerously',url:'https://example.test/admin/mgm',beforeParse(w){
+    w.confirm=()=>confirm;w.alert=()=>{};
+    w.fetch=async (url,options)=>{
+      if(String(url).includes('/repair-referral')){posts++;body=JSON.parse(options.body);return new Promise(r=>{resolveRepair=r;});}
+      return {json:async()=>String(url).includes('/referral-decisions')?
+        {ok:true,candidates,counts:{needs_repair:1,insufficient:1,no_action:1}}:data};
+    };
+  }});
+  await new Promise(r=>setTimeout(r,40));
+  const doc=dom.window.document;
+  assert.equal(doc.querySelectorAll('[data-ref-repair]').length,1);
+  doc.querySelector('[data-ref-repair]').click();assert.equal(posts,0);
+  confirm=true;doc.querySelector('[data-ref-repair]').click();
+  doc.querySelector('[data-ref-repair]').click();assert.equal(posts,1);
+  assert.equal(body.confirm,true);assert.equal(body.activity_id,6);
+  assert.equal(body.plays,undefined);assert.equal(body.extra_chances,undefined);
+  assert.equal(doc.querySelector('[data-ref-repair]').disabled,true);
+  resolveRepair({json:async()=>({ok:true})});await new Promise(r=>setTimeout(r,40));
+  const filter=doc.getElementById('mg-decision-filter');filter.value='insufficient';
+  filter.dispatchEvent(new dom.window.Event('change'));
+  assert.equal(doc.querySelectorAll('[data-ref-repair]').length,0);
+  assert.match(doc.getElementById('mg-ref-review').textContent,/歷史證據不足/);
+  dom.window.close();
+});
+
+test('邀請修正 API 拒絕未確認、跨來源與沒有交易連線，不能落回非交易 query', async()=>{
+  let reads=0;const routes=buildRoutes(async()=>{reads++;return {rows:[]};});
+  const handlers=routes['POST /admin/mgm/api/repair-referral'];
+  assert.equal((await runHandlers(handlers,{},{})).statusCode,400);
+  const req={body:{activity_id:6,inviter_uid:'U'+'a'.repeat(32),invitee_uid:'U'+'b'.repeat(32),confirm:true},
+    get:name=>({origin:'https://evil.test',host:'example.test'})[name]};
+  const res=makeResponse();await handlers.at(-1)(req,res);
+  assert.equal(res.statusCode,403);
+  assert.equal((await runHandlers(handlers,{},req.body)).statusCode,503);
+  assert.equal(reads,0);
+});
+
+test('邀請修正必須通過管理員角色 gate，staff 不可改判獎勵資格',async()=>{
+  let reads=0;
+  const routes=buildRoutes(async()=>{reads++;return {rows:[]};},{requireOwner:(_req,res)=>res.status(403).json({ok:false,error:'forbidden'})});
+  const res=await runHandlers(routes['POST /admin/mgm/api/repair-referral'],{},
+    {activity_id:6,inviter_uid:'U'+'a'.repeat(32),invitee_uid:'U'+'b'.repeat(32),confirm:true});
+  assert.equal(res.statusCode,403);assert.equal(reads,0);
 });
