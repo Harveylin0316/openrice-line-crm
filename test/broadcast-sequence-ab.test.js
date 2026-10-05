@@ -11,6 +11,13 @@ const { buildLineMessages, listBroadcastButtons, resolveBroadcastButtonTarget } 
 
 const REPO = path.join(__dirname, '..');
 const wait = ms => new Promise(r => setTimeout(r, ms));
+async function waitForReadySend(doc) {
+  const deadline=Date.now()+5000;
+  while(doc.getElementById('btn-send').classList.contains('btn-needs-prep') && Date.now()<deadline)
+    await wait(20);
+  assert.equal(doc.getElementById('btn-send').classList.contains('btn-needs-prep'),false,
+    '送出前必須實際完成受眾與所有版本的訊息預覽：'+doc.getElementById('msg-status').textContent);
+}
 
 function card(title, uri) {
   return {
@@ -692,6 +699,7 @@ test('單張 Imagemap A/B/C：獨立圖片／連結／測試發送／預覽與�
     await wait(650);
     assert.match(doc.querySelector('#pane-b-sequence').textContent, /B 滿版/);
     doc.getElementById('btn-preview-audience').click(); await wait(80);
+    await waitForReadySend(doc);
     doc.getElementById('btn-send').click(); await wait(30);
     assert.equal(alerts.length, 0, alerts.join(' | '));
     assert.equal(doc.getElementById('send-confirm-overlay').hidden, false);
