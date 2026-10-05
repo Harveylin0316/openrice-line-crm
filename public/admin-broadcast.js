@@ -1110,11 +1110,12 @@
       if (slotType(vItem)) {
         html += '<select aria-label="更換 ' + SLOT_TYPES[slotType(vItem)] + '" data-seq-swap="' + i + '"><option value="">載入同類型素材…</option></select><details><summary>查看可替換素材（名稱／縮圖／時間）</summary><div data-seq-catalog="' + i + '" style="display:grid;gap:8px;max-height:280px;overflow:auto"></div></details>';
       }
-      if (item && item.type === 'image') {
+      if (vItem && vItem.type === 'image') {
         html += '<input type="file" accept="image/png,image/jpeg" data-seq-upload="' + i + '" hidden />' +
           '<button type="button" class="btn" data-seq-upload-btn="' + i + '">上傳新圖片</button>';
       }
-      html += '<button type="button" class="btn" data-seq-item-reset="' + i + '"' + (changed ? '' : ' hidden') + '>這段恢復成 A 版</button>';
+      if (item) html += '<button type="button" class="btn" data-seq-item-reset="' + i + '"' + (changed ? '' : ' hidden') + '>這段恢復成 A 版</button>';
+      else html += '<span class="muted">A 版沒有這一段；此段保留原內容。需要全部改回 A 版時，請用下方整版還原。</span>';
       html += '</div>';
       if (vItem.source_message_id) html += '<div class="seq-var-src">目前素材：' + escapeHtml(vItem.source_name || '已儲存素材') + ' · 訊息 #' + escapeHtml(String(vItem.source_message_id)) + '</div>';
       if (slotType(vItem) === 'imagemap') html += '<div class="seq-var-src" style="overflow-wrap:anywhere">' + escapeHtml(assetSummary(vItem)) + '</div>';
@@ -1138,7 +1139,7 @@
       html += '</div>';
     });
     html += '<div class="seq-var-actions"><button type="button" class="btn" data-seq-reset="' + key + '">恢復成與 A 版相同</button>' +
-      '<span class="muted seq-var-state" style="font-size:12px;">' + (state.seqVariantsEdited[key] ? '已修改，與 A 版不同' : '目前與 A 版相同') + '</span></div>';
+      '<span class="muted seq-var-state" style="font-size:12px;">' + (JSON.stringify(v) !== JSON.stringify(a) ? '已修改，與 A 版不同' : '目前與 A 版相同') + '</span></div>';
     pane.innerHTML = html;
     Array.prototype.forEach.call(pane.querySelectorAll('[data-seq-path]'), function (el) {
       el.addEventListener('input', function () {
@@ -1197,6 +1198,7 @@
     Array.prototype.forEach.call(pane.querySelectorAll('[data-seq-item-reset]'), function (btn) {
       btn.addEventListener('click', function () {
         var i = Number(btn.getAttribute('data-seq-item-reset'));
+        if (!state.sequenceConfig.items[i]) return;
         ensureSeqVariant(key).items[i] = seqClone(state.sequenceConfig.items[i]);
         afterSegmentChange();
       });
@@ -4223,13 +4225,15 @@
       }
       if (d.mode === 'sequence' && d.sequenceConfig) {
         applyMessageConfigToForm(d.sequenceConfig);
-        // 草稿裡的 B／C 改動要放回來（只在段落結構與 A 版一致時）
+        // 各版本是獨立快照，A 段數變更不能丟棄已保存的 B／C。
         if (d.seqVariants) {
           ['b', 'c'].forEach(function (k) {
             var saved = d.seqVariants[k];
-            if (saved && Array.isArray(saved.items) && saved.items.length === (d.sequenceConfig.items || []).length) {
+            if (saved && saved.mode === 'sequence' && Array.isArray(saved.items) &&
+                saved.items.length >= 1 && saved.items.length <= 5 &&
+                saved.items.every(function (item) { return item && typeof item === 'object' && slotType(item); })) {
               state.seqVariants[k] = saved;
-              state.seqVariantsEdited[k] = !!(d.seqVariantsEdited && d.seqVariantsEdited[k]);
+              state.seqVariantsEdited[k] = JSON.stringify(saved) !== JSON.stringify(state.sequenceConfig);
             }
           });
           syncSeqVariantPanes();

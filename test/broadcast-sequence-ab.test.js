@@ -70,10 +70,67 @@ async function openWithSequence(opts = {}) {
     }
     return { json: async () => ({ ok: true }) };
   };
+  if (opts.draft) window.localStorage.setItem('broadcast_draft_v1', JSON.stringify(opts.draft));
   window.eval(source);
   await wait(900);
   return { dom, window, doc: window.document, previews };
 }
+
+test('A 換短素材後 B/C 草稿獨立還原，額外段落不提供不存在的 A 還原且圖片仍可上傳', async () => {
+  let aConfig = SEQUENCE;
+  const page = await openWithSequence({ fetchOverride: url => url === '/admin/broadcast/templates/42' ? { json: async () => ({ ok: true, template: { id: 42, name: 'A', message_config: aConfig } }) } : null });
+  const { doc, window } = page;
+  doc.getElementById('campaign-test-enable').checked = true;
+  doc.getElementById('campaign-test-enable').dispatchEvent(new window.Event('change'));
+  doc.getElementById('campaign-variant-count').value = '3';
+  doc.getElementById('campaign-variant-count').dispatchEvent(new window.Event('change'));
+  for (const key of ['b', 'c']) {
+    const text = doc.querySelector('#pane-' + key + '-sequence textarea');
+    text.value = key.toUpperCase() + ' 保留';
+    text.dispatchEvent(new window.Event('input'));
+  }
+  aConfig = { mode: 'sequence', items: [{ type: 'text', text: '新 A 一段' }] };
+  const select = doc.getElementById('template-select');
+  select.value = '42'; select.dispatchEvent(new window.Event('change'));
+  await wait(700);
+  const saved = JSON.parse(window.localStorage.getItem('broadcast_draft_v1'));
+  assert.equal(saved.sequenceConfig.items.length, 1);
+  for (const key of ['b', 'c']) {
+    const pane = doc.getElementById('pane-' + key + '-sequence');
+    assert.equal(pane.querySelectorAll('.seq-var-item').length, 3);
+    assert.equal(pane.querySelector('[data-seq-item-reset="2"]'), null);
+    assert.ok(pane.querySelector('[data-seq-upload-btn="1"]'));
+    assert.equal(pane.querySelector('.seq-var-state').textContent, '已修改，與 A 版不同');
+  }
+  const restored = await openWithSequence({ aConfig, draft: saved });
+  for (const key of ['b', 'c']) {
+    const pane = restored.doc.getElementById('pane-' + key + '-sequence');
+    assert.equal(pane.querySelectorAll('.seq-var-item').length, 3);
+    assert.equal(pane.querySelector('textarea').value, key.toUpperCase() + ' 保留');
+  }
+  assert.ok(restored.previews.some(cfg => cfg?.items?.[0]?.text === 'B 保留' && cfg.items.length === 3));
+  doc.querySelector('[data-seq-reset="b"]').click();
+  assert.equal(doc.querySelectorAll('#pane-b-sequence .seq-var-item').length, 1);
+  assert.equal(doc.querySelector('#pane-b-sequence textarea').value, '新 A 一段');
+  page.dom.window.close(); restored.dom.window.close();
+});
+
+test('A 比 B 段數多也保留 B 獨立草稿，無效段落不還原', async () => {
+  const draft = {
+    mode: 'sequence', abEnabled: true, sequenceConfig: SEQUENCE,
+    seqVariants: { b: { mode: 'sequence', items: [{ type: 'text', text: '獨立短 B' }] } },
+    seqVariantsEdited: { b: false }
+  };
+  const page = await openWithSequence({ draft });
+  assert.equal(page.doc.querySelectorAll('#pane-b-sequence .seq-var-item').length, 1);
+  assert.equal(page.doc.querySelector('#pane-b-sequence textarea').value, '獨立短 B');
+  assert.equal(page.doc.querySelector('#pane-b-sequence .seq-var-state').textContent, '已修改，與 A 版不同');
+  page.dom.window.close();
+  draft.seqVariants.b.items = [null];
+  const invalid = await openWithSequence({ draft });
+  assert.equal(invalid.doc.querySelectorAll('#pane-b-sequence .seq-var-item').length, 3);
+  invalid.dom.window.close();
+});
 
 test('多段訊息開 A/B：B 版逐段沿用 A 版，可改文字、圖片、卡片內文字與按鈕；改過的欄位標示出來', async () => {
   const { dom, window, doc, previews } = await openWithSequence();

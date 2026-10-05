@@ -453,7 +453,7 @@ route 接點在 `src/routes/adminBroadcast.js`，回歸測試 `test/broadcast-pl
 現在 B／C 版會完整複製 A 版（`state.seqVariants`），在 `#pane-b-sequence`／`#pane-c-sequence` 只改要測的部分：
 文字段的文字、單張圖片網址（預覽圖原本同一張就一起換）、模板卡的通知文字／標題／副標／優惠碼／按鈕文字與連結、
 自訂 Flex 卡片內每個 text、image url、uri 按鈕的 label 與 uri。段數、類型、順序固定與 A 版相同；改過的欄位標黃，
-有「恢復成與 A 版相同」。換 A 版素材時 B／C 重新從新 A 版複製。草稿會保存 B／C 改動（段數相同才還原）。
+有「恢復成與 A 版相同」。2026-10-02 起換 A 版素材不覆蓋 B／C；2026-10-05 起草稿按各版獨立段數還原，不再要求段數相同。
 整段操作：卡片段可「整張換成訊息庫的其他卡片」（只列單張卡片 template／flex_json，換入後欄位跟著新卡片，記 `source_message_id`、`source_name`）；
 圖片段可直接上傳新圖（`/admin/broadcast/hero/upload`，必須 https，原圖與預覽圖一起換）；每段可單獨「這段恢復成 A 版」。
 A 版是單張卡片時，B／C 有「從訊息庫套用到版本 B／C」，只列與 A 同格式的素材（一般卡片對一般卡片、自訂卡片對自訂卡片），
@@ -1038,6 +1038,8 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 - 安全回歸：`test/sequence-source-id-security.test.js`，涵蓋兩種編號、合法與異常格式、存檔路由零寫入、舊資料安全顯示與刪除素材後排序／儲存／發送順序。
 
 ### 多段 A/B 素材替換（2026-10-02）
+
+- 2026-10-05 修正：B／C 草稿按各自有效的 1～5 段快照還原，不再要求與 A 段數相同；A 沒有對應段落時不顯示單段還原並防止寫入 undefined，仍可明確整版還原。圖片上傳依版本自己的段落類型顯示，差異標記以當下快照比較。
 
 - `public/admin-broadcast.js` 的 `slotType`／`assetSlots` 是共用分類與素材索引；新增類型時擴充此處與對應 builder，不再硬編碼只有 card 能選素材。訊息庫清單 API 提供 message_config、created_at、updated_at，選取後再次讀取素材並驗證 ID 與類型。
 - 識別使用訊息庫 `id`，多段來源另加 `source_item_index`；imagemap 內的 `assetId` 僅是圖片資源 ID。兩份訊息即使共享圖片也不合併。選取時完整 deep clone 段落／message_config，保存 `source_message_id`、`source_name` 與可選來源段落索引，原素材後續改動不影響快照。
