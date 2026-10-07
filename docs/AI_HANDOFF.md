@@ -1,5 +1,11 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-07 LIFF 來源追蹤診斷
+
+- 成效 API 顯示 last_success_at（全歷史）及 tracking_status，區分未設定、暫停、從未成功、期間無紀錄、有成功與近24h異常。0 不代表未點擊；同名追蹤網址按 id 分開。
+- hit 驗證／寫入失敗只記錄 link id 與固定 reason 到 user_events 的 liff_tracking_diagnostic（無 token／身份／原始錯誤，session_id 固定 diagnostic）；不是用戶行為或失敗人數，正常情況同link/reason每分鐘取一筆診斷樣本。資料庫故障時只能依伺服器固定診斷 log，不假稱完整捕捉失敗。事件不列入來源轉換目標選單。
+- 瀏覽器未發出請求、LINE SDK 未完成、外部瀏覽器與歷史失敗仍不可由0推論；sendBeacon 回 false 時改用 keepalive fetch。維持1.6秒導向保險、LINE官方帳號handoff、LINE驗證及開啟去重。不回填數據、不發客戶訊息、無schema migration。
+
 ## 2026-10-05 邀請補發判斷與安全修正
 
 - 活動成效「要不要補發？看這裡」由 `/admin/mgm/api/referral-decisions` 讀取全活動證據，分類「需修正入帳／不需補發／歷史證據不足」。預設只顯示有完整證據需處理的紀錄；沒有時明說不需逐筆猜。日期篩選不影響；最多 5,000 筆，截斷時明示數字不是全活動總數；CSV 包含所有已載入分類。

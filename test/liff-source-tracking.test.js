@@ -11,6 +11,24 @@ const {
   normalizeTrackingDateRange
 } = require('../src/routes/adminLiffTracking');
 
+test('追蹤驗證失敗保留無個資診斷；不製造成功開啟', async () => {
+  const routes = {}, calls = [];
+  const old = process.env.GAMES_LIFF_ID;
+  process.env.GAMES_LIFF_ID = '2000000000-test';
+  try {
+    registerAdminLiffTrackingRoutes(appStub(routes), {
+      authCore: { requireAdmin: pass }, verifyLiffIdToken: async () => ({ ok: false }),
+      query: async (sql,params) => { calls.push({sql,params});return /SELECT id, status/.test(sql)?{rows:[{id:41,status:'active'}]}:{rows:[],rowCount:0}; }
+    });
+    const result = await run(routes,'POST /lt/:id(\\d+)/hit',{params:{id:'41'},body:{id_token:'private-token'}});
+    assert.equal(result.statusCode,401);
+    assert.equal(calls.some(c=>/INSERT INTO liff_tracking_events/.test(c.sql)),false);
+    const log=calls.find(c=>/INSERT INTO user_events/.test(c.sql));
+    assert.deepEqual(JSON.parse(log.params[0]),{tracking_link_id:41,reason:'identity_verification_failed'});
+    assert.equal(JSON.stringify(log).includes('private-token'),false);
+  } finally { if(old==null)delete process.env.GAMES_LIFF_ID;else process.env.GAMES_LIFF_ID=old; }
+});
+
 function appStub(routes) {
   return {
     get(pathname, ...handlers) { routes['GET ' + pathname] = handlers; },

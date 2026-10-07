@@ -122,8 +122,7 @@
       try {
         var body = JSON.stringify({ id_token: idToken || null });
         if (navigator.sendBeacon) {
-          navigator.sendBeacon(REC, new Blob([body], { type: 'application/json' }));
-          return Promise.resolve();
+          if (navigator.sendBeacon(REC, new Blob([body], { type: 'application/json' }))) return Promise.resolve();
         }
         return fetch(REC, { method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: body, keepalive: true }).catch(function () {});
