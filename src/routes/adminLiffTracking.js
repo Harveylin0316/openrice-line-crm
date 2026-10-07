@@ -108,6 +108,20 @@ function registerAdminLiffTrackingRoutes(app, deps) {
   const { requireAdmin } = authCore;
   const verifyToken = deps.verifyLiffIdToken || verifyLiffIdToken;
 
+  async function recordDiagnostic(id, reason) {
+    // No token, identity or raw provider error is persisted. Counts are diagnostic
+    // samples, not visitors; at most one sample per link/reason/minute normally.
+    console.warn('liff_tracking_diagnostic', { link_id: id, reason });
+    try {
+      await query(`INSERT INTO user_events(session_id,event_name,properties)
+        SELECT 'liff-tracking-diagnostic','liff_tracking_diagnostic', $1::jsonb
+        WHERE NOT EXISTS (SELECT 1 FROM user_events
+          WHERE event_name='liff_tracking_diagnostic' AND properties=$1::jsonb
+          AND created_at >= date_trunc('minute',now()))`,
+      [JSON.stringify({ tracking_link_id: Number(id), reason })]);
+    } catch (_) { console.warn('liff_tracking_diagnostic_storage_unavailable', { link_id: id }); }
+  }
+
   function trackingLiffId() {
     return String(process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '').trim();
   }
@@ -159,7 +173,7 @@ function registerAdminLiffTrackingRoutes(app, deps) {
         query(`SELECT id, name, slug, game_type, liff_id_override FROM activities ORDER BY id DESC LIMIT 100`),
         query(`SELECT event_name, COUNT(*)::int AS count
                  FROM user_events
-                WHERE event_name IS NOT NULL AND created_at >= now() - interval '180 days'
+                WHERE event_name IS NOT NULL AND event_name <> 'liff_tracking_diagnostic' AND created_at >= now() - interval '180 days'
                 GROUP BY event_name ORDER BY count DESC, event_name ASC LIMIT 100`)
       ]);
       const events = eventRows.rows.map(row => ({
@@ -213,12 +227,16 @@ function registerAdminLiffTrackingRoutes(app, deps) {
                       COUNT(e.id)::int AS opens,
                       COUNT(DISTINCT e.line_user_id)::int AS unique_users,
                       MAX(e.opened_at) AS last_opened_at
+                      ,(SELECT MAX(h.opened_at) FROM liff_tracking_events h WHERE h.tracking_link_id=l.id) AS last_success_at
+                      ,(SELECT COUNT(*)::int FROM user_events d WHERE d.event_name='liff_tracking_diagnostic'
+                        AND d.properties->>'tracking_link_id'=l.id::text
+                        AND d.created_at >= now()-interval '24 hours') AS diagnostic_samples_24h
                  FROM liff_tracking_links l
                  LEFT JOIN liff_tracking_events e ON e.tracking_link_id = l.id${eventRange}
                 GROUP BY l.id ORDER BY l.created_at DESC LIMIT 200`, params),
         query(`SELECT id, name, slug FROM activities ORDER BY id DESC LIMIT 100`),
         query(`SELECT event_name, COUNT(*)::int AS count FROM user_events
-                WHERE event_name IS NOT NULL AND created_at >= now() - interval '180 days'
+                WHERE event_name IS NOT NULL AND event_name <> 'liff_tracking_diagnostic' AND created_at >= now() - interval '180 days'
                 GROUP BY event_name ORDER BY count DESC LIMIT 100`),
         query(`SELECT COUNT(*)::int AS opens, COUNT(DISTINCT line_user_id)::int AS unique_users,
                       (SELECT COUNT(*)::int FROM liff_tracking_links WHERE status='active') AS active_links
@@ -300,6 +318,9 @@ function registerAdminLiffTrackingRoutes(app, deps) {
           unique_users: uniqueUsers,
           conversions,
           conversion_rate_pct: uniqueUsers ? Math.round((conversions / uniqueUsers) * 10000) / 100 : 0,
+          tracking_status: !trackingLiffId() ? 'not_configured' : row.status !== 'active' ? 'paused'
+            : Number(row.diagnostic_samples_24h || 0) > 0 ? 'errors_observed'
+            : !row.last_success_at ? 'never_recorded' : uniqueUsers ? 'recorded' : 'no_records_in_range',
           conversion_label: conversionLabel(row, activitiesResult.rows, eventCatalog),
           tracking_url: trackingUrl(row.id)
         };
@@ -441,12 +462,12 @@ function registerAdminLiffTrackingRoutes(app, deps) {
       const link = linkResult.rows[0];
       if (!link || link.status !== 'active') return res.json({ ok: true, skipped: true });
       const liffId = trackingLiffId();
-      if (!liffId) return res.json({ ok: true, skipped: true });
+      if (!liffId) { await recordDiagnostic(id, 'not_configured'); return res.json({ ok: true, skipped: true }); }
       const idToken = String((req.body || {}).id_token || '').trim();
       const verified = await verifyToken(idToken, channelIdFromLiffId(liffId));
       const uid = verified && verified.ok && /^U[0-9a-f]{32}$/i.test(String(verified.sub || ''))
         ? String(verified.sub) : null;
-      if (!uid) return res.status(401).json({ ok: false, error: 'identity_verification_failed' });
+      if (!uid) { await recordDiagnostic(id, 'identity_verification_failed'); return res.status(401).json({ ok: false, error: 'identity_verification_failed' }); }
 
       const inserted = await query(
         `INSERT INTO liff_tracking_events (tracking_link_id, line_user_id, dedupe_minute)
@@ -457,7 +478,7 @@ function registerAdminLiffTrackingRoutes(app, deps) {
       );
       res.json({ ok: true, recorded: inserted.rowCount > 0, deduped: inserted.rowCount === 0 });
     } catch (err) {
-      console.error('liff tracking hit error:', err && err.message);
+      await recordDiagnostic(Number(req.params.id), 'recording_failed');
       // 記錄失敗不能卡住 tap_bounce 的導向。
       res.json({ ok: true, recorded: false });
     }

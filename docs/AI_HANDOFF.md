@@ -1,6 +1,6 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
-## 2026-10-07：歡迎訊息、訊息成效與 Campaign 人工確認（尚未 push）
+## 2026-10-07：歡迎訊息、訊息成效與 Campaign 人工確認（Staging 驗證中）
 
 - 歡迎設定：`/admin/welcome-messages`，沿用訊息庫所有現有 LINE 格式（文字、圖片、影片、Flex／Carousel、原生 Imagemap、多段 1～5 則）。保存完整快照、來源名稱／ID 與 revision，素材更新／刪除不覆蓋已保存內容。首次加入與解除封鎖分開設定，預設停用；啟用前確認 LINE 原生歡迎與既有 follow 流程，避免重複歡迎。本波不新增歡迎 A/B。
 - 專用 managed welcome flow 由設定頁管理；一般 flow CRUD／dry run 不可繞過。follow 使用驗簽事件與先前好友證據，未知不當首次；同事件較強首次證據可在列鎖內升級先到達的 unknown 跳過紀錄。execution／enrollment 同交易，重送不重複；已開始但結果不明不盲目重試。
@@ -22,6 +22,11 @@
 - 已使用後優先在歡迎設定停用、停止受影響 flow／keyword 規則與新 Campaign 發送；保留 `/t/e`、`/games/t/e`、三表及成效 reader，讓已寄連結仍可用。不得整包 revert 或 drop 追蹤表。若需退回舊發送程式，可將 `src/core/flowEngine.js` 與 `src/routes/lineWebhook.js` 還原至 c1ecb72 後另做 staging 驗證，再按正常審核程序部署；先停 managed welcome flow 並保持歡迎停用。已寄 LINE 訊息不能撤回。
 - 本機結果／固定 Staging 與 LINE 未完成驗收見 `docs/reviews/2026-10-07-message-updates-hen.md`。只有使用者 push 後才能完成固定站驗證，Hen 欄維持未勾。
 
+## 2026-10-07 LIFF 來源追蹤診斷
+
+- 成效 API 顯示 last_success_at（全歷史）及 tracking_status，區分未設定、暫停、從未成功、期間無紀錄、有成功與近24h異常。0 不代表未點擊；同名追蹤網址按 id 分開。
+- hit 驗證／寫入失敗只記錄 link id 與固定 reason 到 user_events 的 liff_tracking_diagnostic（無 token／身份／原始錯誤，session_id 固定 diagnostic）；不是用戶行為或失敗人數，正常情況同link/reason每分鐘取一筆診斷樣本。資料庫故障時只能依伺服器固定診斷 log，不假稱完整捕捉失敗。事件不列入來源轉換目標選單。
+- 瀏覽器未發出請求、LINE SDK 未完成、外部瀏覽器與歷史失敗仍不可由0推論；sendBeacon 回 false 時改用 keepalive fetch。維持1.6秒導向保險、LINE官方帳號handoff、LINE驗證及開啟去重。不回填數據、不發客戶訊息、無schema migration。
 
 ## 2026-10-05 邀請補發判斷與安全修正
 

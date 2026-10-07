@@ -91,7 +91,8 @@
       <div class="lt-section-head lt-report-head">
         <div>
           <h2>來源成效</h2>
-          <p>只計算 LINE 驗證成功的開啟；同一人同一分鐘重複載入只算一次。</p>
+          <p>只計算 LINE 驗證成功的開啟；同一人同一分鐘重複載入只算一次。0 代表沒有成功紀錄，不等於沒人點擊。轉換只計算可配對的用戶與觀察窗。</p>
+          <p>同名網址依編號分開計算。異常診斷自本次更新起記錄；無異常紀錄不保證追蹤完整，瀏覽器未送達、外部開啟及歷史失敗可能無法辨識。</p>
         </div>
         <div class="lt-range">
           <label for="lt-days">快速選擇</label>
@@ -247,6 +248,8 @@
         return jsonFetch('/admin/liff-tracking/api/data?'+requested.query).then(function(resp){
           CURRENT_RANGE=resp.range||requested;LATEST_LINKS=resp.links||[];$('lt-download-csv').disabled=!LATEST_LINKS.length;
           renderKpis(resp.summary);renderChart(resp.daily||[]);renderSources(resp.sources||[]);renderLinks(LATEST_LINKS);$('lt-config-warning').hidden=resp.tracking_available;
+          var labels={not_configured:'尚未設定追蹤',paused:'已暫停',errors_observed:'近 24 小時有追蹤異常',never_recorded:'從未成功記錄：請確認實際素材網址',recorded:'本期間有成功紀錄',no_records_in_range:'本期間無紀錄，曾成功追蹤'};
+          $('lt-link-body').querySelectorAll('tr').forEach(function(tr,i){var r=LATEST_LINKS[i];if(!r)return;var note=document.createElement('small');note.textContent='網址 #'+r.id+'｜'+(labels[r.tracking_status]||'狀態未知')+'；最後成功：'+fmtDate(r.last_success_at);tr.cells[0].appendChild(note);if(Number(r.diagnostic_samples_24h)>0){var help=document.createElement('small');help.textContent='診斷樣本 '+fmt(r.diagnostic_samples_24h)+' 筆（不是失敗人數）。請用內部測試帳號開啟追蹤網址並確認 LINE 登入；若仍失敗，檢查伺服器 liff_tracking_diagnostic 紀錄。';tr.cells[0].appendChild(help);}});
           if(CURRENT_RANGE.from&&CURRENT_RANGE.to){$('lt-from').value=CURRENT_RANGE.from;$('lt-to').value=CURRENT_RANGE.to;history.replaceState(null,'','?from='+encodeURIComponent(CURRENT_RANGE.from)+'&to='+encodeURIComponent(CURRENT_RANGE.to));}
           else history.replaceState(null,'','?days=all');
           updateRangeStatus();
