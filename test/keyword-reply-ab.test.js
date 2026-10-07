@@ -92,8 +92,8 @@ test('追蹤連結：所有可追蹤的開啟網址（含滿版圖文點擊區�
   // 沒有 LIFF：照常回覆，但不追蹤
   const noLiff = ke.buildExperimentMessages(CFG_B, { origin: 'https://crm.example', deliveryCode: code, liffId: '' });
   assert.equal(noLiff.messages[1].contents.footer.contents[0].action.uri, 'https://example.com/reward');
-  // 可追蹤目標：純文字裡的網址不算（標示為不適用），滿版圖文只算開啟網址的區域
-  assert.deepEqual(ke.trackableTargets(TEXT_ONLY, 'https://crm.example'), []);
+  // 純文字網址現在也可追蹤；滿版圖文仍只算 URI 區域
+  assert.deepEqual(ke.trackableTargets(TEXT_ONLY, 'https://crm.example').map(t=>t.uri), ['https://example.com/plain']);
   assert.deepEqual(ke.trackableTargets(IMAGEMAP, 'https://crm.example').map(t => t.uri), ['https://example.com/top']);
 });
 
@@ -269,7 +269,7 @@ test('webhook A/B with the real sender preserves text+imagemap and only replies 
   try {
     const config = { mode: 'sequence', items: [{ type: 'text', text: 'SYNTHETIC intro' },
       { type: 'card', message_config: IMAGEMAP }] };
-    const h = webhookHarness({ realSender: true, experiment: exp({ variant_a_config: config, variant_b_config: config }) });
+    const h = webhookHarness({ realSender: true, experiment: exp({ variant_a_config: config, variant_b_config: config, targets:{a:ke.trackableTargets(config),b:ke.trackableTargets(config),primary:{a:[0],b:[0]}} }) });
     await h.send([textEvent('SYNTHETIC-MAP-1')]);
     await h.send([textEvent('SYNTHETIC-MAP-1')]);
     assert.equal(requests.length, 1);
@@ -397,7 +397,7 @@ test('建立測試：鎖定兩版快照與主要目標；驗證名稱、期間�
   assert.equal(Math.round(days), 7);
   const short = await call(CREATE, { params: { ruleId: '7' }, body: { name: 'x', a_template_id: 1, b_template_id: 2, duration_days: 3 } });
   assert.ok(short.body.warnings.some(w => /完整一週/.test(w)), '少於 7 天提醒但不禁止');
-  const textB = { 5: { id: 5, name: '純文字', message_config: TEXT_ONLY } };
+  const textB = { 5: { id: 5, name: '純文字', message_config: {mode:'sequence',items:[{type:'text',text:'STAGING 沒有連結'}]} } };
   Object.assign(state.templates, textB);
   const noTarget = await call(CREATE, { params: { ruleId: '7' }, body: { name: 'x', a_template_id: 1, b_template_id: 5 } });
   assert.equal(noTarget.body.ok, true, '沒有可追蹤連結也能做 A/B');

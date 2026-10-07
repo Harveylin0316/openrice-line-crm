@@ -1,3 +1,4 @@
+const { signAudiencePreview, verifyAudiencePreview, sampleRecipients } = require('../core/broadcastAudienceExclusions');
 /**
  * 後台「群發訊息」功能 routes
  *
@@ -43,6 +44,7 @@ const {
 } = require('../core/broadcastAudience');
 const { recordRestaurantClick } = require('../core/restaurantLinkParse');
 const {
+  buildFollowupConfig,
   buildBroadcastMessageSnapshots,
   getBroadcastMessageIdentity
 } = require('../core/broadcastMessageSnapshot');
@@ -52,6 +54,8 @@ const {
   startObservationWindow,
   assignExperimentVariants,
   pickCtrWinner,
+  canReleaseExperiment,
+  resolveCampaignWinner,
   resolveAbCtrWinner
 } = require('../core/campaignExperiment');
 const { syncDynamicList, filterAudienceLineUserIds } = require('../core/audienceSegments');
@@ -345,14 +349,17 @@ function registerAdminBroadcastRoutes(app, deps) {
       }
       if (source.status !== 'awaiting_winner') throw new Error(`broadcast_status_${source.status}`);
 
+      const readiness = canReleaseExperiment(experiment);
+      if (!readiness.ok) throw new Error(readiness.error);
+      if (adminUsername === 'scheduler' && experiment.winnerMode === 'manual') throw new Error('experiment_manual_approval_required');
       const variants = activeVariants(Number(experiment.variantCount));
       let winnerVariant = winnerChoice;
       let stats = [];
-      if (winnerChoice === 'auto') {
+      {
         const statRs = await client.query(
           `SELECT r.variant,
-                  COUNT(*) FILTER (WHERE r.status = 'sent')::int AS sent_ok,
-                  COUNT(DISTINCT c.recipient_id) FILTER (WHERE c.recipient_id IS NOT NULL)::int AS clickers
+                  COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'sent')::int AS sent_ok,
+                  COUNT(DISTINCT c.recipient_id) FILTER (WHERE c.recipient_id IS NOT NULL AND r.status = 'sent')::int AS clickers
            FROM admin_broadcast_recipients r
            LEFT JOIN admin_broadcast_clicks c ON c.broadcast_id = r.broadcast_id AND c.recipient_id = r.id
            WHERE r.broadcast_id = $1 AND r.variant = ANY($2::text[])
@@ -360,10 +367,16 @@ function registerAdminBroadcastRoutes(app, deps) {
           [sourceId, variants]
         );
         stats = statRs.rows;
-        if (stats.reduce((sum, row) => sum + Number(row.sent_ok || 0), 0) === 0) {
-          throw new Error('experiment_no_successful_test_deliveries');
+        if (winnerChoice === 'auto') {
+          const decision = resolveCampaignWinner(stats, variants);
+          if (!decision.winner) {
+            const paused = { ...(source.audience_config || {}), experiment: { ...experiment, winnerMode: 'manual', decisionReason: decision.reason } };
+            await client.query('UPDATE admin_broadcasts SET audience_config = $2::jsonb, updated_at = NOW() WHERE id = $1', [sourceId, JSON.stringify(paused)]);
+            await client.query('COMMIT');
+            return { awaitingApproval: true, reason: decision.reason, stats };
+          }
+          winnerVariant = decision.winner;
         }
-        winnerVariant = pickCtrWinner(stats, variants);
       }
       if (!variants.includes(winnerVariant)) throw new Error('winner_variant_invalid');
       const winnerConfig = getVariantConfig(source, winnerVariant);
@@ -420,6 +433,9 @@ function registerAdminBroadcastRoutes(app, deps) {
         experiment: {
           ...experiment,
           winnerVariant,
+          selectionMethod: winnerChoice === 'auto' ? 'ctr' : 'manual',
+          selectedBy: adminUsername,
+          selectionStats: stats,
           releasedBroadcastId: newBroadcastId,
           releasedAt: new Date().toISOString()
         }
@@ -747,7 +763,10 @@ function registerAdminBroadcastRoutes(app, deps) {
         conditions: result.conditions,
         channel,
         error: result.error || selection.error || null,
-        inputStats: result.inputStats || null
+        inputStats: result.inputStats || null,
+        excludedTotal: result.excludedTotal || 0,
+        previewedAt: new Date().toISOString(),
+        audiencePreviewToken: result.revision && selection.ok ? signAudiencePreview({revision:result.revision,conditions:result.conditions,selection:{mode:selection.value.mode,count:selection.value.count}}, process.env.JWT_SECRET) : null
       });
     } catch (err) {
       console.error('audience preview error:', err.message);
@@ -1320,6 +1339,17 @@ function registerAdminBroadcastRoutes(app, deps) {
     }
   });
 
+  app.get('/admin/broadcast/exclusion-sources', requireAdmin, async(req,res)=>{
+    try{const result=await query("SELECT id,created_at,status FROM admin_broadcasts WHERE COALESCE(channel,'line')='line' AND (is_ab_test OR audience_config->'experiment'->>'enabled'='true') ORDER BY id DESC LIMIT 200");return res.json({ok:true,sources:result.rows});}catch{return safeJsonError(res,503,'exclusion_sources_unavailable');}
+  });
+
+  app.get('/admin/broadcast/:id(\\d+)/followup-config', requireAdmin, async (req,res) => {
+    try {
+      const source = await loadBroadcast(Number(req.params.id));
+      return res.json({ok:true,...buildFollowupConfig(source,String(req.query.variant || ''))});
+    } catch(err) { return safeJsonError(res,400,err.message); }
+  });
+
   // ---------- 5. create batch ----------
   app.post('/admin/broadcast/create', requireAdmin, async (req, res) => {
     const body = req.body || {};
@@ -1477,6 +1507,16 @@ function registerAdminBroadcastRoutes(app, deps) {
       if (!playGrantResolved.ok) return safeJsonError(res, 400, playGrantResolved.error);
       const playGrant = playGrantResolved.value;
 
+      let followup = null;
+      if (body.followup_of) {
+        const id = body.followup_of.broadcastId;
+        if (!Number.isSafeInteger(id) || id <= 0) return safeJsonError(res,400,'followup_source_invalid');
+        followup = buildFollowupConfig(await loadBroadcast(id),body.followup_of.variant);
+        if (JSON.stringify(body.message_config) !== JSON.stringify(followup.message_config)) return safeJsonError(res,409,'followup_snapshot_changed');
+        if (body.is_ab_test || body.campaign_experiment?.enabled) return safeJsonError(res,400,'followup_single_version_only');
+        const requested = normalizeConditions(rawConditions);
+        if (!requested.excludeBroadcastIds.includes(id)) return safeJsonError(res,400,'followup_exclusion_required');
+      }
       const conditions = normalizeConditions(rawConditions);
       // channel=email 時只允許 savedListId
       if (channel === 'email' && !conditions.savedListId) {
@@ -1513,11 +1553,18 @@ function registerAdminBroadcastRoutes(app, deps) {
 
       // 直接貼 ID 時仍保留原始輸入做「超過 5,000 人」檢查；條件／已存名單則可
       // 從完整符合母體隨機抽出精確人數。查出後再核對一次，防止預覽與建立之間資料改變。
-      const audienceResult = await fetchAudienceRecipients(query, rawConditions, {
-        channel,
-        limit: recipientSelection.sendTotal,
-        randomize: recipientSelection.mode === 'random'
-      });
+      if (eligibleAudience.revision && !verifyAudiencePreview(body.audience_preview_token, {
+        revision: eligibleAudience.revision, conditions: eligibleAudience.conditions,
+        selection: {mode:recipientSelection.mode,count:recipientSelection.count}
+      }, process.env.JWT_SECRET)) {
+        return safeJsonError(res, 409, 'audience_preview_stale', {detail:'排除名單或符合條件者已改變，請重新預覽收件人。'});
+      }
+      // For exclusion audiences use the exact candidates just checked, never query a second moving pool.
+      const audienceResult = eligibleAudience.revision
+        ? {...eligibleAudience, rows:sampleRecipients(eligibleAudience.rows,recipientSelection.sendTotal,recipientSelection.mode === 'random')}
+        : await fetchAudienceRecipients(query, rawConditions, {
+          channel, limit: recipientSelection.sendTotal, randomize: recipientSelection.mode === 'random'
+        });
       if (audienceResult.error) {
         return safeJsonError(res, 400, 'invalid_audience', { detail: audienceResult.error });
       }
@@ -1583,6 +1630,7 @@ function registerAdminBroadcastRoutes(app, deps) {
           audienceConfig.messageSource = { id: sourceId, name: sourceName };
         }
       }
+      if (followup) audienceConfig.followupOf = {broadcastId:followup.sourceBroadcastId,variant:followup.sourceVariant};
       if (experiment) audienceConfig.experiment = experiment;
       if (playGrant) {
         audienceConfig.playGrant = {
@@ -1937,7 +1985,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       const dueExperimentRs = await query(
         `SELECT id FROM admin_broadcasts
          WHERE status = 'awaiting_winner'
-           AND audience_config->'experiment'->>'winnerMode' = 'auto'
+           AND COALESCE(audience_config->'experiment'->>'winnerMode','auto') = 'auto'
            AND (audience_config->'experiment'->>'winnerAt')::timestamptz <= NOW()
          ORDER BY id ASC
          LIMIT 5`
@@ -2282,10 +2330,10 @@ function registerAdminBroadcastRoutes(app, deps) {
         const variants = activeVariants(Number(experiment.variantCount));
         const expRs = await query(
           `SELECT r.variant,
-                  COUNT(*)::int AS sent_total,
-                  COUNT(*) FILTER (WHERE r.status = 'sent')::int AS sent_ok,
-                  COUNT(*) FILTER (WHERE r.status = 'failed')::int AS sent_fail,
-                  COUNT(DISTINCT c.recipient_id) FILTER (WHERE c.recipient_id IS NOT NULL)::int AS clickers
+                  COUNT(DISTINCT r.id)::int AS sent_total,
+                  COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'sent')::int AS sent_ok,
+                  COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'failed')::int AS sent_fail,
+                  COUNT(DISTINCT c.recipient_id) FILTER (WHERE c.recipient_id IS NOT NULL AND r.status = 'sent')::int AS clickers
            FROM admin_broadcast_recipients r
            LEFT JOIN admin_broadcast_clicks c ON c.broadcast_id = r.broadcast_id AND c.recipient_id = r.id
            WHERE r.broadcast_id = $1 AND r.variant = ANY($2::text[])
@@ -2307,8 +2355,8 @@ function registerAdminBroadcastRoutes(app, deps) {
           config: experiment,
           rows,
           holdout,
-          selectedWinner: experiment.winnerVariant || pickCtrWinner(rows, variants),
-          canRelease: b.status === 'awaiting_winner',
+          selectedWinner: experiment.winnerVariant || resolveCampaignWinner(rows, variants).winner,
+          canRelease: b.status === 'awaiting_winner' && canReleaseExperiment(experiment).ok,
           releasedBroadcastId: experiment.releasedBroadcastId || null
         };
       } else if (b.is_ab_test) {
@@ -2493,7 +2541,7 @@ function registerAdminBroadcastRoutes(app, deps) {
       return res.json({ ok: true, sourceBroadcastId: sourceId, ...released });
     } catch (err) {
       console.error('release-experiment-winner error:', err.message);
-      return safeJsonError(res, 400, err.message || 'release_experiment_winner_failed');
+      return safeJsonError(res, /^experiment_observation|^experiment_manual/.test(err.message) ? 409 : 400, err.message || 'release_experiment_winner_failed');
     }
   });
 

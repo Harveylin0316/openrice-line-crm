@@ -996,7 +996,9 @@ function registerAdminRichMenuRoutes(app, deps) {
         `SELECT tab, cell, kind, label,
                 COUNT(*)::int AS taps,
                 COUNT(*) FILTER (WHERE created_at >= now() - interval '7 days')::int AS taps_7d,
-                COUNT(DISTINCT line_user_id) FILTER (WHERE line_user_id IS NOT NULL)::int AS people
+                COUNT(DISTINCT line_user_id) FILTER (WHERE line_user_id IS NOT NULL)::int AS people,
+                -- 有記到是誰點的那幾次：開啟網址的按鍵只有開了「記錄是誰點的」才會有
+                COUNT(*) FILTER (WHERE line_user_id IS NOT NULL)::int AS identified_taps
            FROM rich_menu_taps WHERE menu_id=$1
           GROUP BY tab, cell, kind, label
           ORDER BY tab, cell NULLS LAST`, [id]);

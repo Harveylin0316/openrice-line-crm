@@ -1,0 +1,16 @@
+<%- include('layout',{user,isAdmin,bodyClass:'admin-shell',body: `
+<section class="card" style="max-width:100%;overflow-wrap:anywhere">
+<h1>加入好友歡迎訊息</h1><p>沿用訊息庫所有可發送樣式，包含滿版圖文與多段訊息。只管理這個歡迎流程，不會停用其他流程。</p>
+<p><a href="/admin/messages">編輯訊息庫</a> · <a href="/admin/message-performance?source=welcome">查看成效</a> · <a href="/admin/push-logs?status=all&source=welcome">查看發送紀錄</a></p>
+<p id="welcome-status" role="status">載入中…</p>
+<form id="welcome-form"><fieldset id="welcome-fields" disabled style="min-width:0;border:0;padding:0">
+<p><label><input id="welcome-enabled" type="checkbox"> 啟用歡迎訊息</label></p>
+<p><label><input id="welcome-first" type="checkbox" checked> 首次加入</label> <label><input id="welcome-unblocked" type="checkbox"> 解除封鎖重新加入</label></p>
+<label for="welcome-message">訊息庫素材</label><select id="welcome-message" style="width:100%;max-width:100%"><option value="">請選擇</option></select>
+<p><label><input id="welcome-refresh" type="checkbox"> 更新為目前素材內容（未勾選時保留已儲存版本）</label></p>
+<p id="welcome-flows"></p><p><label><input id="welcome-duplicate" type="checkbox"> 我已確認 LINE 原生歡迎訊息與其他加好友流程，避免重複發送</label></p>
+<button type="button" id="welcome-preview">預覽</button> <button type="submit">儲存設定</button>
+<p>下方測試使用已儲存內容，僅可發給已登記測試人員。</p><select id="welcome-tester" aria-label="測試人員"></select> <button type="button" id="welcome-test">發送測試</button>
+</fieldset></form><section id="welcome-preview-content" aria-label="歡迎訊息預覽" style="max-width:390px;margin-top:20px"></section>
+</section><script src="/message-snapshot-preview.js"></script><script src="/admin-welcome-messages.js"></script>
+`}) %>

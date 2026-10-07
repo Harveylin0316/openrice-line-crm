@@ -33,6 +33,8 @@
  * 共用過濾：line_user_id 非空、非管理員。
  */
 
+const { normalizeExcludedBroadcastIds, loadExcludedTestRecipients, audienceRevision, sampleRecipients } = require('./broadcastAudienceExclusions');
+
 const MAX_RECIPIENTS_PER_BROADCAST = 5000;
 const PREVIEW_SAMPLE_LIMIT = 10;
 const LINE_USER_ID_RE = /^U[0-9a-f]{32}$/i;
@@ -228,6 +230,7 @@ function lifecycleWhereSql(stages) {
 function normalizeConditions(raw) {
   const safe = raw && typeof raw === 'object' ? raw : {};
   const out = {
+    excludeBroadcastIds: normalizeExcludedBroadcastIds(safe.excludeBroadcastIds),
     allMembers: false,
     joinedWithinDays: null,
     joinedFromDate: null,
@@ -532,7 +535,38 @@ function buildWhere(conds) {
   return { whereSql: where.join(' AND '), params };
 }
 
+async function excludedAudience(query, rawConditions, channel) {
+  const conds = normalizeConditions(rawConditions);
+  if (channel !== 'line') throw new Error('exclusion_line_only');
+  const dateError = validateJoinedDateRange(rawConditions);
+  if (dateError) throw new Error(dateError);
+  if (!hasAnyCondition(conds)) throw new Error('audience_conditions_required');
+  if (parseExplicitLineUserIds(rawConditions.lineUserIds).tooMany) throw new Error('too_many_explicit_recipients');
+  const excluded = await loadExcludedTestRecipients(query, conds.excludeBroadcastIds);
+  let rs;
+  if (conds.lineUserIds) {
+    rs = await query(`SELECT u.id AS user_id, i.line_user_id FROM unnest($1::text[]) i(line_user_id)
+      LEFT JOIN LATERAL (SELECT id, blocked_at, archived_at FROM users WHERE line_user_id=i.line_user_id ORDER BY id DESC LIMIT 1) u ON true
+      WHERE u.id IS NULL OR (u.blocked_at IS NULL AND u.archived_at IS NULL)`, [conds.lineUserIds]);
+  } else if (conds.savedListId) {
+    rs = await query(`SELECT u.id AS user_id, m.line_user_id FROM admin_recipient_list_members m
+      LEFT JOIN LATERAL (SELECT id,blocked_at,archived_at FROM users WHERE line_user_id=m.line_user_id ORDER BY id DESC LIMIT 1) u ON true
+      WHERE m.list_id=$1 AND m.line_user_id IS NOT NULL AND BTRIM(m.line_user_id)<>''
+      AND (u.id IS NULL OR (u.blocked_at IS NULL AND u.archived_at IS NULL))`, [conds.savedListId]);
+  } else {
+    const {whereSql,params} = buildWhere(conds);
+    rs = await query(`SELECT u.id AS user_id,u.line_user_id FROM users u WHERE ${whereSql}`,params);
+  }
+  const unique = new Map(rs.rows.filter(r=>r.line_user_id).map(r=>[r.line_user_id.trim().toLowerCase(),r]));
+  const rows = [...unique].filter(([id])=>!excluded.has(id)).map(([,r])=>r);
+  return { conditions:conds,rows,total:rows.length,excludedTotal:unique.size-rows.length,revision:audienceRevision(rows),error:null };
+}
+
 async function previewAudience(query, rawConditions, { channel = 'line' } = {}) {
+  if (normalizeExcludedBroadcastIds(rawConditions && rawConditions.excludeBroadcastIds).length) {
+    const result = await excludedAudience(query,rawConditions,channel);
+    return {...result,sample:result.rows.slice(0,PREVIEW_SAMPLE_LIMIT)};
+  }
   const directInput = parseExplicitLineUserIds(rawConditions && rawConditions.lineUserIds);
   const conds = normalizeConditions(rawConditions);
   // channel=email 時：條件式 audience 不適用（users 表沒 email），只能用 savedListId
@@ -682,6 +716,10 @@ async function fetchAudienceRecipients(query, rawConditions, {
   channel = 'line',
   randomize = false
 } = {}) {
+  if (normalizeExcludedBroadcastIds(rawConditions && rawConditions.excludeBroadcastIds).length) {
+    const result = await excludedAudience(query,rawConditions,channel);
+    return {...result, rows:sampleRecipients(result.rows,Math.min(Number(limit)||MAX_RECIPIENTS_PER_BROADCAST,MAX_RECIPIENTS_PER_BROADCAST),randomize)};
+  }
   const directInput = parseExplicitLineUserIds(rawConditions && rawConditions.lineUserIds);
   const conds = normalizeConditions(rawConditions);
   const cappedLimit = Math.min(Math.max(1, Number(limit) || MAX_RECIPIENTS_PER_BROADCAST), MAX_RECIPIENTS_PER_BROADCAST);

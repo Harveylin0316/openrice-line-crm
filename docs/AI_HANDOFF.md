@@ -1,5 +1,27 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-07：歡迎訊息、訊息成效與 Campaign 人工確認（Staging 驗證中）
+
+- 歡迎設定：`/admin/welcome-messages`，沿用訊息庫所有現有 LINE 格式（文字、圖片、影片、Flex／Carousel、原生 Imagemap、多段 1～5 則）。保存完整快照、來源名稱／ID 與 revision，素材更新／刪除不覆蓋已保存內容。首次加入與解除封鎖分開設定，預設停用；啟用前確認 LINE 原生歡迎與既有 follow 流程，避免重複歡迎。本波不新增歡迎 A/B。
+- 專用 managed welcome flow 由設定頁管理；一般 flow CRUD／dry run 不可繞過。follow 使用驗簽事件與先前好友證據，未知不當首次；同事件較強首次證據可在列鎖內升級先到達的 unknown 跳過紀錄。execution／enrollment 同交易，重送不重複；已開始但結果不明不盲目重試。
+- 新 `crm_message_executions` 保存來源、事件、接收者、內容／動作快照、版本與 pending/sending/accepted/rejected/uncertain/skipped；`crm_message_clicks` 記有效點擊；`crm_welcome_settings` 保存設定。普通自動化 429 可以沿原 frozen snapshot 重試，送出前 DB 失敗可續行；素材刪除也不影響快照；accepted 不重送。其他無法判明的發送停止重試。
+- 追蹤沿共用 sender／builder，原生 Imagemap 的 actions／UTM 保留；新增一般文字內可安全辨識的網址，模糊網址保留原文。`/t/e/:code/:index`、`/games/t/e/:code/:index` 讀當次快照，GET 不算有效點擊，POST 驗證 LIFF token 與原接收者、已接受狀態及非測試。既有 LIFF 設定缺少時不假稱可追蹤；預覽不觸發點擊。automation 有效點擊與既有 flow 分支點擊在同一 SQL 寫入。
+- `/admin/message-performance` 按來源／來源 ID／內容 revision／A/B/C／台灣日期顯示觸發、API 接受、拒絕、結果不明、等待、跳過、有效點擊及不重複點擊人數。API 接受不代表送達或已讀。普通內容版本是快照 hash，歡迎版本是保存 revision。段落／動作明細與每頁 50 筆執行紀錄受 requireAdmin 保護。
+- 群發與 keyword A/B 沿用原權威資料，避免雙計；keyword A/B 保留原實驗完整觀察窗並標明口徑。群發舊 GET 追蹤未驗證點擊者，統一報表的有效點擊／不重複人數為 null（顯示 —），另列未驗證跳轉及被點擊的收件人連結數；不可解讀為真人獨立點擊或統計顯著。舊 flow／keyword 無快照歷史不補造。
+- `/admin/push-logs` 合併新 execution 與既有 push log，利用 executionId 去重，execution 使用負游標 ID／畫面 E 編號，保留 CSV、來源、狀態與明細。各設定頁紀錄連結帶 status=all。
+- 新 Campaign 預設 manual、A/B/保留 20/20/60，比例与觀察小時可改；舊缺 winnerMode 的批次維持 auto。人工與自動釋出都要到期，zero／tie／資料不足不自動選 A；交易列鎖保證只建立一次 Winner 批次並留選擇紀錄。人工模式到期不自動發送。
+- 群發收件人可排除最多 20 個既有 LINE A/B／Campaign 批次的所有 A/B/C 測試對象（包含失敗／待處理），不排除保留組。清單顯示最近 200 批，較舊可輸入 ID；排除後再隨機抽樣。預覽 token 有效 10 分鐘，綁定条件、選取與實際候選人 revision；建立前名單變更須重預覽。現階段候選人整批載入記憶體，大型 pool 需另做容量評估。
+- 原批次 A/B/C 可以建立後續群發：完整 deep clone 該版當時內容，初始鎖定；動態名單重算並排除原測試者。解除鎖定後成為一般群發。原保留組 Winner 與後續動態群發是不同操作；若兩者都要做，操作者仍需核對後續名單避免重覆觸達保留組。
+
+### Migration 與回滾
+
+- 新增 `supabase/migrations/20261005090000_message_executions_welcome.sql` 與對應 `supabase/rollbacks/20261005090000_message_executions_welcome_rollback.sql`。沒有 boot DDL。此次只在 localhost 隔離 PostgreSQL 執行；未套固定 Staging／production。
+- 固定 Staging 由有 migration 權限的維護者先確認資料库與角色，再在交易中明確 `SET LOCAL search_path TO crm_staging;`，執行 migration，檢查三表／索引／RLS／crm_staging_app 權限後 commit。不得在預設 public 執行；不可把正式憑證加入 Staging。舊表與 managed flow 所需 schema 必須已存在。
+- migration 開啟三表 RLS，撤销 PUBLIC／anon／authenticated 權限；crm_staging_app 只對 crm_staging 授權，若 bypassrls／superuser 則拒絕。不回填歷史，不修改活動、邀請、獎品或會員資料。
+- 未啟用且無新歷史時，可 `git revert 9429ae8` 回退本波功能到父版 c1ecb72；在同 schema 交易中執行 rollback SQL。rollback 發現 execution／click 歷史或仍有 managed flow 設定會拒絕，不強行刪表。
+- 已使用後優先在歡迎設定停用、停止受影響 flow／keyword 規則與新 Campaign 發送；保留 `/t/e`、`/games/t/e`、三表及成效 reader，讓已寄連結仍可用。不得整包 revert 或 drop 追蹤表。若需退回舊發送程式，可將 `src/core/flowEngine.js` 與 `src/routes/lineWebhook.js` 還原至 c1ecb72 後另做 staging 驗證，再按正常審核程序部署；先停 managed welcome flow 並保持歡迎停用。已寄 LINE 訊息不能撤回。
+- 本機結果／固定 Staging 與 LINE 未完成驗收見 `docs/reviews/2026-10-07-message-updates-hen.md`。只有使用者 push 後才能完成固定站驗證，Hen 欄維持未勾。
+
 ## 2026-10-07 LIFF 來源追蹤診斷
 
 - 成效 API 顯示 last_success_at（全歷史）及 tracking_status，區分未設定、暫停、從未成功、期間無紀錄、有成功與近24h異常。0 不代表未點擊；同名追蹤網址按 id 分開。
@@ -1023,7 +1045,7 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 每次任務開始：
 
 1. 讀 `AGENTS.md` 與本文件。
-2. `git fetch origin`，從最新 `origin/main` 工作。
+2. `git fetch origin`、`git switch staging`、`git pull --ff-only origin staging`；正式站只作比較基準，不修改 main。
 3. 檢查 dirty worktree，保留人類與其他 AI 的修改。
 4. 用 route／core／view／test 與正式唯讀資料交叉驗證，不把舊文件當事實。
 5. 先寫出此任務會碰到的資料表、權限、外部 API 與失敗模式。

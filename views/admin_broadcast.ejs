@@ -105,7 +105,7 @@
       }
       <div class="broadcast-page-head">
         <div>
-          <h1>傳訊息給顧客</h1>
+          <h1>傳訊息給顧客</h1><p><a href="/admin/message-performance?source=broadcast">查看訊息成效</a> · <a href="/admin/push-logs?status=all&source=admin_broadcast">查看發送紀錄</a></p>
           <p class="page-subtitle">跟著四步完成；畫面一次只顯示目前要處理的事情。</p>
         </div>
         ${!(typeof msgLibMode !== 'undefined' && msgLibMode) ? '<button type="button" class="bc-full-mode-btn" id="bc-full-mode">顯示完整設定</button>' : ''}
@@ -418,12 +418,17 @@
             </div>
 
             <div class="broadcast-action-row" style="margin-top:14px;border-top:1px solid #fde68a;padding-top:12px;">
-              <button type="button" class="btn btn-warning" id="btn-preview-audience">預覽收件人</button>
+              <label for="exclude-broadcast-ids">排除指定 A/B 測試批次的對象</label>
+          <select id="exclude-broadcast-picker" multiple aria-label="選擇要排除的測試批次" style="width:100%;max-width:100%;min-height:85px;"></select><p id="exclude-broadcast-picker-note" class="muted">可複選近期批次；較舊批次可直接輸入編號。</p>
+          <input id="exclude-broadcast-ids" type="text" placeholder="批次編號，例如 12, 15（最多 20 批）" />
+          <p class="muted">排除該批全部 A/B/C 測試對象（含失敗與等待中），不排除保留組。動態名單隔日新增者仍可納入；請重新預覽確認。</p>
+          <button type="button" class="btn btn-warning" id="btn-preview-audience">預覽收件人</button>
               <div id="audience-status" class="audience-status muted">尚未預覽</div>
             </div>
             <div id="audience-sample" class="audience-sample" hidden></div>
           </fieldset>
 
+          <p id="followup-snapshot-note" hidden>目前使用原批次已保存的訊息，內容已鎖定；請選擇本次受眾與預覽。<button type="button" id="followup-unlock">改為一般群發並編輯內容</button></p>
           <fieldset class="broadcast-step" id="bc-message-step">
             <legend><span class="step-pill">3</span> 訊息內容</legend>
 
@@ -673,10 +678,13 @@
               </div>
               <div id="campaign-mode-warning" hidden style="margin:8px 0;padding:10px 12px;border:1px solid #f59e0b;border-radius:8px;background:#fffbeb;color:#92400e;font-size:12px;line-height:1.6;"></div>
               <div id="campaign-test-pane" hidden>
-                <p class="muted" style="font-size:12px;line-height:1.65;margin:8px 0 12px;">所有測試版本會在同一個發送時間送出，避免時間差干擾結果。系統以 CTR（不重複 CTA 點擊人數 ÷ LINE 接受發送的人數）選勝出；訂位轉換率尚未開放。一般卡片、自訂 Flex、多段訊息與滿版圖文都可以。每版至少要有一個可追蹤的「開啟網址」按鈕或點擊區；只有「傳送文字」不適用。開啟後請修改 B／C 的素材或連結，避免各版內容完全相同。</p>
+                <p class="muted" style="font-size:12px;line-height:1.65;margin:8px 0 12px;">所有測試版本會在同一個發送時間送出，避免時間差干擾結果。預設到期後由你確認 Winner；選擇自動模式才會依原批次 CTR 選出勝出版。此 CTR 使用被點擊的收件人連結數 ÷ LINE 接受發送人數，未驗證實際點擊者身分，不代表統計顯著或訂位轉換。一般卡片、自訂 Flex、多段訊息與滿版圖文都可以。每版至少要有一個可追蹤的「開啟網址」按鈕或點擊區；只有「傳送文字」不適用。開啟後請修改 B／C 的素材或連結，避免各版內容完全相同。</p>
                 <div class="broadcast-inline-field" style="align-items:end;gap:14px;flex-wrap:wrap;">
                   <label class="broadcast-field" style="min-width:150px;">測試版本數
                     <select id="campaign-variant-count"><option value="2">A / B</option><option value="3">A / B / C</option></select>
+                  </label>
+                  <label class="broadcast-field" style="min-width:150px;">Winner 發送方式
+                    <select id="campaign-winner-mode" aria-label="Winner 發送方式"><option value="manual">人工確認後發送（建議）</option><option value="auto">到期依 CTR 自動發送</option></select>
                   </label>
                   <label class="broadcast-field" style="min-width:150px;">觀察時間（小時）
                     <input id="campaign-observation-hours" type="number" min="1" max="168" value="24" />
@@ -687,10 +695,10 @@
                 </div>
                 <div class="broadcast-field-label" style="margin-top:10px;">名單比例（合計必須是 100%）</div>
                 <div class="broadcast-inline-field" style="gap:10px;flex-wrap:wrap;">
-                  <label>版本 A <input id="campaign-weight-a" type="number" min="1" max="98" value="10" style="width:70px;" />%</label>
-                  <label>版本 B <input id="campaign-weight-b" type="number" min="1" max="98" value="10" style="width:70px;" />%</label>
+                  <label>版本 A <input id="campaign-weight-a" type="number" min="1" max="98" value="20" style="width:70px;" />%</label>
+                  <label>版本 B <input id="campaign-weight-b" type="number" min="1" max="98" value="20" style="width:70px;" />%</label>
                   <label id="campaign-weight-c-wrap" hidden>版本 C <input id="campaign-weight-c" type="number" min="0" max="98" value="0" style="width:70px;" />%</label>
-                  <label>保留給 Winner <input id="campaign-weight-holdout" type="number" min="1" max="98" value="80" style="width:70px;" />%</label>
+                  <label>保留給 Winner <input id="campaign-weight-holdout" type="number" min="1" max="98" value="60" style="width:70px;" />%</label>
                   <span id="campaign-allocation-hint" class="muted" style="font-size:12px;"></span>
                 </div>
                 <div id="variant-c-pane" hidden style="margin-top:16px;border-top:1px solid #FDE68A;padding-top:14px;">

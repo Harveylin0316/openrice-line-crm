@@ -18,6 +18,8 @@ function activeVariants(variantCount) {
 
 function normalizeCampaignExperiment(raw) {
   if (!raw || raw.enabled !== true) return { ok: true, value: null };
+  const winnerMode = raw.winner_mode === undefined ? 'manual' : raw.winner_mode;
+  if (!['manual', 'auto'].includes(winnerMode)) return { ok: false, error: 'experiment_winner_mode_invalid' };
   const variantCount = integerInRange(raw.variant_count, 2, 3);
   if (!variantCount) return { ok: false, error: 'experiment_variant_count_invalid' };
 
@@ -61,7 +63,7 @@ function normalizeCampaignExperiment(raw) {
       // 真正的觀察期要等最後一位測試收件人送完才開始。建立／排程時間不能先吃掉觀察時數。
       observationStartedAt: null,
       winnerAt: null,
-      winnerMode: 'auto',
+      winnerMode,
       winnerVariant: null,
       releasedBroadcastId: null
     }
@@ -174,7 +176,32 @@ function resolveAbCtrWinner(rows) {
   return { winner: aScore > bScore ? 'a' : 'b', reason: 'winner', stats };
 }
 
+function canReleaseExperiment(experiment, now = new Date()) {
+  const deadline = experiment && experiment.winnerAt ? new Date(experiment.winnerAt).getTime() : NaN;
+  if (!Number.isFinite(deadline)) return { ok: false, error: 'experiment_observation_not_started' };
+  if (now.getTime() < deadline) return { ok: false, error: 'experiment_observation_incomplete' };
+  return { ok: true };
+}
+
+function resolveCampaignWinner(rows, variants) {
+  const stats = variants.map(variant => {
+    const row = (rows || []).find(r => r.variant === variant) || {};
+    return { variant, sent: Number(row.sent_ok ?? row.sent ?? 0), clickers: Number(row.clickers || 0) };
+  });
+  if (stats.some(r => !Number.isSafeInteger(r.sent) || r.sent <= 0 || !Number.isSafeInteger(r.clickers) || r.clickers < 0 || r.clickers > r.sent)) {
+    return { winner: null, reason: 'insufficient_delivery', stats };
+  }
+  if (stats.every(r => r.clickers === 0)) return { winner: null, reason: 'no_clicks', stats };
+  const ranked = stats.slice().sort((a,b) => b.clickers * a.sent - a.clickers * b.sent);
+  if (ranked.length < 2 || ranked[0].clickers * ranked[1].sent === ranked[1].clickers * ranked[0].sent) {
+    return { winner: null, reason: 'tie', stats };
+  }
+  return { winner: ranked[0].variant, reason: 'winner', stats };
+}
+
 module.exports = {
+  canReleaseExperiment,
+  resolveCampaignWinner,
   activeVariants,
   normalizeCampaignExperiment,
   startObservationWindow,

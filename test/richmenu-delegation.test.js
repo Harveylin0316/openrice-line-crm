@@ -84,6 +84,33 @@ function fakeCtx() {
   // 4) 版本代號看得到——出事時第一個要問的就是這個
   ok(/testbld/.test(doc.getElementById('rm-live-note').textContent), '頁面顯示版本代號');
 
+  // 6) 成效：開啟網址按鍵有記錄身分時顯示不重複人數；沒記錄顯示「—」；部分記錄會註明
+  w.openStats = undefined;
+  w.fetch = async (u) => {
+    if (String(u).indexOf('/api/stats') >= 0) return { json: async () => ({ ok: true, stats: [
+      { tab: 0, cell: 0, kind: 'link', label: '有記身分', taps: 9, taps_7d: 4, people: 5, identified_taps: 9 },
+      { tab: 0, cell: 1, kind: 'link', label: '沒記身分', taps: 7, taps_7d: 2, people: 0, identified_taps: 0 },
+      { tab: 0, cell: 2, kind: 'link', label: '中途才記', taps: 10, taps_7d: 3, people: 2, identified_taps: 4 },
+      { tab: 0, cell: 3, kind: 'message', label: '發文字', taps: 6, taps_7d: 1, people: 3, identified_taps: 6 }
+    ] }) };
+    return { json: async () => DATA };
+  };
+  const statsBtn2 = doc.querySelector('.rm-stats');
+  if (statsBtn2) statsBtn2.click();
+  await new Promise(r => setTimeout(r, 60));
+  const cellsOf = (name) => {
+    const tr = [...doc.querySelectorAll('#rm-stats-body tr')].find(x => x.textContent.indexOf(name) >= 0);
+    return tr ? [...tr.children].map(td => td.textContent.trim()) : [];
+  };
+  ok(cellsOf('有記身分')[4] === '5', '開啟網址＋有記身分：顯示不重複人數 5（總點擊 9 次是重複計算）');
+  ok(cellsOf('有記身分')[2] === '9', '總點擊維持次數 9');
+  ok(cellsOf('沒記身分')[4] === '—', '開啟網址＋沒記身分：顯示「—」');
+  ok(/^2/.test(cellsOf('中途才記')[4] || '') && /另有 6 次未記錄身分/.test(cellsOf('中途才記')[4] || ''), '部分記錄：顯示人數並註明未記錄的次數');
+  ok(cellsOf('發文字')[4] === '3', '發送文字按鍵照舊顯示人數');
+  ok(/同一人點多次會重複算/.test(doc.body.textContent), '說明寫清楚次數與不重複人數的差別');
+  const src = require('fs').readFileSync(path.join(REPO, 'src/routes/adminRichMenu.js'), 'utf8');
+  ok(/AS identified_taps/.test(src), 'API 回傳有記錄身分的點擊數');
+
   // 5) 載入時的 Promise 錯誤會顯示在畫面上，不再靜靜沒反應
   w.dispatchEvent(new w.Event('unhandledrejection'));
   await new Promise(r => setTimeout(r, 20));

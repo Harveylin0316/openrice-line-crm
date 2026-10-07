@@ -14,7 +14,7 @@ const fixture = (id = 1) => ({ id, created_at: '2026-09-30T11:11:12.123Z', curso
 function harness(query) {
   let handler;
   const gate = (_req, _res, next) => next();
-  registerAdminPushLogsRoutes({ get(url, middleware, callback) { assert.equal(url, '/admin/push-logs'); assert.equal(middleware, gate); handler = callback; } }, { query, authCore: { requireAdmin: gate } });
+  registerAdminPushLogsRoutes({ get(url, middleware, callback) { assert.equal(url, '/admin/push-logs'); assert.equal(middleware, gate); handler = callback; } }, { query: (sql,p)=>sql.includes('to_regclass')?Promise.resolve({rows:[{name:null}]}):query(sql,p), authCore: { requireAdmin: gate } });
   const res = { headers: {}, statusCode: 200, setHeader(k, v) { this.headers[k] = v; return this; }, status(c) { this.statusCode = c; return this; }, render(view, data) { this.view = view; this.data = data; return this; }, type(t) { this.contentType = t; return this; }, send(v) { this.body = v; return this; } };
   return { res, run: queryParams => handler({ query: queryParams || {}, authUser: { un: 'tester' } }, res) };
 }
@@ -195,4 +195,12 @@ test('dashboard warning and legacy report link directly to filtered failure diag
   const reports = fs.readFileSync(path.join(VIEWS, 'admin_reports.ejs'), 'utf8');
   assert.match(reports, /href="\/admin\/push-logs\?status=failed&range=all"/);
   assert.match(reports, /完整發送紀錄與匯出/);
+});
+test('execution union includes reply/skipped states and excludes duplicate push attempts',()=>{
+ const {unifiedLogsCte}=require('../src/routes/adminPushLogs');const sql=unifiedLogsCte();
+ assert.match(sql,/crm_message_executions/);assert.match(sql,/NOT EXISTS/);assert.match(sql,/executionId/);assert.match(sql,/UNION ALL/);
+ assert.match(sql,/provider\.http_status/);assert.match(sql,/provider\.payload/);
+ assert.match(sql,/ORDER BY p\.created_at DESC,p\.id DESC LIMIT 1/);
+ assert.match(sql,/e\.recipient_key=l\.line_user_id/);
+ assert.equal(parseFilters({after:'2026-10-06T01:00:00.123456Z',beforeId:'-42'}).filters.beforeId,'-42');
 });

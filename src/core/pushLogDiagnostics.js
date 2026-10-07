@@ -1,4 +1,5 @@
 const SOURCES = Object.freeze({
+  welcome: '加入好友歡迎訊息', welcome_test: '歡迎訊息測試',
   flow: '自動傳訊流程', flow_dryrun: '流程測試', admin_broadcast: '群發訊息',
   admin_broadcast_test: '群發測試', referral_inviter_notify: '成功邀請通知',
   winner_notification: '中獎通知', invite_progress_notification: '邀請進度通知',
@@ -15,6 +16,8 @@ const RECOVERED_SQL = `(l.status = 'failed' AND NULLIF(l.payload->>'retryKey', '
 ))`;
 
 function diagnosePush(row) {
+  if(row.status==='pending')return {cause:'等待處理',action:'尚未呼叫 LINE，請查看原流程狀態。'};
+  if(row.status==='uncertain')return {cause:'結果不確定',action:'先核對原執行紀錄，避免重複發送。'};
   const detail = String(row.detail || '');
   const code = Number(row.http_status || 0);
   if (row.status === 'success') return { cause: 'LINE 已接受請求', action: '不需補發。這不是已讀或實際送達的證明。' };
@@ -31,6 +34,12 @@ function diagnosePush(row) {
 }
 
 function messageSummary(payload) {
+  if(payload?.messageSnapshot){
+    const {buildLineMessages}=require('./broadcastTemplates');
+    const built=buildLineMessages(payload.messageSnapshot,{heroImageBaseUrl:'https://example.invalid'});
+    if(built.ok)return messageSummary({messages:built.messages});
+    return '已保存內容版本 '+payload.revision+'（請由來源設定查看）';
+  }
   const messages = payload && Array.isArray(payload.messages) ? payload.messages : [];
   if (!messages.length) return '舊紀錄未保存訊息內容';
   return messages.slice(0, 5).map((m, i) => {
@@ -55,7 +64,7 @@ function decoratePush(row) {
   const source = SOURCES[row.push_type] || row.push_type || '其他來源';
   const sourceName = row.flow_name || (row.broadcast_id ? `群發批次 #${row.broadcast_id}` : row.activity_name);
   const material = row.payload && row.payload.messageName;
-  const sourceHref = row.broadcast_id ? `/admin/broadcast/${row.broadcast_id}` : row.flow_id ? '/admin/flows' : '';
+  const sourceHref = row.payload?.executionId ? '/admin/message-performance?source='+encodeURIComponent(row.payload.sourceType)+'&sourceId='+encodeURIComponent(row.payload.sourceId)+'&revision='+encodeURIComponent(row.payload.revision) : row.broadcast_id ? `/admin/broadcast/${row.broadcast_id}` : row.flow_id ? '/admin/flows' : '';
   return { ...row, ...diagnosis, source: (sourceName ? `${source} · ${sourceName}` : source) + (typeof material === 'string' && material ? ` · ${material.slice(0, 200)}` : ''),
     sourceHref, message: messageSummary(row.payload),
     action: row.status === 'failed' && row.recovered ? '同一則後續已被 LINE 接受，不需另行補發。這仍不是已讀或實際送達的證明。' : diagnosis.action,

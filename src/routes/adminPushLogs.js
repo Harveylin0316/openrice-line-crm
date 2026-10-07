@@ -7,7 +7,7 @@ function parseFilters(raw = {}, now = new Date()) {
   const status = scalar('status') || 'failed';
   const range = scalar('range') || '24h';
   const source = scalar('source').slice(0, 64);
-  if (!['failed', 'success', 'skipped', 'all'].includes(status) || !['24h', '7d', '30d', '90d', 'all', 'custom'].includes(range)) throw new Error('請選擇有效的狀態與期間。');
+  if (!['failed', 'success', 'skipped', 'uncertain', 'pending', 'all'].includes(status) || !['24h', '7d', '30d', '90d', 'all', 'custom'].includes(range)) throw new Error('請選擇有效的狀態與期間。');
   if (source && !/^[a-zA-Z0-9_-]+$/.test(source)) throw new Error('訊息來源格式不正確。');
   const followup = scalar('followup') || 'all';
   if (!['all', 'pending', 'recovered'].includes(followup)) throw new Error('請選擇有效的後續狀態。');
@@ -41,7 +41,7 @@ function parseFilters(raw = {}, now = new Date()) {
   }
   const where = parts.length ? parts.join(' AND ') : 'TRUE';
   if (filters.after || filters.beforeId) {
-    if (!/^\d{1,15}$/.test(filters.beforeId) || !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(filters.after) || !Number.isFinite(new Date(filters.after).getTime())) throw new Error('分頁資訊已失效，請重新套用篩選。');
+    if (! /^-?\d{1,15}$/.test(filters.beforeId) || !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(filters.after) || !Number.isFinite(new Date(filters.after).getTime())) throw new Error('分頁資訊已失效，請重新套用篩選。');
   }
   return { filters, values, where };
 }
@@ -78,11 +78,34 @@ function detailSql(where, limitBind, cursor = '') {
     ORDER BY l.created_at DESC, l.id DESC`;
 }
 
+// Negative IDs distinguish execution records from legacy push-log IDs without a schema change.
+function unifiedLogsCte() {
+  return `unified_logs AS (
+    SELECT l.id::bigint,l.user_id,l.line_user_id,l.push_type,l.status,l.http_status,l.detail,l.payload,l.created_at
+    FROM line_push_logs l WHERE NOT EXISTS (
+      SELECT 1 FROM crm_message_executions e WHERE e.id::text=l.payload->>'executionId' AND e.recipient_key=l.line_user_id AND NOT e.test_only
+    )
+    UNION ALL
+    SELECT -e.id,provider.user_id,e.recipient_key,
+      CASE e.source_type WHEN 'automation' THEN 'flow' WHEN 'keyword' THEN 'keyword_reply' WHEN 'broadcast' THEN 'admin_broadcast' ELSE 'welcome' END,
+      CASE e.status WHEN 'accepted' THEN 'success' WHEN 'rejected' THEN 'failed' WHEN 'sending' THEN 'uncertain' ELSE e.status END,
+      COALESCE(provider.http_status,CASE WHEN e.reason='line_rate_limited' THEN 429 ELSE NULL::integer END),COALESCE(NULLIF(e.reason,''),provider.detail),
+      COALESCE(provider.payload,'{}'::jsonb) || jsonb_build_object('executionId',e.id,'sourceType',e.source_type,'sourceId',e.source_id,'revision',e.revision,'messageSnapshot',e.message_snapshot),e.created_at
+    FROM crm_message_executions e
+    LEFT JOIN LATERAL (
+      SELECT p.user_id,p.http_status,p.detail,p.payload FROM line_push_logs p
+      WHERE p.payload->>'executionId'=e.id::text AND p.line_user_id=e.recipient_key
+      ORDER BY p.created_at DESC,p.id DESC LIMIT 1
+    ) provider ON TRUE
+    WHERE NOT e.test_only
+  )`;
+}
+
 function registerAdminPushLogsRoutes(app, { query, authCore }) {
   app.get('/admin/push-logs', authCore.requireAdmin, async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, must-revalidate');
     let parsed;
-    const base = { user: (req.authUser && req.authUser.un) || '', isAdmin: true, title: '推播發送紀錄', SOURCES, taipeiTime, filterUrl };
+    const base = { user: (req.authUser && req.authUser.un) || '', isAdmin: true, title: '訊息發送紀錄', SOURCES, taipeiTime, filterUrl };
     try {
       parsed = parseFilters(req.query);
     } catch (err) {
@@ -90,7 +113,14 @@ function registerAdminPushLogsRoutes(app, { query, authCore }) {
     }
     const { filters, where } = parsed;
     try {
-      const summary = await query(`SELECT COUNT(*)::int AS total,
+      const available = await query("SELECT to_regclass('crm_message_executions') AS name");
+      const hasExecutions=!!available.rows[0]?.name;
+      const queryLogs=(sql,values)=>{
+        if(!hasExecutions)return query(sql,values);
+        const withSource=sql.replace(/FROM line_push_logs l/g,'FROM unified_logs l');
+        return query(withSource.startsWith('WITH ')?'WITH '+unifiedLogsCte()+', '+withSource.slice(5):'WITH '+unifiedLogsCte()+' '+withSource,values);
+      };
+      const summary = await queryLogs(`SELECT COUNT(*)::int AS total,
         COUNT(DISTINCT COALESCE(NULLIF(l.line_user_id,''), 'user:' || l.user_id::text))::int AS people,
         COUNT(*) FILTER (WHERE l.status = 'failed')::int AS failed,
         COUNT(*) FILTER (WHERE ${RECOVERED_SQL})::int AS recovered,
@@ -108,7 +138,7 @@ function registerAdminPushLogsRoutes(app, { query, authCore }) {
         cursor = `AND (l.created_at, l.id) < ($${values.length - 1}::timestamptz, $${values.length}::bigint)`;
       }
       values.push(exporting ? EXPORT_LIMIT + 1 : PAGE_SIZE + 1);
-      const result = await query(detailSql(where, '$' + values.length, cursor), values);
+      const result = await queryLogs(detailSql(where, '$' + values.length, cursor), values);
       if (exporting && result.rows.length > EXPORT_LIMIT) return res.status(413).send('紀錄已增加，超過 10,000 筆；請縮短期間後重新匯出。');
       const rows = result.rows.slice(0, exporting ? EXPORT_LIMIT : PAGE_SIZE).map(decoratePush);
       if (exporting) {
@@ -126,4 +156,4 @@ function registerAdminPushLogsRoutes(app, { query, authCore }) {
     }
   });
 }
-module.exports = { registerAdminPushLogsRoutes, parseFilters, filterUrl, detailSql, PAGE_SIZE, EXPORT_LIMIT };
+module.exports = { registerAdminPushLogsRoutes, parseFilters, filterUrl, detailSql, PAGE_SIZE, EXPORT_LIMIT, unifiedLogsCte };
