@@ -199,5 +199,8 @@ test('dashboard warning and legacy report link directly to filtered failure diag
 test('execution union includes reply/skipped states and excludes duplicate push attempts',()=>{
  const {unifiedLogsCte}=require('../src/routes/adminPushLogs');const sql=unifiedLogsCte();
  assert.match(sql,/crm_message_executions/);assert.match(sql,/NOT EXISTS/);assert.match(sql,/executionId/);assert.match(sql,/UNION ALL/);
+ assert.match(sql,/provider\.http_status/);assert.match(sql,/provider\.payload/);
+ assert.match(sql,/ORDER BY p\.created_at DESC,p\.id DESC LIMIT 1/);
+ assert.match(sql,/e\.recipient_key=l\.line_user_id/);
  assert.equal(parseFilters({after:'2026-10-06T01:00:00.123456Z',beforeId:'-42'}).filters.beforeId,'-42');
 });

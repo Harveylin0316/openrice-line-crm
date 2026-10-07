@@ -2330,9 +2330,9 @@ function registerAdminBroadcastRoutes(app, deps) {
         const variants = activeVariants(Number(experiment.variantCount));
         const expRs = await query(
           `SELECT r.variant,
-                  COUNT(*)::int AS sent_total,
+                  COUNT(DISTINCT r.id)::int AS sent_total,
                   COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'sent')::int AS sent_ok,
-                  COUNT(*) FILTER (WHERE r.status = 'failed')::int AS sent_fail,
+                  COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'failed')::int AS sent_fail,
                   COUNT(DISTINCT c.recipient_id) FILTER (WHERE c.recipient_id IS NOT NULL AND r.status = 'sent')::int AS clickers
            FROM admin_broadcast_recipients r
            LEFT JOIN admin_broadcast_clicks c ON c.broadcast_id = r.broadcast_id AND c.recipient_id = r.id

@@ -83,15 +83,21 @@ function unifiedLogsCte() {
   return `unified_logs AS (
     SELECT l.id::bigint,l.user_id,l.line_user_id,l.push_type,l.status,l.http_status,l.detail,l.payload,l.created_at
     FROM line_push_logs l WHERE NOT EXISTS (
-      SELECT 1 FROM crm_message_executions e WHERE e.id::text=l.payload->>'executionId' AND NOT e.test_only
+      SELECT 1 FROM crm_message_executions e WHERE e.id::text=l.payload->>'executionId' AND e.recipient_key=l.line_user_id AND NOT e.test_only
     )
     UNION ALL
-    SELECT -e.id,NULL::integer,e.recipient_key,
+    SELECT -e.id,provider.user_id,e.recipient_key,
       CASE e.source_type WHEN 'automation' THEN 'flow' WHEN 'keyword' THEN 'keyword_reply' WHEN 'broadcast' THEN 'admin_broadcast' ELSE 'welcome' END,
       CASE e.status WHEN 'accepted' THEN 'success' WHEN 'rejected' THEN 'failed' WHEN 'sending' THEN 'uncertain' ELSE e.status END,
-      CASE WHEN e.reason='line_rate_limited' THEN 429 ELSE NULL::integer END,e.reason,
-      jsonb_build_object('executionId',e.id,'sourceType',e.source_type,'sourceId',e.source_id,'revision',e.revision,'messageSnapshot',e.message_snapshot),e.created_at
-    FROM crm_message_executions e WHERE NOT e.test_only
+      COALESCE(provider.http_status,CASE WHEN e.reason='line_rate_limited' THEN 429 ELSE NULL::integer END),COALESCE(NULLIF(e.reason,''),provider.detail),
+      COALESCE(provider.payload,'{}'::jsonb) || jsonb_build_object('executionId',e.id,'sourceType',e.source_type,'sourceId',e.source_id,'revision',e.revision,'messageSnapshot',e.message_snapshot),e.created_at
+    FROM crm_message_executions e
+    LEFT JOIN LATERAL (
+      SELECT p.user_id,p.http_status,p.detail,p.payload FROM line_push_logs p
+      WHERE p.payload->>'executionId'=e.id::text AND p.line_user_id=e.recipient_key
+      ORDER BY p.created_at DESC,p.id DESC LIMIT 1
+    ) provider ON TRUE
+    WHERE NOT e.test_only
   )`;
 }
 

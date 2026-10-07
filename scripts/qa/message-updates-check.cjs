@@ -78,6 +78,18 @@ async function main(){
   const detailsSql=detailSql('TRUE','$1').replace(/FROM line_push_logs l/g,'FROM unified_logs l');
   const detailed=await query('WITH '+unifiedLogsCte()+', '+detailsSql.slice(5),[51]);assert.ok(detailed.rows.length>0);
   console.log('PASS unified logs SQL, execution/push deduplication, skipped events, detail joins');
+  const metadata={executionId:e.id,enrollmentId:123,messageId:456,retryKey:'flow-123-send',messageSnapshot:{STAGING:'not authoritative'}};
+  await query("INSERT INTO line_push_logs(line_user_id,push_type,status,http_status,detail,payload) VALUES('STAGING-person-1','welcome','failed',401,'STAGING invalid token',$1::jsonb)",[JSON.stringify(metadata)]);
+  let merged=(await query('WITH '+unifiedLogsCte()+' SELECT * FROM unified_logs WHERE id=$1',[-Number(e.id)])).rows[0];
+  assert.equal(merged.http_status,401);assert.equal(merged.payload.enrollmentId,123);assert.equal(merged.payload.messageId,456);assert.equal(merged.payload.retryKey,'flow-123-send');assert.deepEqual(merged.payload.messageSnapshot,e.message_snapshot);assert.equal(merged.status,'success');
+  await query("INSERT INTO line_push_logs(line_user_id,push_type,status,http_status,payload) VALUES('STAGING-person-1','welcome','success',200,$1::jsonb)",[JSON.stringify(metadata)]);
+  merged=(await query('WITH '+unifiedLogsCte()+' SELECT * FROM unified_logs WHERE id=$1',[-Number(e.id)])).rows[0];assert.equal(merged.http_status,200);
+  console.log('PASS latest provider diagnostics retained; execution status/snapshot authoritative');
+  const campaignSql=sql('src/routes/adminBroadcast.js').match(/const expRs = await query\(\s*`([\s\S]*?)`,/)[1];
+  await query("INSERT INTO admin_broadcast_clicks(broadcast_id,recipient_id) SELECT 1,id FROM admin_broadcast_recipients WHERE broadcast_id=1 AND variant='a' LIMIT 1");
+  await query('INSERT INTO admin_broadcast_clicks(broadcast_id,recipient_id) SELECT broadcast_id,recipient_id FROM admin_broadcast_clicks');
+  const campaignRows=(await query(campaignSql,[1,['a','b']])).rows;assert.equal(campaignRows.reduce((sum,r)=>sum+Number(r.sent_total),0),770);assert.equal(campaignRows.reduce((sum,r)=>sum+Number(r.sent_fail),0),385);
+  console.log('PASS repeated clicks do not inflate Campaign total/failed recipients');
   await query(`CREATE SEQUENCE qa_broadcast_id START 100;
     ALTER TABLE admin_broadcasts ALTER COLUMN id SET DEFAULT nextval('qa_broadcast_id');
     ALTER TABLE admin_broadcasts ADD COLUMN status text, ADD COLUMN started_at timestamptz, ADD COLUMN updated_at timestamptz, ADD COLUMN admin_username text, ADD COLUMN message_config jsonb, ADD COLUMN variant_b_message_config jsonb, ADD COLUMN recipient_total int;
