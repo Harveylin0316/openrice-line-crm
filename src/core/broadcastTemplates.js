@@ -424,7 +424,7 @@ function stripEmptyTexts(node) {
  *   看過：每張 bubble 底部塞 1px 透明追蹤圖 /v/b/<批次>/<收件人>/pixel.png（估計值；LINE Flex 只吃 JPEG／PNG）。
  * 送出與反查必須用同一組走訪 opts（BROADCAST_WALK_OPTS），序號才對得起來。
  * ============================================================ */
-const BROADCAST_WALK_OPTS = { includeOwnLiff: true };
+const BROADCAST_WALK_OPTS = { includeOwnLiff: true, includeTextUrls: true };
 
 function trackingVariantSuffix(variant) {
   return variant === 'a' || variant === 'b' || variant === 'c' ? `?v=${variant}` : '';

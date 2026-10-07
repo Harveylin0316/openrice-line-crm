@@ -1,0 +1,15 @@
+<%- include('layout',{user,isAdmin,title,bodyClass:'admin-shell',body: `
+<section class="card" style="min-width:0;overflow-wrap:anywhere">
+<h1>訊息成效</h1><p>API 接受發送不代表送達或已讀。各來源與版本分開計算，不直接混算 Winner。</p>
+<p><a href="/admin/push-logs?status=all">查看既有發送紀錄</a></p>
+<form id="performance-filters" style="display:flex;flex-wrap:wrap;gap:12px;align-items:end">
+<label>來源<select name="source"><option value="">全部</option><option value="welcome">加入好友歡迎訊息</option><option value="broadcast">群發訊息</option><option value="automation">自動化訊息</option><option value="keyword">關鍵字回覆</option></select></label>
+<label>開始<input type="date" name="from" required></label><label>結束<input type="date" name="to" required></label>
+<label>來源編號<input type="number" name="sourceId" min="1" style="width:110px"></label>
+<label>內容版本<input type="number" name="revision" min="1" style="width:150px"></label>
+<label>A/B 版本<select name="variant"><option value="">全部</option><option value="a">A</option><option value="b">B</option><option value="c">C</option></select></label><button>套用</button>
+</form><p id="performance-status" role="status"></p><div id="performance-coverage"></div><div id="performance-summary"></div>
+<h2>觸發與回覆紀錄</h2><p>新歡迎、自動化與一般關鍵字回覆依觸發事件記錄。群發與關鍵字 A/B 保留原批次／實驗報表。</p>
+<div id="performance-executions"></div><button type="button" id="performance-more" hidden>載入更多</button><section id="performance-detail" aria-live="polite"></section>
+</section><style>#performance-filters label{display:flex;flex-direction:column;gap:4px;max-width:100%}#performance-summary article,#performance-executions article{border:1px solid #ddd;border-radius:8px;padding:12px;margin:12px 0;overflow-wrap:anywhere}#performance-summary dl{display:flex;flex-wrap:wrap;gap:16px}#performance-summary dd{margin:4px 0;font-weight:600}</style><script src="/admin-message-performance.js"></script>
+`}) %>

@@ -117,15 +117,16 @@
       `;
       })() : ''}
 
+      ${broadcast.is_ab_test ? `<div class="card"><h2>建立隔日後續群發</h2><p>使用原版本快照，並排除這批所有測試對象。請在新頁面選擇動態名單與預覽；不會改動本批保留名單。</p><a class="btn" href="/admin/broadcast?followup=${broadcast.id}&variant=a">使用 A 版</a> <a class="btn" href="/admin/broadcast?followup=${broadcast.id}&variant=b">使用 B 版</a> ${experimentStat && Number(experimentStat.config.variantCount) === 3 ? `<a class="btn" href="/admin/broadcast?followup=${broadcast.id}&variant=c">使用 C 版</a>` : ''}</div>` : ''}
       ${experimentStat ? (() => {
         const stats = experimentStat;
-        const winner = String(stats.selectedWinner || 'a').toUpperCase();
+        const winner = String(stats.selectedWinner || '').toUpperCase();
         const winnerAt = stats.config.winnerAt
           ? new Date(stats.config.winnerAt).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
           : '—';
         return `
           <h2 style="margin-top:24px;">Campaign Testing</h2>
-          <p class="muted" style="font-size:13px;line-height:1.6;">先把收件人隨機分到 A/B${stats.rows.length === 3 ? '/C' : ''} 測試組與保留名單。測試組在相同時間送出；觀察結束後，系統依 <strong>CTR（不重複 CTA 點擊 ÷ 成功送達）</strong> 選出勝出版，再送保留名單。平手依 A → B → C。</p>
+          <p class="muted" style="font-size:13px;line-height:1.6;">先把收件人隨機分到 A/B${stats.rows.length === 3 ? '/C' : ''} 測試組與保留名單。測試組在相同時間送出；觀察結束後依設定人工確認或自動選版；CTR 為不重複 CTA 點擊 ÷ API 接受發送人數。沒有成功樣本、零點擊或平手會等待人工確認；數值領先不代表統計顯著。</p>
           <div class="ab-grid">
             ${stats.rows.map(v => {
               const sent = Number(v.sent_ok || 0);
@@ -133,9 +134,9 @@
               const ctr = sent > 0 ? ((clickers / sent) * 100).toFixed(1) : '0.0';
               const isWin = String(v.variant || '').toUpperCase() === winner;
               return `<div class="ab-cell${isWin ? ' ab-cell--winner' : ''}">
-                <div class="ab-cell-head">版本 ${String(v.variant || '?').toUpperCase()}${isWin ? ' <span class="ab-win-tag">目前勝出</span>' : ''}</div>
+                <div class="ab-cell-head">版本 ${String(v.variant || '?').toUpperCase()}${isWin ? ' <span class="ab-win-tag">目前 CTR 較高</span>' : ''}</div>
                 <div class="ab-cell-row"><span class="ab-cell-label">測試名單</span><span class="ab-cell-val">${v.sent_total || 0}</span></div>
-                <div class="ab-cell-row"><span class="ab-cell-label">成功送達</span><span class="ab-cell-val">${sent}</span></div>
+                <div class="ab-cell-row"><span class="ab-cell-label">API 接受發送</span><span class="ab-cell-val">${sent}</span></div>
                 <div class="ab-cell-row ab-cell-row--highlight"><span class="ab-cell-label">不重複點擊</span><span class="ab-cell-val">${clickers}</span></div>
                 <div class="ab-cell-row ab-cell-row--highlight"><span class="ab-cell-label">CTR</span><span class="ab-cell-val">${ctr}%</span></div>
               </div>`;
@@ -144,11 +145,11 @@
           <div class="ab-winner-block">
             <div>
               <div style="font-weight:600;color:#1f2937;">保留名單：${stats.holdout} 人</div>
-              <div class="muted" style="font-size:12px;margin-top:4px;">${stats.releasedBroadcastId ? `已建立勝出版批次 #${stats.releasedBroadcastId}。` : (stats.config.winnerAt ? `測試組全部送完後開始觀察；自動判定時間：${winnerAt}。` : '測試組尚未全部送完；全部送完後才開始計算觀察時間。')}</div>
+              <div class="muted" style="font-size:12px;margin-top:4px;">${stats.releasedBroadcastId ? `已建立勝出版批次 #${stats.releasedBroadcastId}。` : (stats.config.winnerAt ? `測試組全部送完後開始觀察；${stats.config.winnerMode === 'manual' ? '可人工確認時間' : '自動判定時間'}：${winnerAt}。` : '測試組尚未全部送完；全部送完後才開始計算觀察時間。')}</div>
             </div>
             ${stats.canRelease ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
               <select id="experiment-winner-choice" style="padding:8px;border:1px solid #d1d5db;border-radius:8px;">
-                <option value="auto">依 CTR 自動選（目前 ${winner}）</option>
+                <option value="auto">依 CTR 選擇（${winner || '尚無明確版本'}）</option>
                 ${stats.rows.map(v => `<option value="${v.variant}">改用版本 ${String(v.variant).toUpperCase()}</option>`).join('')}
               </select>
               <button type="button" class="btn btn-resend-winner" id="btn-release-experiment-winner">送出保留名單</button>
@@ -666,6 +667,7 @@
             .then(function (r) { return r.json(); })
             .then(function (data) {
               if (!data.ok) throw new Error(data.detail || data.error || '未知錯誤');
+              if (data.awaitingApproval) { statusEl.textContent = '尚無明確高低，已暫停自動發送。請重新整理後人工選版。'; return; }
               statusEl.innerHTML = '已建立勝出版批次 #' + data.broadcastId + '（' + data.holdoutCount + ' 人）。 ' +
                 '<a href="/admin/broadcast/' + data.broadcastId + '" style="color:#2563eb;font-weight:600;">查看新批次</a>';
             })

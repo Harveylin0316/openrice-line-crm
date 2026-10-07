@@ -101,6 +101,7 @@ function createLinePushService({ query, lineChannelAccessToken }) {
     try {
       const response = await fetch('https://api.line.me/v2/bot/message/push', {
         method: 'POST',
+        ...(extra.timeoutMs ? {signal:AbortSignal.timeout(extra.timeoutMs)} : {}),
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${lineChannelAccessToken}`,

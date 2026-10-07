@@ -43,7 +43,7 @@ function isTrackableUri(uri) {
 
 /** 已經是我們自己的追蹤中轉（群發 /r/b、流程 /rf、關鍵字 /t/m），不能再包一層 */
 function isTrackerUri(uri) {
-  return /\/(r\/b|rf|t\/m)\/\d/.test(String(uri || ''));
+  return /\/(r\/b|rf|t\/(?:m|x|e))\//.test(String(uri || ''));
 }
 
 /**
@@ -120,6 +120,22 @@ function walkUriActions(config, visit, opts) {
     return found;
   }
   walk(config.flex || config.contents || config);
+  // Append plain-text targets only after the historic action traversal, preserving old indices.
+  if (opts && opts.includeTextUrls && Array.isArray(config.contents)) {
+    const { collectMessageTargets } = require('./messageTrackingTargets');
+    const pending = collectMessageTargets(config.contents).targets.filter(t => t.kind === 'text_url' && (includeOwnLiff || isTrackableUri(t.uri)));
+    const replacements = [];
+    for (const target of pending) {
+      const item = { ...target, index: index++ };
+      found.push(item);
+      const uri = typeof visit === 'function' ? visit(item) : null;
+      if (typeof uri === 'string' && uri) replacements.push({ ...target, uri });
+    }
+    for (const target of replacements.sort((a,b) => b.start - a.start)) {
+      const message = config.contents[target.slotIndex];
+      message.text = message.text.slice(0,target.start) + target.uri + message.text.slice(target.end);
+    }
+  }
   return found;
 }
 

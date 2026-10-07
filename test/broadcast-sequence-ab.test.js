@@ -197,7 +197,7 @@ test('Campaign Testing 三版：C 版也用同一種編輯區，且改 B 不影�
   doc.getElementById('campaign-variant-count').dispatchEvent(new window.Event('change'));
   await wait(50);
   assert.equal(doc.getElementById('ab-test-enable').checked, true);
-  assert.equal(doc.getElementById('ab-variant-b-allocation').textContent, '（10% 收件人）', '不能把小樣本實驗誤標成 50%');
+  assert.equal(doc.getElementById('ab-variant-b-allocation').textContent, '（20% 收件人）', '不能把小樣本實驗誤標成 50%');
   assert.equal(doc.getElementById('pane-c-sequence').hidden, false);
   assert.equal(doc.getElementById('pane-c-sequence').querySelectorAll('.seq-var-item').length, 3);
   const bText = doc.querySelector('#pane-b-sequence textarea');
@@ -663,7 +663,7 @@ test('單張 Imagemap A/B/C：獨立圖片／連結／測試發送／預覽與�
     doc.getElementById('campaign-variant-count').value = '3';
     doc.getElementById('campaign-variant-count').dispatchEvent(new window.Event('change'));
     doc.getElementById('campaign-weight-c').value = '10';
-    doc.getElementById('campaign-weight-holdout').value = '70';
+    doc.getElementById('campaign-weight-holdout').value = '50';
     doc.getElementById('campaign-weight-c').dispatchEvent(new window.Event('input'));
     await wait(100);
     const picker = doc.querySelector('#pane-b-sequence [data-seq-swap="0"]');

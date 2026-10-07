@@ -35,9 +35,14 @@ class FlowTransientError extends Error {
 
 // 走訪訊息裡的按鈕連結（跟關鍵字回覆、圖文選單共用同一套）
 const { walkUriActions } = require('./messageTapTracking');
+const {createMessageExecutionStore} = require('./messageExecutions');
+const {createWelcomeService} = require('./welcomeMessages');
+const {prepareExecutionTracking} = require('./messageTrackingTargets');
 const { BROADCAST_WALK_OPTS } = require('./broadcastTemplates');
 
 function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
+  const executionStore = createMessageExecutionStore({query});
+  const welcomeService = createWelcomeService({pool,query,executionStore});
   const MAX_STEPS_PER_TICK = 12;
   const CLAIM_LEASE_MS = 10 * 60 * 1000; // 處理租約 10 分鐘
 
@@ -171,7 +176,8 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
   }
 
   // ---------- 觸發：follow / list_join（由外部即時呼叫） ----------
-  async function triggerFollow(lineUserId, userId) {
+  async function triggerFollow(lineUserId, userId, evidence = {}) {
+    try { await welcomeService.claimFollow(lineUserId,evidence); } catch(e) { console.error("welcome enrollment failed:", e.code || "database_error"); }
     try {
       const flows = await getActiveFlowsByTrigger('follow');
       // LINE 的 follow 事件不帶來源，來源是 LIFF 落地頁事先寫進 line_follow_sources 的。
@@ -189,6 +195,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
         console.error('flow triggerFollow source lookup failed:', e && e.message);
       }
       for (const f of flows) {
+        if (f.trigger_config?.managed_welcome === true) continue;
         const cfgSource =
           f.trigger_config && typeof f.trigger_config.source_key === 'string'
             ? f.trigger_config.source_key.trim().toLowerCase()
@@ -758,13 +765,73 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
   // 回傳 true=已送達 / false=失敗（暫時性，呼叫端應重試，不前進節點）。
   // 設定錯誤（訊息不存在 / 內容組不出來）會 throw FlowConfigError，呼叫端直接標 failed。
   async function sendMessage(lineUserId, userId, messageId, opts = {}) {
+    if (opts.executionId) {
+      const execution = await executionStore.get(opts.executionId);
+      if (!execution) throw new FlowConfigError('welcome_execution_missing');
+      if (execution.status === 'accepted') return true;
+      if (execution.status === 'sending') await executionStore.finish(execution.id,{status:'uncertain',reason:'interrupted_send'});
+      if (execution.status !== 'pending') throw new FlowConfigError('welcome_result_' + execution.status);
+      const current = await welcomeService.load();
+      if (!current?.enabled || process.env.SAFE_PREVIEW_MODE === '1' || process.env.APP_ENV === 'staging') {
+        await executionStore.finish(execution.id,{status:'skipped',reason:!current?.enabled?'welcome_disabled':'safe_preview'});
+        throw new FlowConfigError('welcome_skipped');
+      }
+      const built = buildLineMessages(execution.message_snapshot,{heroImageBaseUrl:getOrigin(),recipientName:await resolveRecipientName(userId,lineUserId)});
+      if (!built.ok) {await executionStore.finish(execution.id,{status:'rejected',reason:built.error});throw new FlowConfigError('welcome_message_invalid');}
+      built.messages = await prepareExecutionTracking(query,execution,built.messages,getOrigin());
+      if (!await executionStore.begin(execution.id)) throw new FlowConfigError('welcome_already_claimed');
+      const result = await linePush.pushLineMessages(lineUserId,built.messages,{userId,pushType:'welcome',executionId:execution.id,retryKey:'welcome-'+execution.id,returnResult:true,timeoutMs:8000});
+      const status = result.ok ? 'accepted' : result.status === 'skipped' ? 'skipped' : !result.httpStatus || result.httpStatus >= 500 || result.httpStatus === 409 ? 'uncertain' : 'rejected';
+      await executionStore.finish(execution.id,{status,reason:result.detail || null});
+      if(status !== 'accepted') throw new FlowConfigError('welcome_result_'+status);
+      return true;
+    }
     if (!messageId) throw new FlowConfigError('send_node_missing_message');
-    const rs = await query(`SELECT message_config, name FROM admin_message_templates WHERE id = $1`, [messageId]);
+    let executionAvailable = false;
+    let existingExecution = null;
+    if (opts.enrollmentId && opts.flowId) {
+      const available = await query("SELECT to_regclass('crm_message_executions') AS table_name");
+      executionAvailable = !!available.rows[0]?.table_name;
+      if (executionAvailable) {
+        const found = await query('SELECT * FROM crm_message_executions WHERE source_type=$1 AND source_id=$2 AND source_event_id=$3 AND recipient_key=$4',
+          ['automation', Number(opts.flowId), opts.enrollmentId+':'+messageId+':'+opts.nodeKey, lineUserId]);
+        existingExecution = found.rows[0] || null;
+        if (existingExecution?.status === 'accepted') return true;
+      }
+    }
+    const rs = existingExecution
+      ? {rowCount:1,rows:[{message_config:existingExecution.message_snapshot,name:''}]}
+      : await query(`SELECT message_config, name FROM admin_message_templates WHERE id = $1`, [messageId]);
     if (rs.rowCount === 0) throw new FlowConfigError('message_template_not_found');
     const cfg = rs.rows[0].message_config;
     const recipientName = await resolveRecipientName(userId, lineUserId);
     const built = buildLineMessages(cfg, { recipientName, heroImageBaseUrl: getOrigin() });
     if (!built.ok) throw new FlowConfigError('message_build_failed:' + (built.error || ''));
+    if (opts.enrollmentId && opts.flowId) {
+      if (executionAvailable) {
+        const claim = existingExecution ? {claimed:false,execution:existingExecution} : await executionStore.claim({query},{sourceType:'automation',sourceId:Number(opts.flowId),sourceEventId:opts.enrollmentId+':'+messageId+':'+opts.nodeKey,recipientKey:lineUserId,messageSnapshot:cfg});
+        if (!claim.claimed) {
+          if (claim.execution?.status === 'accepted') return true;
+          if (claim.execution?.status === 'rejected' && claim.execution.reason === 'line_rate_limited') {
+            claim.execution = await executionStore.retryRejected(claim.execution.id);
+          }
+          if(claim.execution?.status !== 'pending') throw new FlowConfigError('tracked_flow_already_attempted');
+        }
+        if(process.env.SAFE_PREVIEW_MODE==='1'||process.env.APP_ENV==='staging'){
+          await executionStore.finish(claim.execution.id,{status:'skipped',reason:'safe_preview'});throw new FlowConfigError('safe_preview');
+        }
+        const frozen = buildLineMessages(claim.execution.message_snapshot,{recipientName,heroImageBaseUrl:getOrigin()});
+        if(!frozen.ok)throw new FlowConfigError('tracked_flow_snapshot_invalid');
+        built.messages=await prepareExecutionTracking(query,claim.execution,frozen.messages,getOrigin());
+        if(!await executionStore.begin(claim.execution.id))throw new FlowConfigError('tracked_flow_claim_lost');
+        const r=await linePush.pushLineMessages(lineUserId,built.messages,{userId,pushType:'flow',executionId:claim.execution.id,enrollmentId:opts.enrollmentId,messageId,returnResult:true,timeoutMs:8000,retryKey:'flow-'+opts.enrollmentId+'-'+opts.nodeKey});
+        const status=r.ok?'accepted':r.status==='skipped'?'skipped':!r.httpStatus||r.httpStatus>=500||r.httpStatus===409?'uncertain':'rejected';
+        await executionStore.finish(claim.execution.id,{status,reason:r.httpStatus===429?'line_rate_limited':r.detail||null});
+        if(r.httpStatus===429)return false;
+        if(status!=='accepted')throw new FlowConfigError('tracked_flow_'+status);
+        return true;
+      }
+    }
     // 點擊追蹤：把訊息裡的連結換成 /rf/:enrollmentId/:messageId 中轉，
     // 「點了上一則的連結」這個分支條件才判斷得出來。
     //
@@ -865,7 +932,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
           const msgId = node.config && node.config.message_id;
           // 推播失敗（暫時性）→ 丟 FlowTransientError，由 catch 排重試退避、不前進節點。
           // 訊息設定錯誤 → sendMessage 內丟 FlowConfigError，由 catch 直接標 failed。
-          const sent = await sendMessage(en.line_user_id, en.user_id, msgId, { enrollmentId: en.id, nodeKey: node.node_key });
+          const sent = await sendMessage(en.line_user_id, en.user_id, msgId, { enrollmentId: en.id, nodeKey: node.node_key, executionId: en.context?.executionId, flowId: en.flow_id });
           if (!sent) throw new FlowTransientError('line_push_failed');
           lastMsgId = msgId || lastMsgId;
           lastSentAt = new Date();

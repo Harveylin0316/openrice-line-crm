@@ -170,6 +170,15 @@
     var h = Number($('campaign-weight-holdout').value || 0);
     var total = a + b + c + h;
     $('campaign-allocation-hint').textContent = '目前合計 ' + total + '%（' + (total === 100 ? '可送出' : '須調整為 100%') + '）';
+    var n=Number(state.audiencePreviewedTotal);
+    if(total===100 && n>=(state.campaignVariantCount===3?4:3)){
+      var groups=[{name:'A',weight:a},{name:'B',weight:b}];if(state.campaignVariantCount===3)groups.push({name:'C',weight:c});groups.push({name:'Winner 保留',weight:h});
+      groups.forEach(function(g){g.exact=n*g.weight/100;g.count=Math.floor(g.exact);});
+      var left=n-groups.reduce(function(sum,g){return sum+g.count;},0);
+      groups.slice().sort(function(x,y){return (y.exact-y.count)-(x.exact-x.count);}).slice(0,left).forEach(function(g){g.count++;});
+      groups.forEach(function(g){if(g.count===0){var donor=groups.filter(function(v){return v.count>1;}).sort(function(x,y){return y.count-x.count;})[0];if(donor){donor.count--;g.count=1;}}});
+      $('campaign-allocation-hint').textContent+='；'+groups.map(function(g){return g.name+' '+g.count+' 人';}).join('、')+'。小樣本結果波動較大，不能保證統計顯著。';
+    }
     var bAllocation = $('ab-variant-b-allocation');
     if (bAllocation) bAllocation.textContent = state.campaignTestEnabled
       ? '（' + b + '% 收件人）' : '（50% 收件人）';
@@ -255,6 +264,7 @@
       $('audience-pane-conditions').hidden = (src !== 'conditions');
       $('audience-pane-saved_list').hidden = (src !== 'saved_list');
       $('audience-pane-upload').hidden = (src !== 'upload');
+      state.audiencePreviewToken = null;
       state.audiencePreviewedTotal = null;
       $('audience-status').textContent = '尚未預覽';
       $('audience-sample').hidden = true;
@@ -286,6 +296,13 @@
   }
 
   function collectConditions() {
+    var conditions = collectBaseConditions();
+    var input = $('exclude-broadcast-ids');
+    if (input && input.value.trim()) conditions.excludeBroadcastIds = input.value.split(/[\s,，]+/).filter(Boolean);
+    return conditions;
+  }
+  if ($('exclude-broadcast-ids')) $('exclude-broadcast-ids').addEventListener('input', function () { state.audiencePreviewToken = null; state.audiencePreviewedTotal = null; updateSendButton(); saveDraft(); });
+  function collectBaseConditions() {
     if (state.audienceSource === 'saved_list') {
       var sel = $('saved-list-select').value;
       var listId = parseInt(sel, 10);
@@ -419,6 +436,7 @@
     if (!mode || !count || !wrap || !hint) return;
 
     function invalidatePreview() {
+      state.audiencePreviewToken = null;
       state.audiencePreviewedTotal = null;
       state.audienceEligibleTotal = null;
       var st = $('audience-status'); if (st) st.textContent = '名單人數設定已變更，請重新預覽';
@@ -451,6 +469,7 @@
     var customRangeEl = $('joined-custom-range');
     var customHintEl = $('joined-custom-hint');
     function invalidateAudiencePreview() {
+      state.audiencePreviewToken = null;
       state.audiencePreviewedTotal = null;
       var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
       updateSendButton();
@@ -471,6 +490,7 @@
       if (lb) { lb.style.opacity = on ? '0.4' : '1'; lb.style.pointerEvents = on ? 'none' : 'auto'; }
       var bs = $('booking-source-conditions');
       if (bs) { bs.style.opacity = on ? '0.4' : '1'; bs.style.pointerEvents = on ? 'none' : 'auto'; }
+      state.audiencePreviewToken = null;
       state.audiencePreviewedTotal = null;
       var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
       updateSendButton();
@@ -508,6 +528,7 @@
       if (allMembers) allMembers.dispatchEvent(new Event('change', { bubbles: true }));
       if (joined) joined.dispatchEvent(new Event('change', { bubbles: true }));
       if (activity) activity.dispatchEvent(new Event('change', { bubbles: true }));
+      state.audiencePreviewToken = null;
       state.audiencePreviewedTotal = null;
       var sample = $('audience-sample');
       if (sample) {
@@ -567,6 +588,7 @@
     var el = $(id);
     if (!el) return;
     function invalidatePreview() {
+      state.audiencePreviewToken = null;
       state.audiencePreviewedTotal = null;
       var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
       updateSendButton();
@@ -579,6 +601,7 @@
   document.addEventListener('change', function (e) {
     var t = e.target;
     if (t && t.name && (t.name === 'lifecycle_stage' || t.name === 'prize_name')) {
+      state.audiencePreviewToken = null;
       state.audiencePreviewedTotal = null;
       var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
       updateSendButton();
@@ -597,6 +620,7 @@
     var joinedDateError = validateJoinedDateSelection();
     if (state.audienceSource === 'conditions' && joinedDateError) {
       statusEl.textContent = joinedDateError;
+      state.audiencePreviewToken = null;
       state.audiencePreviewedTotal = null;
       guidedAudienceAdvancePending = false;
       updateSendButton();
@@ -605,6 +629,7 @@
     var recipientSelectionError = validateRecipientSelection();
     if (recipientSelectionError) {
       statusEl.textContent = recipientSelectionError;
+      state.audiencePreviewToken = null;
       state.audiencePreviewedTotal = null;
       state.audienceEligibleTotal = null;
       guidedAudienceAdvancePending = false;
@@ -616,6 +641,7 @@
       : null;
     if (directParsed && directParsed.valid.length === 0) {
       statusEl.textContent = '請先貼上至少一個有效的 LINE User ID';
+      state.audiencePreviewToken = null;
       state.audiencePreviewedTotal = null;
       guidedAudienceAdvancePending = false;
       updateSendButton();
@@ -640,14 +666,17 @@
         }
         if (data.error) {
           statusEl.textContent = data.error;
-          state.audiencePreviewedTotal = null;
+          state.audiencePreviewToken = null;
+      state.audiencePreviewedTotal = null;
           state.audienceEligibleTotal = null;
           guidedAudienceAdvancePending = false;
           updateSendButton();
           return;
         }
+        state.audiencePreviewToken = data.audiencePreviewToken || null;
         state.audienceEligibleTotal = Number(data.eligibleTotal == null ? data.total : data.eligibleTotal);
         state.audiencePreviewedTotal = Number(data.sendTotal == null ? data.total : data.sendTotal);
+        updateCampaignAllocationHint();
         var recipientSelection = data.recipientSelection || collectRecipientSelection();
         if (recipientSelection.mode === 'random') {
           statusEl.innerHTML = '符合條件 <strong>' + state.audienceEligibleTotal.toLocaleString() +
@@ -656,6 +685,8 @@
           statusEl.innerHTML = '符合條件 <strong>' + state.audienceEligibleTotal.toLocaleString() +
             '</strong> 人；本次發送 <strong>' + state.audiencePreviewedTotal.toLocaleString() + '</strong> 人';
         }
+        if (data.excludedTotal) statusEl.innerHTML += '；已排除測試對象 ' + Number(data.excludedTotal) + ' 人';
+        if (data.previewedAt) statusEl.innerHTML += '（預覽：' + new Date(data.previewedAt).toLocaleTimeString('zh-TW') + '）';
         if (directParsed) {
           var notes = [];
           if (directParsed.duplicates > 0) notes.push('去除 ' + directParsed.duplicates + ' 個重複');
@@ -782,6 +813,7 @@
     return (el && el.value ? el.value.trim() : '');
   }
   function collectMessageConfig() {
+    if (state.followupConfig) return JSON.parse(JSON.stringify(state.followupConfig));
     var topAlt = getTopAltText();
     if (state.mode === 'imagemap') return collectImagemapConfig();
     if (state.mode === 'sequence' && state.sequenceConfig) {
@@ -3850,6 +3882,8 @@
     bar.style.width = '0%';
 
     var createBody = {
+      audience_preview_token: state.audiencePreviewToken || null,
+      followup_of: state.followupOf || null,
       channel: getActiveChannel(),
       conditions: collectConditions(),
       recipient_selection: collectRecipientSelection(),
@@ -3883,6 +3917,7 @@
         enabled: true,
         variant_count: state.campaignVariantCount,
         observation_hours: Number($('campaign-observation-hours').value),
+        winner_mode: $('campaign-winner-mode').value,
         metric: 'ctr',
         allocations: {
           a: Number($('campaign-weight-a').value),
@@ -4086,7 +4121,7 @@
     'b-tpl-cta-label', 'b-tpl-cta-url', 'b-tpl-alt', 'b-flex-json',
     'c-tpl-title', 'c-tpl-subtitle', 'c-tpl-coupon-code', 'c-tpl-disclaimer',
     'c-tpl-cta-label', 'c-tpl-cta-url', 'c-tpl-alt', 'c-flex-json',
-    'campaign-test-enable', 'campaign-variant-count', 'campaign-observation-hours',
+    'campaign-test-enable', 'campaign-variant-count', 'campaign-observation-hours', 'campaign-winner-mode',
     'campaign-weight-a', 'campaign-weight-b', 'campaign-weight-c', 'campaign-weight-holdout',
     // 活動頁行為（好康地圖／擲骰子選餐廳）
     'liff-played-days', 'liff-booking-days', 'liff-inactive-days',
@@ -4138,14 +4173,18 @@
           altText: ($('b-tpl-alt') ? $('b-tpl-alt').value : ''),
           flexJson: ($('b-flex-json') ? $('b-flex-json').value : '')
         },
+        followupOf: state.followupOf || null,
+        followupConfig: state.followupConfig || null,
+        excludeBroadcastIds: $('exclude-broadcast-ids') ? $('exclude-broadcast-ids').value : '',
         campaign: {
           enabled: !!state.campaignTestEnabled,
           variantCount: state.campaignVariantCount,
+          winnerMode: $('campaign-winner-mode') ? $('campaign-winner-mode').value : 'manual',
           observationHours: ($('campaign-observation-hours') ? $('campaign-observation-hours').value : '24'),
-          a: ($('campaign-weight-a') ? $('campaign-weight-a').value : '10'),
-          b: ($('campaign-weight-b') ? $('campaign-weight-b').value : '10'),
+          a: ($('campaign-weight-a') ? $('campaign-weight-a').value : '20'),
+          b: ($('campaign-weight-b') ? $('campaign-weight-b').value : '20'),
           c: ($('campaign-weight-c') ? $('campaign-weight-c').value : '0'),
-          holdout: ($('campaign-weight-holdout') ? $('campaign-weight-holdout').value : '80'),
+          holdout: ($('campaign-weight-holdout') ? $('campaign-weight-holdout').value : '60'),
           variantC: {
             title: ($('c-tpl-title') ? $('c-tpl-title').value : ''), subtitle: ($('c-tpl-subtitle') ? $('c-tpl-subtitle').value : ''),
             couponCode: ($('c-tpl-coupon-code') ? $('c-tpl-coupon-code').value : ''), disclaimer: ($('c-tpl-disclaimer') ? $('c-tpl-disclaimer').value : ''),
@@ -4206,13 +4245,17 @@
       Object.keys(vbMap).forEach(function (id) {
         if (vbMap[id] != null && $(id)) $(id).value = vbMap[id];
       });
+      state.followupOf = d.followupOf || null;
+      state.followupConfig = d.followupConfig || null;
+      if(state.followupConfig) { $('bc-message-step').disabled=true; $('followup-snapshot-note').hidden=false; }
+      if ($('exclude-broadcast-ids')) $('exclude-broadcast-ids').value = d.excludeBroadcastIds || '';
       var campaign = d.campaign || {};
       var vc = campaign.variantC || {};
       var vcMap = {
         'c-tpl-title': vc.title, 'c-tpl-subtitle': vc.subtitle, 'c-tpl-coupon-code': vc.couponCode,
         'c-tpl-disclaimer': vc.disclaimer, 'c-tpl-cta-label': vc.ctaLabel, 'c-tpl-cta-url': vc.ctaUrl,
         'c-tpl-alt': vc.altText, 'c-flex-json': vc.flexJson,
-        'campaign-observation-hours': campaign.observationHours, 'campaign-weight-a': campaign.a,
+        'campaign-winner-mode': campaign.winnerMode || 'manual', 'campaign-observation-hours': campaign.observationHours, 'campaign-weight-a': campaign.a,
         'campaign-weight-b': campaign.b, 'campaign-weight-c': campaign.c, 'campaign-weight-holdout': campaign.holdout
       };
       Object.keys(vcMap).forEach(function (id) { if (vcMap[id] != null && $(id)) $(id).value = vcMap[id]; });
@@ -4302,7 +4345,8 @@
     if (fi) fi.value = '';
     renderHeroStatus(false);
     // 活動頁行為的天數、訂位來源的下拉選單也被清回「不限」→ 之前預覽的人數作廢
-    state.audiencePreviewedTotal = null;
+    state.audiencePreviewToken = null;
+      state.audiencePreviewedTotal = null;
     var st = $('audience-status'); if (st) st.textContent = '尚未預覽';
     updateSendButton();
     var ds = $('draft-status-time');
@@ -4387,7 +4431,8 @@
   $('saved-list-select').addEventListener('change', function () {
     var hasVal = !!$('saved-list-select').value;
     $('btn-delete-saved-list').hidden = !hasVal;
-    state.audiencePreviewedTotal = null;
+    state.audiencePreviewToken = null;
+      state.audiencePreviewedTotal = null;
     $('audience-status').textContent = '尚未預覽';
     $('audience-sample').hidden = true;
     updateSendButton();
@@ -4404,7 +4449,8 @@
       .then(function (data) {
         if (data.ok) {
           loadSavedLists();
-          state.audiencePreviewedTotal = null;
+          state.audiencePreviewToken = null;
+      state.audiencePreviewedTotal = null;
           $('audience-status').textContent = '已刪除';
           $('audience-sample').hidden = true;
           updateSendButton();
@@ -4448,7 +4494,8 @@
       c.textContent = '已輸入 ' + parsed.valid.length + ' 個有效 ID' +
         (parsed.duplicates > 0 ? '（已去除 ' + parsed.duplicates + ' 個重複）' : '');
     }
-    state.audiencePreviewedTotal = null;
+    state.audiencePreviewToken = null;
+      state.audiencePreviewedTotal = null;
     $('audience-status').textContent = '名單已變更，請重新預覽';
     $('audience-sample').hidden = true;
     updateSendButton();
@@ -5131,5 +5178,35 @@
         });
       }
     })();
+  }
+  if($('exclude-broadcast-picker')){
+    fetch('/admin/broadcast/exclusion-sources').then(function(r){return r.json();}).then(function(data){
+      if(!data.ok)throw new Error('unavailable');
+      data.sources.forEach(function(b){$('exclude-broadcast-picker').add(new Option('#'+b.id+' · '+new Date(b.created_at).toLocaleDateString('zh-TW',{timeZone:'Asia/Taipei'})+' · '+b.status,String(b.id)));});
+    }).catch(function(){$('exclude-broadcast-picker-note').textContent='暫時無法載入批次清單，可直接輸入要排除的批次編號。';});
+    $('exclude-broadcast-picker').addEventListener('change',function(){
+      $('exclude-broadcast-ids').value=Array.from(this.selectedOptions).map(function(o){return o.value;}).join(', ');
+      $('exclude-broadcast-ids').dispatchEvent(new Event('input'));
+    });
+  }
+  if($('followup-unlock'))$('followup-unlock').addEventListener('click',function(){state.followupOf=null;state.followupConfig=null;$('bc-message-step').disabled=false;$('followup-snapshot-note').hidden=true;state.messagePreviewed=false;saveDraft();schedulePreview();updateSendButton();});
+  var followupParams = new URLSearchParams(window.location.search);
+  var followupId = followupParams.get('followup');
+  if (followupId && /^[1-9]\d*$/.test(followupId)) {
+    fetch('/admin/broadcast/' + followupId + '/followup-config?variant=' + encodeURIComponent(followupParams.get('variant') || ''))
+      .then(function(r){return r.json();}).then(function(data){
+        if(!data.ok) throw new Error(data.error || '載入失敗');
+        state.followupOf = {broadcastId:data.sourceBroadcastId,variant:data.sourceVariant};
+        $('campaign-test-enable').checked=false; updateCampaignTestUI();
+        $('ab-test-enable').checked=false; $('ab-test-enable').dispatchEvent(new Event('change'));
+        applyMessageConfigToForm(data.message_config);
+        state.followupConfig=JSON.parse(JSON.stringify(data.message_config));
+        $('bc-message-step').disabled=true; $('followup-snapshot-note').hidden=false;
+        schedulePreview();
+        $('exclude-broadcast-ids').value=data.conditions.excludeBroadcastIds.join(', ');
+        state.audiencePreviewedTotal=null; state.audiencePreviewToken=null;
+        $('audience-status').textContent='已帶入原批次版本與排除名單。請選擇這次的動態受眾並重新預覽；不會自動送出。';
+        updateSendButton(); saveDraft();
+      }).catch(function(e){alert('後續群發載入失敗：'+e.message);});
   }
 })();

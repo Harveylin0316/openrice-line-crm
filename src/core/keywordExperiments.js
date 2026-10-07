@@ -103,12 +103,12 @@ async function claimDelivery(query, { experimentId, lineUserId, variant, webhook
 }
 
 /** 組出要回覆的訊息；有 LIFF 才把連結換成追蹤跳板（連結只帶隨機代碼，不帶 LINE User ID） */
-function buildExperimentMessages(config, { origin, deliveryCode, liffId } = {}) {
+function buildExperimentMessages(config, { origin, deliveryCode, liffId, targets } = {}) {
   const built = buildLineMessages(config, { heroImageBaseUrl: origin });
   if (!built.ok) return built;
   if (deliveryCode && liffId) {
     walkUriActions({ contents: built.messages },
-      (item) => `https://liff.line.me/${liffId}/t/x/${deliveryCode}_${item.index}`, BROADCAST_WALK_OPTS);
+      (item) => Array.isArray(targets) && !targets.some(t=>t.index===item.index && t.uri===item.uri) ? item.uri : `https://liff.line.me/${liffId}/t/x/${deliveryCode}_${item.index}`, BROADCAST_WALK_OPTS);
   }
   return built;
 }

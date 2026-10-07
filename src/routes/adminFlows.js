@@ -339,6 +339,7 @@ function registerAdminFlowsRoutes(app, deps) {
     const tType = trigger.type;
     if (!FLOW_TRIGGER_TYPES.includes(tType)) return { ok: false, error: 'invalid_trigger_type' };
     const tCfg = trigger.config || {};
+    if (Object.prototype.hasOwnProperty.call(tCfg, 'managed_welcome')) return {ok:false,error:'welcome_use_settings'};
     const rawUserLimit = tCfg.user_limit;
     if (rawUserLimit && typeof rawUserLimit === 'object' && rawUserLimit.max !== '' && rawUserLimit.max != null) {
       const max = Math.round(Number(rawUserLimit.max));
@@ -748,7 +749,7 @@ function registerAdminFlowsRoutes(app, deps) {
       await client.query('BEGIN');
       const up = await client.query(
         `UPDATE admin_flows SET name = $2, trigger_type = $3, trigger_config = $4::jsonb, re_enroll = $5, updated_at = now()
-         WHERE id = $1 RETURNING id`,
+         WHERE id = $1 AND COALESCE(trigger_config->>'managed_welcome','false') <> 'true' RETURNING id`,
         [Number(idStr), v.name, v.trigger.type, JSON.stringify(v.trigger.config), v.re_enroll]
       );
       if (up.rowCount === 0) { await client.query('ROLLBACK'); return jsonErr(res, 404, 'not_found'); }
@@ -776,7 +777,7 @@ function registerAdminFlowsRoutes(app, deps) {
         if (Number(nc.rows[0].n) === 0) return jsonErr(res, 400, 'flow_has_no_steps');
       }
       const rs = await query(
-        `UPDATE admin_flows SET status = $2, updated_at = now() WHERE id = $1 RETURNING id, status`,
+        `UPDATE admin_flows SET status = $2, updated_at = now() WHERE id = $1 AND COALESCE(trigger_config->>'managed_welcome','false') <> 'true' RETURNING id, status`,
         [Number(idStr), status]
       );
       if (rs.rowCount === 0) return jsonErr(res, 404, 'not_found');
@@ -797,7 +798,7 @@ function registerAdminFlowsRoutes(app, deps) {
           detail: '這個流程的入口網址可能已放在對外訊息中。請改用「暫停」，避免舊網址失效。'
         });
       }
-      const rs = await query(`DELETE FROM admin_flows WHERE id = $1 RETURNING id`, [Number(idStr)]);
+      const rs = await query(`DELETE FROM admin_flows WHERE id = $1 AND COALESCE(trigger_config->>'managed_welcome','false') <> 'true' RETURNING id`, [Number(idStr)]);
       if (rs.rowCount === 0) return jsonErr(res, 404, 'not_found');
       return res.json({ ok: true, deletedId: Number(idStr) });
     } catch (err) {
@@ -814,6 +815,8 @@ function registerAdminFlowsRoutes(app, deps) {
     const testLineUserId = String((req.body && req.body.test_line_user_id) || '').trim();
     if (!testLineUserId) return jsonErr(res, 400, 'dryrun_needs_test_user');
     try {
+      const managed=await query("SELECT trigger_config FROM admin_flows WHERE id=$1",[Number(idStr)]);
+      if(managed.rows[0]?.trigger_config?.managed_welcome===true)return jsonErr(res,400,'welcome_use_settings',{detail:'請從加入好友歡迎訊息頁選擇已登記測試人員。'});
       const result = await flowEngine.dryRunFlow({ flowId: Number(idStr), testLineUserId });
       return res.json({ ok: true, ...result });
     } catch (err) {

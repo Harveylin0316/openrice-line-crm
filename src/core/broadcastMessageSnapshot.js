@@ -262,7 +262,20 @@ function getBroadcastMessageIdentity(broadcast, options = {}) {
   };
 }
 
+function buildFollowupConfig(source, variant) {
+  if (!source || (source.channel || 'line') !== 'line' || (!source.is_ab_test && !source.audience_config?.experiment?.enabled)) throw new Error('followup_source_invalid');
+  const experiment = source.audience_config?.experiment;
+  if (!['a','b','c'].includes(variant) || (variant === 'c' && Number(experiment?.variantCount) !== 3)) throw new Error('followup_variant_invalid');
+  const config = variant === 'a' ? source.message_config : variant === 'b' ? source.variant_b_message_config : experiment.variantCMessageConfig;
+  if (!config) throw new Error('followup_snapshot_missing');
+  const conditions = JSON.parse(JSON.stringify(source.audience_config?.conditions || {}));
+  const {normalizeExcludedBroadcastIds} = require('./broadcastAudienceExclusions');
+  conditions.excludeBroadcastIds = normalizeExcludedBroadcastIds([...(conditions.excludeBroadcastIds || []),Number(source.id)]);
+  return {message_config:JSON.parse(JSON.stringify(config)),conditions,sourceBroadcastId:Number(source.id),sourceVariant:variant};
+}
+
 module.exports = {
+  buildFollowupConfig,
   buildBroadcastMessageSnapshots,
   getBroadcastMessageIdentity,
   summarizeConfig,

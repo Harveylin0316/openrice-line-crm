@@ -613,6 +613,9 @@ registerAdminHubRoutes(app, { query, authCore });
 
 registerAdminDashboardRoutes(app, { query, authCore });
 registerAdminPushLogsRoutes(app, { query, authCore });
+require('./routes/adminMessagePerformance').registerAdminMessagePerformance(app,{query,authCore});
+require('./routes/adminWelcomeMessages').registerAdminWelcomeMessagesRoutes(app,{query,pool,authCore,linePush,resolvePublicSiteOrigin});
+require('./routes/messageExecutionTracking').registerMessageExecutionTracking(app,{query});
 registerAdminCampaignPerformanceRoutes(app, { query, authCore });
 
 registerAdminEmailDomainRoutes(app, { authCore });

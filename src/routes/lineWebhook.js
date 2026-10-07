@@ -1,4 +1,6 @@
 const crypto = require('crypto');
+const {createMessageExecutionStore}=require('../core/messageExecutions');
+const {prepareExecutionTracking}=require('../core/messageTrackingTargets');
 const { applyInviteFollowReward } = require('../core/inviteReward');
 const { buildInviteRewardPushMessages } = require('../core/inviteRewardPushMessages');
 const { buildLineMessages } = require('../core/broadcastTemplates');
@@ -286,13 +288,13 @@ function createLineWebhookHandler({
     catch (e) { console.error('keyword experiment lookup failed:', e && e.message); exp = null; }
     const decision = keywordExperiments.decideReply(exp, { lineUserId });
     if (decision.mode === 'original') {
-      return { sent: await replyKeywordTemplate(rule, event.replyToken, event?.source?.userId || null), label: '' };
+      return { sent: await replyKeywordTemplate(rule, event.replyToken, event?.source?.userId || null, event), label: '' };
     }
     const origin = getKeywordReplyOrigin();
     if (decision.mode === 'fallback') {
       // 暫停／結束後：用快照的固定版本、不追蹤、不進實驗（舊的關鍵字追蹤會對到「現在」的素材，所以不能套）
       const built = buildLineMessages(keywordExperiments.variantConfig(exp, decision.variant), { heroImageBaseUrl: origin });
-      if (!built.ok) return { sent: await replyKeywordTemplate(rule, event.replyToken, event?.source?.userId || null), label: ' ab#' + exp.id + ':fallback_invalid' };
+      if (!built.ok) return { sent: await replyKeywordTemplate(rule, event.replyToken, event?.source?.userId || null, event), label: ' ab#' + exp.id + ':fallback_invalid' };
       const ok = await linePush.replyLineMessages(event.replyToken, built.messages, { lineUserId: event?.source?.userId || null, pushType: 'keyword_reply' });
       return { sent: ok, label: ' ab#' + exp.id + ':fallback_' + decision.variant };
     }
@@ -305,7 +307,7 @@ function createLineWebhookHandler({
     if (!delivery) return { sent: false, duplicate: true, label: ' ab#' + exp.id + ':duplicate_event' };
     const liffId = process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '';
     const built = keywordExperiments.buildExperimentMessages(keywordExperiments.variantConfig(exp, variant), {
-      origin, deliveryCode: delivery.delivery_code, liffId
+      origin, deliveryCode: delivery.delivery_code, liffId, targets: exp.targets?.[variant] || []
     });
     if (!built.ok) {
       await keywordExperiments.finishDelivery(q, { ...delivery, experiment_id: exp.id, line_user_id: lineUserId }, { status: 'rejected' });
@@ -318,7 +320,7 @@ function createLineWebhookHandler({
     return { sent: status === 'accepted', label: ' ab#' + exp.id + ':' + variant + ':' + status };
   }
 
-  async function replyKeywordTemplate(rule, replyToken, lineUserId) {
+  async function replyKeywordTemplate(rule, replyToken, lineUserId, event = {}) {
     if (!linePush || typeof linePush.replyLineMessages !== 'function') return false;
     const rs = await pool.query(
       'SELECT message_config FROM admin_message_templates WHERE id = $1',
@@ -330,6 +332,22 @@ function createLineWebhookHandler({
     // 本來就指向自家頁面的按鈕不包（那種頁面自己認得出是誰）。
     // 沒設 LIFF、或包的過程出任何狀況，就用原本的設定——訊息一定要發得出去。
     const cfg = rs.rows[0].message_config;
+    if (lineUserId && event.webhookEventId && event.source?.type === 'user') {
+      const query=(sql,p)=>pool.query(sql,p);
+      const available=await query("SELECT to_regclass('crm_message_executions') AS table_name");
+      if(available.rows[0]?.table_name){
+        const store=createMessageExecutionStore({query});
+        const claim=await store.claim({query},{sourceType:'keyword',sourceId:Number(rule.id),sourceEventId:event.webhookEventId,recipientKey:lineUserId,messageSnapshot:cfg});
+        if(!claim.claimed)return claim.execution?.status==='accepted';
+        const built=buildLineMessages(cfg,{heroImageBaseUrl:getKeywordReplyOrigin()});
+        if(!built.ok){await store.finish(claim.execution.id,{status:'rejected',reason:built.error});return false;}
+        if(process.env.SAFE_PREVIEW_MODE==='1'||process.env.APP_ENV==='staging'){await store.finish(claim.execution.id,{status:'skipped',reason:'safe_preview'});return false;}
+        built.messages=await prepareExecutionTracking(query,claim.execution,built.messages,getKeywordReplyOrigin());
+        if(!await store.begin(claim.execution.id))return false;
+        const result=await linePush.replyLineMessagesDetailed(replyToken,built.messages,{lineUserId,pushType:'keyword_reply',executionId:claim.execution.id});
+        await store.finish(claim.execution.id,{status:result.status,reason:result.detail||null});return result.status==='accepted';
+      }
+    }
     const liffId = process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '';
     let useCfg = cfg;
     try {
@@ -744,7 +762,7 @@ function createLineWebhookHandler({
         // 必須 await：serverless（Lambda）在 response 送出後會凍結，未 await 的背景工作可能丟失
         // → 新好友收不到歡迎流程。enrollUser 已用 ON CONFLICT 去重，重送 webhook 安全。
         if (flowEngine && typeof flowEngine.triggerFollow === 'function') {
-          try { await flowEngine.triggerFollow(lineUserId, null); }
+          try { await flowEngine.triggerFollow(lineUserId, null, { webhookEventId:event.webhookEventId, timestamp:event.timestamp, isUnblocked:event.follow?.isUnblocked, hadPriorFriendEvidence:isFirstFollow ? false : undefined }); }
           catch (e) { console.error('flow follow trigger failed:', e.message); }
         }
 
