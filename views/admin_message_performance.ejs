@@ -1,15 +1,106 @@
 <%- include('layout',{user,isAdmin,title,bodyClass:'admin-shell',body: `
-<section class="card" style="min-width:0;overflow-wrap:anywhere">
-<h1>訊息成效</h1><p>API 接受發送不代表送達或已讀。各來源與版本分開計算，不直接混算 Winner。</p>
-<p><a href="/admin/push-logs?status=all">查看既有發送紀錄</a></p>
-<form id="performance-filters" style="display:flex;flex-wrap:wrap;gap:12px;align-items:end">
-<label>來源<select name="source"><option value="">全部</option><option value="welcome">加入好友歡迎訊息</option><option value="broadcast">群發訊息</option><option value="automation">自動化訊息</option><option value="keyword">關鍵字回覆</option></select></label>
-<label>開始<input type="date" name="from" required></label><label>結束<input type="date" name="to" required></label>
-<label>來源編號<input type="number" name="sourceId" min="1" style="width:110px"></label>
-<label>內容版本<input type="number" name="revision" min="1" style="width:150px"></label>
-<label>A/B 版本<select name="variant"><option value="">全部</option><option value="a">A</option><option value="b">B</option><option value="c">C</option></select></label><button>套用</button>
-</form><p id="performance-status" role="status"></p><div id="performance-coverage"></div><div id="performance-summary"></div>
-<h2>觸發與回覆紀錄</h2><p>新歡迎、自動化與一般關鍵字回覆依觸發事件記錄。群發與關鍵字 A/B 保留原批次／實驗報表。</p>
-<div id="performance-executions"></div><button type="button" id="performance-more" hidden>載入更多</button><section id="performance-detail" aria-live="polite"></section>
-</section><style>#performance-filters label{display:flex;flex-direction:column;gap:4px;max-width:100%}#performance-summary article,#performance-executions article{border:1px solid #ddd;border-radius:8px;padding:12px;margin:12px 0;overflow-wrap:anywhere}#performance-summary dl{display:flex;flex-wrap:wrap;gap:16px}#performance-summary dd{margin:4px 0;font-weight:600}</style><script src="/admin-message-performance.js"></script>
+<section class="card mp-card">
+  <h1 style="margin:0 0 4px;">訊息成效</h1>
+  <p class="mp-lead">每一列是一則訊息。內容改過就算另一則；A/B 測試會展開各版本。</p>
+
+  <form id="mp-filters" class="mp-filters" autocomplete="off">
+    <label class="mp-field"><span>類型</span>
+      <select name="source" id="mp-source">
+        <option value="">全部</option>
+        <option value="broadcast">群發訊息</option>
+        <option value="keyword">關鍵字回覆</option>
+        <option value="welcome">加入好友歡迎訊息</option>
+        <option value="automation">自動化訊息</option>
+      </select>
+    </label>
+    <div class="mp-field"><span>送出時間（台灣時間）</span>
+      <div class="mp-presets" role="group" aria-label="時間範圍">
+        <button type="button" data-mp-range="today">今天</button>
+        <button type="button" data-mp-range="7d">近 7 天</button>
+        <button type="button" data-mp-range="30d">近 30 天</button>
+        <button type="button" data-mp-range="month">本月</button>
+        <button type="button" data-mp-range="custom">自訂</button>
+      </div>
+      <div class="mp-dates"><input type="date" name="from" id="mp-from" aria-label="開始日期"> ～ <input type="date" name="to" id="mp-to" aria-label="結束日期"><button type="submit" id="mp-apply">套用</button></div>
+    </div>
+    <label class="mp-field mp-search"><span>搜尋</span><input type="search" id="mp-q" placeholder="訊息名稱、通知文字、關鍵字或流程名稱"></label>
+  </form>
+  <p id="mp-status" class="mp-status" role="status"></p>
+
+  <div class="mp-kpis" id="mp-kpis"></div>
+
+  <details class="mp-defs" id="mp-defs" open>
+    <summary>指標定義</summary>
+    <dl>
+      <dt>收到人數</dt><dd>所選期間內送出、LINE 明確接受的<b>不重複人數</b>；同一人收到多次只算一次。LINE 接受不代表對方已讀。</dd>
+      <dt>點擊人數</dt><dd>收到這則訊息的人當中，點過<b>可追蹤連結</b>的不重複人數；同一人點多次、點多個連結都只算一次。</dd>
+      <dt>點擊率</dt><dd>點擊人數 ÷ 收到人數。訊息裡沒有可追蹤連結顯示「不適用」；還沒有人收到顯示「尚無資料」。</dd>
+      <dt>點擊什麼</dt><dd>按鈕、卡片上的連結、滿版圖文的點擊區等「開啟網址」動作。<b>歡迎訊息、自動化、關鍵字回覆</b>另外也算文字訊息裡的網址；<b>群發</b>與<b>關鍵字 A/B 測試</b>不算文字裡的網址。「傳送文字」的按鈕都不算點擊。</dd>
+      <dt>時間</dt><dd>篩選的是<b>送出時間</b>（台灣時間，含起訖日）。這些訊息的點擊一路算到現在，不受結束日限制。關鍵字 A/B 測試列出與期間重疊的測試，數字是整個測試的結果。</dd>
+      <dt>怎麼確認是誰點的</dt><dd>歡迎、自動化、關鍵字回覆：經 LINE 驗證點擊者就是收件人才算。群發：依每位收件人的專屬連結計算，與群發批次報表相同，連結被轉傳給別人點也會算進原收件人。關鍵字 A/B 測試：每人第一次成功回覆起的觀察期內點擊才算。</dd>
+      <dt>上方合計</dt><dd>把列表中每則訊息的數字加總；同一人收到兩則訊息會算兩次。合計點擊率只用有可追蹤連結的訊息計算。</dd>
+    </dl>
+  </details>
+
+  <div class="mp-table-wrap"><table class="mp-table" id="mp-table">
+    <thead><tr>
+      <th>訊息</th>
+      <th class="mp-col-time">送出時間</th>
+      <th class="n" title="LINE 明確接受的不重複人數">收到人數</th>
+      <th class="n" title="點過可追蹤連結的不重複人數">點擊人數</th>
+      <th class="n" title="點擊人數 ÷ 收到人數">點擊率</th>
+    </tr></thead>
+    <tbody id="mp-tbody"><tr><td colspan="5" class="mp-muted">載入中…</td></tr></tbody>
+  </table></div>
+  <p class="mp-muted mp-foot">點一列可看每個連結各被點幾次、發送失敗或結果不確定的次數，並前往該批次、規則或流程。<a href="/admin/push-logs?status=all">查看逐筆發送紀錄</a></p>
+</section>
+<style>
+  .mp-card{min-width:0;overflow-wrap:anywhere}
+  .mp-lead{color:#6B7280;font-size:13px;margin:0 0 14px}
+  .mp-filters{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:flex-end;margin-bottom:6px}
+  .mp-field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6B7280;max-width:100%}
+  .mp-field select,.mp-field input{font:inherit;font-size:13px;color:#111827;padding:7px 9px;border:1px solid #E5E7EB;border-radius:8px;background:#fff;max-width:100%}
+  .mp-search{flex:1;min-width:200px}.mp-search input{width:100%}
+  .mp-presets{display:flex;flex-wrap:wrap;gap:6px}
+  .mp-presets button,.mp-dates button{font:inherit;font-size:13px;padding:6px 12px;border:1px solid #E5E7EB;border-radius:999px;background:#fff;cursor:pointer;color:#374151}
+  .mp-presets button.on{background:#FCC726;border-color:#E8B400;font-weight:700;color:#111827}
+  .mp-dates{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;color:#6B7280}
+  .mp-dates button{border-radius:8px}
+  .mp-status{font-size:12px;color:#B45309;min-height:16px;margin:4px 0 10px}
+  .mp-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
+  .mp-kpi{border:1px solid #ECECEE;border-radius:12px;padding:10px 12px;background:#fff}
+  .mp-kpi b{display:block;font-size:22px;color:#111827}.mp-kpi span{font-size:12px;color:#6B7280}
+  .mp-defs{border:1px solid #ECECEE;border-radius:10px;background:#FAFAFA;padding:6px 12px;margin-bottom:14px;font-size:13px}
+  .mp-defs summary{cursor:pointer;font-weight:700;padding:4px 0}
+  .mp-defs dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:6px 0 4px}
+  .mp-defs dt{font-weight:700;color:#111827}.mp-defs dd{margin:0;color:#4B5563;line-height:1.6}
+  .mp-table-wrap{overflow-x:auto}
+  .mp-table{width:100%;border-collapse:collapse;font-size:14px}
+  .mp-table th{font-size:12px;color:#6B7280;font-weight:600;text-align:left;padding:8px;border-bottom:1px solid #ECECEE;white-space:nowrap}
+  .mp-table td{padding:10px 8px;border-bottom:1px solid #F3F4F6;vertical-align:middle}
+  .mp-table .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .mp-row{cursor:pointer}.mp-row:hover td{background:#FFFBEB}
+  .mp-msg{display:flex;gap:10px;align-items:center;min-width:0}
+  .mp-thumb{width:44px;height:44px;flex:0 0 44px;border-radius:8px;background:#E5E7EB center/cover no-repeat;display:flex;align-items:center;justify-content:center;font-size:11px;color:#6B7280}
+  .mp-name{font-weight:700;color:#111827}
+  .mp-meta{font-size:12px;color:#6B7280;margin-top:2px}
+  .mp-tag{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px;margin-right:4px;vertical-align:1px}
+  .mp-tag-broadcast{background:#DBEAFE;color:#1E40AF}.mp-tag-keyword{background:#FEF3C7;color:#92400E}
+  .mp-tag-welcome{background:#DCFCE7;color:#166534}.mp-tag-automation{background:#EDE9FE;color:#5B21B6}
+  .mp-sub td{background:#FAFAFA;font-size:13px}.mp-sub .mp-msg{padding-left:28px}
+  .mp-rate{font-weight:800}.mp-na{color:#9CA3AF;font-weight:400}
+  .mp-detail td{background:#FFFDF5}
+  .mp-detail-box{font-size:13px;line-height:1.6}
+  .mp-detail-box table{border-collapse:collapse;margin:6px 0;width:100%}
+  .mp-detail-box th,.mp-detail-box td{padding:5px 8px;border-bottom:1px solid #F3F4F6;text-align:left;font-size:12px}
+  .mp-detail-box .uri{color:#6B7280;word-break:break-all}
+  .mp-muted{color:#6B7280}.mp-foot{font-size:12px;margin-top:10px}
+  @media (max-width:640px){
+    .mp-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .mp-col-time{display:none}
+    .mp-table{font-size:13px}.mp-thumb{width:36px;height:36px;flex-basis:36px}
+    .mp-defs dl{grid-template-columns:1fr}.mp-defs dt{margin-top:4px}
+  }
+</style>
+<script src="/admin-message-performance.js?v=20261008a"></script>
 `}) %>

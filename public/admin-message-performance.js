@@ -1,15 +1,183 @@
-(()=>{'use strict';
- const form=document.getElementById('performance-filters'),status=document.getElementById('performance-status'),summary=document.getElementById('performance-summary'),executions=document.getElementById('performance-executions'),more=document.getElementById('performance-more');
- const names={welcome:'歡迎訊息',broadcast:'群發訊息',automation:'自動化訊息',keyword:'關鍵字回覆'};const states={pending:'等待處理',sending:'結果待確認',accepted:'API 已接受',rejected:'API 拒絕',uncertain:'結果不確定',skipped:'已跳過'};
- let generation=0,cursor=null,params='';
- const el=(tag,text)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;return e;};
- const number=n=>n==null?'—':Number(n).toLocaleString('zh-TW');
- async function get(path){const r=await fetch('/admin/message-performance'+path);const b=await r.json();if(!r.ok||!b.ok)throw new Error(b.error||'資料無法讀取');return b;}
- function card(row){const a=el('article');a.append(el('h3',(names[row.sourceType]||row.sourceType)+' #'+row.sourceId+(row.variant?' · '+row.variant.toUpperCase():'')+(row.revision?' · 版本 '+row.revision:'')));
- const dl=el('dl');for(const [label,val] of [['觸發次數',row.triggerCount],['API 接受次數',row.accepted],['拒絕',row.rejected],['不確定',row.uncertain],['等待處理',row.pending],['跳過',row.skipped],['有效點擊次數',row.clickCount],['不重複點擊人數',row.uniqueClickers],['API 接受發送人數',row.denominator]]){const d=el('div');d.append(el('dt',label),el('dd',number(val)));dl.append(d);}a.append(dl,el('p',row.rate==null?'點擊率：—':'點擊率：'+(row.rate*100).toFixed(1)+'%'),el('p',row.availabilityReason||row.rateKind));if(row.redirectCount!=null)a.append(el('p','未驗證連結跳轉：'+number(row.redirectCount)+' 次；被點擊收件人連結：'+number(row.clickedRecipientLinks)+' 個'));if(row.detailUrl){const link=el('a','查看來源報表');link.href=row.detailUrl;a.append(link);}summary.append(a);}
- async function detail(id){const box=document.getElementById('performance-detail');box.replaceChildren(el('p','載入動作成效…'));try{const b=await get('/executions/'+id);box.replaceChildren(el('h2','執行 #'+id+' 的動作（累計）'));for(const t of b.actions){box.append(el('p','段落 '+(t.slotIndex+1)+(t.cardIndex==null?'':'／卡片 '+(t.cardIndex+1))+'／動作 '+(t.index+1)+'：'+(t.label||t.uri)+' · '+(t.tracked?number(t.clicks||0)+' 次有效點擊':'未啟用追蹤')));}if(!b.actions.length)box.append(el('p','沒有可追蹤連結'));}catch(e){box.replaceChildren(el('p',e.message));}}
- async function loadExecutions(gen,append){const b=await get('/executions?'+params+(append&&cursor?'&before='+cursor:''));if(gen!==generation)return;if(!append)executions.replaceChildren();if(b.unavailable)executions.append(el('p','尚未套用共用追蹤 migration'));else for(const r of b.rows){const a=el('article');a.append(el('p',(names[r.source_type]||r.source_type)+' #'+r.source_id+' · '+(states[r.status]||r.status)+' · '+new Date(r.created_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})+(r.reason?' · '+r.reason:'')));const btn=el('button','查看段落／動作');btn.type='button';btn.onclick=()=>detail(r.id);a.append(btn);executions.append(a);}if(!append&&!b.rows.length&&!b.unavailable)executions.append(el('p','這段期間尚無新執行紀錄'));cursor=b.nextCursor;more.hidden=!cursor;}
- async function load(){const gen=++generation;params=new URLSearchParams(new FormData(form)).toString();status.textContent='載入中…';more.hidden=true;summary.replaceChildren();executions.replaceChildren();document.getElementById('performance-detail').replaceChildren();try{const b=await get('/api?'+params);if(gen!==generation)return;b.rows.forEach(card);document.getElementById('performance-coverage').replaceChildren(...b.coverage.map(t=>el('p',t)));status.textContent=b.truncated?'最多顯示 200 組，請縮小範圍':b.rows.length?'':'這段期間尚無資料';await loadExecutions(gen,false);}catch(e){if(gen===generation)status.textContent=e.message;}}
- const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),query=new URLSearchParams(location.search);for(const key of ['source','sourceId','variant','revision','from','to'])form.elements[key].value=query.get(key)||(['from','to'].includes(key)?today:'');
- form.onsubmit=e=>{e.preventDefault();load();};more.onclick=async()=>{more.disabled=true;try{await loadExecutions(generation,true);}catch(e){status.textContent=e.message;}finally{more.disabled=false;}};load();
+(() => {
+  'use strict';
+  // 訊息成效：一則訊息一列。指標定義在頁面上的「指標定義」與 src/core/messagePerformanceList.js。
+  const $ = (id) => document.getElementById(id);
+  const form = $('mp-filters');
+  const tbody = $('mp-tbody');
+  const status = $('mp-status');
+  let rows = [];
+  let generation = 0;
+  let rangeKey = '30d';
+
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const num = (n) => (n == null ? '—' : Number(n).toLocaleString('zh-TW'));
+  const taipeiToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const shift = (ymd, days) => { const d = new Date(ymd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
+  const twTime = (v) => { try { return new Date(v).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }); } catch (e) { return ''; } };
+  const twDate = (v) => { try { return new Date(v).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', month: 'numeric', day: 'numeric' }); } catch (e) { return ''; } };
+
+  function rangeFor(key) {
+    const t = taipeiToday();
+    if (key === 'today') return [t, t];
+    if (key === '7d') return [shift(t, -6), t];
+    if (key === 'month') return [t.slice(0, 8) + '01', t];
+    return [shift(t, -29), t];
+  }
+  function markPreset(key) {
+    rangeKey = key;
+    document.querySelectorAll('[data-mp-range]').forEach((b) => b.classList.toggle('on', b.getAttribute('data-mp-range') === key));
+  }
+
+  // 點擊率：沒有可追蹤連結→不適用；還沒人收到→尚無資料
+  function rateCell(r) {
+    if (!r.tracked) return '<span class="mp-na" title="這則訊息沒有可追蹤的連結">不適用</span>';
+    if (!r.people) return '<span class="mp-na">尚無資料</span>';
+    return '<span class="mp-rate">' + r.rate + '%</span>';
+  }
+  function clickersCell(r) { return r.tracked ? num(r.clickers) : '<span class="mp-na">—</span>'; }
+  function timeCell(r) {
+    if (r.basis === 'experiment') return esc(twDate(r.firstAt) + ' – ' + twDate(r.lastAt));
+    if (r.type === 'broadcast') return esc(twTime(r.firstAt));
+    const a = twDate(r.firstAt); const b = twDate(r.lastAt);
+    return esc(a === b ? a : a + ' – ' + b);
+  }
+  function thumb(src, fallback) {
+    return src ? '<div class="mp-thumb" style="background-image:url(&quot;' + esc(src) + '&quot;)"></div>'
+      : '<div class="mp-thumb">' + esc(fallback || '') + '</div>';
+  }
+
+  function matches(r, q) {
+    if (!q) return true;
+    const hay = [r.title, r.notification, r.context, r.typeLabel].join(' ').toLowerCase();
+    return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.indexOf(w) >= 0);
+  }
+
+  function render() {
+    const q = $('mp-q').value.trim();
+    const list = rows.filter((r) => matches(r, q));
+    const t = list.reduce((a, r) => {
+      a.msgs += 1; a.people += r.people;
+      if (r.tracked) { a.tp += r.people; a.clickers += r.clickers || 0; }
+      return a;
+    }, { msgs: 0, people: 0, tp: 0, clickers: 0 });
+    const totalRate = t.tp ? Math.round((t.clickers / t.tp) * 1000) / 10 + '%' : '—';
+    $('mp-kpis').innerHTML =
+      '<div class="mp-kpi"><b>' + num(t.msgs) + '</b><span>訊息數</span></div>' +
+      '<div class="mp-kpi"><b>' + num(t.people) + '</b><span>收到人數（合計）</span></div>' +
+      '<div class="mp-kpi"><b>' + num(t.clickers) + '</b><span>點擊人數（合計）</span></div>' +
+      '<div class="mp-kpi"><b>' + totalRate + '</b><span>合計點擊率</span></div>';
+    if (!list.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="mp-muted">' + (rows.length ? '沒有符合搜尋的訊息。' : '這段期間沒有送出的訊息。') + '</td></tr>';
+      return;
+    }
+    tbody.innerHTML = list.map((r, i) => {
+      const main = '<tr class="mp-row" data-i="' + rows.indexOf(r) + '"><td><div class="mp-msg">' + thumb(r.thumb, r.typeLabel) +
+        '<div><span class="mp-tag mp-tag-' + esc(r.type) + '">' + esc(r.typeLabel) + '</span><span class="mp-name">' + esc(r.title) + '</span>' +
+        '<div class="mp-meta">' + esc(r.context) + (r.notification && r.notification !== r.title ? '｜通知：' + esc(r.notification) : '') + '</div></div></div></td>' +
+        '<td class="mp-col-time">' + timeCell(r) + '</td><td class="n">' + num(r.people) + '</td><td class="n">' + clickersCell(r) + '</td><td class="n">' + rateCell(r) + '</td></tr>';
+      const subs = (r.variants || []).map((v) => '<tr class="mp-sub"><td><div class="mp-msg">' + thumb(v.thumb, v.variant.toUpperCase()) +
+        '<div><span class="mp-name">' + esc(v.title) + '</span>' + (v.notification ? '<div class="mp-meta">' + esc(v.notification) + '</div>' : '') + '</div></div></td>' +
+        '<td class="mp-col-time"></td><td class="n">' + num(v.people) + '</td><td class="n">' + clickersCell(v) + '</td><td class="n">' + rateCell(v) + '</td></tr>').join('');
+      return main + subs;
+    }).join('');
+  }
+
+  async function openDetail(tr) {
+    const r = rows[Number(tr.getAttribute('data-i'))];
+    // 明細放在這則訊息（含 A/B 版本列）的最後面；已經打開就收起
+    let after = tr;
+    while (after.nextElementSibling && after.nextElementSibling.classList.contains('mp-sub')) after = after.nextElementSibling;
+    const open = after.nextElementSibling;
+    if (open && open.classList.contains('mp-detail')) { open.remove(); return; }
+    tbody.querySelectorAll('.mp-detail').forEach((d) => d.remove());
+    const row = document.createElement('tr');
+    row.className = 'mp-detail';
+    row.innerHTML = '<td colspan="5"><div class="mp-detail-box">載入中…</div></td>';
+    after.after(row);
+    const box = row.querySelector('.mp-detail-box');
+    const f = r.failures || {};
+    const fail = '發送狀況：送出 ' + num(r.sends) + ' 次，LINE 拒絕 ' + num(f.rejected) + ' 次、結果不確定 ' + num(f.uncertain) + ' 次' +
+      (f.skipped ? '、略過 ' + num(f.skipped) + ' 次' : '') + (f.pending ? '、處理中 ' + num(f.pending) + ' 次' : '') + '。';
+    const params = new URLSearchParams({ type: r.basis === 'experiment' ? 'keyword_ab' : r.type, sourceId: r.sourceId || '', revision: r.revision || '',
+      experimentId: r.experimentId || '', from: $('mp-from').value, to: $('mp-to').value });
+    let groups = [];
+    try {
+      const res = await fetch('/admin/message-performance/messages/detail?' + params.toString());
+      const d = await res.json();
+      if (!d.ok) throw new Error(d.error || '明細無法讀取');
+      groups = d.groups || [];
+    } catch (e) { box.innerHTML = esc(fail) + '<br>連結明細暫時讀不到：' + esc(e.message); return; }
+    const linkTables = groups.map((g) => {
+      const head = g.variant ? '<div style="margin-top:8px;"><b>' + g.variant.toUpperCase() + ' 版</b></div>' : '';
+      if (!g.links.length) return head + '<div class="mp-muted">沒有可追蹤的連結。</div>';
+      return head + '<table><thead><tr><th>連結</th><th>目的地</th><th style="text-align:right;">點擊次數</th><th style="text-align:right;">點擊人數</th></tr></thead><tbody>' +
+        g.links.map((l) => '<tr><td>' + esc(l.label) + '</td><td class="uri">' + esc(l.uri) + '</td><td style="text-align:right;">' + num(l.clicks) + '</td><td style="text-align:right;">' + num(l.people) + '</td></tr>').join('') +
+        '</tbody></table>';
+    }).join('');
+    box.innerHTML = '<div>' + esc(fail) + '</div>' + linkTables + (r.link ? '<div style="margin-top:6px;"><a href="' + esc(r.link) + '">前往' + esc(r.typeLabel) + '設定 ›</a></div>' : '');
+  }
+
+  async function load() {
+    const gen = ++generation;
+    const from = $('mp-from').value;
+    const to = $('mp-to').value;
+    if (!from || !to) { status.textContent = '請選擇開始與結束日期'; return; }
+    if (from > to) { status.textContent = '開始日期不能晚於結束日期'; return; }
+    status.textContent = '';
+    tbody.innerHTML = '<tr><td colspan="5" class="mp-muted">載入中…</td></tr>';
+    const params = new URLSearchParams({ from, to });
+    if ($('mp-source').value) params.set('source', $('mp-source').value);
+    const url = new URL(location.href);
+    ['source', 'from', 'to'].forEach((k) => url.searchParams.delete(k));
+    params.forEach((v, k) => url.searchParams.set(k, v));
+    history.replaceState(null, '', url.pathname + '?' + url.searchParams.toString());
+    try {
+      const res = await fetch('/admin/message-performance/messages?' + params.toString());
+      const d = await res.json();
+      if (gen !== generation) return;
+      if (!d.ok) throw new Error(d.error || '資料無法讀取');
+      rows = d.rows || [];
+      if (d.truncated) status.textContent = '訊息太多，只顯示最近 300 則；請縮短期間或選擇類型。';
+      render();
+    } catch (e) {
+      if (gen !== generation) return;
+      rows = [];
+      tbody.innerHTML = '<tr><td colspan="5" class="mp-muted">讀取失敗：' + esc(e.message) + '</td></tr>';
+    }
+  }
+
+  document.querySelectorAll('[data-mp-range]').forEach((b) => b.addEventListener('click', () => {
+    const key = b.getAttribute('data-mp-range');
+    markPreset(key);
+    if (key === 'custom') { $('mp-from').focus(); return; }
+    const [f, t] = rangeFor(key);
+    $('mp-from').value = f; $('mp-to').value = t;
+    load();
+  }));
+  ['mp-from', 'mp-to'].forEach((id) => $(id).addEventListener('change', () => markPreset('custom')));
+  $('mp-source').addEventListener('change', load);
+  $('mp-q').addEventListener('input', render);
+  form.addEventListener('submit', (e) => { e.preventDefault(); load(); });
+  tbody.addEventListener('click', (e) => {
+    const tr = e.target.closest('tr.mp-row');
+    if (tr && !e.target.closest('a')) openDetail(tr);
+  });
+
+  // 手機上「指標定義」預設收起（佔太多畫面），點一下就能展開；電腦維持展開
+  try { if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) $('mp-defs').open = false; } catch (e) { /* ignore */ }
+
+  // 初始：網址帶的類型與日期優先（其他頁的「看成效」連結會帶 ?source=）
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('source')) $('mp-source').value = qs.get('source');
+  const ymd = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null);
+  if (ymd(qs.get('from')) && ymd(qs.get('to'))) {
+    $('mp-from').value = qs.get('from'); $('mp-to').value = qs.get('to');
+    const match = ['today', '7d', '30d', 'month'].find((k) => { const r = rangeFor(k); return r[0] === qs.get('from') && r[1] === qs.get('to'); });
+    markPreset(match || 'custom');
+  } else {
+    const [f, t] = rangeFor('30d');
+    $('mp-from').value = f; $('mp-to').value = t;
+    markPreset('30d');
+  }
+  load();
 })();

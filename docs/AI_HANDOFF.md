@@ -582,6 +582,21 @@ Supabase postgres 管理工具不一定允許 SET ROLE，不能為此擴大角�
 自訂 Flex JSON、單張滿版圖文仍不支援 Campaign Testing，提示改用一般 A/B test 或放進多段訊息。
 回歸測試在 `test/broadcast-sequence-ab.test.js`（舊程式會失敗）。
 
+#### 訊息成效改版：一則訊息一列、指標定義、送出時間篩選（2026-10-08）
+
+`/admin/message-performance` 改為以「一則訊息」為一列（`src/core/messagePerformanceList.js`；新端點
+`GET /admin/message-performance/messages`、`/messages/detail`；舊的 `/api`、`/executions` 端點保留相容）。
+- 一列＝同一來源＋同一份內容（`crm_message_executions` 的 source_type/source_id/revision；群發＝批次；關鍵字 A/B＝實驗）。
+  名稱、通知文字、縮圖取自當時送出的訊息快照（`summarizeConfig`）；自動化補流程名稱、關鍵字補規則關鍵字、群發用 `getBroadcastMessageIdentity`。
+  A/B／Campaign 展開各版本。點一列看各連結點擊次數與人數、發送狀況（拒絕／不確定／略過），並連到批次、規則或流程。
+- 指標定義寫在頁面上（`#mp-defs`），與檔頭註解一致：收到人數＝LINE 明確接受的不重複人數；點擊人數＝點過可追蹤連結的不重複人數；
+  點擊率＝點擊人數÷收到人數；沒有可追蹤連結「不適用」、沒人收到「尚無資料」。歡迎／自動化／關鍵字也追蹤文字裡的網址，群發與關鍵字 A/B 不追蹤。
+  歡迎／自動化／關鍵字的點擊要經 LINE 驗證點擊者＝收件人；群發依收件人專屬連結（與批次報表一致，轉傳點擊會算進原收件人）。
+- 時間篩選「送出時間」（台灣時間含起訖；今天／近 7 天／近 30 天（預設）／本月／自訂），點擊算到現在、不受結束日限制。
+  搜尋只在畫面上篩名稱／通知文字／關鍵字／流程名稱。手機上指標定義預設收起。
+- 已在真 PostgreSQL（套用 20261005 與 20261002 兩個 migration）驗證：轉傳點擊不算、期間外不算、重複點擊算一人、不適用、文字網址點擊、群發 A/B 分版。
+回歸測試 `test/message-performance-redesign.test.js`。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
