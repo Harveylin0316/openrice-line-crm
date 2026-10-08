@@ -13,7 +13,7 @@
  *   - baseSize.width 固定 1040；baseSize.height = 寬 1040 時的高度
  *
  * 所以後台只上傳一次原圖，這裡負責：
- *   1. 讀出尺寸、檢查比例（第一版建議 1040×1040；不是 1:1 只警告，不裁切、不變形）
+ *   1. 讀出尺寸；任何比例都可以（LINE 只規定寬 1040、高度依比例），不裁切、不變形
  *   2. 依原比例產生五種寬度
  *   3. 存進既有的 line_push_media（不需要新資料表／migration），
  *      每種寬度的 id 由 assetId + 寬度「推導」出來（固定雜湊），
@@ -27,7 +27,9 @@ const BASE_WIDTH = 1040;
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;          // Netlify 函式實際約 4.5 MB；LINE 本身允許 10 MB
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;          // 每一種寬度也要能被函式回應出去
 const MAX_SOURCE_SIDE = 4096;                       // 避免超大圖把伺服器記憶體吃光
-const MAX_BASE_HEIGHT = 2080;                       // 最長 1:2（直式），超過擋下
+// 比例不限，但寬放大到 1040 後高度最多 6240（1:6）：再長的圖縮放時會吃光伺服器記憶體，
+// 檔案也幾乎一定超過 4 MB；橫式圖沒有下限（只要高度至少 1px）。
+const MAX_BASE_HEIGHT = 6240;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isAssetId(v) { return UUID_RE.test(String(v || '')); }
@@ -61,11 +63,10 @@ async function processImagemapUpload(buffer, mimetype) {
   const sh = img.bitmap.height;
   if (!sw || !sh) return { ok: false, error: 'image_unreadable' };
   if (sw > MAX_SOURCE_SIDE || sh > MAX_SOURCE_SIDE) return { ok: false, error: 'image_too_large_pixels' };
-  const baseHeight = Math.round(BASE_WIDTH * sh / sw);
+  const baseHeight = Math.max(1, Math.round(BASE_WIDTH * sh / sw));
   if (baseHeight > MAX_BASE_HEIGHT) return { ok: false, error: 'image_too_tall' };
 
   const warnings = [];
-  if (sw !== sh) warnings.push(`圖片比例不是 1:1（目前 ${sw} × ${sh}）。已依原比例處理、沒有裁切；第一版建議用 1040 × 1040。`);
   if (sw < BASE_WIDTH) warnings.push(`圖片寬度只有 ${sw}px，小於建議的 1040px，在大螢幕手機上可能會模糊。`);
   else if (sw !== BASE_WIDTH) warnings.push(`圖片寬度 ${sw}px，已等比例縮放成 1040px 寬。`);
 

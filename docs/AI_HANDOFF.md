@@ -1,5 +1,14 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-08：成效報表時間與 A/B 觀察期修正
+
+- 新版 `/admin/message-performance` 群發依每位收件人的 `pushed_at`，一般 execution 依 `started_at` 篩選及顯示日期。列表與連結明細共用所選期間的收件人範圍；明細只計 sent／accepted 且符合原追蹤身分的紀錄。未開始發送的項目仍至發送紀錄查看，不以建立時間冒充發送時間。
+- 關鍵字 A/B 的列表、既有實驗報表與新連結明細沿 `keywordExperimentAttribution.js` 共用首次成功回覆起的半開觀察窗。主要目標點擊次數也套用觀察窗；各連結明細標示主要／非主要目標，不能把各列不重複人數相加當總人數。
+- 查詢載入／失敗時清除上次 KPI，搜尋不覆蓋錯誤；無效日期不取消尚在完成的有效查詢；點開明細使用已套用日期，未按套用的輸入不影響目前列表。
+- 無 schema migration、追蹤事件回填、發送或 production 修改。修正前基準 `a464e3b`；回滾本次 fix commit 即可，無 SQL rollback。
+- PostgreSQL 回歸：`CRM_QA_ISOLATED=1 node scripts/qa/message-performance-report-check.cjs`，只連既有 localhost:55439 隔離叢集，建立專用暫存 DB，結束清除。另設 `CRM_QA_SERVE=1` 可在 localhost:3108 使用真實 route/view/query 檢查虛構資料；僅供本機 QA，未掛入正式 app。Ctrl-C 結束並清除 DB。
+- 圖文選單驗證同人跨按鍵去重、重複／匿名點擊、台灣日期界線；訊息成效驗證跨日群發／延遲 execution、明細收件人一致、A/B 觀察期起訖与分組，以及錯誤顯示。固定 Staging 與本機虛構資料證據須分開標示，詳見 `docs/reviews/2026-10-08-insight-message-performance-hen.md`。
+
 ## 2026-10-07：歡迎訊息、訊息成效與 Campaign 人工確認（Staging 驗證中）
 
 - 歡迎設定：`/admin/welcome-messages`，沿用訊息庫所有現有 LINE 格式（文字、圖片、影片、Flex／Carousel、原生 Imagemap、多段 1～5 則）。保存完整快照、來源名稱／ID 與 revision，素材更新／刪除不覆蓋已保存內容。首次加入與解除封鎖分開設定，預設停用；啟用前確認 LINE 原生歡迎與既有 follow 流程，避免重複歡迎。本波不新增歡迎 A/B。
@@ -581,6 +590,35 @@ Supabase postgres 管理工具不一定允許 SET ROLE，不能為此擴大角�
 現在前端同樣允許這兩種，「每版至少一顆可追蹤開啟網址連結」仍由伺服器檢查（`campaign_experiment_requires_cta_button`）。
 自訂 Flex JSON、單張滿版圖文仍不支援 Campaign Testing，提示改用一般 A/B test 或放進多段訊息。
 回歸測試在 `test/broadcast-sequence-ab.test.js`（舊程式會失敗）。
+
+#### 訊息成效改版：一則訊息一列、指標定義、送出時間篩選（2026-10-08）
+
+`/admin/message-performance` 改為以「一則訊息」為一列（`src/core/messagePerformanceList.js`；新端點
+`GET /admin/message-performance/messages`、`/messages/detail`；舊的 `/api`、`/executions` 端點保留相容）。
+- 一列＝同一來源＋同一份內容（`crm_message_executions` 的 source_type/source_id/revision；群發＝批次；關鍵字 A/B＝實驗）。
+  名稱、通知文字、縮圖取自當時送出的訊息快照（`summarizeConfig`）；自動化補流程名稱、關鍵字補規則關鍵字、群發用 `getBroadcastMessageIdentity`。
+  A/B／Campaign 展開各版本。點一列看各連結點擊次數與人數、發送狀況（拒絕／不確定／略過），並連到批次、規則或流程。
+- 指標定義寫在頁面上（`#mp-defs`），與檔頭註解一致：收到人數＝LINE 明確接受的不重複人數；點擊人數＝點過可追蹤連結的不重複人數；
+  點擊率＝點擊人數÷收到人數；沒有可追蹤連結「不適用」、沒人收到「尚無資料」。歡迎／自動化／關鍵字也追蹤文字裡的網址，群發與關鍵字 A/B 不追蹤。
+  歡迎／自動化／關鍵字的點擊要經 LINE 驗證點擊者＝收件人；群發依收件人專屬連結（與批次報表一致，轉傳點擊會算進原收件人）。
+- 時間篩選「送出時間」（台灣時間含起訖；今天／近 7 天／近 30 天（預設）／本月／自訂），點擊算到現在、不受結束日限制。
+  搜尋只在畫面上篩名稱／通知文字／關鍵字／流程名稱。手機上指標定義預設收起。
+- 已在真 PostgreSQL（套用 20261005 與 20261002 兩個 migration）驗證：轉傳點擊不算、期間外不算、重複點擊算一人、不適用、文字網址點擊、群發 A/B 分版。
+回歸測試 `test/message-performance-redesign.test.js`。
+
+#### 滿版圖文比例不限（2026-10-08）
+
+LINE imagemap 只規定 `baseSize.width = 1040`、高度依比例。上傳不再提示「不是 1:1」；寬度等比例調成 1040、不裁切不變形。
+技術上限：放大到寬 1040 後高度最多 6240（1:6，`MAX_BASE_HEIGHT`），原圖單邊最多 4096 px；再長會吃光縮圖記憶體、檔案也必超過 4 MB。
+訊息驗證（`validateImagemapConfig`）同步改為高度 1～6240。直式長圖的編輯畫布最高約 70vh（座標仍用實際尺寸）。
+
+#### 群發「排除先前 A/B 測試收到的人」介面（2026-10-08）
+
+原本是要按 Cmd/Ctrl 才能複選的原生清單（只顯示 `#90 · 日期 · done`）加一個同步的編號欄。改為收合區塊＋可勾選卡片：
+訊息名稱（`getBroadcastMessageIdentity`）、Campaign Testing／A/B 標籤、日期、測試對象人數（A/B/C，不含保留名單）、編號；
+可搜尋，摘要顯示「已選 N 批，最多排除 X 人」。舊批次可在「找不到要的批次？」輸入編號。
+實際送出的值仍是 `#exclude-broadcast-ids`（逗號分隔），草稿、後續群發、伺服器排除邏輯都沒改；勾選不重畫清單（鍵盤焦點不跳）。
+`GET /admin/broadcast/exclusion-sources` 多回傳 title、notification、kind、test_count。回歸測試 `test/broadcast-exclude-ab-ui.test.js`。
 
 ### 數據與歸因
 
