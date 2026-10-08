@@ -23,6 +23,15 @@ const { attributedClickWindow } = require('./keywordExperimentAttribution');
 const { listBroadcastButtons } = require('./broadcastTemplates');
 
 const TYPE_LABEL = { broadcast: '群發', keyword: '關鍵字回覆', welcome: '歡迎訊息', automation: '自動化' };
+
+function keywordExperimentContext(exp) {
+  const keywords = typeof exp.keywords === 'string' ? exp.keywords.trim() : '';
+  if (keywords) return '關鍵字「' + keywords + '」· A/B 測試';
+  if (exp.rule_id != null && /^\d+$/.test(String(exp.rule_id)) && Number(exp.rule_id) > 0) {
+    return '關鍵字規則 #' + exp.rule_id + '（關鍵字未提供）· A/B 測試';
+  }
+  return '原關鍵字規則已刪除 · A/B 測試（歷史成效保留）';
+}
 const MAX_ROWS = 300;
 
 function rate(clickers, people, tracked) {
@@ -243,7 +252,7 @@ function createMessagePerformanceList({ query }) {
       out.push(Object.assign({
         key: 'keyword_ab:' + exp.id, type: 'keyword', typeLabel: TYPE_LABEL.keyword, sourceId: Number(exp.rule_id), experimentId: Number(exp.id),
         title: exp.name, notification: '', thumb: first.thumb, format: first.format,
-        context: '關鍵字「' + (exp.keywords || '#' + exp.rule_id) + '」· A/B 測試',
+        context: keywordExperimentContext(exp),
         link: '/admin/keyword-replies', basis: 'experiment', attributionDays: exp.attribution_days,
         firstAt: exp.start_at, lastAt: exp.end_at, variants
       }, sumRows(variants)));
@@ -334,4 +343,4 @@ function createMessagePerformanceList({ query }) {
   return { list, detail };
 }
 
-module.exports = { createMessagePerformanceList, describeSnapshot, TYPE_LABEL };
+module.exports = { createMessagePerformanceList, describeSnapshot, keywordExperimentContext, TYPE_LABEL };
