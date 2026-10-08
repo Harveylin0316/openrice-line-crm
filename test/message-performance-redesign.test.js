@@ -36,7 +36,7 @@ async function openPage(url, opts = {}) {
   w.fetch = async (u) => {
     calls.push(String(u));
     if (/\/messages\/detail/.test(u)) return { json: async () => (opts.detail || { ok: true, groups: [{ variant: 'a', links: [{ label: '前往', uri: 'https://example.com/a', clicks: 2, people: 1 }] }, { variant: 'b', links: [] }] }) };
-    return { json: async () => (opts.list || { ok: true, rows: ROWS, truncated: false }) };
+    return { json: async () => (typeof opts.list === 'function' ? opts.list() : opts.list || { ok: true, rows: ROWS, truncated: false }) };
   };
   w.eval(SCRIPT);
   await wait(40);
@@ -152,4 +152,35 @@ test('路由：新列表需要管理員、日期錯誤回 400、資料庫錯誤�
   assert.equal(down.headers['Cache-Control'], 'no-store');
   assert.ok(routes['/admin/message-performance/messages/detail']);
   assert.ok(routes['/admin/message-performance/api'], '舊端點保留相容');
+});
+
+
+test('關鍵字 A/B 明細標記主要目標及同一觀察期，非主要連結不冒充 KPI', async () => {
+  const { dom, doc } = await openPage(undefined, {detail: {ok:true,groups:[{variant:'a',links:[
+    {label:'獎勵',uri:'https://example.com/a',clicks:2,people:1,primary:true},
+    {label:'說明',uri:'https://example.com/help',clicks:1,people:1,primary:false}
+  ]}]}});
+  doc.querySelector('#mp-tbody tr.mp-row').click(); await wait(30);
+  const box=doc.querySelector('.mp-detail-box');
+  assert.match(box.textContent,/主要目標/); assert.match(box.textContent,/非主要目標/);
+  assert.match(box.textContent,/觀察期/);
+  dom.window.close();
+});
+
+test('新查詢失敗時不保留上次 KPI，搜尋也不把錯誤變成空資料', async () => {
+  let fail=false;
+  const {dom,w,doc}=await openPage(undefined,{list:()=>fail?{ok:false,error:'暫時不可用'}:{ok:true,rows:ROWS}});
+  fail=true;doc.querySelector('[data-mp-range="7d"]').click();await wait(30);
+  assert.doesNotMatch(doc.getElementById('mp-kpis').textContent,/5收到人數/);
+  doc.getElementById('mp-q').value='foo';doc.getElementById('mp-q').dispatchEvent(new w.Event('input'));
+  assert.match(doc.getElementById('mp-tbody').textContent,/讀取失敗/);
+  dom.window.close();
+});
+
+test('尚未套用的新日期不會改變已顯示列表的明細統計期間', async () => {
+  const {dom,doc,calls}=await openPage('https://crm.example/admin/message-performance?from=2026-10-08&to=2026-10-08');
+  doc.getElementById('mp-from').value='2026-10-01';
+  doc.querySelector('#mp-tbody tr.mp-row').click();await wait(30);
+  assert.match(calls.at(-1),/from=2026-10-08&to=2026-10-08/);
+  dom.window.close();
 });

@@ -6,6 +6,8 @@
   const tbody = $('mp-tbody');
   const status = $('mp-status');
   let rows = [];
+  let loadState = 'loading';
+  let appliedRange = {};
   let generation = 0;
   let rangeKey = '30d';
 
@@ -53,6 +55,7 @@
   }
 
   function render() {
+    if (loadState !== 'ready') return;
     const q = $('mp-q').value.trim();
     const list = rows.filter((r) => matches(r, q));
     const t = list.reduce((a, r) => {
@@ -99,7 +102,7 @@
     const fail = '發送狀況：送出 ' + num(r.sends) + ' 次，LINE 拒絕 ' + num(f.rejected) + ' 次、結果不確定 ' + num(f.uncertain) + ' 次' +
       (f.skipped ? '、略過 ' + num(f.skipped) + ' 次' : '') + (f.pending ? '、處理中 ' + num(f.pending) + ' 次' : '') + '。';
     const params = new URLSearchParams({ type: r.basis === 'experiment' ? 'keyword_ab' : r.type, sourceId: r.sourceId || '', revision: r.revision || '',
-      experimentId: r.experimentId || '', from: $('mp-from').value, to: $('mp-to').value });
+      experimentId: r.experimentId || '', from: appliedRange.from, to: appliedRange.to });
     let groups = [];
     try {
       const res = await fetch('/admin/message-performance/messages/detail?' + params.toString());
@@ -107,14 +110,16 @@
       if (!d.ok) throw new Error(d.error || '明細無法讀取');
       groups = d.groups || [];
     } catch (e) { box.innerHTML = esc(fail) + '<br>連結明細暫時讀不到：' + esc(e.message); return; }
+    const attributionNote = groups.some(g => g.links.some(l => typeof l.primary === 'boolean'))
+      ? '<p class="mp-muted">各連結只計入第一次成功回覆起的觀察期內點擊。列表點擊率只計主要目標；同一人點多個連結，各列人數不可相加。</p>' : '';
     const linkTables = groups.map((g) => {
       const head = g.variant ? '<div style="margin-top:8px;"><b>' + g.variant.toUpperCase() + ' 版</b></div>' : '';
       if (!g.links.length) return head + '<div class="mp-muted">沒有可追蹤的連結。</div>';
       return head + '<table><thead><tr><th>連結</th><th>目的地</th><th style="text-align:right;">點擊次數</th><th style="text-align:right;">點擊人數</th></tr></thead><tbody>' +
-        g.links.map((l) => '<tr><td>' + esc(l.label) + '</td><td class="uri">' + esc(l.uri) + '</td><td style="text-align:right;">' + num(l.clicks) + '</td><td style="text-align:right;">' + num(l.people) + '</td></tr>').join('') +
+        g.links.map((l) => '<tr><td>' + esc(l.label) + (typeof l.primary === 'boolean' ? (l.primary ? '（主要目標）' : '（非主要目標）') : '') + '</td><td class="uri">' + esc(l.uri) + '</td><td style="text-align:right;">' + num(l.clicks) + '</td><td style="text-align:right;">' + num(l.people) + '</td></tr>').join('') +
         '</tbody></table>';
     }).join('');
-    box.innerHTML = '<div>' + esc(fail) + '</div>' + linkTables + (r.link ? '<div style="margin-top:6px;"><a href="' + esc(r.link) + '">前往' + esc(r.typeLabel) + '設定 ›</a></div>' : '');
+    box.innerHTML = '<div>' + esc(fail) + '</div>' + attributionNote + linkTables + (r.link ? '<div style="margin-top:6px;"><a href="' + esc(r.link) + '">前往' + esc(r.typeLabel) + '設定 ›</a></div>' : '');
   }
 
   async function load() {
@@ -124,6 +129,9 @@
     if (!from || !to) { status.textContent = '請選擇開始與結束日期'; return; }
     if (from > to) { status.textContent = '開始日期不能晚於結束日期'; return; }
     status.textContent = '';
+    loadState = 'loading';
+    rows = [];
+    $('mp-kpis').textContent = '載入中…';
     tbody.innerHTML = '<tr><td colspan="5" class="mp-muted">載入中…</td></tr>';
     const params = new URLSearchParams({ from, to });
     if ($('mp-source').value) params.set('source', $('mp-source').value);
@@ -137,11 +145,15 @@
       if (gen !== generation) return;
       if (!d.ok) throw new Error(d.error || '資料無法讀取');
       rows = d.rows || [];
+      appliedRange = { from, to };
+      loadState = 'ready';
       if (d.truncated) status.textContent = '訊息太多，只顯示最近 300 則；請縮短期間或選擇類型。';
       render();
     } catch (e) {
       if (gen !== generation) return;
       rows = [];
+      loadState = 'error';
+      $('mp-kpis').textContent = '成效資料暫時無法讀取';
       tbody.innerHTML = '<tr><td colspan="5" class="mp-muted">讀取失敗：' + esc(e.message) + '</td></tr>';
     }
   }

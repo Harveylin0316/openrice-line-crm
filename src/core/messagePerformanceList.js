@@ -19,6 +19,7 @@
 
 const { parsePerformanceFilters } = require('./messagePerformance');
 const { summarizeConfig, getBroadcastMessageIdentity } = require('./broadcastMessageSnapshot');
+const { attributedClickWindow } = require('./keywordExperimentAttribution');
 const { listBroadcastButtons } = require('./broadcastTemplates');
 
 const TYPE_LABEL = { broadcast: '群發', keyword: '關鍵字回覆', welcome: '歡迎訊息', automation: '自動化' };
@@ -92,7 +93,7 @@ function createMessagePerformanceList({ query }) {
     if (f.source === 'broadcast' || !(await has('crm_message_executions'))) return [];
     const { rows } = await query(
       `SELECT e.source_type, e.source_id, e.revision,
-              MIN(e.created_at) AS first_at, MAX(e.created_at) AS last_at,
+              MIN(e.started_at) AS first_at, MAX(e.started_at) AS last_at,
               COUNT(*)::int AS sends,
               COUNT(*) FILTER (WHERE e.status = 'accepted')::int AS accepted,
               COUNT(*) FILTER (WHERE e.status = 'rejected')::int AS rejected,
@@ -111,10 +112,10 @@ function createMessagePerformanceList({ query }) {
             WHERE k.execution_id = e.id AND k.verified_identity = e.recipient_key
          ) c ON TRUE
         WHERE e.source_type <> 'broadcast' AND NOT e.test_only
-          AND e.created_at >= $1::timestamptz AND e.created_at < $2::timestamptz
+          AND e.started_at >= $1::timestamptz AND e.started_at < $2::timestamptz
           AND ($3::text IS NULL OR e.source_type = $3)
         GROUP BY e.source_type, e.source_id, e.revision
-        ORDER BY MAX(e.created_at) DESC
+        ORDER BY MAX(e.started_at) DESC
         LIMIT ${MAX_ROWS}`,
       [f.from, f.to, f.source]
     );
@@ -150,10 +151,17 @@ function createMessagePerformanceList({ query }) {
   async function broadcastRows(f, origin) {
     if (f.source && f.source !== 'broadcast') return [];
     const { rows: batches } = await query(
-      `SELECT id, created_at, status, channel, is_ab_test, message_config, variant_b_message_config, audience_config
-         FROM admin_broadcasts
-        WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND COALESCE(channel, 'line') = 'line'
-        ORDER BY id DESC LIMIT ${MAX_ROWS}`,
+      `SELECT b.id, b.status, b.channel, b.is_ab_test, b.message_config, b.variant_b_message_config, b.audience_config,
+              sent.first_at, sent.last_at
+         FROM admin_broadcasts b
+         JOIN LATERAL (
+           SELECT MIN(r.pushed_at) AS first_at, MAX(r.pushed_at) AS last_at
+             FROM admin_broadcast_recipients r WHERE r.broadcast_id = b.id
+              AND r.pushed_at >= $1::timestamptz AND r.pushed_at < $2::timestamptz
+              AND COALESCE(r.variant, 'a') IN ('a', 'b', 'c')
+         ) sent ON sent.first_at IS NOT NULL
+        WHERE COALESCE(b.channel, 'line') = 'line'
+        ORDER BY sent.last_at DESC, b.id DESC LIMIT ${MAX_ROWS}`,
       [f.from, f.to]
     );
     if (!batches.length) return [];
@@ -174,8 +182,9 @@ function createMessagePerformanceList({ query }) {
             WHERE k.broadcast_id = r.broadcast_id AND k.recipient_id = r.id
          ) c ON TRUE
         WHERE r.broadcast_id = ANY($1::bigint[])
+          AND r.pushed_at >= $2::timestamptz AND r.pushed_at < $3::timestamptz
         GROUP BY r.broadcast_id, COALESCE(r.variant, 'a')`,
-      [ids]
+      [ids, f.from, f.to]
     );
     const byBatch = {};
     stats.forEach(s => { (byBatch[Number(s.broadcast_id)] = byBatch[Number(s.broadcast_id)] || []).push(s); });
@@ -203,7 +212,7 @@ function createMessagePerformanceList({ query }) {
         title: identity.title || first.title || '群發 #' + b.id,
         notification: identity.notificationText || first.notification, thumb: first.thumb, format: first.format,
         context: '批次 #' + b.id + (exp ? ' · Campaign Testing' : multi ? ' · A/B 測試' : ''),
-        link: '/admin/broadcast/' + b.id, basis: 'recipient_link', firstAt: b.created_at, lastAt: b.created_at,
+        link: '/admin/broadcast/' + b.id, basis: 'recipient_link', firstAt: b.first_at, lastAt: b.last_at,
         variants: multi ? variants : []
       }, sumRows(variants)));
     }
@@ -258,16 +267,20 @@ function createMessagePerformanceList({ query }) {
     const type = String(raw.type || '');
     if (type === 'broadcast') {
       const id = Number(raw.sourceId);
+      const f = parsePerformanceFilters(raw);
       const { rows } = await query(
         `SELECT id, message_config, variant_b_message_config, audience_config FROM admin_broadcasts WHERE id = $1`, [id]);
       const b = rows[0];
       if (!b) throw new Error('找不到這則群發');
       const exp = b.audience_config && b.audience_config.experiment && b.audience_config.experiment.enabled === true ? b.audience_config.experiment : null;
       const { rows: clicks } = await query(
-        `SELECT COALESCE(k.variant, 'a') AS variant, COALESCE(k.button_index, 0) AS idx,
-                COUNT(*)::int AS clicks, COUNT(DISTINCT k.recipient_id)::int AS people
-           FROM admin_broadcast_clicks k WHERE k.broadcast_id = $1
-          GROUP BY 1, 2`, [id]);
+        `SELECT COALESCE(r.variant, 'a') AS variant, COALESCE(k.button_index, 0) AS idx,
+                COUNT(*)::int AS clicks, COUNT(DISTINCT r.line_user_id)::int AS people
+           FROM admin_broadcast_clicks k
+           JOIN admin_broadcast_recipients r ON r.id = k.recipient_id AND r.broadcast_id = k.broadcast_id
+          WHERE k.broadcast_id = $1 AND r.status = 'sent'
+            AND r.pushed_at >= $2::timestamptz AND r.pushed_at < $3::timestamptz
+          GROUP BY 1, 2`, [id, f.from, f.to]);
       const out = [];
       for (const v of ['a', 'b', 'c']) {
         const cfg = v === 'a' ? b.message_config : v === 'b' ? b.variant_b_message_config : exp && exp.variantCMessageConfig;
@@ -285,11 +298,15 @@ function createMessagePerformanceList({ query }) {
       const exp = rows[0];
       if (!exp) throw new Error('找不到這個 A/B 測試');
       const { rows: clicks } = await query(
-        `SELECT variant, target_index AS idx, COUNT(*)::int AS clicks, COUNT(DISTINCT line_user_id)::int AS people
-           FROM keyword_reply_experiment_clicks WHERE experiment_id = $1 GROUP BY 1, 2`, [exp.id]);
+        `SELECT k.variant, k.target_index AS idx, COUNT(*)::int AS clicks, COUNT(DISTINCT k.line_user_id)::int AS people
+           FROM keyword_reply_experiment_clicks k
+           JOIN keyword_reply_experiment_assignments a
+             ON a.experiment_id = k.experiment_id AND a.variant = k.variant AND a.line_user_id = k.line_user_id
+          WHERE k.experiment_id = $1 AND ${attributedClickWindow('$2')}
+          GROUP BY 1, 2`, [exp.id, exp.attribution_days || 7]);
       return { groups: ['a', 'b'].map(v => ({ variant: v, links: ((exp.targets && exp.targets[v]) || []).map(t => {
         const c = clicks.find(x => x.variant === v && Number(x.idx) === Number(t.index)) || {};
-        return { label: t.label || '連結 ' + (Number(t.index) + 1), uri: t.uri, clicks: Number(c.clicks || 0), people: Number(c.people || 0) };
+        return { primary: ((exp.targets && exp.targets.primary && exp.targets.primary[v]) || []).map(Number).includes(Number(t.index)), label: t.label || '連結 ' + (Number(t.index) + 1), uri: t.uri, clicks: Number(c.clicks || 0), people: Number(c.people || 0) };
       }) })) };
     }
     if (!['welcome', 'automation', 'keyword'].includes(type)) throw new Error('來源不正確');
@@ -304,8 +321,8 @@ function createMessagePerformanceList({ query }) {
       `SELECT k.action_index AS idx, COUNT(*)::int AS clicks, COUNT(DISTINCT e.recipient_key)::int AS people
          FROM crm_message_clicks k JOIN crm_message_executions e ON e.id = k.execution_id
         WHERE e.source_type = $1 AND e.source_id = $2 AND e.revision = $3 AND NOT e.test_only
-          AND e.created_at >= $4::timestamptz AND e.created_at < $5::timestamptz
-          AND k.verified_identity = e.recipient_key
+          AND e.started_at >= $4::timestamptz AND e.started_at < $5::timestamptz
+          AND e.status = 'accepted' AND k.verified_identity = e.recipient_key
         GROUP BY k.action_index`, [type, Number(raw.sourceId), String(raw.revision), f.from, f.to]);
     return { groups: [{ variant: null, links: targets.filter(t => t && t.tracked !== false).map(t => {
       const c = clicks.find(x => Number(x.idx) === Number(t.index)) || {};

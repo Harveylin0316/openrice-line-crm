@@ -16,6 +16,7 @@
  */
 
 const crypto = require('crypto');
+const { attributedClickWindow } = require('./keywordExperimentAttribution');
 const { buildLineMessages, BROADCAST_WALK_OPTS, validateMessageConfig } = require('./broadcastTemplates');
 const { walkUriActions, listUriButtons } = require('./messageTapTracking');
 
@@ -190,14 +191,12 @@ async function experimentReport(query, exp, now = new Date()) {
          SELECT status, line_user_id FROM keyword_reply_experiment_deliveries WHERE experiment_id = $1 AND variant = $2
        ),
        c AS (
-         SELECT DISTINCT ON (k.line_user_id) k.line_user_id
+         SELECT k.line_user_id
            FROM keyword_reply_experiment_clicks k
            JOIN a ON a.line_user_id = k.line_user_id
           WHERE k.experiment_id = $1 AND k.variant = $2
             AND k.target_index = ANY($5::int[])
-            AND a.first_success_at IS NOT NULL
-            AND k.clicked_at >= a.first_success_at
-            AND k.clicked_at < a.first_success_at + ($3::int * INTERVAL '1 day')
+            AND ${attributedClickWindow('$3')}
        )
        SELECT
          (SELECT COUNT(*) FROM d)::int AS triggers,
@@ -206,11 +205,10 @@ async function experimentReport(query, exp, now = new Date()) {
          (SELECT COUNT(*) FROM a WHERE first_success_at IS NOT NULL)::int AS reply_users,
          (SELECT COUNT(*) FROM d WHERE status = 'rejected')::int AS replies_failed,
          (SELECT COUNT(*) FROM d WHERE status IN ('uncertain', 'pending'))::int AS replies_uncertain,
-         (SELECT COUNT(*) FROM keyword_reply_experiment_clicks k WHERE k.experiment_id = $1 AND k.variant = $2
-            AND k.target_index = ANY($5::int[]))::int AS target_clicks,
-         (SELECT COUNT(*) FROM c)::int AS clickers,
+         (SELECT COUNT(*) FROM c)::int AS target_clicks,
+         (SELECT COUNT(DISTINCT line_user_id) FROM c)::int AS clickers,
          (SELECT COUNT(*) FROM a WHERE matured)::int AS matured_users,
-         (SELECT COUNT(*) FROM c JOIN a USING (line_user_id) WHERE a.matured)::int AS matured_clickers`,
+         (SELECT COUNT(DISTINCT c.line_user_id) FROM c JOIN a USING (line_user_id) WHERE a.matured)::int AS matured_clickers`,
       [exp.id, v, exp.attribution_days || 7, now.toISOString(), prim]
     );
     const r = rows[0] || {};

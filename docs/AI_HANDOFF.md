@@ -1,5 +1,14 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-08：成效報表時間與 A/B 觀察期修正
+
+- 新版 `/admin/message-performance` 群發依每位收件人的 `pushed_at`，一般 execution 依 `started_at` 篩選及顯示日期。列表與連結明細共用所選期間的收件人範圍；明細只計 sent／accepted 且符合原追蹤身分的紀錄。未開始發送的項目仍至發送紀錄查看，不以建立時間冒充發送時間。
+- 關鍵字 A/B 的列表、既有實驗報表與新連結明細沿 `keywordExperimentAttribution.js` 共用首次成功回覆起的半開觀察窗。主要目標點擊次數也套用觀察窗；各連結明細標示主要／非主要目標，不能把各列不重複人數相加當總人數。
+- 查詢載入／失敗時清除上次 KPI，搜尋不覆蓋錯誤；點開明細使用已套用日期，未按套用的輸入不影響目前列表。
+- 無 schema migration、追蹤事件回填、發送或 production 修改。修正前基準 `a464e3b`；回滾本次 fix commit 即可，無 SQL rollback。
+- PostgreSQL 回歸：`CRM_QA_ISOLATED=1 node scripts/qa/message-performance-report-check.cjs`，只連既有 localhost:55439 隔離叢集，建立專用暫存 DB，結束清除。另設 `CRM_QA_SERVE=1` 可在 localhost:3108 使用真實 route/view/query 檢查虛構資料；僅供本機 QA，未掛入正式 app。Ctrl-C 結束並清除 DB。
+- 圖文選單驗證同人跨按鍵去重、重複／匿名點擊、台灣日期界線；訊息成效驗證跨日群發／延遲 execution、明細收件人一致、A/B 觀察期起訖与分組，以及錯誤顯示。固定 Staging 與本機虛構資料證據須分開標示，詳見 `docs/reviews/2026-10-08-insight-message-performance-hen.md`。
+
 ## 2026-10-07：歡迎訊息、訊息成效與 Campaign 人工確認（Staging 驗證中）
 
 - 歡迎設定：`/admin/welcome-messages`，沿用訊息庫所有現有 LINE 格式（文字、圖片、影片、Flex／Carousel、原生 Imagemap、多段 1～5 則）。保存完整快照、來源名稱／ID 與 revision，素材更新／刪除不覆蓋已保存內容。首次加入與解除封鎖分開設定，預設停用；啟用前確認 LINE 原生歡迎與既有 follow 流程，避免重複歡迎。本波不新增歡迎 A/B。
