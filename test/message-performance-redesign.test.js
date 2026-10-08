@@ -184,3 +184,15 @@ test('尚未套用的新日期不會改變已顯示列表的明細統計期間',
   assert.match(calls.at(-1),/from=2026-10-08&to=2026-10-08/);
   dom.window.close();
 });
+
+test('載入期間提交反向日期不會使原本有效查詢永遠停在載入中', async () => {
+  let finish;
+  const pending=new Promise(resolve=>{finish=resolve});
+  const {dom,w,doc}=await openPage('https://crm.example/admin/message-performance?from=2026-10-08&to=2026-10-08',{list:()=>pending});
+  doc.getElementById('mp-from').value='2026-10-09';
+  doc.getElementById('mp-filters').dispatchEvent(new w.Event('submit',{cancelable:true}));
+  finish({ok:true,rows:ROWS});await wait(30);
+  assert.equal(doc.querySelectorAll('#mp-tbody tr.mp-row').length,3);
+  assert.match(doc.getElementById('mp-status').textContent,/開始日期不能晚於結束日期/);
+  dom.window.close();
+});

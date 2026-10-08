@@ -123,11 +123,11 @@
   }
 
   async function load() {
-    const gen = ++generation;
     const from = $('mp-from').value;
     const to = $('mp-to').value;
     if (!from || !to) { status.textContent = '請選擇開始與結束日期'; return; }
     if (from > to) { status.textContent = '開始日期不能晚於結束日期'; return; }
+    const gen = ++generation;
     status.textContent = '';
     loadState = 'loading';
     rows = [];
