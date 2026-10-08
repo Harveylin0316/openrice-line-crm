@@ -54,7 +54,7 @@
     <div class="in-two">
       <section class="card">
         <h2 style="margin:0 0 4px;">圖文選單（<span id="in-buttons-range">近 30 天</span>）</h2>
-        <p class="muted" style="font-size:13px;margin-bottom:10px;">曝光取自 LINE 官方；熱門按鍵是 CRM 記到可辨識用戶的點擊。</p>
+        <p class="muted" style="font-size:13px;margin-bottom:10px;">曝光取自 LINE 官方；點擊與熱門按鍵是 CRM 記到的點擊；「點擊次數」會重複算，「不重複人數」同一人只算一次。</p>
         <div id="in-richmenu"><p class="muted">載入曝光中…</p></div>
         <h3 class="in-subtitle">最熱門的按鍵</h3>
         <div id="in-buttons"><p class="muted">載入中…</p></div>
@@ -245,12 +245,22 @@
         var rows=DATA.top_buttons||[];
         if(!rows.length){box.innerHTML='<p class="muted" style="font-size:13px;">還沒有點擊紀錄。選單發布並有人使用後，這裡會排出最熱門的按鍵。</p>';return;}
         var kindName={link:'開啟網址',message:'發送文字',tab:'分頁切換'};
-        box.innerHTML='<table class="in-table"><thead><tr><th>按鍵</th><th>選單</th><th>類型</th><th style="text-align:right;">點擊</th></tr></thead><tbody>'+
+        // 不重複人數：開啟網址按鍵沒記錄是誰點的 →「—」；只有部分點擊有記錄 → 顯示人數並註明
+        function peopleCell(r){
+          var identified=Number(r.identified_taps||0);
+          if(r.kind==='link'&&!identified)return '<span title="這個按鍵沒有記錄是誰點的，只能看次數">—</span>';
+          var html=Number(r.people||0).toLocaleString();
+          if(identified<Number(r.taps||0))html+='<div class="muted" style="font-size:11px;font-weight:400;">另有 '+(Number(r.taps)-identified)+' 次未記錄身分</div>';
+          return html;
+        }
+        box.innerHTML='<table class="in-table"><thead><tr><th>按鍵</th><th>選單</th><th>類型</th><th style="text-align:right;">點擊次數</th><th style="text-align:right;">不重複人數</th></tr></thead><tbody>'+
           rows.map(function(r){
             var nm=r.kind==='tab'?('切到分頁'+String.fromCharCode(65+r.tab)):(r.label||('第 '+(Number(r.cell)+1)+' 格'));
             return '<tr><td>'+esc(nm)+'</td><td class="muted">'+esc(r.menu_name||'（已刪除的選單）')+'</td>'+
-              '<td>'+(kindName[r.kind]||esc(r.kind))+'</td><td style="text-align:right;font-weight:700;">'+r.taps+'</td></tr>';
-          }).join('')+'</tbody></table>';
+              '<td>'+(kindName[r.kind]||esc(r.kind))+'</td><td style="text-align:right;font-weight:700;">'+r.taps+'</td>'+
+              '<td style="text-align:right;">'+peopleCell(r)+'</td></tr>';
+          }).join('')+'</tbody></table>'+
+          '<p class="muted" style="font-size:12px;margin-top:6px;">點擊次數：同一人按多次會重複算。不重複人數：同一人只算一次；開啟網址按鍵要勾「記錄是誰點的」才算得出來。</p>';
       }
 
       function renderRichMenu(){
@@ -271,7 +281,9 @@
           (rm.total_impressions==null?'—':Number(rm.total_impressions).toLocaleString())+
           '</strong><span>LINE 官方曝光次數'+(rm.partial?'（部分）':'')+'</span></div><div class="in-rm-metric"><strong>'+
           ((DATA.daily||[]).reduce(function(s,x){return s+Number(x.menu_taps||0);},0)).toLocaleString()+
-          '</strong><span>CRM 記名點擊次數</span></div></div>';
+          '</strong><span>CRM 點擊次數（同一人按多次會重複算）</span></div><div class="in-rm-metric"><strong>'+
+          Number(DATA.rich_menu_people||0).toLocaleString()+
+          '</strong><span>不重複點擊人數'+(Number(DATA.rich_menu_anonymous_taps||0)?'（另有 '+Number(DATA.rich_menu_anonymous_taps).toLocaleString()+' 次點擊未記錄身分）':'')+'</span></div></div>';
         if(rm.reason)html+='<p class="in-rm-note">'+esc(reasonText[rm.reason]||reasonText.unavailable)+'</p>';
         var pages=rm.pages||[];
         if(pages.length){

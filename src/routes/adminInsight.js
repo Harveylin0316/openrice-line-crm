@@ -230,11 +230,21 @@ function registerAdminInsightRoutes(app, deps) {
 
       const topButtons = (await query(
         `SELECT t.menu_id, t.tab, t.cell, t.kind, COALESCE(t.label, '') AS label,
-                m.name AS menu_name, COUNT(*)::int AS taps
+                m.name AS menu_name, COUNT(*)::int AS taps,
+                -- 不重複人數：只算記到是誰點的；開啟網址按鍵沒開「記錄是誰點的」時沒有身分
+                COUNT(DISTINCT t.line_user_id) FILTER (WHERE t.line_user_id IS NOT NULL)::int AS people,
+                COUNT(*) FILTER (WHERE t.line_user_id IS NOT NULL)::int AS identified_taps
            FROM rich_menu_taps t LEFT JOIN rich_menus m ON m.id = t.menu_id
           WHERE (t.created_at AT TIME ZONE 'Asia/Taipei')::date BETWEEN $1::date AND $2::date
           GROUP BY t.menu_id, t.tab, t.cell, t.kind, t.label, m.name
           ORDER BY taps DESC LIMIT 10`, params)).rows;
+
+      // 整個期間按過圖文選單的不重複人數（同一人按多個按鍵、按很多次都只算一次）
+      const richMenuPeople = (await query(
+        `SELECT COUNT(DISTINCT line_user_id) FILTER (WHERE line_user_id IS NOT NULL)::int AS people,
+                COUNT(*) FILTER (WHERE line_user_id IS NULL)::int AS anonymous_taps
+           FROM rich_menu_taps
+          WHERE (created_at AT TIME ZONE 'Asia/Taipei')::date BETWEEN $1::date AND $2::date`, params)).rows[0] || {};
 
       const activities = (await query(
         `SELECT a.name, COUNT(*)::int AS plays,
@@ -256,7 +266,9 @@ function registerAdminInsightRoutes(app, deps) {
           delivery,
           rich_menu: richMenuInsight
         },
-        totals, daily, sources, top_buttons: topButtons, activities
+        totals, daily, sources, top_buttons: topButtons, activities,
+        rich_menu_people: Number(richMenuPeople.people || 0),
+        rich_menu_anonymous_taps: Number(richMenuPeople.anonymous_taps || 0)
       });
     } catch (err) {
       console.error('insight data error:', err && err.message);
