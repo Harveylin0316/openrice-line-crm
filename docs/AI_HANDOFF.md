@@ -606,6 +606,20 @@ Supabase postgres 管理工具不一定允許 SET ROLE，不能為此擴大角�
 - 已在真 PostgreSQL（套用 20261005 與 20261002 兩個 migration）驗證：轉傳點擊不算、期間外不算、重複點擊算一人、不適用、文字網址點擊、群發 A/B 分版。
 回歸測試 `test/message-performance-redesign.test.js`。
 
+#### 滿版圖文比例不限（2026-10-08）
+
+LINE imagemap 只規定 `baseSize.width = 1040`、高度依比例。上傳不再提示「不是 1:1」；寬度等比例調成 1040、不裁切不變形。
+技術上限：放大到寬 1040 後高度最多 6240（1:6，`MAX_BASE_HEIGHT`），原圖單邊最多 4096 px；再長會吃光縮圖記憶體、檔案也必超過 4 MB。
+訊息驗證（`validateImagemapConfig`）同步改為高度 1～6240。直式長圖的編輯畫布最高約 70vh（座標仍用實際尺寸）。
+
+#### 群發「排除先前 A/B 測試收到的人」介面（2026-10-08）
+
+原本是要按 Cmd/Ctrl 才能複選的原生清單（只顯示 `#90 · 日期 · done`）加一個同步的編號欄。改為收合區塊＋可勾選卡片：
+訊息名稱（`getBroadcastMessageIdentity`）、Campaign Testing／A/B 標籤、日期、測試對象人數（A/B/C，不含保留名單）、編號；
+可搜尋，摘要顯示「已選 N 批，最多排除 X 人」。舊批次可在「找不到要的批次？」輸入編號。
+實際送出的值仍是 `#exclude-broadcast-ids`（逗號分隔），草稿、後續群發、伺服器排除邏輯都沒改；勾選不重畫清單（鍵盤焦點不跳）。
+`GET /admin/broadcast/exclusion-sources` 多回傳 title、notification、kind、test_count。回歸測試 `test/broadcast-exclude-ab-ui.test.js`。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`

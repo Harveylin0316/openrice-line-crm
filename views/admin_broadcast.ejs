@@ -418,11 +418,18 @@
             </div>
 
             <div class="broadcast-action-row" style="margin-top:14px;border-top:1px solid #fde68a;padding-top:12px;">
-              <label for="exclude-broadcast-ids">排除指定 A/B 測試批次的對象</label>
-          <select id="exclude-broadcast-picker" multiple aria-label="選擇要排除的測試批次" style="width:100%;max-width:100%;min-height:85px;"></select><p id="exclude-broadcast-picker-note" class="muted">可複選近期批次；較舊批次可直接輸入編號。</p>
-          <input id="exclude-broadcast-ids" type="text" placeholder="批次編號，例如 12, 15（最多 20 批）" />
-          <p class="muted">排除該批全部 A/B/C 測試對象（含失敗與等待中），不排除保留組。動態名單隔日新增者仍可納入；請重新預覽確認。</p>
-          <button type="button" class="btn btn-warning" id="btn-preview-audience">預覽收件人</button>
+              <details class="ex-ab" id="exclude-ab-block">
+                    <summary><b>排除先前 A/B 測試收到的人</b><span class="ex-ab-optional">（選填）</span><span class="ex-ab-summary" id="exclude-ab-summary">未排除</span></summary>
+                    <p class="ex-ab-help">勾選的批次裡，<b>收到 A、B、C 測試版本的人</b>這次不會收到。當時被保留、還沒收到訊息的人不受影響。勾選後請重新預覽收件人。</p>
+                    <input type="search" id="exclude-ab-search" class="ex-ab-search" placeholder="搜尋訊息名稱或批次編號" aria-label="搜尋要排除的測試批次" />
+                    <div id="exclude-ab-list" class="ex-ab-list" role="group" aria-label="可排除的測試批次"><p class="muted">載入中…</p></div>
+                    <details class="ex-ab-more">
+                      <summary>找不到要的批次？直接輸入批次編號</summary>
+                      <label for="exclude-broadcast-ids" class="muted" style="font-size:12px;">批次編號，用逗號分隔（最多 20 批）</label>
+                      <input id="exclude-broadcast-ids" type="text" placeholder="例如 12, 15" />
+                    </details>
+                  </details>
+                  <button type="button" class="btn btn-warning" id="btn-preview-audience">預覽收件人</button>
               <div id="audience-status" class="audience-status muted">尚未預覽</div>
             </div>
             <div id="audience-sample" class="audience-sample" hidden></div>
@@ -490,12 +497,12 @@
                 <b>卡片訊息</b><small>Flex 卡片：標題、說明、按鈕</small>
               </button>
               <button type="button" class="msg-style-btn" data-msg-style="imagemap" role="radio" aria-checked="false">
-                <b>滿版圖文訊息 / Rich Message</b><small>一張 1040 × 1040 圖片，聊天室接近滿版寬度</small>
+                <b>滿版圖文訊息 / Rich Message</b><small>一張圖片（任何比例），聊天室接近滿版寬度</small>
               </button>
             </div>
 
             <div class="broadcast-tab-pane" id="pane-imagemap" hidden>
-              <div class="im-spec">建議素材 <b>1040 × 1040 px（1:1）</b>，PNG 或 JPEG，<b>4 MB 以內</b>（LINE 允許 10 MB，但系統主機單次上傳上限約 4.5 MB）。上傳一次即可，系統會自動產生 LINE 需要的 5 種尺寸；不會裁切或變形圖片。</div>
+              <div class="im-spec">任何比例都可以：上傳後寬度會等比例調整為 <b>1040 px</b>，高度依原比例（例如 1040×1040 正方形、1040×520 橫式、1040×1560 直式），<b>不裁切、不變形</b>；高度最多寬度的 6 倍。PNG 或 JPEG，<b>4 MB 以內</b>（LINE 允許 10 MB，但系統主機單次上傳上限約 4.5 MB）。上傳一次即可，系統會自動產生 LINE 需要的 5 種尺寸。</div>
               <div class="broadcast-inline-field" style="margin:10px 0;">
                 <input type="file" id="im-file" accept="image/png,image/jpeg" />
                 <button type="button" class="btn" id="im-upload">上傳圖片</button>
@@ -2324,6 +2331,23 @@
       .send-confirm-overlay{position:fixed;inset:0;background:rgba(15,15,16,.5);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;}
       /* hidden 屬性會被上面的 display:flex 蓋掉（UA 的 display:none 輸給作者樣式），必須明確補回 */
       .send-confirm-overlay[hidden]{display:none;}
+      .ex-ab{border:1px solid #F3E2B3;border-radius:10px;background:#FFFDF6;padding:8px 12px;margin-bottom:12px}
+      .ex-ab > summary{cursor:pointer;font-size:14px;list-style-position:inside;padding:2px 0}
+      .ex-ab-optional{color:#6B7280;font-size:12px;margin-left:2px}
+      .ex-ab-summary{float:right;font-size:12px;font-weight:700;color:#92400E;background:#FEF3C7;border-radius:999px;padding:1px 10px}
+      .ex-ab-summary.none{color:#6B7280;background:#F3F4F6;font-weight:400}
+      .ex-ab-help{font-size:12.5px;color:#4B5563;line-height:1.6;margin:8px 0}
+      .ex-ab-search{width:100%;box-sizing:border-box;font:inherit;font-size:13px;padding:7px 9px;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:8px}
+      .ex-ab-list{display:grid;gap:6px;max-height:280px;overflow-y:auto;padding-right:2px}
+      .ex-ab-item{display:flex;gap:10px;align-items:flex-start;border:1px solid #ECECEE;border-radius:10px;padding:8px 10px;background:#fff;cursor:pointer}
+      .ex-ab-item.on{border-color:#F59E0B;background:#FFFBEB}
+      .ex-ab-item input{margin-top:3px;flex:0 0 auto}
+      .ex-ab-item b{display:block;font-size:13.5px;color:#111827;overflow-wrap:anywhere}
+      .ex-ab-meta{font-size:12px;color:#6B7280}
+      .ex-ab-kind{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:0 7px;margin-right:4px;background:#DBEAFE;color:#1E40AF}
+      .ex-ab-kind.campaign{background:#EDE9FE;color:#5B21B6}
+      .ex-ab-more{margin-top:8px;font-size:12.5px}.ex-ab-more summary{cursor:pointer;color:#2563EB}
+      .ex-ab-more input{display:block;width:100%;box-sizing:border-box;margin-top:4px;font:inherit;font-size:13px;padding:6px 8px;border:1px solid #E5E7EB;border-radius:8px}
       .msg-style-chooser{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 14px}
       .msg-style-chooser[hidden]{display:none}
       .msg-style-btn{text-align:left;border:1.5px solid #E5E7EB;background:#fff;border-radius:12px;padding:10px 12px;cursor:pointer;font-family:inherit}

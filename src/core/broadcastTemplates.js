@@ -526,7 +526,7 @@ function validateImagemapConfig(im) {
   if (!im || typeof im !== 'object') return '滿版圖文訊息設定缺失。';
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(im.assetId || ''))) return '請先上傳圖片。';
   const bh = Number(im.baseHeight);
-  if (!Number.isInteger(bh) || bh < 1 || bh > 2080) return '圖片高度資訊不正確，請重新上傳圖片。';
+  if (!Number.isInteger(bh) || bh < 1 || bh > 6240) return '圖片高度資訊不正確，請重新上傳圖片。';
   const alt = String(im.altText || '').trim();
   if (alt.length < 1 || alt.length > FIELD_LIMITS.altText) return 'LINE 通知預覽文字必填，長度 1～400 字。';
   const areas = Array.isArray(im.areas) ? im.areas : [];

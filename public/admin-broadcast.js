@@ -2829,7 +2829,7 @@
       file_too_large_max_4mb: '圖片超過 4 MB（系統主機單次上傳上限約 4.5 MB）',
       image_unreadable: '讀不到這張圖片，請改用 PNG 或 JPEG',
       image_too_large_pixels: '圖片尺寸過大（單邊超過 4096 px），請縮小後再上傳',
-      image_too_tall: '圖片太長（高度超過寬度的 2 倍），請改用 1:1 素材',
+      image_too_tall: '圖片太長：高度最多是寬度的 6 倍（寬 1040 時高 6240），請裁短後再上傳',
       resized_too_large: '轉換後的圖片超過 4 MB，請壓縮後再上傳',
       campaign_experiment_requires_cta_button: 'Campaign Testing 的每個版本至少要有一顆「開啟網址」按鈕，才算得出點擊率',
       experiment_allocation_must_total_100: 'A/B/C 與保留名單的比例合計必須是 100%',
@@ -3175,6 +3175,8 @@
     var canvas = $('im-canvas');
     if (!canvas) return;
     canvas.style.aspectRatio = IM_W + ' / ' + im.baseHeight;
+    // 直式長圖：編輯畫布最高約 70% 視窗，避免要捲好幾頁才能拉點擊區（座標仍以實際尺寸計算）
+    canvas.style.width = im.baseHeight > IM_W ? 'min(100%, ' + (70 * IM_W / im.baseHeight).toFixed(2) + 'vh)' : '';
     var img = $('im-image');
     var empty = $('im-canvas-empty');
     if (im.previewUrl) { img.src = im.previewUrl; img.hidden = false; empty.hidden = true; }
@@ -4249,6 +4251,7 @@
       state.followupConfig = d.followupConfig || null;
       if(state.followupConfig) { $('bc-message-step').disabled=true; $('followup-snapshot-note').hidden=false; }
       if ($('exclude-broadcast-ids')) $('exclude-broadcast-ids').value = d.excludeBroadcastIds || '';
+      if (window.__syncExcludeAb) window.__syncExcludeAb();
       var campaign = d.campaign || {};
       var vc = campaign.variantC || {};
       var vcMap = {
@@ -5179,6 +5182,84 @@
       }
     })();
   }
+  // ---- 排除先前 A/B 測試收到的人：可勾選的批次卡片（訊息名稱、類型、日期、測試人數）----
+  // 實際送出的值仍是 #exclude-broadcast-ids（逗號分隔的批次編號），草稿、後續群發、伺服器邏輯都不變。
+  var exAbSources = [];
+  function exAbIds() {
+    var input = $('exclude-broadcast-ids');
+    return input ? input.value.split(/[^0-9]+/).filter(Boolean) : [];
+  }
+  function exAbSetIds(ids) {
+    var input = $('exclude-broadcast-ids');
+    if (!input) return;
+    var uniq = ids.filter(function (v, i) { return ids.indexOf(v) === i; });
+    input.value = uniq.join(', ');
+    input.dispatchEvent(new Event('input'));
+    exAbUpdateSummary();   // 勾選時不重畫清單，鍵盤操作的焦點不會跳掉
+  }
+  function exAbDate(v) { try { return new Date(v).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: 'numeric', day: 'numeric' }); } catch (e) { return ''; } }
+  function renderExcludeAb() {
+    var list = $('exclude-ab-list');
+    if (!list) return;
+    var q = ($('exclude-ab-search') && $('exclude-ab-search').value || '').trim().toLowerCase();
+    var selected = exAbIds();
+    var shown = exAbSources.filter(function (b) {
+      if (!q) return true;
+      return (String(b.title || '') + ' ' + String(b.notification || '') + ' #' + b.id + ' ' + b.id).toLowerCase().indexOf(q) >= 0;
+    });
+    if (!exAbSources.length) { list.innerHTML = '<p class="muted" style="font-size:12.5px;">目前沒有做過 A/B 測試或 Campaign Testing 的群發。</p>'; return; }
+    if (!shown.length) { list.innerHTML = '<p class="muted" style="font-size:12.5px;">沒有符合搜尋的批次。</p>'; return; }
+    list.innerHTML = shown.map(function (b) {
+      var on = selected.indexOf(String(b.id)) >= 0;
+      var kind = b.kind === 'campaign' ? '<span class="ex-ab-kind campaign">Campaign Testing</span>' : '<span class="ex-ab-kind">A/B 測試</span>';
+      return '<label class="ex-ab-item' + (on ? ' on' : '') + '"><input type="checkbox" value="' + escapeHtml(String(b.id)) + '"' + (on ? ' checked' : '') + ' />' +
+        '<span><b>' + escapeHtml(b.title || ('群發 #' + b.id)) + '</b>' +
+        '<span class="ex-ab-meta">' + kind + exAbDate(b.created_at) + ' · 測試對象 ' + Number(b.test_count || 0).toLocaleString('zh-TW') + ' 人 · #' + escapeHtml(String(b.id)) + '</span></span></label>';
+    }).join('');
+  }
+  function syncExcludeAb() {
+    exAbUpdateSummary();
+    renderExcludeAb();
+  }
+  function exAbUpdateSummary() {
+    var ids = exAbIds();
+    var summary = $('exclude-ab-summary');
+    if (summary) {
+      var known = exAbSources.filter(function (b) { return ids.indexOf(String(b.id)) >= 0; });
+      var people = known.reduce(function (s, b) { return s + Number(b.test_count || 0); }, 0);
+      var manual = ids.length - known.length;
+      summary.classList.toggle('none', !ids.length);
+      summary.textContent = !ids.length ? '未排除'
+        : '已選 ' + ids.length + ' 批' + (known.length ? '，最多排除 ' + people.toLocaleString('zh-TW') + ' 人' : '') + (manual > 0 ? '（含 ' + manual + ' 批手動輸入）' : '');
+    }
+    if (ids.length && $('exclude-ab-block')) $('exclude-ab-block').open = true;
+    Array.prototype.forEach.call(document.querySelectorAll('#exclude-ab-list .ex-ab-item'), function (item) {
+      var cb = item.querySelector('input');
+      var on = ids.indexOf(cb.value) >= 0;
+      cb.checked = on;
+      item.classList.toggle('on', on);
+    });
+  }
+  window.__syncExcludeAb = syncExcludeAb;
+  if ($('exclude-ab-list')) {
+    fetch('/admin/broadcast/exclusion-sources').then(function (r) { return r.json(); }).then(function (data) {
+      if (!data.ok) throw new Error('unavailable');
+      exAbSources = data.sources || [];
+      syncExcludeAb();
+    }).catch(function () {
+      $('exclude-ab-list').innerHTML = '<p class="muted" style="font-size:12.5px;">暫時無法載入批次清單，可以在下方直接輸入批次編號。</p>';
+      if ($('exclude-ab-block')) $('exclude-ab-block').querySelector('.ex-ab-more').open = true;
+    });
+    $('exclude-ab-list').addEventListener('change', function (e) {
+      var cb = e.target;
+      if (!cb || cb.type !== 'checkbox') return;
+      var ids = exAbIds();
+      if (cb.checked) ids.push(cb.value); else ids = ids.filter(function (v) { return v !== cb.value; });
+      exAbSetIds(ids);
+    });
+    if ($('exclude-ab-search')) $('exclude-ab-search').addEventListener('input', renderExcludeAb);
+    $('exclude-broadcast-ids').addEventListener('change', syncExcludeAb);
+  }
   if($('exclude-broadcast-picker')){
     fetch('/admin/broadcast/exclusion-sources').then(function(r){return r.json();}).then(function(data){
       if(!data.ok)throw new Error('unavailable');
@@ -5204,6 +5285,7 @@
         $('bc-message-step').disabled=true; $('followup-snapshot-note').hidden=false;
         schedulePreview();
         $('exclude-broadcast-ids').value=data.conditions.excludeBroadcastIds.join(', ');
+        if (window.__syncExcludeAb) window.__syncExcludeAb();
         state.audiencePreviewedTotal=null; state.audiencePreviewToken=null;
         $('audience-status').textContent='已帶入原批次版本與排除名單。請選擇這次的動態受眾並重新預覽；不會自動送出。';
         updateSendButton(); saveDraft();

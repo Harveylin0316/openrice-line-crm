@@ -41,14 +41,13 @@ test('上傳 1040×1040：產生 1040/700/460/300/240 五種寬度，1040 版是
   }
 });
 
-test('非 1:1：只警告、不裁切，依原比例算 baseHeight；PNG 維持 PNG', async () => {
+test('任何比例：不裁切、不警告，依原比例算 baseHeight；PNG 維持 PNG', async () => {
   const r = await media.processImagemapUpload(await solid(1040, 780, 'image/png'), 'image/png');
   assert.equal(r.ok, true);
   assert.equal(r.baseHeight, 780);
   assert.deepEqual(r.files.map(f => [f.width, f.height]), [[1040, 780], [700, 525], [460, 345], [300, 225], [240, 180]]);
   assert.ok(r.files.every(f => f.mime === 'image/png'));
-  assert.match(r.warnings.join(''), /不是 1:1/);
-  assert.match(r.warnings.join(''), /沒有裁切/);
+  assert.deepEqual(r.warnings, [], '比例不限，不再提示不是 1:1');
 });
 
 test('大於或小於 1040 的方圖：等比例縮放到 1040 寬並提示；過長、格式不對直接擋', async () => {
@@ -58,7 +57,15 @@ test('大於或小於 1040 的方圖：等比例縮放到 1040 寬並提示；�
   assert.match(big.warnings.join(''), /縮放成 1040px/);
   const small = await media.processImagemapUpload(await solid(800, 800, 'image/jpeg'), 'image/jpeg');
   assert.match(small.warnings.join(''), /可能會模糊/);
-  assert.equal((await media.processImagemapUpload(await solid(1040, 2400, 'image/png'), 'image/png')).error, 'image_too_tall');
+  // 直式長圖可以（1040×2400，以前會被擋）；超過 1:6 才擋
+  const tall = await media.processImagemapUpload(await solid(1040, 2400, 'image/jpeg'), 'image/jpeg');
+  assert.equal(tall.ok, true);
+  assert.equal(tall.baseHeight, 2400);
+  assert.deepEqual(tall.files.map(f => [f.width, f.height]).slice(0, 2), [[1040, 2400], [700, 1615]]);
+  const wide = await media.processImagemapUpload(await solid(2080, 400, 'image/jpeg'), 'image/jpeg');
+  assert.equal(wide.ok, true, '橫式長條也可以');
+  assert.equal(wide.baseHeight, 200);
+  assert.equal((await media.processImagemapUpload(await solid(600, 4000, 'image/jpeg'), 'image/jpeg')).error, 'image_too_tall');
   assert.equal((await media.processImagemapUpload(Buffer.from('GIF89a'), 'image/gif')).error, 'only_png_or_jpeg');
   assert.equal((await media.processImagemapUpload(Buffer.from('not an image'), 'image/png')).error, 'image_unreadable');
 });
@@ -356,4 +363,16 @@ test('訊息庫卡片可預覽滿版圖文訊息（維持比例並標出點擊�
   assert.ok(start > 0);
   assert.match(src.slice(start, start + 2500), /cfg\.mode==='imagemap'/);
   assert.match(src.slice(start, start + 2500), /\/p\/line-imagemap\/'\+imc\.assetId\+'\/1040/);
+});
+
+test('任何比例：直式 1040×2400 可以組成 imagemap、點擊區可放在下半部；超過 1:6 擋下', () => {
+  const tall = imCfg([{ x: 0, y: 1800, width: 1040, height: 600, type: 'uri', uri: 'https://example.com/bottom' }], { baseHeight: 2400 });
+  const b = buildLineMessages(tall, { heroImageBaseUrl: ORIGIN });
+  assert.equal(b.ok, true, b.error);
+  assert.deepEqual(b.messages[0].baseSize, { width: 1040, height: 2400 });
+  assert.deepEqual(b.messages[0].actions[0].area, { x: 0, y: 1800, width: 1040, height: 600 });
+  const wide = imCfg([{ x: 0, y: 0, width: 1040, height: 200, type: 'uri', uri: 'https://example.com/w' }], { baseHeight: 200 });
+  assert.equal(buildLineMessages(wide, { heroImageBaseUrl: ORIGIN }).ok, true, '橫式長條');
+  const tooTall = imCfg([{ x: 0, y: 0, width: 1040, height: 100, type: 'uri', uri: 'https://example.com/x' }], { baseHeight: 7000 });
+  assert.match(buildLineMessages(tooTall, { heroImageBaseUrl: ORIGIN }).error, /高度資訊不正確/);
 });

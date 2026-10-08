@@ -1339,8 +1339,35 @@ function registerAdminBroadcastRoutes(app, deps) {
     }
   });
 
-  app.get('/admin/broadcast/exclusion-sources', requireAdmin, async(req,res)=>{
-    try{const result=await query("SELECT id,created_at,status FROM admin_broadcasts WHERE COALESCE(channel,'line')='line' AND (is_ab_test OR audience_config->'experiment'->>'enabled'='true') ORDER BY id DESC LIMIT 200");return res.json({ok:true,sources:result.rows});}catch{return safeJsonError(res,503,'exclusion_sources_unavailable');}
+  // 可排除的 A/B／Campaign 批次：帶訊息名稱、類型、日期與各版本測試人數，讓選的人認得出是哪一批
+  app.get('/admin/broadcast/exclusion-sources', requireAdmin, async (req, res) => {
+    try {
+      const result = await query(
+        `SELECT b.id, b.created_at, b.status, b.is_ab_test, b.message_config, b.variant_b_message_config, b.audience_config, b.channel,
+                (SELECT COUNT(*) FILTER (WHERE r.variant IN ('a', 'b', 'c'))::int FROM admin_broadcast_recipients r WHERE r.broadcast_id = b.id) AS test_count
+           FROM admin_broadcasts b
+          WHERE COALESCE(b.channel, 'line') = 'line'
+            AND (b.is_ab_test OR b.audience_config->'experiment'->>'enabled' = 'true')
+          ORDER BY b.id DESC LIMIT 200`
+      );
+      const sources = result.rows.map(row => {
+        let identity = {};
+        try { identity = getBroadcastMessageIdentity(row); } catch (e) { identity = {}; }
+        const isCampaign = !!(row.audience_config && row.audience_config.experiment && row.audience_config.experiment.enabled === true);
+        return {
+          id: row.id,
+          created_at: row.created_at,
+          status: row.status,
+          title: identity.title || '',
+          notification: identity.notificationText || '',
+          kind: isCampaign ? 'campaign' : 'ab',
+          test_count: Number(row.test_count || 0)
+        };
+      });
+      return res.json({ ok: true, sources });
+    } catch {
+      return safeJsonError(res, 503, 'exclusion_sources_unavailable');
+    }
   });
 
   app.get('/admin/broadcast/:id(\\d+)/followup-config', requireAdmin, async (req,res) => {
