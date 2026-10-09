@@ -4098,13 +4098,27 @@
 
   $('btn-cancel').addEventListener('click', function () {
     if (!state.currentBroadcastId) return;
-    if (!confirm('確定要取消這個批次？已送出的訊息無法回收，僅停止剩下未送的部分。')) return;
-    fetch('/admin/broadcast/' + state.currentBroadcastId + '/cancel', { method: 'POST' })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (!data.ok) alert('取消失敗：' + (data.error || ''));
-        // chunk loop 下一輪會偵測到 cancelled status 自動停下
-      });
+    var id = state.currentBroadcastId;
+    var btn = $('btn-cancel');
+    window.crmConfirm('確定要取消 #' + id + ' 這個批次？已送出的訊息無法回收，只會停止剩下還沒送的部分。', { confirmText: '確定取消', danger: true }).then(function (yes) {
+      if (!yes) return;
+      btn.disabled = true;
+      btn.textContent = '取消中…';
+      fetch('/admin/broadcast/' + id + '/cancel', { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data || !data.ok) throw new Error((data && (data.detail || data.error)) || '未知錯誤');
+          btn.textContent = '已取消';
+          var meta = $('progress-meta');
+          if (meta) meta.textContent = '已取消 #' + id + '：剩下還沒送的人不會再收到（處理中的最後一波最多 50 人可能仍會送出）。';
+          // chunk loop 下一輪會偵測到 cancelled status 自動停下
+        })
+        .catch(function (e) {
+          btn.disabled = false;
+          btn.textContent = '取消這個批次';
+          alert('取消失敗：' + e.message + '。請重新整理頁面再試一次。');
+        });
+    });
   });
 
   // ------------------------------------------------------------------
