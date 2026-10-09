@@ -5,7 +5,7 @@
 - `/admin/welcome-messages` 歸入「傳訊息」，共用訊息導覽加入歡迎入口，設定分類移除該項目。桌機左右設定／即時預覽，手機改為上下排列。
 - 發送情境、素材、啟用三區；自動預覽已儲存快照，改選預覽新素材。「套用素材最新版」明確標示待儲存；取消變更還原快照與選項。啟用需重複發送確認、至少一種情境；空測試名單與未儲存狀態不允許測試發送。
 - 保留既有全 LINE 樣式與 snapshot/revision、權限及安全發送流程；無 migration、無後端發送行為變更。素材 ID 僅接受正整數；已刪素材用安全文字 option 保留已存版本。過期預覽成功／錯誤均忽略，不覆盖新選擇。
-- 回歸：`test/welcome-editor.test.js`；本機完整 `npm test` 542/542 通過，桌機及 390px 無水平溢出。固定 Staging 驗證結果另見本次 Hen review 文件；不可把本機結果視為固定站或 LINE 實收驗收。
+- 回歸：`test/welcome-editor.test.js`；本機完整 `npm test` 542/542 通過，桌機及 390px 無水平溢出。固定 Staging 已確認部署 e6deb27 前端檔案一致，儲存／重載／還原、同圖不同動作的 Imagemap 切換與取消、文字＋Flex＋圖片預覽、桌機／390px 無水平溢出及 console error 0。測試後還原原設定且維持停用，無真人發送；詳見 `docs/reviews/2026-10-09-welcome-ui-hen.md`。
 - 回滾只 revert 本次歡迎 UI commit（基準 db25780），不刪追蹤表、不更改歡迎快照或啟用狀態；無 SQL rollback。
 
 ## 2026-10-08：已刪除關鍵字規則的歷史成效標籤
