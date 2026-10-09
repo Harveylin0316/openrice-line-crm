@@ -149,7 +149,8 @@
         btn.addEventListener('click', function () {
           var id = btn.getAttribute('data-id');
           if (!id) return;
-          if (!confirm('確定取消 #' + id + ' 這個排程？取消後不能還原。')) return;
+          window.crmConfirm('確定取消 #' + id + ' 這個排程？取消後不能還原。', { confirmText: '確定取消', danger: true }).then(function (yes) {
+          if (!yes) return;
           btn.disabled = true;
           btn.textContent = '取消中…';
           fetch('/admin/broadcast/' + id + '/cancel', { method: 'POST' })
@@ -173,6 +174,7 @@
               btn.disabled = false;
               btn.textContent = '取消排程';
             });
+          });
         });
       });
     })();

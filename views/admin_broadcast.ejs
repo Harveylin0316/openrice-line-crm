@@ -2238,7 +2238,8 @@
         btn.addEventListener('click', function () {
           var id = btn.getAttribute('data-id');
           if (!id) return;
-          if (!confirm('確定取消 #' + id + ' 這個批次？取消後不能還原。')) return;
+          window.crmConfirm('確定取消 #' + id + ' 這個批次？還沒送出的人不會再收到；已送出的訊息無法收回。取消後不能還原。', { confirmText: '確定取消', danger: true }).then(function (yes) {
+          if (!yes) return;
           btn.disabled = true;
           var orig = btn.textContent;
           btn.textContent = '取消中…';
@@ -2262,6 +2263,7 @@
               alert('取消失敗：' + e.message);
               btn.disabled = false; btn.textContent = orig;
             });
+          });
         });
       });
 

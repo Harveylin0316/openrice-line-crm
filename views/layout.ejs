@@ -59,6 +59,7 @@
       </section></div><div class="admin-finder-empty" id="admin-finder-empty" hidden>找不到。換一個簡單的關鍵字，或打開「教學」。</div></dialog>
     <% } %>
     <main class="container"><% if (typeof isAdmin !== 'undefined' && isAdmin && user) { %><nav id="admin-message-nav" class="admin-message-nav" aria-label="傳訊息功能" hidden><a href="/admin/broadcast">群發訊息</a><a href="/admin/keyword-replies">關鍵字回覆</a><a href="/admin/welcome-messages">加入好友歡迎訊息</a><a href="/admin/flows">自動化流程</a><a href="/admin/messages">訊息庫</a></nav><div class="admin-context" id="admin-page-context" hidden><a href="/admin">工作台</a><span aria-hidden="true">›</span><span class="admin-context-current" id="admin-context-current"></span></div><% } %><%- body %></main>
+    <script src="/crm-confirm.js?v=20261009"></script>
     <script>(function(){
       var p=location.pathname;var items=Array.prototype.slice.call(document.querySelectorAll('[data-finder-item]'));
       function match(h){return h&&((p===h)||(p.indexOf(h+'/')===0));}
