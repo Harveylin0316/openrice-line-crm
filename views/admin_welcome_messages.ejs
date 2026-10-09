@@ -1,16 +1,29 @@
-<%- include('layout',{user,isAdmin,bodyClass:'admin-shell',body: `
-<section class="card" style="max-width:100%;overflow-wrap:anywhere">
-<h1>加入好友歡迎訊息</h1><p>沿用訊息庫所有可發送樣式，包含滿版圖文與多段訊息。只管理這個歡迎流程，不會停用其他流程。</p>
-<p><a href="/admin/messages">編輯訊息庫</a> · <a href="/admin/message-performance?source=welcome">查看成效</a> · <a href="/admin/push-logs?status=all&source=welcome">查看發送紀錄</a></p>
-<p id="welcome-status" role="status">載入中…</p>
-<form id="welcome-form"><fieldset id="welcome-fields" disabled style="min-width:0;border:0;padding:0">
-<p><label><input id="welcome-enabled" type="checkbox"> 啟用歡迎訊息</label></p>
-<p><label><input id="welcome-first" type="checkbox" checked> 首次加入</label> <label><input id="welcome-unblocked" type="checkbox"> 解除封鎖重新加入</label></p>
-<label for="welcome-message">訊息庫素材</label><select id="welcome-message" style="width:100%;max-width:100%"><option value="">請選擇</option></select>
-<p><label><input id="welcome-refresh" type="checkbox"> 更新為目前素材內容（未勾選時保留已儲存版本）</label></p>
-<p id="welcome-flows"></p><p><label><input id="welcome-duplicate" type="checkbox"> 我已確認 LINE 原生歡迎訊息與其他加好友流程，避免重複發送</label></p>
-<button type="button" id="welcome-preview">預覽</button> <button type="submit">儲存設定</button>
-<p>下方測試使用已儲存內容，僅可發給已登記測試人員。</p><select id="welcome-tester" aria-label="測試人員"></select> <button type="button" id="welcome-test">發送測試</button>
-</fieldset></form><section id="welcome-preview-content" aria-label="歡迎訊息預覽" style="max-width:390px;margin-top:20px"></section>
+<%- include('layout', { user, isAdmin, bodyClass:'admin-shell', body: `
+<link rel="stylesheet" href="/admin-welcome-messages.css">
+<section class="welcome-page">
+ <header class="welcome-heading"><div><div class="welcome-title"><h1>加入好友歡迎訊息</h1><span id="welcome-badge" class="welcome-badge">載入中</span></div><p>讓新朋友收到第一份問候，自由搭配訊息庫中的所有 LINE 樣式。</p></div><div class="welcome-links"><a href="/admin/message-performance?source=welcome">查看成效 ↗</a><a href="/admin/push-logs?status=all&source=welcome">發送紀錄 ↗</a></div></header>
+ <p id="welcome-status" role="status" aria-live="polite">正在載入設定…</p>
+ <form id="welcome-form"><fieldset id="welcome-fields" disabled>
+  <div class="welcome-grid"><div class="welcome-settings">
+   <section class="welcome-card"><h2><span class="welcome-step">1</span> 什麼時候發送</h2><p class="welcome-hint">可選擇一種或兩種加入情境。</p>
+    <label class="welcome-choice"><input id="welcome-first" type="checkbox" checked><span><strong>首次加入好友</strong><small>新朋友第一次加入官方帳號時發送。</small></span></label>
+    <label class="welcome-choice"><input id="welcome-unblocked" type="checkbox"><span><strong>解除封鎖後重新加入</strong><small>曾經封鎖的朋友重新加入時，也收到歡迎訊息。</small></span></label>
+   </section>
+   <section class="welcome-card"><h2><span class="welcome-step">2</span> 選擇歡迎內容</h2><p class="welcome-hint">文字、圖片、影片、Flex 卡片、滿版圖文與多段訊息都可以使用。</p>
+    <label for="welcome-message" class="welcome-label">訊息庫素材</label><select id="welcome-message"><option value="">請選擇歡迎訊息</option></select>
+    <div class="welcome-asset"><strong id="welcome-asset-name">尚未選擇素材</strong><span id="welcome-asset-version" class="welcome-hint"></span></div>
+    <div class="welcome-content-actions"><button type="button" id="welcome-refresh">套用素材最新版</button><a href="/admin/messages" target="_blank" rel="noopener">開啟訊息庫 ↗</a></div>
+    <p class="welcome-hint">儲存後保留當時的內容。訊息庫修改或刪除素材，不會自動改變這裡的歡迎訊息。</p>
+   </section>
+   <section class="welcome-card"><h2><span class="welcome-step">3</span> 啟用與儲存</h2>
+    <label class="welcome-choice welcome-enable"><span><strong>啟用歡迎訊息</strong><small id="welcome-enable-note">儲存後維持停用，不會發送。</small></span><input id="welcome-enabled" type="checkbox" role="switch"></label>
+    <div class="welcome-warning"><strong>啟用前，確認不會重複歡迎</strong><p id="welcome-flows"></p><label class="welcome-confirm"><input id="welcome-duplicate" type="checkbox"><span>我已確認 LINE 原生歡迎訊息與其他加好友流程，避免重複發送。</span></label></div>
+   </section>
+   <details class="welcome-card welcome-test-area"><summary>發送測試給已登記人員</summary><p class="welcome-hint" id="welcome-test-note">測試只使用已儲存內容，不計入正式成效。</p><label for="welcome-tester">測試人員</label><select id="welcome-tester"><option value="">請選擇測試人員</option></select><button type="button" id="welcome-test" disabled>發送測試</button></details>
+  </div>
+  <aside class="welcome-card welcome-preview"><div class="welcome-preview-heading"><h2>訊息預覽</h2><button type="button" id="welcome-preview">重新載入</button></div><p id="welcome-preview-label" class="welcome-hint">預覽不會發送訊息，也不計入成效。</p><div class="welcome-phone"><div class="welcome-chat-title">OpenRice 開飯喇</div><section id="welcome-preview-content" aria-label="歡迎訊息預覽"><p>選擇素材後，預覽會顯示在這裡。</p></section></div><p class="welcome-hint">實際外觀以 LINE 顯示為準；點擊區域與連結會一併列出供確認。</p></aside>
+  </div>
+  <footer class="welcome-savebar"><div><strong id="welcome-dirty">尚未載入</strong><small id="welcome-save-note">設定載入後即可編輯。</small></div><div class="welcome-save-actions"><button type="button" id="welcome-cancel" disabled>取消變更</button><button type="submit" id="welcome-save" class="welcome-primary" disabled>儲存設定</button></div></footer>
+ </fieldset></form>
 </section><script src="/message-snapshot-preview.js"></script><script src="/admin-welcome-messages.js"></script>
-`}) %>
+` }) %>
