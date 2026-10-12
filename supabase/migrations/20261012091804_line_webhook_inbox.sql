@@ -6,9 +6,11 @@ CREATE TABLE IF NOT EXISTS line_webhook_inbox (
  event_id TEXT PRIMARY KEY CHECK(length(event_id) BETWEEN 1 AND 200),
  payload JSONB NOT NULL,
  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','done','uncertain')),
- received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ received_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
  started_at TIMESTAMPTZ, finished_at TIMESTAMPTZ, reason TEXT
 );
+ALTER TABLE line_webhook_inbox ALTER COLUMN received_at SET DEFAULT clock_timestamp();
+CREATE UNIQUE INDEX IF NOT EXISTS line_webhook_inbox_active_user ON line_webhook_inbox((COALESCE(payload#>>'{events,0,source,userId}',event_id))) WHERE status='processing';
 CREATE INDEX IF NOT EXISTS line_webhook_inbox_pending ON line_webhook_inbox(received_at,event_id) WHERE status='pending';
 CREATE INDEX IF NOT EXISTS line_webhook_inbox_processing ON line_webhook_inbox(started_at) WHERE status='processing';
 ALTER TABLE line_webhook_inbox ENABLE ROW LEVEL SECURITY;

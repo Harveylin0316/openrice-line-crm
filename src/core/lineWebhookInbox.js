@@ -22,7 +22,8 @@ function createReceiver({ query, channelSecret, wake = async () => {} }) {
     try {
       await query(`INSERT INTO line_webhook_inbox(event_id,payload)
         SELECT x->>'webhookEventId',jsonb_build_object('destination',$2::text,'events',jsonb_build_array(x))
-        FROM jsonb_array_elements($1::jsonb) x ON CONFLICT(event_id) DO NOTHING`, [JSON.stringify(payload.events), payload.destination || null]);
+        FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS items(x,ord)
+        ORDER BY ord ON CONFLICT(event_id) DO NOTHING`, [JSON.stringify(payload.events), payload.destination || null]);
     } catch { console.error('line inbox persist failed'); return { statusCode:503, body:'' }; }
     // Wake failure is safe: the durable pending rows are picked up by the scheduled runner.
     try { await wake(); } catch { console.error('line inbox wake deferred'); }
@@ -38,8 +39,10 @@ function createDrain({ query, processEvent, now = Date.now }) {
     await query("UPDATE line_webhook_inbox SET status='uncertain',finished_at=now(),reason='worker_interrupted' WHERE status='processing' AND started_at < now()-interval '20 minutes'");
     while (processed < limit && now() < deadline) {
       const claimed = await query(`UPDATE line_webhook_inbox SET status='processing',started_at=now()
-        WHERE event_id=(SELECT event_id FROM line_webhook_inbox WHERE status='pending'
-        ORDER BY received_at,event_id FOR UPDATE SKIP LOCKED LIMIT 1) AND status='pending'
+        WHERE event_id=(SELECT q.event_id FROM line_webhook_inbox q WHERE q.status='pending'
+        AND NOT EXISTS(SELECT 1 FROM line_webhook_inbox active WHERE active.status='processing'
+          AND COALESCE(active.payload#>>'{events,0,source,userId}',active.event_id)=COALESCE(q.payload#>>'{events,0,source,userId}',q.event_id))
+        ORDER BY q.received_at,q.event_id FOR UPDATE OF q SKIP LOCKED LIMIT 1) AND status='pending'
         RETURNING event_id,payload`);
       const row = claimed.rows[0];
       if (!row) break;
