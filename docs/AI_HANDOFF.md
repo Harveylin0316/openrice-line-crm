@@ -1,5 +1,13 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-12 PR42 review 補修（同事 AI 必讀）
+
+- 以下覆蓋 PR42 原說明的 replace_welcome 缺省 true：目前僅 boolean true 才取代，舊設定缺欄位及編輯器一律不勾選，無 migration 或正式資料改寫。
+- triggerFollow 先確認來源流程入口為 send、LINE 素材存在且 builder 通過，再依成功 enrollment 決定是否抑制通用歡迎。無入口、無效素材、等待/貼標/分支入口、次數達上限、加入失敗保留通用 claim。逐流程隔離錯誤，不阻斷其他流程。
+- already_active 保留原專屬流程；already_enrolled 僅尚 active 或 context.webhook_event_id 等於本次事件時視為已接手，避免重送補出另一則通用歡迎。新 enrollment 記錄事件 ID；舊已結束流程不憑歷史報名抑制通用歡迎。
+- 這是可靠加入流程層級，不保證 LINE 實收；已加入後 worker 發送失敗沿既有重試/uncertain機制處理，不盲目補另一則。資料庫提交結果不明仍需營運查紀錄，不可假稱 exactly-once。
+- 補測 no entry、enrollment DB failure、上限、非發訊入口、舊缺旗標、已結束及active報名；保留圖文選單與手機排除區原更新。勿重新改回缺省 true，勿把單純查過入口當成功加入。
+
 ## 2026-10-09：歡迎訊息移至傳訊息與設定體驗改版
 
 - `/admin/welcome-messages` 歸入「傳訊息」，共用訊息導覽加入歡迎入口，設定分類移除該項目。桌機左右設定／即時預覽，手機改為上下排列。

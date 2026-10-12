@@ -85,7 +85,7 @@
       const replacing = data.flows.filter(flow => flow.source_key && flow.replace_welcome);
       const others = data.flows.filter(flow => !(flow.source_key && flow.replace_welcome));
       const parts = [];
-      if (replacing.length) parts.push('這些來源的新好友改收專屬訊息、不會收到這則通用歡迎：' + replacing.map(flow => flow.name + '（' + flow.source_key + '）').join('、') + '。');
+      if (replacing.length) parts.push('以下流程已勾選取代通用歡迎；只有第一步是有效發訊息且成功加入流程時，才不會收到這則通用歡迎：' + replacing.map(flow => flow.name + '（' + flow.source_key + '）').join('、') + '。等待、貼標、分支開頭或加入失敗時保留通用歡迎。');
       if (others.length) parts.push('其他也會在加好友時發送的流程：' + others.map(flow => flow.name + (flow.source_key ? '（' + flow.source_key + '）' : '')).join('、') + '。');
       parts.push('LINE 官方帳號後台的「加入好友的歡迎訊息」由 LINE 直接發送、系統無法關閉，請到 LINE 官方帳號後台確認已關閉，避免重複。');
       $('welcome-flows').textContent = parts.join(' ');

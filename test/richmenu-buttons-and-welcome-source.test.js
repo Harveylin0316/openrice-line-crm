@@ -138,20 +138,24 @@ test('發送文字按鍵比對：只取現役預設＋最新發布的選單；�
 });
 
 // ---------------------------------------------------------------- 5) 專屬來源取代通用歡迎
-function followHarness({ source = null, flows = [], sourceFails = false } = {}) {
+function followHarness({ source = null, flows = [], sourceFails = false, noEntry = false, entryType = 'send', enrollmentFails = false, capReached = false, existing = false, active = false, sameEvent = false, invalidTemplate = false } = {}) {
   const seen = { welcomeLoad: 0, enrolledFlows: [] };
   const query = async (sql, p = []) => {
     const s = String(sql);
     if (/FROM admin_flows WHERE status = 'active' AND trigger_type = \$1/.test(s)) return { rows: flows, rowCount: flows.length };
     if (/FROM line_follow_sources/.test(s)) { if (sourceFails) throw new Error('db'); return source ? { rows: [{ source_key: source }], rowCount: 1 } : { rows: [], rowCount: 0 }; }
     if (/FROM crm_welcome_settings/.test(s)) { seen.welcomeLoad++; return { rows: [{ enabled: false }], rowCount: 1 }; }
-    if (/FROM admin_flow_nodes WHERE flow_id = \$1 AND is_entry/.test(s)) { seen.enrolledFlows.push(p[0]); return { rows: [], rowCount: 0 }; }
+    if (/FROM admin_message_templates/.test(s)) return { rows: invalidTemplate ? [] : [{ message_config: {mode:'sequence',items:[{type:'text',text:'QA'}]} }], rowCount:invalidTemplate?0:1 };
+    if (/FROM admin_flow_nodes WHERE flow_id = \$1/.test(s)) return { rows: noEntry ? [] : [{node_key:'entry',type:entryType,config:{message_id:1}}], rowCount:noEntry?0:1 };
+    if (/COUNT\(\*\).*AS n/.test(s)) return {rows:[{n:capReached?1:0}],rowCount:1};
+    if (/SELECT 1 FROM admin_flow_enrollments/.test(s)) { const yes=s.includes("status='active'")?(active||sameEvent):existing;return {rows:yes?[{}]:[],rowCount:yes?1:0}; }
+    if (/INSERT INTO admin_flow_enrollments/.test(s)) { if(enrollmentFails && p[0]===7)throw Error('QA DB enrollment failed');seen.enrolledFlows.push(p[0]);return {rows:[{id:1}],rowCount:1}; }
     return { rows: [], rowCount: 0 };
   };
-  const engine = createFlowEngine({ query, pool: { connect: async () => ({ query, release() {} }) }, linePush: {}, buildLineMessages: () => ({ ok: true, messages: [] }) });
+ const engine = createFlowEngine({ query, pool: { connect: async () => ({ query, release() {} }) }, linePush: {}, buildLineMessages: require('../src/core/broadcastTemplates').buildLineMessages });
   return { engine, seen };
 }
-const fbFlow = (extra) => ({ id: 7, name: 'FB 專屬歡迎', status: 'active', trigger_type: 'follow', trigger_config: Object.assign({ source_key: 'fb_ad' }, extra || {}) });
+const fbFlow = (extra) => ({ id: 7, name: 'FB 專屬歡迎', status: 'active', trigger_type: 'follow', trigger_config: Object.assign({ source_key: 'fb_ad', replace_welcome:true }, extra || {}) });
 const generalFlow = { id: 8, name: '自動名單：新好友', status: 'active', trigger_type: 'follow', trigger_config: {} };
 
 test('從 fb_ad 進來且 FB 流程要取代通用歡迎：不發通用歡迎，FB 流程與通用流程照跑', async () => {
@@ -169,14 +173,38 @@ test('沒有來源、來源不同、或流程取消勾選：照常發通用歡�
   }
 });
 
-test('流程設定：有來源預設「取代通用歡迎」；沒來源不帶這個設定；編輯器與歡迎頁都有說明', () => {
+test('流程設定：取代通用歡迎須明確勾選；沒來源不帶設定；介面有說明', () => {
   const v = fs.readFileSync(path.join(REPO, 'views/admin_flows.ejs'), 'utf8');
   assert.match(v, /id="tc-replace-welcome"/);
   assert.match(v, /取代通用歡迎訊息/);
+  assert.match(v, /c\.replace_welcome===true\?' checked':''/);
   const r = fs.readFileSync(path.join(REPO, 'src/routes/adminFlows.js'), 'utf8');
-  assert.match(r, /tCfg\.replace_welcome = tCfg\.replace_welcome !== false;/);
+  assert.match(r, /tCfg\.replace_welcome = tCfg\.replace_welcome === true;/);
   assert.match(r, /delete tCfg\.replace_welcome;/);
   const w = fs.readFileSync(path.join(REPO, 'public/admin-welcome-messages.js'), 'utf8');
   assert.match(w, /不會收到這則通用歡迎/);
   assert.match(w, /LINE 官方帳號後台的「加入好友的歡迎訊息」/);
+});
+
+test('替代未成立時保留通用歡迎：無入口、加入失敗、上限、非訊息入口、舊流程未勾選及已結束舊報名',async()=>{
+ for(const options of [{noEntry:true},{enrollmentFails:true},{capReached:true},{entryType:'add_tag'},{entryType:'wait'},{entryType:'branch'},{existing:true},{invalidTemplate:true}]){
+  const flow=fbFlow(options.capReached?{user_limit:{max:1,window:'lifetime'}}:{});
+  const c=followHarness({source:'fb_ad',flows:[flow],...options});
+  await c.engine.triggerFollow('U'+'d'.repeat(32),1,{webhookEventId:'QA'});
+  assert.equal(c.seen.welcomeLoad,1,JSON.stringify(options));
+ }
+ const legacy=fbFlow();delete legacy.trigger_config.replace_welcome;
+ const c=followHarness({source:'fb_ad',flows:[legacy]});await c.engine.triggerFollow('U'+'e'.repeat(32),1,{});
+ assert.equal(c.seen.welcomeLoad,1);
+});
+
+test('專屬流程加入失敗不阻斷其他流程；已在進行中的專屬流程不另發通用歡迎',async()=>{
+ const failed=followHarness({source:'fb_ad',flows:[fbFlow(),generalFlow],enrollmentFails:true});
+ await failed.engine.triggerFollow('U'+'f'.repeat(32),1,{webhookEventId:'QA'});
+ assert.equal(failed.seen.welcomeLoad,1);assert.deepEqual(failed.seen.enrolledFlows,[8]);
+ const c=followHarness({source:'fb_ad',flows:[fbFlow(),generalFlow],existing:true,active:true});
+ await c.engine.triggerFollow('U'+'f'.repeat(32),1,{webhookEventId:'QA'});
+ assert.equal(c.seen.welcomeLoad,0);
+ const replay=followHarness({source:'fb_ad',flows:[fbFlow()],existing:true,sameEvent:true});
+ await replay.engine.triggerFollow('U'+'f'.repeat(32),1,{webhookEventId:'QA'});assert.equal(replay.seen.welcomeLoad,0);
 });

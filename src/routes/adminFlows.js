@@ -390,7 +390,7 @@ function registerAdminFlowsRoutes(app, deps) {
         if (!/^[A-Za-z0-9_-]{1,40}$/.test(raw)) return { ok: false, error: 'follow_source_invalid' };
         tCfg.source_key = raw.toLowerCase();
         // 有來源的加好友流程：預設「取代通用歡迎訊息」（該來源的新好友只收這條，不再收通用歡迎）
-        tCfg.replace_welcome = tCfg.replace_welcome !== false;
+        tCfg.replace_welcome = tCfg.replace_welcome === true;
       } else {
         delete tCfg.source_key;
         delete tCfg.replace_welcome;

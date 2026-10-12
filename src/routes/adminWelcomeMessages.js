@@ -7,7 +7,7 @@ function registerAdminWelcomeMessagesRoutes(app,{query,pool,authCore,linePush,re
  app.get('/admin/welcome-messages',guard,(req,res)=>res.render('admin_welcome_messages',{user:req.authUser?.un||'',isAdmin:true,title:'加入好友歡迎訊息'}));
  app.get('/admin/welcome-messages/api',guard,async(req,res)=>{try{
   const settings=await service.load();
-  const flows=await query("SELECT id,name,trigger_config->>'source_key' AS source_key,COALESCE(trigger_config->>'replace_welcome','true')<>'false' AS replace_welcome FROM admin_flows WHERE status='active' AND trigger_type='follow' AND COALESCE(trigger_config->>'managed_welcome','false')<>'true'");
+  const flows=await query("SELECT id,name,trigger_config->>'source_key' AS source_key,COALESCE(trigger_config->>'replace_welcome','false')='true' AS replace_welcome FROM admin_flows WHERE status='active' AND trigger_type='follow' AND COALESCE(trigger_config->>'managed_welcome','false')<>'true'");
   const testers=await query('SELECT id,label FROM admin_test_recipients ORDER BY id');
   res.json({ok:true,settings,flows:flows.rows,testers:testers.rows});
  }catch(e){fail(res,e);}});

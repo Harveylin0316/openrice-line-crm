@@ -473,8 +473,8 @@
             h='<p class="muted" style="font-size:13px;margin:0 0 8px;">有人加你 LINE 好友時觸發。<br><strong>來源留空</strong>＝所有新好友都跑這條；<strong>填了來源</strong>＝只有從該連結進來的新好友才跑。</p>'+
               '<div class="fl-field"><span>來源代號</span><input type="text" id="tc-source" value="'+esc(c.source_key||'')+'" placeholder="留空＝所有新好友" pattern="[A-Za-z0-9_-]{1,40}" title="只能用英數字、底線、減號"></div>'+
               '<p class="muted" style="font-size:12px;margin:6px 0 0;line-height:1.6;">行銷連結請用 <code>https://liff.line.me/&lt;你的LIFF_ID&gt;/s/來源代號</code><br>例：來源填 <code>fb_ad</code> → 連結 <code>.../s/fb_ad</code>。僅限英數字、底線、減號。</p>'+
-              '<label class="fl-check" style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:13px;line-height:1.6;"><input type="checkbox" id="tc-replace-welcome"'+(c.replace_welcome===false?'':' checked')+'>'+
-              '<span><b>取代通用歡迎訊息</b><br><span class="muted" style="font-size:12px;">勾選時，從這個來源加入的新好友只會收到這條流程的訊息，不再收到「加入好友歡迎訊息」，避免一次收到兩則。只在填了來源代號時有效。</span></span></label>';
+              '<label class="fl-check" style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:13px;line-height:1.6;"><input type="checkbox" id="tc-replace-welcome"'+(c.replace_welcome===true?' checked':'')+'>'+
+              '<span><b>取代通用歡迎訊息</b><br><span class="muted" style="font-size:12px;">預設不勾選。只有填了來源代號、第一步為有效的發訊息，且成功加入流程時才取代。等待、貼標、條件分支開頭或加入失敗時，保留通用歡迎；既有進行中或同事件已加入的流程不重複補發。這不是 LINE 實收保證。</span></span></label>';
           }else{
             h='<p class="muted" style="font-size:13px;margin:0 0 8px;">任何人加你 LINE 好友時觸發。</p>';
           }

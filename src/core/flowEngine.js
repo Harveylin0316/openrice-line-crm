@@ -199,27 +199,37 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     }
     const cfgSourceOf = (f) => (f.trigger_config && typeof f.trigger_config.source_key === 'string'
       ? f.trigger_config.source_key.trim().toLowerCase() : '');
-    const replacing = sourceKey ? flows.filter(f => f.trigger_config?.managed_welcome !== true
-      && cfgSourceOf(f) === sourceKey && f.trigger_config?.replace_welcome !== false) : [];
-    if (replacing.length) {
-      console.log('welcome replaced by source flow', JSON.stringify({ source: sourceKey, flows: replacing.map(f => f.id) }));
-    } else {
-      try { await welcomeService.claimFollow(lineUserId, evidence); } catch (e) { console.error("welcome enrollment failed:", e.code || "database_error"); }
-    }
-    try {
+    let replaced = false;
       for (const f of flows) {
         if (f.trigger_config?.managed_welcome === true) continue;
         const cfgSource = cfgSourceOf(f);
         // 來源留空 = 通用流程，對所有新好友觸發（維持既有行為，例如「自動名單：新好友」）
         // 有填來源 = 只對該來源進來的新好友觸發（沒來源的人不會收到）
         if (cfgSource && cfgSource !== sourceKey) continue;
-        await enrollUser(f, lineUserId, {
+        try {
+        // 舊設定不默默改行為；只有明確勾選且入口是可發送訊息才可取代。
+        let canReplace = false;
+        if (sourceKey && cfgSource === sourceKey && f.trigger_config?.replace_welcome === true) {
+          const entry = await getEntryNode(f.id);
+          if (entry?.type === 'send' && entry.config?.message_id) {
+            const template = await query('SELECT message_config FROM admin_message_templates WHERE id = $1 AND COALESCE(channel,\'line\')=\'line\'', [entry.config.message_id]);
+            const cfg = template.rows[0]?.message_config;
+            canReplace = !!cfg && buildLineMessages(cfg).ok === true;
+          }
+        }
+        const result = await enrollUser(f, lineUserId, {
           userId,
-          context: { trigger: 'follow', source_key: sourceKey || null }
+          context: { trigger: 'follow', source_key: sourceKey || null, webhook_event_id: evidence.webhookEventId || null }
         });
+        if (canReplace && (result.enrolled || result.reason === 'already_active')) replaced = true;
+        if (canReplace && result.reason === 'already_enrolled') {
+          const existing = await query("SELECT 1 FROM admin_flow_enrollments WHERE flow_id=$1 AND line_user_id=$2 AND (status='active' OR ($3::text IS NOT NULL AND context->>'webhook_event_id'=$3)) LIMIT 1", [f.id, lineUserId, evidence.webhookEventId || null]);
+          if (existing.rowCount > 0) replaced = true;
+        }
+        } catch (err) { console.error('flow triggerFollow enrollment failed:', err.code || 'database_error'); }
       }
-    } catch (err) {
-      console.error('flow triggerFollow error:', err.message);
+    if (!replaced) {
+      try { await welcomeService.claimFollow(lineUserId, evidence); } catch (e) { console.error('welcome enrollment failed:', e.code || 'database_error'); }
     }
   }
   async function triggerListJoin(listId, lineUserId, userId) {
