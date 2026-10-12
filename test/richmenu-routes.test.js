@@ -27,6 +27,7 @@ function build(opts) {
   global.fetch = async (url, o) => {
     const method = (o && o.method) || 'GET';
     lineCalls.push(method + ' ' + url);
+    if (method === 'GET' && /richmenu\/list$/.test(url)) return { ok:true, text:async()=>JSON.stringify({richmenus:[...(opts.oldIds || ['richmenu-old9']), ...Array.from({length:created},(_,i)=>'richmenu-new'+(i+1))].map(richMenuId=>({richMenuId}))}) };
     if (method === 'GET' && /user\/all\/richmenu$/.test(url)) {
       if (!opts.liveDefaultId) return { ok: false, status: 404, text: async () => '{}' };
       return { ok: true, status: 200, text: async () => JSON.stringify({ richMenuId: opts.liveDefaultId }) };
@@ -57,9 +58,12 @@ function build(opts) {
     audience_list_id: opts.audienceListId || null,
     config: opts.config || ONE_TAB, published_config: opts.config || ONE_TAB,
     schedule_end_menu_id: null };
+  let syncRow = row;
   const query = async (sql, params) => {
     const f = String(sql).replace(/\s+/g, ' ');
     dbCalls.push({ f, params });
+    if (/SELECT id, line_rich_menu_id, line_rich_menu_ids, audience_list_id, published_config/.test(f)) return {rows:[syncRow]};
+    if (/UPDATE rich_menus SET line_rich_menu_id=\$2, line_rich_menu_ids=\$3::jsonb/.test(f)) syncRow={...row,line_rich_menu_id:params[1],line_rich_menu_ids:JSON.parse(params[2]),published_config:JSON.parse(params[3])};
     if (/INSERT INTO rich_menu_taps/.test(f)) { taps.push(params); return { rows: [] }; }
     if (/SELECT id, name, config, line_rich_menu_id, line_rich_menu_ids, is_default, audience_list_id/.test(f))
       return { rows: [row] };
@@ -108,8 +112,9 @@ async function run(routes, key, reqBody, extras) {
   ok(seq.indexOf('POST https://api.line.me/v2/bot/richmenu') >= 0 &&
      seq.indexOf('/content') > seq.indexOf('POST https://api.line.me/v2/bot/richmenu') &&
      seq.indexOf('user/all/richmenu/richmenu-new1') > seq.indexOf('/content') &&
-     seq.indexOf('DELETE https://api.line.me/v2/bot/richmenu/richmenu-old9') > seq.indexOf('user/all/richmenu/richmenu-new1'),
-     '順序：建→傳圖→設預設→刪舊');
+     seq.indexOf('POST https://api.line.me/v2/bot/richmenu/batch') > seq.indexOf('user/all/richmenu/richmenu-new1') &&
+     !seq.includes('DELETE https://api.line.me/v2/bot/richmenu/richmenu-old9'),
+     '順序：建→傳圖→設預設→同步綁定，非同步期間保留舊版');
   ok(t.dbCalls.some(c => /SET is_default = \(id = \$1\)/.test(c.f)), '預設旗標用 id 比對');
   ok(t.dbCalls.some(c => /published_config=\$4::jsonb/.test(c.f)), '發布快照有存（轉址靠它查目的地）');
 
@@ -120,8 +125,9 @@ async function run(routes, key, reqBody, extras) {
   ok(t.lineCalls.filter(c => c === 'POST https://api.line.me/v2/bot/richmenu').length === 2, '建了兩張選單');
   ok(t.lineCalls.filter(c => /\/content$/.test(c)).length === 2, '傳了兩張圖');
   ok(t.lineCalls.filter(c => /alias/.test(c)).length >= 2, '兩個分頁別名都接好');
-  ok(t.lineCalls.some(c => c === 'DELETE https://api.line.me/v2/bot/richmenu/richmenu-oldA') &&
-     t.lineCalls.some(c => c === 'DELETE https://api.line.me/v2/bot/richmenu/richmenu-oldB'), '兩張舊選單都清掉');
+  ok(!t.lineCalls.some(c => c === 'DELETE https://api.line.me/v2/bot/richmenu/richmenu-oldA') &&
+     !t.lineCalls.some(c => c === 'DELETE https://api.line.me/v2/bot/richmenu/richmenu-oldB') &&
+     t.lineCalls.includes('POST https://api.line.me/v2/bot/richmenu/batch'), '舊分頁綁定送交同步，保留舊選單');
   const pubBody = t.dbCalls.filter(c => /published_config/.test(c.f))[0];
   ok(pubBody && String(pubBody.params[3]).indexOf('/r/1/') < 0, '存進快照的是原始網址（不是追蹤網址）');
 

@@ -829,7 +829,7 @@
         },
         'rm-live-btn':   function(b){
           if(!confirm('這一步會真的換掉用戶看到的選單：所有人的聊天室下方會變成這一個，蓋過現在那個（包含 LINE 官方後台設定的）。舊選單如果有分頁，之前切換過分頁的人要等舊選單被刪掉才會換過來。確定嗎？'))return;
-          post('/admin/richmenu/api/set-default',{id:Number(b.getAttribute('data-id'))},function(){load();});
+          post('/admin/richmenu/api/set-default',{id:Number(b.getAttribute('data-id'))},function(d){if(d.default_sync&&d.default_sync.submitted)alert('新版預設已設定，LINE 正在背景同步舊選單用戶。完成後不需封鎖再解封；請離開聊天室後重新進入。');load();});
         },
         'rm-del':        function(b){
           var pub=b.getAttribute('data-pub')==='1';
@@ -1520,6 +1520,7 @@
               $('rm-pub-modal').hidden=true;
               $('rm-editor-view').hidden=true;$('rm-list-view').hidden=false;
               if(d.audience_needs_reapply)alert('提醒：這個選單有名單專屬設定，發布了新版之後要回列表按「名單」再套用一次。');
+              if(d.default_sync&&d.default_sync.submitted)alert('新版已發布，LINE 正在背景同步舊選單用戶。舊選單暫時保留，不代表同步已全部完成；不需封鎖再解封。');
               load();
             },
             function(){
