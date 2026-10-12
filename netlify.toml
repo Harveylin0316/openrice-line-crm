@@ -39,6 +39,22 @@
   status = 200
 
 [[redirects]]
+  from = "/webhooks/line"
+  to = "/.netlify/functions/line-webhook-receiver"
+  status = 200
+  force = true
+
+[functions."scheduled-line-webhook-runner"]
+  schedule = "* * * * *"
+
+[functions."line-webhook-worker-background"]
+  external_node_modules = ["pg", "ejs"]
+  included_files = ["views/**", "public/**"]
+
+[functions."line-webhook-receiver"]
+  external_node_modules = ["pg"]
+
+[[redirects]]
   from = "/*"
   to = "/.netlify/functions/server"
   status = 200

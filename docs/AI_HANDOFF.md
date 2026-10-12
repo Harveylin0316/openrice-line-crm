@@ -1,5 +1,17 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-12 LINE webhook 快速收件（同事 AI 必讀）
+
+- Netlify `/webhooks/line` 精確 rewrite 到輕量 `line-webhook-receiver`，不先載入 Express/app。驗原始body簽章、驗event ID、原子存入line_webhook_inbox後才回200；空events驗證不寫資料；DB失敗503，不假稱收到。
+- 每event webhookEventId主鍵去重，LINE redelivery不重設payload/status。收件最多等300ms呼叫受SCHEDULED_RUNNER_SECRET保護的背景worker；wake失敗仍由每分鐘scheduled runner檢查pending喚醒。不可把改成一般非await Promise。
+- `line-webhook-worker-background` 使用Netlify真正背景執行（平台先202），逐筆atomic claim+SKIP LOCKED，全程await原驗簽handler。app.locals.processLineWebhook僅供worker本機呼叫；URL公開路由仍驗LINE簽章。沒有改第二OA。
+- pending可續處理，processing/done/uncertain不盲目重跑。handler500/throw標uncertain；processing超20分鐘標worker_interrupted待人工檢查。不承諾exactly-once送達，worker完成不等於LINE實收。舊handler內部捕捉的發送失敗仍查原發送紀錄。
+- 診斷入口 `/admin/line/webhooks` 顯示等待/處理/待確認及事件ID；讀取失敗不能顯示0。未提供一鍵重發uncertain，避免重複推播。
+- migration `20261012091804_line_webhook_inbox.sql` 必須先於程式部署，明確search_path crm_staging/public；新表RLS，anon/authenticated無CRUD，staging角色只授權staging。payload含短效replyToken/LINE事件，禁止輸出/匯出/log，不開公用REST；暫保留排障，不自動清除歷史。
+- 回滾先revert程式/精確rewrite/worker排程，保留非空inbox並查清pending；rollback SQL拒絕非空表。不能回退後刪掉待處理事件。worker至少一輪完成後再考慮回滾；不搬移或重放真實事件。
+- 新接收器降低正常處理耗時造成2秒警報，但平台冷啟動/網路/DB不可用仍可能失敗，不能保證永不再收到email。備援等到一分鐘可能超replyToken有效期，原紀錄需確認，不假稱備援必定能回覆；必要重試要LINE開啟redelivery。
+- 本機驗證：`node --test test/line-webhook-inbox.test.js`、`CRM_QA_ISOLATED=1 node scripts/qa/webhook-inbox-check.cjs`（只localhost:55439）；另真PG10路收件/5路worker、worker中斷與非空回滾拒絕。
+
 ## 2026-10-12 PR42 review 補修（同事 AI 必讀）
 
 - 以下覆蓋 PR42 原說明的 replace_welcome 缺省 true：目前僅 boolean true 才取代，舊設定缺欄位及編輯器一律不勾選，無 migration 或正式資料改寫。

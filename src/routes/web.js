@@ -678,6 +678,12 @@ function registerWebRoutes(app, deps) {
         query('SELECT COUNT(*)::int AS total FROM line_webhook_events')
       ]);
       const totalCount = total.rows[0]?.total || 0;
+      let inbox = null;
+      try {
+        const summary = await query("SELECT count(*) FILTER(WHERE status='pending')::int AS pending, count(*) FILTER(WHERE status='processing')::int AS processing, count(*) FILTER(WHERE status='uncertain')::int AS uncertain FROM line_webhook_inbox");
+        const recent = await query("SELECT event_id,status,reason,received_at FROM line_webhook_inbox WHERE status IN ('pending','processing','uncertain') ORDER BY received_at DESC LIMIT 20");
+        inbox = { ...summary.rows[0], records:recent.rows.map(r=>({...r,received:formatDateTimeTaipei(r.received_at)})) };
+      } catch { /* Missing migration/DB error is shown as unavailable, not as zero. */ }
       const recordsForView = (rows.rows || []).map(r => ({
         id: r.id,
         event_type: r.event_type,
@@ -693,6 +699,7 @@ function registerWebRoutes(app, deps) {
         logged_at_taipei: formatDateTimeTaipei(r.created_at) || '-'
       }));
       res.render('admin_line_webhooks', {
+        inbox,
         user: req.authUser.un,
         isAdmin: true,
         records: recordsForView,

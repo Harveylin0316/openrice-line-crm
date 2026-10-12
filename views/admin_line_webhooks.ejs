@@ -6,6 +6,7 @@
     body: `
     <section class="card">
       <h1>LINE Webhook 診斷</h1>
+      ${typeof inbox !== 'undefined' && inbox ? `<div class="card"><h2>事件收件與處理</h2><p>等待處理 ${Number(inbox.pending)} 筆 · 處理中 ${Number(inbox.processing)} 筆 · 結果待確認 ${Number(inbox.uncertain)} 筆</p><p class="muted">收件成功不代表訊息已送達。等待事件由背景工作與每分鐘備援處理；結果待確認不會自動重發，請先比對下方處理紀錄及訊息發送紀錄，避免重複通知。</p>${inbox.records.map(r=>`<p><code>${String(r.event_id).replace(/[<>&"']/g,'')}</code> · ${r.received} · ${r.status === 'uncertain' ? '結果待確認，勿直接補發' : r.status === 'pending' ? '等待處理' : '處理中'}</p>`).join('')}</div>` : '<p class="muted">事件收件狀態目前無法讀取，不能當作沒有異常。</p>'}
       <p class="muted">檢查 follow 事件是否進站，以及邀請加碼處理結果。下方時間為<strong>台灣時間</strong>（Asia/Taipei）。</p>
       <div class="admin-toolbar">
         <a class="btn" href="/admin/prizes">獎品設定</a>
