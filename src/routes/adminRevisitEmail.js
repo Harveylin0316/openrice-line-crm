@@ -10,6 +10,7 @@ const {
   renderRevisitText
 } = require('../core/revisitEmail');
 const { buildRestaurantDetailUrl } = require('../core/bookingReportClient');
+const { registerRevisitOutlook } = require('./revisitOutlook');
 
 const MAX_IMPORT_CHUNK = 500;
 const MAX_CAMPAIGN_RECIPIENTS = 5000;
@@ -700,6 +701,9 @@ function registerAdminRevisitEmailRoutes(app, deps) {
     }
   });
 
+  registerRevisitOutlook(app, { pool, requireOwner, jsonError, schemaError,
+    originFor: (req) => publicBaseUrl(req, configuredPublicBaseUrl, resolvePublicSiteOrigin) });
+
   app.post('/admin/revisit-email/api/generate', requireOwner, async (req, res) => {
     const rawAsOfDate = req.body && req.body.as_of_date;
     const asOfDate = parseDate(rawAsOfDate) || taipeiToday();
@@ -782,6 +786,13 @@ function registerAdminRevisitEmailRoutes(app, deps) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
+        await client.query("SELECT pg_advisory_xact_lock(hashtext('revisit_campaign_drafts'))");
+        const active = await client.query(`SELECT 1 FROM revisit_email_campaigns c WHERE c.status='sending'
+          AND EXISTS(SELECT 1 FROM revisit_email_recipients r WHERE r.campaign_id=c.id AND r.status IN ('pending','sending','needs_review')) LIMIT 1`);
+        if (active.rowCount) {
+          await client.query('ROLLBACK');
+          return jsonError(res, 409, 'campaign_still_active', '上一批還有待確認的信件，請先確認寄件備份或取消未寄草稿。');
+        }
         await client.query(`UPDATE revisit_email_recipients SET status = 'cancelled', updated_at = NOW()
           WHERE status = 'pending' AND campaign_id IN (SELECT id FROM revisit_email_campaigns WHERE status = 'draft')`);
         await client.query(`UPDATE revisit_email_campaigns SET status = 'cancelled', completed_at = NOW()
@@ -1059,7 +1070,8 @@ function registerAdminRevisitEmailRoutes(app, deps) {
       const sentTodayRs = await client.query(
         `SELECT COUNT(*)::int AS count FROM revisit_email_recipients
           WHERE (status='sent' AND (sent_at AT TIME ZONE 'Asia/Taipei')::date = (NOW() AT TIME ZONE 'Asia/Taipei')::date)
-             OR (status='sending' AND (updated_at AT TIME ZONE 'Asia/Taipei')::date = (NOW() AT TIME ZONE 'Asia/Taipei')::date)`
+             OR (status='sending' AND (updated_at AT TIME ZONE 'Asia/Taipei')::date = (NOW() AT TIME ZONE 'Asia/Taipei')::date)
+             OR (status='needs_review' AND failure_detail='outlook_draft_requested')`
       );
       dailyRemaining = Math.max(0, Number(settingsRs.rows[0].daily_send_limit) - Number(sentTodayRs.rows[0].count));
       if (dailyRemaining === 0) {
@@ -1245,15 +1257,21 @@ function registerAdminRevisitEmailRoutes(app, deps) {
         await client.query('ROLLBACK');
         return jsonError(res, 409, 'review_not_required', '這封信目前不是需人工確認狀態。');
       }
+      if (row.failure_detail === 'outlook_draft_requested' && action === 'retry') {
+        await client.query('ROLLBACK');
+        return jsonError(res, 409, 'delete_outlook_draft_first', '請先刪除 Outlook 未寄草稿，再取消此筆；不要重新排入以免重複寄送。');
+      }
       const eventType = {
         confirm_sent: 'manual_confirm_sent', retry: 'manual_retry', cancel: 'manual_cancel'
       }[action];
       const nextStatus = { confirm_sent: 'sent', retry: 'pending', cancel: 'cancelled' }[action];
       await client.query(
         `UPDATE revisit_email_recipients SET status=$2,
-          sent_at=CASE WHEN $2='sent' THEN COALESCE(sent_at,updated_at,NOW()) ELSE sent_at END,
+          sent_at=CASE WHEN $2='sent' THEN
+            CASE WHEN failure_detail='outlook_draft_requested' THEN NOW() ELSE COALESCE(sent_at,updated_at,NOW()) END ELSE sent_at END,
           failure_detail=CASE
             WHEN $2='pending' THEN NULL
+            WHEN $2='sent' AND failure_detail='outlook_draft_requested' THEN 'manually_confirmed_outlook_sent'
             WHEN $2='sent' THEN 'manually_confirmed_sent'
             ELSE 'manually_cancelled_after_review'
           END,

@@ -1,5 +1,14 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-12 回訪 Outlook 草稿模式（同事 AI 必讀）
+
+- Hen 只能使用既有報表站的 mailto 開 Outlook 草稿方式；不開雲端寄送、不搬公司密碼。回訪第4步新增 Outlook 入口，原 EWS/SMTP 留在「其他方式」；正式直接寄信鎖不變。同步訂位與優惠仍人工，不宣稱定期同步已完成。
+- 每位收件人獨立 mailto 純文字，帶當次已儲存內容、直接 CTA、正式退訂；沒有HTML/開信像素/點擊追蹤，無法指定寄件帳號（操作人需選 sales@openrice.com.tw），預設郵件程式不一定是 Outlook。URI 超2000字元提供完整欄位複製，不截斷。不得把多位客人塞 To/CC。
+- POST outlook-draft 僅owner、需明確確認；重查退訂／不可寄／同筆已處理、額度，交易reserve needs_review + failure_detail=outlook_draft_requested、campaign sending、audit後才回草稿。DB失敗不返回草稿。相同筆重取不新增audit；不能知道郵件程式是否成功開啟或儲存。產生批次和reserve共用advisory lock並在交易內重查active，避免把已開啟草稿取消重建。
+- needs_review不是sent；操作人查寄件備份後沿原review逐封confirm_sent，sent_at取確認時間（非偵測到真實送信時間）。未寄則先刪Outlook草稿再cancel；此類不允許retry。未處理Outlook草稿持續占額度，防止隔天積壓繞過。無法防止人員在郵件程式自行重複寄送／改內容／寄舊草稿，故不能宣稱自動對帳或完全防重。
+- migration 20261012122939_revisit_outlook_draft_audit.sql 只擴充既有event_type CHECK，指定search_path crm_staging/public；原RLS/grants不變。rollback有Outlook audit時拒絕縮回constraint，保留稽核，不刪紀錄。程式回滾會隱藏Outlook入口，但must先處理仍needs_review的人工草稿。
+- QA: test/revisit-outlook.test.js；CRM_QA_ISOLATED=1 node scripts/qa/revisit-outlook-check.cjs（僅localhost:55439專用暫存DB，測5路reserve、重複migration、回滾及退訂重查）。沒有真實客戶開信／寄送驗收。
+
 ## 2026-10-12 LINE webhook 快速收件（同事 AI 必讀）
 
 - Netlify `/webhooks/line` 精確 rewrite 到輕量 `line-webhook-receiver`，不先載入 Express/app。驗原始body簽章、驗event ID、原子存入line_webhook_inbox後才回200；空events驗證不寫資料；DB失敗503，不假稱收到。
