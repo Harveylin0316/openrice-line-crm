@@ -107,9 +107,12 @@
   });
   $('welcome-test').addEventListener('click', async () => {
     if (busy || dirty() || !validId($('welcome-tester').value) || !settings?.message_snapshot) return;
-    if (!confirm('將已儲存歡迎訊息發給選定測試人員，確認？')) return;
+    const testRecipientId = Number($('welcome-tester').value);
     busy = true; $('welcome-fields').disabled = true; sync();
-    try { const data = await api('/admin/welcome-messages/test', { testRecipientId: Number($('welcome-tester').value) }); status(data.skipped ? 'Staging 安全模式：未實際發送。' : 'LINE API 已接受測試發送。'); }
+    try {
+      if (!await window.crmConfirm('將已儲存歡迎訊息發給選定測試人員，確認？', { confirmText: '確認發送測試' })) return;
+      const data = await api('/admin/welcome-messages/test', { testRecipientId }); status(data.skipped ? 'Staging 安全模式：未實際發送。' : 'LINE API 已接受測試發送。');
+    }
     catch (error) { status(error.message, true); }
     finally { busy = false; $('welcome-fields').disabled = false; sync(); }
   });

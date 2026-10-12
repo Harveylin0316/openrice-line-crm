@@ -5,7 +5,7 @@ const path = require('node:path');
 const ejs = require('ejs');
 const { JSDOM } = require('jsdom');
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
-async function setup({ deleted = false, preview, loadError = false } = {}) {
+async function setup({ deleted = false, preview, loadError = false, testers = [] } = {}) {
  const html = await ejs.renderFile(path.join(__dirname, '../views/admin_welcome_messages.ejs'), {user:'qa', isAdmin:true});
  const dom = new JSDOM(html, {url:'https://crm.example/admin/welcome-messages', runScripts:'outside-only'});
  const w = dom.window, calls = [];
@@ -16,10 +16,11 @@ async function setup({ deleted = false, preview, loadError = false } = {}) {
   if(url.endsWith('/api/list')) data={ok:true,messages:[...(!deleted?[{id:1,name:'Live',channel:'line',message_config:{mode:'text'}}]:[]),{id:2,name:'Map',channel:'line',message_config:{mode:'imagemap'}},{id:'2x',name:'Invalid',channel:'line'},{id:3,name:'Email',channel:'email'}]};
   else if(url.endsWith('/preview')) data=preview?await preview(body):{ok:true,messages:[{type:'text',text:body.saved?'Saved preview':'New preview'}]};
   else if(body) data={ok:true,settings:{...saved,revision:4,message_id:Number(body.messageId),enabled:body.enabled,first_enabled:body.firstEnabled,unblocked_enabled:body.unblockedEnabled}};
-  else data=loadError?{ok:false,error:'migration_required'}:{ok:true,settings:saved,flows:[],testers:[]};
+  else data=loadError?{ok:false,error:'migration_required'}:{ok:true,settings:saved,flows:[],testers};
   return {ok:true,json:async()=>data};
  };
  w.confirm=()=>true;
+ w.eval(fs.readFileSync(path.join(__dirname,'../public/crm-confirm.js'),'utf8'));
  w.eval(fs.readFileSync(path.join(__dirname,'../public/message-snapshot-preview.js'),'utf8'));
  w.eval(fs.readFileSync(path.join(__dirname,'../public/admin-welcome-messages.js'),'utf8'));
  for (const script of w.document.querySelectorAll('script:not([src])')) w.eval(script.textContent);
@@ -43,4 +44,19 @@ test('late preview error cannot replace current selected preview',async()=>{
 });
 test('load error keeps editor disabled and welcome navigation belongs to messages',async()=>{
  const c=await setup({loadError:true});try {assert.equal(c.$('welcome-fields').disabled,true);assert.match(c.$('welcome-status').textContent,/migration/);assert.equal(c.w.document.querySelector('[data-admin-section="message"]').classList.contains('has-active'),true);assert.equal(c.w.document.querySelector('[data-category="設定"] a[href="/admin/welcome-messages"]'),null);}finally{c.close();}
+});
+test('welcome test uses in-page confirmation, cancellation sends nothing and duplicate clicks send once',async()=>{
+ const c=await setup({testers:[{id:7,label:'QA'}]});try {
+  c.w.confirm=()=>{throw new Error('Native confirmation must not be used');};
+  c.change('welcome-tester','7');c.$('welcome-test').click();
+  assert.ok(c.w.document.querySelector('.crm-confirm-overlay'));
+  c.w.document.querySelector('.crm-confirm-no').click();await tick();
+  assert.equal(c.calls.filter(x=>x.url.endsWith('/test')).length,0);
+  assert.equal(c.$('welcome-test').disabled,false);
+  c.$('welcome-test').click();c.$('welcome-test').click();
+  assert.equal(c.w.document.querySelectorAll('.crm-confirm-overlay').length,1);
+  c.w.document.querySelector('.crm-confirm-yes').click();await tick();
+  assert.deepEqual(c.calls.filter(x=>x.url.endsWith('/test')).map(x=>x.body),[{testRecipientId:7}]);
+  assert.equal(c.$('welcome-fields').disabled,false);
+ }finally{c.close();}
 });
