@@ -11,6 +11,7 @@ const {
 } = require('../core/revisitEmail');
 const { buildRestaurantDetailUrl } = require('../core/bookingReportClient');
 const { registerRevisitOutlook } = require('./revisitOutlook');
+const { registerRevisitMailTemplates } = require('./revisitMailTemplates');
 
 const MAX_IMPORT_CHUNK = 500;
 const MAX_CAMPAIGN_RECIPIENTS = 5000;
@@ -235,6 +236,7 @@ function registerAdminRevisitEmailRoutes(app, deps) {
   // smtpEmailProvider 保留給既有測試與舊呼叫端；實際可為 SMTP 或 Exchange EWS。
   const emailProvider = configuredProvider || smtpEmailProvider;
   const { requireAdmin, requireOwner } = authCore;
+  registerRevisitMailTemplates(app, {query, requireAdmin, requireOwner});
 
   app.get('/admin/revisit-email', requireAdmin, (req, res) => {
     res.render('admin_revisit_email', {

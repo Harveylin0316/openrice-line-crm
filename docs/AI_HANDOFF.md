@@ -1,5 +1,13 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-12 回訪郵件編輯器與雲端範本
+
+- 第4步逐封編輯改為郵件 envelope、主旨、大內文區與即時純文字預覽，沿既有儲存／Outlook reserve／人工確認。mailto 不支援 HTML，隱藏該模式無效 preheader 與舊 HTML iframe；不宣稱有字型、圖片、開信追蹤。
+- 範本 GET requireAdmin、POST requireOwner，獨立 revisit_email_templates。另存版本只 INSERT，沒有覆蓋／刪除。只保存名稱、主旨、preheader、body_text、建立人與時間；不保存 To/CTA/退訂 token/寄件狀態。儲存當封的姓名／餐廳（至少2字）轉為 {{客人姓名}}／{{餐廳名稱}}，其他優惠與日期文字不推測更新，操作人必須檢查。
+- 套用需頁內明確勾選，只改當前未鎖定的一封，代入當前姓名／餐廳、保留 CTA，尚需儲存這封；不改整批、不寄信。開過草稿／已寄出的內容維持不可改。切換客人時若當前內容有未儲存變更，先提示儲存或明確放棄。
+- migration 20261012124908_revisit_mail_templates.sql 指定 search_path public/crm_staging，RLS，anon/authenticated 無 table CRUD，staging 專用角色 SELECT/INSERT＋sequence usage。空表可 rollback，非空拒絕刪表保留範本，程式回滾即可。
+- QA: test/revisit-composer.test.js；CRM_QA_ISOLATED=1 node scripts/qa/revisit-composer-check.cjs 需 playwright（NODE_PATH 可指 bundled dependency），可指定 CRM_QA_BROWSER_CHANNEL=msedge；僅 localhost:55439 專用暫存DB＋3121合成頁，沒有實際寄信。UI桌機／390px及真PG保存重載驗證與固定 Staging／真人郵件測試分開記錄。
+
 ## 2026-10-12 回訪 Outlook 草稿模式（同事 AI 必讀）
 
 - Hen 只能使用既有報表站的 mailto 開 Outlook 草稿方式；不開雲端寄送、不搬公司密碼。回訪第4步新增 Outlook 入口，原 EWS/SMTP 留在「其他方式」；正式直接寄信鎖不變。同步訂位與優惠仍人工，不宣稱定期同步已完成。
