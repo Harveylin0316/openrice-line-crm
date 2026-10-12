@@ -457,7 +457,11 @@ app.locals.processLineWebhook = createLineWebhookHandler({
     flowEngine,
     goldPigBookings
   });
-app.post('/webhooks/line', express.raw({ type: 'application/json' }), app.locals.processLineWebhook);
+app.post('/webhooks/line', express.raw({ type: 'application/json' }), (req,res,next) => {
+  // Production requests must use the exact receiver rewrite, not bypass inbox via /server.
+  if (process.env.AWS_LAMBDA_FUNCTION_NAME) return res.status(409).json({ok:false,error:'use_webhook_receiver'});
+  next();
+}, app.locals.processLineWebhook);
 // 第二個 OA 的 webhook：只收集 userId 寫進 oa_contacts，完全獨立（自己的 secret/token）。
 // 必須與主 webhook 一樣用 express.raw 取原始 body 驗簽，且掛在全域 express.json 之前。
 app.post(

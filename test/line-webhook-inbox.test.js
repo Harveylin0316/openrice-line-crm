@@ -36,3 +36,21 @@ test('worker awaits processing; failure marks uncertain and is never blindly ret
  assert.equal((await drain()).processed,1);assert.deepEqual(finishes,[['QA','uncertain','handler_failed_no_blind_retry']]);
  assert.equal((await drain()).processed,0);
 });
+
+test('worker success waits for handler before marking done; claim failure never starts side effects',async()=>{
+ let claimed=false,finished=false;
+ const q=async(sql,p)=>{if(sql.includes('RETURNING event_id')){if(claimed)return {rows:[]};claimed=true;return {rows:[{event_id:'QA',payload:{}}]};}if(p?.[1]==='done')assert.equal(finished,true);return {rows:[]};};
+ await createDrain({query:q,processEvent:async()=>{await Promise.resolve();finished=true;return true;}})();assert.equal(finished,true);
+ let sideEffect=false;await assert.rejects(createDrain({query:async()=>{throw Error('DB');},processEvent:async()=>{sideEffect=true;}})());assert.equal(sideEffect,false);
+});
+test('worker requires internal secret before loading application or touching DB',async()=>{
+ const worker=require('../netlify/functions/line-webhook-worker-background');
+ await worker.handler({headers:{'x-scheduler-secret':'not-authorized'}});
+});
+test('diagnostic view renders queue status without exposing payload or treating unavailable as zero',async()=>{
+ const ejs=require('ejs');
+ const data={user:'QA',isAdmin:true,records:[],page:1,hasPrevPage:false,hasNextPage:false};
+ const h=await ejs.renderFile('views/admin_line_webhooks.ejs',{...data,inbox:{pending:2,processing:1,uncertain:1,records:[{event_id:'QA-1',received:'2026/10/12',status:'uncertain',payload:{replyToken:'DO-NOT-EXPOSE'}}]}});
+ assert.match(h,/等待處理 2/);assert.match(h,/結果待確認，勿直接補發/);assert.doesNotMatch(h,/DO-NOT-EXPOSE/);
+ const unavailable=await ejs.renderFile('views/admin_line_webhooks.ejs',data);assert.match(unavailable,/不能當作沒有異常/);
+});
