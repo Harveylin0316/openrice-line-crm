@@ -20,6 +20,38 @@ const { findUriButton, listUriButtons, isOwnLiff } = require('../core/messageTap
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 const { syncDefaultRichMenu } = require('../core/richMenuDefaultSync');
 
+/**
+ * 列出選單上每一顆按鍵（不含「不設定點擊動作」的格子），並找出「發送文字」重複的按鍵。
+ * 發送文字按鍵是靠比對客人送出的文字來記點擊的：同一段文字出現在好幾顆按鍵上，系統分不出是哪一顆，
+ * 點擊會全部記在最後一顆（分頁順序、格子順序的最後一個），與 webhook 的比對規則一致。
+ */
+function listMenuButtons(cfg) {
+  const tabs = Array.isArray(cfg.tabs) && cfg.tabs.length ? cfg.tabs : [{ buttons: cfg.buttons || [], cells: cfg.cells || [] }];
+  const multi = tabs.length > 1;
+  const buttons = [];
+  const byText = new Map();
+  tabs.forEach((t, ti) => {
+    const cells = Array.isArray(t.cells) ? t.cells : [];
+    (t.buttons || []).slice(0, cells.length || (t.buttons || []).length).forEach((b, ci) => {
+      const a = (b && b.action) || {};
+      if (a.type !== 'uri' && a.type !== 'message') return;
+      const kind = a.type === 'uri' ? 'link' : 'message';
+      const name = (multi ? '分頁' + String.fromCharCode(65 + ti) + '・' : '') + (String(b.label || '').trim() || ('第 ' + (ci + 1) + ' 格'));
+      const row = { tab: ti, cell: ci, kind, label: String(b.label || '').trim() || null, name };
+      if (kind === 'message') {
+        row.text = String(a.text || '').trim();
+        if (row.text) { if (!byText.has(row.text)) byText.set(row.text, []); byText.get(row.text).push(row); }
+      }
+      buttons.push(row);
+    });
+  });
+  const duplicates = [...byText.entries()].filter(([, list]) => list.length > 1).map(([text, list]) => ({
+    text, buttons: list.map(x => x.name), credited_to: list[list.length - 1].name,
+    credited_tab: list[list.length - 1].tab, credited_cell: list[list.length - 1].cell
+  }));
+  return { buttons, duplicates };
+}
+
 function registerAdminRichMenuRoutes(app, deps) {
   const { query, authCore, flowEngine } = deps;
   const { requireAdmin, requireOwner } = authCore;
@@ -1019,7 +1051,15 @@ function registerAdminRichMenuRoutes(app, deps) {
            FROM rich_menu_taps WHERE menu_id=$1
           GROUP BY tab, cell, kind, label
           ORDER BY tab, cell NULLS LAST`, [id]);
-      res.json({ ok: true, stats: rows });
+      // 選單上的每一顆按鍵（以已發布的設定為準），讓沒人點過的按鍵也列出來顯示 0
+      let buttons = [];
+      let duplicates = [];
+      try {
+        const m = (await query(`SELECT config, published_config FROM rich_menus WHERE id = $1`, [id])).rows[0];
+        const cfg = m && (m.published_config || m.config);
+        if (cfg) ({ buttons, duplicates } = listMenuButtons(cfg));
+      } catch (e) { /* 拿不到設定就只顯示有點擊的列 */ }
+      res.json({ ok: true, stats: rows, buttons, duplicates });
     } catch (err) {
       console.error('richmenu stats error:', err && err.message);
       jsonErr(res, 500, 'stats_failed', { detail: String(err && err.message || '').slice(0, 200) });
@@ -1041,4 +1081,4 @@ function registerAdminRichMenuRoutes(app, deps) {
   });
 }
 
-module.exports = { registerAdminRichMenuRoutes };
+module.exports = { listMenuButtons, registerAdminRichMenuRoutes };

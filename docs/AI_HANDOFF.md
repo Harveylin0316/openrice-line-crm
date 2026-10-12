@@ -637,6 +637,21 @@ LINE imagemap 只規定 `baseSize.width = 1040`、高度依比例。上傳不再
 實際送出的值仍是 `#exclude-broadcast-ids`（逗號分隔），草稿、後續群發、伺服器排除邏輯都沒改；勾選不重畫清單（鍵盤焦點不跳）。
 `GET /admin/broadcast/exclusion-sources` 多回傳 title、notification、kind、test_count。回歸測試 `test/broadcast-exclude-ab-ui.test.js`。
 
+#### 圖文選單：所有按鍵成效、重複文字提醒、比對優先序、不設定點擊動作；來源歡迎取代通用歡迎（2026-10-13）
+
+- 成效視窗列出選單上每一顆按鍵（以 published_config 為準，`listMenuButtons()`），沒人點過顯示 0；
+  `/admin/richmenu/api/stats` 多回傳 `buttons`、`duplicates`。
+- 「發送文字」按鍵靠比對客人送出的文字記點擊：同一選單多顆按鍵送相同文字時分不出來，點擊全記在最後一顆。
+  成效視窗頂端提醒並把其他顆標「合併記在 …」；編輯器編輯發送文字時即時提醒（`dupHint()`）。
+- webhook 比對按鍵文字原本 `ORDER BY is_default ASC, published_at ASC LIMIT 30`（取最舊 30 個，選單一多現役選單被排除、點擊漏記），
+  改為 `ORDER BY is_default DESC, published_at DESC NULLS LAST LIMIT 30` 再反轉寫入 map，讓現役預設最後蓋進去（同字記在現役）。
+- 按鍵動作新增 `{ type: 'none' }`「不設定點擊動作」：發布時不建立該格點擊區（避免空白處誤觸），可以沒有文字圖示；
+  每頁至少一格可點。編輯畫面以「（不可點）」標示，不會印到正式圖上。
+- 加好友流程有來源代號時，`trigger_config.replace_welcome`（預設 true）：該來源的新好友不發「加入好友歡迎訊息」，只跑專屬流程。
+  `triggerFollow` 先查來源與流程再決定是否 `claimFollow`；任何一步失敗都退回照發通用歡迎。歡迎頁列出被取代的來源。
+  LINE 官方帳號後台的加入好友歡迎訊息仍需在 LINE 後台手動關閉。
+回歸測試 `test/richmenu-buttons-and-welcome-source.test.js`（9 項，舊程式 8 項失敗）。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
