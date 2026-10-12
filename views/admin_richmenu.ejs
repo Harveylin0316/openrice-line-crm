@@ -143,6 +143,10 @@
               <button type="button" data-mode="activity" class="rm-actbtn">開啟活動</button>
               <button type="button" data-mode="uri" class="rm-actbtn">開啟網址</button>
               <button type="button" data-mode="message" class="rm-actbtn">發送文字</button>
+              <button type="button" data-mode="none" class="rm-actbtn">不設定點擊動作</button>
+            </div>
+            <div id="rm-act-none" class="rm-actbody" hidden>
+              <small class="muted">這一格<b>按了不會有任何反應</b>，適合空白或純裝飾的區域，避免客人誤觸。發布到 LINE 時不會為這一格建立點擊範圍。</small>
             </div>
             <div id="rm-act-activity" class="rm-actbody" hidden>
               <select id="rm-act-select"></select>
@@ -162,6 +166,7 @@
             <div id="rm-act-message" class="rm-actbody" hidden>
               <input type="text" id="rm-act-text" maxlength="100" placeholder="用戶按下去會自動送出這句話">
               <div id="rm-act-text-sugg" class="rm-sugg"></div>
+              <div id="rm-act-dup" class="rm-stat-warn" hidden></div>
               <small class="muted">打活動名稱（例如「分享超有哩」）官方帳號會自動回活動卡片。</small>
             </div>
           </div>
@@ -315,6 +320,9 @@
       .rm-actmode{display:flex;gap:6px;margin-bottom:8px;}
       .rm-actbtn{flex:1;padding:8px 4px;border:1.5px solid #ECECEE;background:#fff;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;color:#6B7280;}
       .rm-actbtn.on{border-color:#1f2937;color:#1f2937;background:#fff;}
+    .rm-stat-warn{background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.6;margin-bottom:8px;}
+    .rm-stat-zero td{color:#9CA3AF;}
+    .rm-stat-merged td{color:#B45309;font-size:12.5px;}
       .rm-actbody{display:flex;flex-direction:column;gap:7px;}
       .rm-actbody[hidden]{display:none;}
       .rm-actbody input,.rm-actbody select{padding:9px 11px;border:1px solid #ECECEE;border-radius:8px;font-size:13.5px;width:100%;}
@@ -578,7 +586,8 @@
           if(label){labelPx=fit(label,labelPx);ctx.textBaseline='alphabetic';setFont(labelPx);ctx.fillText(label,cx,top+box+labelPx*1.05);}
           if(sub){setFont(subPx,600);ctx.globalAlpha=0.78;ctx.fillText(sub,cx,top+box+(label?labelPx*1.25:0)+subPx*1.15);ctx.globalAlpha=1;}
         }else{
-          var showLabel=label||(forExport?'':'（沒有文字）');
+          var noAct=!!(b.action&&b.action.type==='none');
+          var showLabel=label||(forExport?'':(noAct?'（不可點）':'（沒有文字）'));
           var bigPx=Math.round(Math.min(Math.round(w*0.16),Math.round(h*0.3),150)*fs);
           if(showLabel){
             bigPx=fit(showLabel,bigPx);
@@ -989,7 +998,18 @@
           // 回傳缺欄位時要當成「沒有資料」，不能直接讀 .length——
           // 那會在 Promise 鏈裡拋錯，畫面上什麼都不會說
           var rows=Array.isArray(d.stats)?d.stats:[];
+          var liveButtons=Array.isArray(d.buttons)?d.buttons:[];
+          var dups=Array.isArray(d.duplicates)?d.duplicates:[];
+          // 選單上的每一顆按鍵都列出來：沒人點過的補一列 0（以前整行不出現，看起來像漏了）
+          liveButtons.forEach(function(b){
+            var has=rows.some(function(r){return r.kind===b.kind&&Number(r.tab)===Number(b.tab)&&Number(r.cell)===Number(b.cell);});
+            if(!has)rows.push({tab:b.tab,cell:b.cell,kind:b.kind,label:b.label,taps:0,taps_7d:0,people:0,identified_taps:0,zero:true});
+          });
           if(!rows.length){$('rm-stats-body').innerHTML='<p class="muted" style="font-size:13px;">還沒有任何點擊。</p>';return;}
+          rows.sort(function(a,b){
+            var ta=Number(a.tab)||0,tb=Number(b.tab)||0; if(ta!==tb)return ta-tb;
+            var ca=a.cell==null?999:Number(a.cell),cb=b.cell==null?999:Number(b.cell); return ca-cb;
+          });
           var tabs=getTabs(m.config||{});
           function cellName(r){
             if(r.kind==='tab')return '切到分頁'+String.fromCharCode(65+r.tab);
@@ -997,20 +1017,39 @@
             var nm=r.label||(b&&b.label)||('第 '+(Number(r.cell)+1)+' 格');
             return (tabs.length>1?('分頁'+String.fromCharCode(65+r.tab)+'・'):'')+nm;
           }
+          // 發送文字相同的按鍵：系統分不出是哪一顆，點擊全部記在 credited 那一顆
+          function mergedInto(r){
+            if(r.kind!=='message')return null;
+            for(var i=0;i<dups.length;i++){
+              var g=dups[i];
+              var isCredited=Number(g.credited_tab)===Number(r.tab)&&Number(g.credited_cell)===Number(r.cell);
+              if(!isCredited&&g.buttons.indexOf(cellName(r))>=0)return g.credited_to;
+            }
+            return null;
+          }
           var kindName={link:'開啟網址',message:'發送文字',tab:'分頁切換'};
           // 不重複人數：開啟網址的按鍵只有記到是誰點的才算得出來；
           // 一次都沒記到 → 「—」；只有部分點擊有記到（例如中途才開啟記錄）→ 顯示人數並註明
           function peopleCell(r){
+            if(r.zero)return '0';
             if(r.kind!=='link')return String(r.people);
             var identified=Number(r.identified_taps||0);
             if(!identified)return '<span title="這個按鍵沒有記錄是誰點的，只能看次數">—</span>';
             if(identified<Number(r.taps||0))return String(r.people)+'<div class="muted" style="font-size:11px;font-weight:400;">另有 '+(Number(r.taps)-identified)+' 次未記錄身分</div>';
             return String(r.people);
           }
-          $('rm-stats-body').innerHTML='<table class="rm-stat-table"><thead><tr>'+
+          var warn=dups.map(function(g){
+            return '<div class="rm-stat-warn">⚠ '+g.buttons.map(function(n){return '「'+esc(n)+'」';}).join('和')+
+              '送出相同的文字「'+esc(g.text)+'」，系統分不出是按了哪一顆，點擊都記在「'+esc(g.credited_to)+'」。'+
+              '要分開統計，請把它們的發送文字改成不同，再重新發布。</div>';
+          }).join('');
+          $('rm-stats-body').innerHTML=warn+'<table class="rm-stat-table"><thead><tr>'+
             '<th>按鍵</th><th>類型</th><th style="text-align:right;">總點擊</th><th style="text-align:right;">近 7 天</th><th style="text-align:right;">不重複人數</th></tr></thead><tbody>'+
             rows.map(function(r){
-              return '<tr><td>'+esc(cellName(r))+'</td><td>'+(kindName[r.kind]||esc(r.kind))+'</td>'+
+              var into=r.zero?mergedInto(r):null;
+              if(into)return '<tr class="rm-stat-merged"><td>'+esc(cellName(r))+'</td><td>'+(kindName[r.kind]||esc(r.kind))+'</td>'+
+                '<td colspan="3" style="text-align:right;">合併記在「'+esc(into)+'」</td></tr>';
+              return '<tr'+(r.zero?' class="rm-stat-zero"':'')+'><td>'+esc(cellName(r))+'</td><td>'+(kindName[r.kind]||esc(r.kind))+'</td>'+
                 '<td style="text-align:right;font-weight:700;">'+r.taps+'</td>'+
                 '<td style="text-align:right;">'+r.taps_7d+'</td>'+
                 '<td style="text-align:right;">'+peopleCell(r)+'</td></tr>';
@@ -1247,6 +1286,26 @@
         return known.indexOf(id)>=0;
       }
 
+      // 同一個選單裡，別的「發送文字」按鍵也送出一樣的文字 → 成效分不出是哪一顆（點擊會合併）
+      function dupHint(){
+        var el=$('rm-act-dup'); if(!el)return;
+        var b=curBtn(); var a=b.action||{};
+        var text=a.type==='message'?String(a.text||'').trim():'';
+        var others=[];
+        if(text){
+          (CFG.tabs||[]).forEach(function(t,ti){
+            (t.buttons||[]).slice(0,(t.cells||[]).length).forEach(function(x,ci){
+              if(x===b)return;
+              var xa=(x&&x.action)||{};
+              if(xa.type==='message'&&String(xa.text||'').trim()===text){
+                others.push((CFG.tabs.length>1?('分頁'+String.fromCharCode(65+ti)+' '):'')+'第 '+(ci+1)+' 格'+(x.label?'「'+x.label+'」':''));
+              }
+            });
+          });
+        }
+        el.hidden=!others.length;
+        el.textContent=others.length?('⚠ '+others.join('、')+' 也送出相同文字。成效會分不出是哪一顆、點擊會合併計算；要分開統計，請改成不同的文字。'):'';
+      }
       function curBtn(){
         var t=curTab();
         while((t.buttons||(t.buttons=[])).length<=selCell)t.buttons.push({label:'',sublabel:'',icon:null,image:null,action:null,bg:null});
@@ -1273,13 +1332,14 @@
         swatchRow($('rm-cellcolor-one'),['#4E342E','#FFF9E8','#FFFFFF','#E8491D','#1F2937'],b.color||null,true,
           function(c){b.color=c;dirty=true;renderCellPanel();redraw();});
 
-        var mode=b.action?(b.action.type==='message'?'message':(b.action.activity_id?'activity':'uri')):'activity';
+        var mode=b.action?(b.action.type==='none'?'none':(b.action.type==='message'?'message':(b.action.activity_id?'activity':'uri'))):'activity';
         [].slice.call(document.querySelectorAll('.rm-actbtn')).forEach(function(x){
           x.classList.toggle('on',x.getAttribute('data-mode')===mode);
         });
         $('rm-act-activity').hidden=mode!=='activity';
         $('rm-act-uri').hidden=mode!=='uri';
         $('rm-act-message').hidden=mode!=='message';
+        $('rm-act-none').hidden=mode!=='none';
         if(mode==='uri'){
           $('rm-act-url').value=(b.action&&b.action.uri)||'';
           var idc=$('rm-act-identify');
@@ -1300,6 +1360,7 @@
           }
         }
         if(mode==='message')$('rm-act-text').value=(b.action&&b.action.text)||'';
+        dupHint();
         if(mode==='activity'&&b.action&&b.action.activity_id)$('rm-act-select').value=String(b.action.activity_id);
       }
 
@@ -1355,8 +1416,9 @@
             b.action={type:'uri',uri:$('rm-act-url').value.trim()};
             b.identify=true;
           }
+          else if(m==='none'){b.action={type:'none'};}
           else{b.action={type:'message',text:$('rm-act-text').value.trim()};}
-          dirty=true;renderCellPanel();
+          dirty=true;renderCellPanel();redraw();
         });
       });
       function applyActivity(b,val){
@@ -1416,7 +1478,7 @@
         if(this.checked)b.identify=true; else delete b.identify;
         dirty=true;
       });
-      $('rm-act-text').addEventListener('input',function(){curBtn().action={type:'message',text:this.value.trim()};dirty=true;});
+      $('rm-act-text').addEventListener('input',function(){curBtn().action={type:'message',text:this.value.trim()};dirty=true;dupHint();});
 
       // ── 儲存 / 發布 ────────────────────────────────────────
       function setEditButtons(disabled){
@@ -1446,9 +1508,12 @@
         for(var t=0;t<CFG.tabs.length;t++){
           var tab=CFG.tabs[t];
           var where=CFG.tabs.length>1?('分頁'+String.fromCharCode(65+t)+'的第 '):'第 ';
+          var clickable=(tab.buttons||[]).slice(0,(tab.cells||[]).length).filter(function(b){return !(b&&b.action&&b.action.type==='none');}).length;
+          if((tab.cells||[]).length&&!clickable)return (CFG.tabs.length>1?('分頁'+String.fromCharCode(65+t)):'選單')+'至少要有一格設定點擊動作。';
           for(var i=0;i<(tab.cells||[]).length;i++){
             var b=(tab.buttons||[])[i]||{};
             var a=b.action||{};
+            if(a.type==='none')continue;   // 刻意不設定點擊動作的格子：可以空白
             var actOk=(a.type==='uri'&&String(a.uri||'').indexOf('https://')===0)||
                       (a.type==='message'&&String(a.text||'').trim());
             if(!actOk)return where+(i+1)+' 格還沒設定「按下去做什麼」。點那一格設定好再發布。';

@@ -472,7 +472,9 @@
           }else if(t==='follow'){
             h='<p class="muted" style="font-size:13px;margin:0 0 8px;">有人加你 LINE 好友時觸發。<br><strong>來源留空</strong>＝所有新好友都跑這條；<strong>填了來源</strong>＝只有從該連結進來的新好友才跑。</p>'+
               '<div class="fl-field"><span>來源代號</span><input type="text" id="tc-source" value="'+esc(c.source_key||'')+'" placeholder="留空＝所有新好友" pattern="[A-Za-z0-9_-]{1,40}" title="只能用英數字、底線、減號"></div>'+
-              '<p class="muted" style="font-size:12px;margin:6px 0 0;line-height:1.6;">行銷連結請用 <code>https://liff.line.me/&lt;你的LIFF_ID&gt;/s/來源代號</code><br>例：來源填 <code>fb_ad</code> → 連結 <code>.../s/fb_ad</code>。僅限英數字、底線、減號。</p>';
+              '<p class="muted" style="font-size:12px;margin:6px 0 0;line-height:1.6;">行銷連結請用 <code>https://liff.line.me/&lt;你的LIFF_ID&gt;/s/來源代號</code><br>例：來源填 <code>fb_ad</code> → 連結 <code>.../s/fb_ad</code>。僅限英數字、底線、減號。</p>'+
+              '<label class="fl-check" style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:13px;line-height:1.6;"><input type="checkbox" id="tc-replace-welcome"'+(c.replace_welcome===true?' checked':'')+'>'+
+              '<span><b>取代通用歡迎訊息</b><br><span class="muted" style="font-size:12px;">預設不勾選。只有填了來源代號、第一步為有效的發訊息，且成功加入流程時才取代。等待、貼標、條件分支開頭或加入失敗時，保留通用歡迎；既有進行中或同事件已加入的流程不重複補發。這不是 LINE 實收保證。</span></span></label>';
           }else{
             h='<p class="muted" style="font-size:13px;margin:0 0 8px;">任何人加你 LINE 好友時觸發。</p>';
           }
@@ -523,7 +525,7 @@
             if(c.match==='selected')document.querySelectorAll('[data-rm-button]:checked').forEach(function(x){var p=x.getAttribute('data-rm-button').split(':');c.buttons.push({tab:Number(p[0]),cell:Number(p[1])});});
           }
           else if(t==='restaurant_click'){var cz=($('tc-cuisine')&&$('tc-cuisine').value)||'';if(cz)c.cuisine=cz;}
-          else if(t==='follow'){var sk=((($('tc-source')&&$('tc-source').value)||'')+'').trim();if(sk)c.source_key=sk;}
+          else if(t==='follow'){var sk=((($('tc-source')&&$('tc-source').value)||'')+'').trim();if(sk){c.source_key=sk;c.replace_welcome=!!($('tc-replace-welcome')&&$('tc-replace-welcome').checked);}}
           else if(t==='inactivity'){c.days=Number($('tc-inact-days')&&$('tc-inact-days').value)||60;c.batch_limit=Number($('tc-inact-batch')&&$('tc-inact-batch').value)||50;}
           else if(t==='streak_risk'){c.min_streak=Number($('tc-streak-min')&&$('tc-streak-min').value)||2;c.batch_limit=Number($('tc-streak-batch')&&$('tc-streak-batch').value)||50;}
           else if(t==='event'){c.event_name=($('tc-event')&&$('tc-event').value)||'';}

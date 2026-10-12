@@ -119,3 +119,22 @@ test('伺服器：可排除的批次清單帶訊息名稱、類型與測試人�
   assert.deepEqual(Object.assign({}, res.body.sources[0], { title: Boolean(res.body.sources[0].title) }),
     { id: 90, created_at: '2026-10-01T04:00:00Z', status: 'done', title: true, notification: '中秋限定', kind: 'campaign', test_count: 640 });
 });
+
+test('沒有任何 A/B 群發時：說清楚什麼樣的群發會出現在這裡；摘要標籤不浮動壓住說明', async () => {
+  const html = await ejs.renderFile(path.join(REPO, 'views', 'admin_broadcast.ejs'), {
+    title: '群發訊息', bodyClass: 'admin-shell broadcast-shell', user: 'admin', isAdmin: true,
+    prizes: [], activities: [], recent: [], scheduled: [], running: [], hasLineToken: true,
+    maxRecipients: 5000, chunkSize: 50, fieldLimits: {}, msgLibMode: false, msgLibId: null, msgLibDup: false
+  }, { views: [path.join(REPO, 'views')] });
+  assert.doesNotMatch(html, /\.ex-ab-summary\{float:right/, '標籤不再浮動到右邊');
+  const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'https://crm.example/admin/broadcast', pretendToBeVisual: true });
+  const w = dom.window;
+  w.HTMLElement.prototype.scrollIntoView = () => {};
+  w.fetch = async (url) => url === '/admin/broadcast/exclusion-sources' ? { json: async () => ({ ok: true, sources: [] }) } : { json: async () => ({ ok: true, recipients: [], templates: [], lists: [] }) };
+  w.eval(fs.readFileSync(path.join(REPO, 'public', 'admin-broadcast.js'), 'utf8'));
+  await wait(60);
+  const text = w.document.getElementById('exclude-ab-list').textContent;
+  assert.match(text, /目前沒有可排除的批次/);
+  assert.match(text, /開啟過 A\/B 測試或 Campaign Testing 的 LINE 群發/);
+  dom.window.close();
+});

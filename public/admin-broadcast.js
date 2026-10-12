@@ -5221,7 +5221,11 @@
       if (!q) return true;
       return (String(b.title || '') + ' ' + String(b.notification || '') + ' #' + b.id + ' ' + b.id).toLowerCase().indexOf(q) >= 0;
     });
-    if (!exAbSources.length) { list.innerHTML = '<p class="muted" style="font-size:12.5px;">目前沒有做過 A/B 測試或 Campaign Testing 的群發。</p>'; return; }
+    if (!exAbSources.length) {
+      list.innerHTML = '<p class="muted" style="font-size:12.5px;line-height:1.6;">目前沒有可排除的批次。只有<b>開啟過 A/B 測試或 Campaign Testing 的 LINE 群發</b>會出現在這裡，' +
+        '送出後就能在這裡勾選，讓下一次群發不再發給當時收到測試版本的人。</p>';
+      return;
+    }
     if (!shown.length) { list.innerHTML = '<p class="muted" style="font-size:12.5px;">沒有符合搜尋的批次。</p>'; return; }
     list.innerHTML = shown.map(function (b) {
       var on = selected.indexOf(String(b.id)) >= 0;

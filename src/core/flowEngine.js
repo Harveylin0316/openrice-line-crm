@@ -177,39 +177,59 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
 
   // ---------- 觸發：follow / list_join（由外部即時呼叫） ----------
   async function triggerFollow(lineUserId, userId, evidence = {}) {
-    try { await welcomeService.claimFollow(lineUserId,evidence); } catch(e) { console.error("welcome enrollment failed:", e.code || "database_error"); }
+    // 先查來源與符合的加好友流程，再決定要不要發「通用歡迎訊息」：
+    // 從專屬來源連結進來、且該來源有啟用「取代通用歡迎訊息」的流程 → 只發專屬流程，不發通用歡迎（避免一次收到兩則）。
+    // 任何一步出錯都退回原本行為（照發通用歡迎），不能讓新好友什麼都收不到。
+    let flows = [];
+    let sourceKey = null;
+    try { flows = await getActiveFlowsByTrigger('follow'); }
+    catch (err) { console.error('flow triggerFollow load failed:', err.message); flows = []; }
     try {
-      const flows = await getActiveFlowsByTrigger('follow');
       // LINE 的 follow 事件不帶來源，來源是 LIFF 落地頁事先寫進 line_follow_sources 的。
-      let sourceKey = null;
-      try {
-        // 30 天有效期：避免「三月點的活動連結，十二月封鎖後重加好友時又被當成該活動來源」而重播舊歡迎訊息
-        const rs = await query(
-          `SELECT source_key FROM line_follow_sources
-           WHERE line_user_id = $1 AND updated_at > now() - interval '30 days'`,
-          [String(lineUserId || '').trim()]
-        );
-        if (rs.rowCount > 0) sourceKey = rs.rows[0].source_key || null;
-      } catch (e) {
-        // 查不到來源不該讓整個 follow 觸發失效：退回「只跑通用流程」
-        console.error('flow triggerFollow source lookup failed:', e && e.message);
-      }
+      // 30 天有效期：避免「三月點的活動連結，十二月封鎖後重加好友時又被當成該活動來源」而重播舊歡迎訊息
+      const rs = await query(
+        `SELECT source_key FROM line_follow_sources
+         WHERE line_user_id = $1 AND updated_at > now() - interval '30 days'`,
+        [String(lineUserId || '').trim()]
+      );
+      if (rs.rowCount > 0) sourceKey = rs.rows[0].source_key || null;
+    } catch (e) {
+      // 查不到來源不該讓整個 follow 觸發失效：退回「只跑通用流程」
+      console.error('flow triggerFollow source lookup failed:', e && e.message);
+    }
+    const cfgSourceOf = (f) => (f.trigger_config && typeof f.trigger_config.source_key === 'string'
+      ? f.trigger_config.source_key.trim().toLowerCase() : '');
+    let replaced = false;
       for (const f of flows) {
         if (f.trigger_config?.managed_welcome === true) continue;
-        const cfgSource =
-          f.trigger_config && typeof f.trigger_config.source_key === 'string'
-            ? f.trigger_config.source_key.trim().toLowerCase()
-            : '';
+        const cfgSource = cfgSourceOf(f);
         // 來源留空 = 通用流程，對所有新好友觸發（維持既有行為，例如「自動名單：新好友」）
         // 有填來源 = 只對該來源進來的新好友觸發（沒來源的人不會收到）
         if (cfgSource && cfgSource !== sourceKey) continue;
-        await enrollUser(f, lineUserId, {
+        try {
+        // 舊設定不默默改行為；只有明確勾選且入口是可發送訊息才可取代。
+        let canReplace = false;
+        if (sourceKey && cfgSource === sourceKey && f.trigger_config?.replace_welcome === true) {
+          const entry = await getEntryNode(f.id);
+          if (entry?.type === 'send' && entry.config?.message_id) {
+            const template = await query('SELECT message_config FROM admin_message_templates WHERE id = $1 AND COALESCE(channel,\'line\')=\'line\'', [entry.config.message_id]);
+            const cfg = template.rows[0]?.message_config;
+            canReplace = !!cfg && buildLineMessages(cfg).ok === true;
+          }
+        }
+        const result = await enrollUser(f, lineUserId, {
           userId,
-          context: { trigger: 'follow', source_key: sourceKey || null }
+          context: { trigger: 'follow', source_key: sourceKey || null, webhook_event_id: evidence.webhookEventId || null }
         });
+        if (canReplace && (result.enrolled || result.reason === 'already_active')) replaced = true;
+        if (canReplace && result.reason === 'already_enrolled') {
+          const existing = await query("SELECT 1 FROM admin_flow_enrollments WHERE flow_id=$1 AND line_user_id=$2 AND (status='active' OR ($3::text IS NOT NULL AND context->>'webhook_event_id'=$3)) LIMIT 1", [f.id, lineUserId, evidence.webhookEventId || null]);
+          if (existing.rowCount > 0) replaced = true;
+        }
+        } catch (err) { console.error('flow triggerFollow enrollment failed:', err.code || 'database_error'); }
       }
-    } catch (err) {
-      console.error('flow triggerFollow error:', err.message);
+    if (!replaced) {
+      try { await welcomeService.claimFollow(lineUserId, evidence); } catch (e) { console.error('welcome enrollment failed:', e.code || 'database_error'); }
     }
   }
   async function triggerListJoin(listId, lineUserId, userId) {

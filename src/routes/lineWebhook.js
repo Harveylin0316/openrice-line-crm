@@ -505,10 +505,13 @@ function createLineWebhookHandler({
                 // 同一段文字可能出現在好幾個已發布選單上；訊息事件分不出用戶按的是哪個。
                 // 排序讓「現役預設選單」最後蓋進 map ＝ 同字歸因給現役那個，
                 // 統計至少穩定偏向大家實際看得到的選單，不會隨機記到備用選單頭上。
-                const { rows: pubs } = await pool.query(
+                // 取「現役預設＋最新發布」的 30 個選單（以前是取最舊的 30 個，選單一多，
+                // 現役選單反而被排除、點擊漏記）；再反過來逐一寫入 map，讓優先的最後蓋進去。
+                const { rows: top } = await pool.query(
                   `SELECT id, published_config FROM rich_menus
                     WHERE status='published' AND published_config IS NOT NULL
-                    ORDER BY is_default ASC, published_at ASC NULLS FIRST LIMIT 30`);
+                    ORDER BY is_default DESC, published_at DESC NULLS LAST LIMIT 30`);
+                const pubs = top.slice().reverse();
                 const map = new Map();
                 for (const r of pubs) {
                   const tabsArr = Array.isArray(r.published_config.tabs) && r.published_config.tabs.length

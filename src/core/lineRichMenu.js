@@ -238,6 +238,8 @@ function buildLineMenuObject(config, opts) {
   const areas = cells.map((c, i) => {
     const b = buttons[i] || {};
     const a = b.action || {};
+    // 「不設定點擊動作」：這一格不建立點擊區，按了沒有反應（避免空白或裝飾區誤觸）
+    if (a.type === 'none') return null;
     const bounds = {
       x: Math.max(0, Math.round(c.x)),
       y: Math.max(0, Math.round(c.y)),
@@ -268,7 +270,10 @@ function buildLineMenuObject(config, opts) {
       throw new Error('第 ' + (i + 1) + ' 格還沒放文字、圖示或圖片');
     }
     return { bounds, action };
-  });
+  }).filter(Boolean);
+  if (!areas.length) {
+    throw new Error((multiTab ? ('「' + (tab.label || ('分頁' + (tabIndex + 1))) + '」') : '選單') + '至少要有一格設定點擊動作');
+  }
 
   if (multiTab) {
     for (let i = 0; i < cells.length; i++) {
@@ -307,6 +312,8 @@ function sanitizeMenuConfig(raw) {
       if (a.activity_id != null) action.activity_id = str(a.activity_id, 20);
     } else if (a && a.type === 'message') {
       action = { type: 'message', text: str(a.text, 300) };
+    } else if (a && a.type === 'none') {
+      action = { type: 'none' };
     }
     const img = str(b.image, 500);
     const hexB = (v) => (/^#[0-9a-fA-F]{6}$/.test(String(v || '')) ? String(v) : null);

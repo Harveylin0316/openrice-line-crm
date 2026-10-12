@@ -80,7 +80,16 @@
       $('welcome-message').add(new Option(asset.name + ' #' + asset.id, String(asset.id)));
     });
     show(data.settings);
-    $('welcome-flows').textContent = data.flows.length ? '其他啟用中的加好友流程：' + data.flows.map(flow => flow.name).join('、') : '未發現其他啟用中的加好友流程；仍需檢查 LINE 原生後台。';
+    {
+      // 有來源且勾「取代通用歡迎訊息」的流程：該來源的新好友只收專屬訊息，不收這裡的通用歡迎
+      const replacing = data.flows.filter(flow => flow.source_key && flow.replace_welcome);
+      const others = data.flows.filter(flow => !(flow.source_key && flow.replace_welcome));
+      const parts = [];
+      if (replacing.length) parts.push('以下流程已勾選取代通用歡迎；只有第一步是有效發訊息且成功加入流程時，才不會收到這則通用歡迎：' + replacing.map(flow => flow.name + '（' + flow.source_key + '）').join('、') + '。等待、貼標、分支開頭或加入失敗時保留通用歡迎。');
+      if (others.length) parts.push('其他也會在加好友時發送的流程：' + others.map(flow => flow.name + (flow.source_key ? '（' + flow.source_key + '）' : '')).join('、') + '。');
+      parts.push('LINE 官方帳號後台的「加入好友的歡迎訊息」由 LINE 直接發送、系統無法關閉，請到 LINE 官方帳號後台確認已關閉，避免重複。');
+      $('welcome-flows').textContent = parts.join(' ');
+    }
     data.testers.filter(tester => validId(tester.id)).forEach(tester => $('welcome-tester').add(new Option(tester.label || '測試人員 #' + tester.id, String(tester.id))));
     if ($('welcome-tester').options.length === 1) $('welcome-test-note').textContent = '尚無已登記測試人員。請由管理員登記後再測試；不會發給一般好友。';
     $('welcome-fields').disabled = false;
