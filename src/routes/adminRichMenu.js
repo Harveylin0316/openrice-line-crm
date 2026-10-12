@@ -18,6 +18,7 @@
 const { createLineRichMenuService, buildLineMenuObject, sanitizeMenuConfig, normalizeTabs } = require('../core/lineRichMenu');
 const { findUriButton, listUriButtons, isOwnLiff } = require('../core/messageTapTracking');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
+const { syncDefaultRichMenu } = require('../core/richMenuDefaultSync');
 
 function registerAdminRichMenuRoutes(app, deps) {
   const { query, authCore, flowEngine } = deps;
@@ -248,6 +249,8 @@ function registerAdminRichMenuRoutes(app, deps) {
                   published_at=now(), updated_at=now() WHERE id=$1`,
           [id, newIds[0], JSON.stringify(idsJson), JSON.stringify({
             ...cleanConfig,
+            // Preserve replaced IDs so a failed/uncertain sync can be retried after publishing.
+            default_sync_old_ids: [...new Set([...oldIds, ...((row.published_config && Array.isArray(row.published_config.default_sync_old_ids)) ? row.published_config.default_sync_old_ids : [])])],
             // v3 = 每一顆 HTTPS 網址按鈕都走已驗證身分的 LIFF 跳板。
             // v2 仍可能只有手動勾選的按鈕有包裝，不能視為完整支援。
             tap_tracking_version: 3,
@@ -296,15 +299,23 @@ function registerAdminRichMenuRoutes(app, deps) {
         await query(`UPDATE rich_menus SET is_default = (id = $1)`, [id]).catch(() => {});
       }
 
-      // 5) 清掉舊版（絕不刪正在被所有人看到的，除非新的已接手）
+      // LINE batch replacement is asynchronous: retain old menus while links move.
+      let defaultSync = null;
+      if (setDefault) {
+        try { defaultSync = await syncDefaultRichMenu({ query, rm, targetId: newIds[0], targetRowId: id, extraOldIds: oldIds }); }
+        catch (e) { return jsonErr(res, 500, 'default_sync_failed', {
+          detail: '預設選單已更新，但舊用戶選單同步未確認成功。舊選單已保留，請稍後再按「設為所有人看到的」；不要要求客人封鎖。' }); }
+      }
+      // 5) Default old menus must remain until LINE has completed asynchronous replacement.
       for (const oid of oldIds) {
+        if (setDefault) continue;
         if (newIds.includes(oid)) continue;
         const oldStillLive = !setDefault && oid === liveDefault;
         if (!oldStillLive) await rm.deleteRichMenu(oid).catch(() => {});
       }
 
       res.json({ ok: true, line_rich_menu_id: newIds[0], tabs: tabs.length, is_default: setDefault,
-                 audience_needs_reapply: !!row.audience_list_id });
+                 audience_needs_reapply: !!row.audience_list_id, default_sync: defaultSync });
     } catch (err) {
       console.error('richmenu publish error:', err && err.message);
       jsonErr(res, 500, 'publish_failed', { detail: String(err && err.message || '').slice(0, 300) });
@@ -324,6 +335,10 @@ function registerAdminRichMenuRoutes(app, deps) {
       }
       if (!lineId) return jsonErr(res, 400, 'bad_id');
       await rm.setDefault(lineId);
+      let defaultSync;
+      try { defaultSync = await syncDefaultRichMenu({ query, rm, targetId: lineId, targetRowId: rowId }); }
+      catch (e) { return jsonErr(res, 500, 'default_sync_failed', {
+        detail: '預設選單已更新，但舊用戶選單同步未確認成功。請稍後重試（LINE 每小時最多接受 3 次批次同步）。舊選單不會被清除。' }); }
       // IS NOT DISTINCT FROM：草稿列的 line_rich_menu_id 是 NULL，
       // 用 = 比對會算出 NULL 塞進 NOT NULL 欄位，整句失敗（審查抓到的實錯）
       try {
@@ -336,7 +351,7 @@ function registerAdminRichMenuRoutes(app, deps) {
         return jsonErr(res, 500, 'db_failed', {
           detail: '所有人看到的選單已經換好了，但後台紀錄沒跟上。重新整理頁面就會恢復正常。' });
       }
-      res.json({ ok: true });
+      res.json({ ok: true, default_sync: defaultSync });
     } catch (err) {
       console.error('richmenu set-default error:', err && err.message);
       jsonErr(res, 500, 'set_default_failed', { detail: String(err && err.message || '').slice(0, 300) });
@@ -828,6 +843,7 @@ function registerAdminRichMenuRoutes(app, deps) {
               const { rows: em } = await query(`SELECT line_rich_menu_id FROM rich_menus WHERE id=$1`, [r.schedule_end_menu_id]);
               if (em.length && em[0].line_rich_menu_id) {
                 await rm.setDefault(em[0].line_rich_menu_id);
+                await syncDefaultRichMenu({ query, rm, targetId: em[0].line_rich_menu_id, targetRowId: r.schedule_end_menu_id });
                 await query(`UPDATE rich_menus SET is_default = (id = $1) WHERE true`, [r.schedule_end_menu_id]);
               }
             } else {
@@ -847,6 +863,7 @@ function registerAdminRichMenuRoutes(app, deps) {
       for (const r of toStart) {
         try {
           await rm.setDefault(r.line_rich_menu_id);
+          await syncDefaultRichMenu({ query, rm, targetId: r.line_rich_menu_id, targetRowId: r.id });
           await query(`UPDATE rich_menus SET is_default = (id = $1) WHERE true`, [r.id]);
           await query(
             `UPDATE rich_menus SET schedule_state = CASE WHEN schedule_end_at IS NOT NULL THEN 'live' ELSE 'done' END,

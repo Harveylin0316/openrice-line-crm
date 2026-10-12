@@ -7,6 +7,11 @@
 - 保留既有全 LINE 樣式與 snapshot/revision、權限及安全發送流程；無 migration、無後端發送行為變更。素材 ID 僅接受正整數；已刪素材用安全文字 option 保留已存版本。過期預覽成功／錯誤均忽略，不覆盖新選擇。
 - 回歸：`test/welcome-editor.test.js`；本機完整 `npm test` 542/542 通過，桌機及 390px 無水平溢出。固定 Staging 已確認部署 e6deb27 前端檔案一致，儲存／重載／還原、同圖不同動作的 Imagemap 切換與取消、文字＋Flex＋圖片預覽、桌機／390px 無水平溢出及 console error 0。測試後還原原設定且維持停用，無真人發送；詳見 `docs/reviews/2026-10-09-welcome-ui-hen.md`。
 - 回滾只 revert 本次歡迎 UI commit（基準 db25780），不刪追蹤表、不更改歡迎快照或啟用狀態；無 SQL rollback。
+## 2026-10-12：換預設同步舊分頁用戶
+
+- 設預設、重新發布目前預設、排程切換時，以 LINE richmenu/batch 精確將 CRM 舊一般選單（含分頁）的個人綁定轉到新版首頁；不使用 unlinkAll、不處理外部或分眾專屬選單，保留當前分頁。
+- LINE 非同步接受不代表完成；UI 明說背景同步，舊預設選單不立即刪除。published_config.default_sync_old_ids 保存重發前 ID，供失敗後重試；無 schema migration。每小時 3 次 LINE batch 限制，失敗明說預設已換但同步未確認，不假稱完成。不會發送訊息。
+- 手機群發取消 PR39 使用頁面內 crmConfirm，不再依賴原生 confirm；已送出不可回收，處理中的一波仍可能送出。
 
 ## 2026-10-08：已刪除關鍵字規則的歷史成效標籤
 
