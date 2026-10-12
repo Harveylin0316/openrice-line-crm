@@ -58,6 +58,7 @@
       </section></div><div class="admin-finder-empty" id="admin-finder-empty" hidden>找不到。換一個簡單的關鍵字，或打開「教學」。</div></dialog>
     <% } %>
     <main class="container"><% if (typeof isAdmin !== 'undefined' && isAdmin && user) { %><div class="admin-context" id="admin-page-context" hidden><a href="/admin">工作台</a><span aria-hidden="true">›</span><span class="admin-context-current" id="admin-context-current"></span></div><% } %><%- body %></main>
+    <script src="/crm-confirm.js?v=20261009"></script>
     <script>(function(){
       var p=location.pathname;var items=Array.prototype.slice.call(document.querySelectorAll('[data-finder-item]'));
       function match(h){return h&&((p===h)||(p.indexOf(h+'/')===0));}

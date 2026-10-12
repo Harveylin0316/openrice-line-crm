@@ -678,7 +678,8 @@
         });
         var cancelBtn = document.getElementById('btn-cancel-experiment');
         if (cancelBtn) cancelBtn.addEventListener('click', function () {
-          if (!confirm('確定取消保留名單？測試組已送出的訊息不會收回，但 Winner 不會再送給保留名單。')) return;
+          window.crmConfirm('確定取消保留名單？測試組已送出的訊息不會收回，但勝出版本不會再送給保留名單。', { confirmText: '確定取消', danger: true }).then(function (yes) {
+          if (!yes) return;
           cancelBtn.disabled = true;
           statusEl.textContent = '取消中…';
           fetch('/admin/broadcast/${broadcast.id}/cancel', { method: 'POST' })
@@ -692,6 +693,7 @@
               statusEl.textContent = '取消失敗：' + err.message;
               cancelBtn.disabled = false;
             });
+          });
         });
       })();
     </script>
