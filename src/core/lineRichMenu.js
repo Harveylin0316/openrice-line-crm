@@ -97,6 +97,17 @@ function createLineRichMenuService({ channelAccessToken }) {
     await call('POST', API + '/v2/bot/user/all/richmenu/' + encodeURIComponent(richMenuId));
   }
 
+  // Only replace users linked to explicitly selected old menus; never unlinkAll.
+  async function replaceLinkedMenus(fromIds, toId) {
+    const operations = [...new Set(fromIds)].filter(id => id && id !== toId)
+      .map(from => ({ type: 'link', from, to: toId }));
+    if (!operations.length) return { submitted: false };
+    if (operations.length > 1000) throw new Error('舊選單數量超過 LINE 同步上限');
+    const resumeRequestKey = require('node:crypto').randomUUID();
+    await call('POST', API + '/v2/bot/richmenu/batch', { body: { operations, resumeRequestKey } });
+    return { submitted: true, menus: operations.length };
+  }
+
   /** 取消預設選單。
    *
    *  實測（2026-08-25，正式帳號）：這支會取消「目前生效的預設選單」，
@@ -153,7 +164,7 @@ function createLineRichMenuService({ channelAccessToken }) {
 
   return {
     createRichMenu, uploadImage, downloadImage,
-    listRichMenus, getDefaultRichMenu, setDefault, clearDefault, deleteRichMenu,
+    listRichMenus, getDefaultRichMenu, setDefault, replaceLinkedMenus, clearDefault, deleteRichMenu,
     upsertAlias, deleteAlias, bulkLink, bulkUnlink
   };
 }
