@@ -526,7 +526,7 @@ test('畫面：規則列有 A/B 測試按鈕（兜底規則沒有）；建立流
   doc.getElementById('kr-ab-start-btn').click();
   await wait(30);
   const create = posts.find(p => p.url === '/admin/keyword-replies/api/7/experiments');
-  assert.deepEqual(create.body, { name: 'STAGING 封面', a_template_id: 1, b_template_id: 2, fallback_variant: 'a', primary: { a: [0], b: [0] }, duration_days: 14 });
+  assert.deepEqual(create.body, { name: 'STAGING 封面', a_template_id: 1, b_template_id: 2, fallback_variant: 'a', attribution_days: 1, primary: { a: [0], b: [0] }, duration_days: 14 });
   dom.window.close();
 });
 
@@ -728,4 +728,45 @@ test('報表資料：回傳最快可比較時間（兩版都需要有人滿觀�
   assert.equal(rep.comparable, false);
   assert.equal(rep.compare_ready_at, '2026-10-17T06:00:00Z');
   assert.equal(rep.variants.a.next_mature_at, '2026-10-17T06:00:00Z');
+});
+
+test('觀察期：新測試預設 1 天，可選 3／7 天，其他值擋下；寫進資料庫的是所選天數', async () => {
+  const state = { templates: { 1: { id: 1, name: 'STAGING A', message_config: CFG_A }, 2: { id: 2, name: 'STAGING B', message_config: CFG_B } }, updates: [] };
+  const call = adminRoutes(state);
+  const base = { name: 'STAGING', a_template_id: 1, b_template_id: 2, duration_days: 7 };
+  const dflt = await call(CREATE, { params: { ruleId: '7' }, body: base });
+  assert.equal(dflt.body.ok, true, JSON.stringify(dflt.body));
+  assert.equal(state.inserted[14], 1, '沒帶觀察期 → 預設 1 天');
+  const three = await call(CREATE, { params: { ruleId: '7' }, body: Object.assign({}, base, { attribution_days: 3 }) });
+  assert.equal(three.body.ok, true);
+  assert.equal(state.inserted[14], 3);
+  const bad = await call(CREATE, { params: { ruleId: '7' }, body: Object.assign({}, base, { attribution_days: 2 }) });
+  assert.equal(bad.statusCode, 400);
+  assert.equal(bad.body.error, 'bad_attribution');
+  const src = require('fs').readFileSync(require('path').join(REPO, 'src/routes/adminKeywordExperiments.js'), 'utf8');
+  assert.doesNotMatch(src, /\$12,7,\$13/, '不再寫死 7 天');
+});
+
+test('建立畫面：觀察期下拉預設「1 天（建議）」，選 3 天會送出 3', async () => {
+  const { dom, doc, posts } = await openKeywordPage((url) => {
+    if (url === '/admin/keyword-replies/api/list') return LIST(null);
+    if (url === '/admin/keyword-replies/api/7/experiments') return { ok: true, experiments: [], report: null };
+    if (url === '/admin/keyword-replies/api/experiments/compare') return { ok: true, comparison: { differs: ['圖片'], onlyImages: true },
+      summaries: { a: summarizeConfig(CFG_A, {}), b: summarizeConfig(CFG_B, {}) }, targets: { a: [], b: [] } };
+    return { ok: true, experiment: { id: 21 }, warnings: [] };
+  });
+  doc.querySelector('.kr-ab-btn').click();
+  await wait(30);
+  const sel = doc.getElementById('kr-ab-attribution');
+  assert.equal(sel.value, '1');
+  assert.match(sel.options[sel.selectedIndex].textContent, /1 天（建議）/);
+  sel.value = '3';
+  doc.getElementById('kr-ab-name').value = 'x';
+  doc.getElementById('kr-ab-a').value = '1'; doc.getElementById('kr-ab-b').value = '2';
+  doc.getElementById('kr-ab-compare').click();
+  await wait(30);
+  doc.getElementById('kr-ab-start-btn').click();
+  await wait(30);
+  assert.equal(posts.find(p => p.url === '/admin/keyword-replies/api/7/experiments').body.attribution_days, 3);
+  dom.window.close();
 });

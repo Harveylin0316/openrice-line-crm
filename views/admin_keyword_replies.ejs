@@ -259,6 +259,9 @@
               '<div id="kr-ab-custom" hidden class="kr-ab-custom">開始 <input type="datetime-local" id="kr-ab-start" /> 結束 <input type="datetime-local" id="kr-ab-end" /><div class="muted" style="font-size:11px;">台灣時間；開始留空＝立刻開始</div></div>' +
               '<div class="muted" id="kr-ab-week-warn" style="font-size:12px;color:#B45309;" hidden>未涵蓋完整一週，結果僅供初步參考。</div></div>' +
             '<label class="kr-field"><span>暫停或結束後回覆</span><select id="kr-ab-fallback"><option value="a">A 版</option><option value="b">B 版</option></select></label>' +
+            '<label class="kr-field"><span>點擊觀察期（每人收到回覆後多久內點擊算數）</span><select id="kr-ab-attribution">' +
+              '<option value="1" selected>1 天（建議）</option><option value="3">3 天</option><option value="7">7 天</option></select>' +
+              '<small class="muted" style="font-size:11px;line-height:1.5;">關鍵字回覆是客人主動詢問、馬上收到，過去資料首次點擊都在 1 天內；觀察期越短，越快能比較。</small></label>' +
           '</div>' +
           '<button type="button" class="kr-secondary-btn" id="kr-ab-compare">預覽並比對兩版</button>' +
           '<div id="kr-ab-compare-out"></div>' +
@@ -344,6 +347,7 @@
             name: $('kr-ab-name').value.trim(),
             a_template_id: abCompared.a, b_template_id: abCompared.b,
             fallback_variant: $('kr-ab-fallback').value,
+            attribution_days: Number($('kr-ab-attribution').value),
             primary: { a: [], b: [] }
           };
           Array.prototype.forEach.call(document.querySelectorAll('[data-ab-target]'), function (cb) {
