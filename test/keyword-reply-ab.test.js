@@ -526,7 +526,7 @@ test('畫面：規則列有 A/B 測試按鈕（兜底規則沒有）；建立流
   doc.getElementById('kr-ab-start-btn').click();
   await wait(30);
   const create = posts.find(p => p.url === '/admin/keyword-replies/api/7/experiments');
-  assert.deepEqual(create.body, { name: 'STAGING 封面', a_template_id: 1, b_template_id: 2, fallback_variant: 'a', primary: { a: [0], b: [0] }, duration_days: 14 });
+  assert.deepEqual(create.body, { name: 'STAGING 封面', a_template_id: 1, b_template_id: 2, fallback_variant: 'a', attribution_days: 1, primary: { a: [0], b: [0] }, duration_days: 14 });
   dom.window.close();
 });
 
@@ -574,10 +574,10 @@ test('畫面：進行中的測試顯示報表；不適用／尚無資料分開�
   const text = doc.getElementById('kr-ab-body').textContent;
   assert.match(text, /2026\/10\/2\s10:00:00/, '台灣時間顯示（UTC 02:00 → 台灣 10:00）');
   const rows = [...doc.querySelectorAll('.kr-ab-table tbody tr')].map(tr => [...tr.children].map(td => td.textContent));
-  const ctrMatured = rows.find(r => r[0] === '點擊率（已完成觀察）');
-  assert.deepEqual(ctrMatured, ['點擊率（已完成觀察）', '尚無資料', '不適用']);
+  const ctrMatured = rows.find(r => r[0] === '點擊率（已滿 7 天，正式比較用）');
+  assert.deepEqual(ctrMatured, ['點擊率（已滿 7 天，正式比較用）', '尚無資料', '不適用']);
   assert.deepEqual(rows.find(r => r[0] === '目標點擊次數'), ['目標點擊次數', '1', '不適用']);
-  assert.match(doc.querySelector('.kr-ab-diff').textContent, /目前無法比較：有一版沒有可追蹤的點擊目標/);
+  assert.match(doc.querySelector('.kr-ab-diff').textContent, /無法比較點擊率：B 版的訊息裡沒有可追蹤的連結/);
   assert.doesNotMatch(text, /自動判定.*勝出版/);
   doc.querySelector('[data-ab-act="pause"]').click();
   await wait(30);
@@ -681,4 +681,109 @@ test('開始前再次核對素材，即使未觸發 change 也不會送舊版本
     assert.equal(posts.filter(p=>/api\/7\/experiments$/.test(p.url)).length,0);
     assert.match(doc.getElementById('kr-ab-create-status').textContent,/素材已變更/);
   } finally {dom.window.close();}
+});
+
+// ---------------------------------------------------------------- 報表文字：白話說明能不能比、為什麼、何時
+async function reportText(report, experiments) {
+  const { dom, doc } = await openKeywordPage((url) => {
+    if (url === '/admin/keyword-replies/api/list') return LIST({ id: 11, name: 'STAGING', state: 'running' });
+    if (url === '/admin/keyword-replies/api/7/experiments') return { ok: true, report, experiments: experiments || [{ id: 11, name: 'STAGING', state: 'running',
+      start_at: '2026-10-10T02:00:00Z', end_at: '2026-10-24T02:00:00Z', fallback_variant: 'a', change_log: [] }] };
+    return { ok: true };
+  });
+  doc.querySelector('.kr-ab-btn').click();
+  await wait(30);
+  const out = { verdict: doc.querySelector('.kr-ab-diff').textContent, notes: [...doc.querySelectorAll('.kr-ab-note li')].map(li => li.textContent) };
+  dom.window.close();
+  return out;
+}
+const V = (o) => Object.assign({ name: 'X', trackable: true, triggers: 0, assigned_users: 0, replies_ok: 0, reply_users: 0, replies_failed: 0, replies_uncertain: 0,
+  target_clicks: 0, clickers: 0, ctr_observing: null, matured_users: 0, matured_clickers: 0, ctr_matured: null, next_mature_at: null }, o);
+
+test('報表文字：還不能比較時說明原因、兩版已滿 7 天人數、最快何時可以比', async () => {
+  const t = await reportText({ experiment_id: 11, state: 'running', attribution_days: 7, comparable: false, diff_pp_matured: null, compare_ready_at: '2026-10-17T06:00:00Z',
+    variants: { a: V({ reply_users: 12, matured_users: 0 }), b: V({ reply_users: 9, matured_users: 0 }) } });
+  assert.match(t.verdict, /還不能比較：每個人要從第一次收到回覆起滿 7 天，才算進正式比較/);
+  assert.match(t.verdict, /A 版 0 人、B 版 0 人（兩版都至少要有 1 人）/);
+  assert.match(t.verdict, /最快 2026\/10\/17\s14:00:00 起可以開始比較/);
+  assert.equal(t.notes.length, 4);
+  assert.match(t.notes[1], /為什麼要等 7 天/);
+  assert.match(t.notes[2], /轉傳給別人點、在電腦版開啟的不算/);
+});
+
+test('報表文字：可以比較時用白話說哪一版高、各幾人，並提醒人數少可能是巧合；沒人收到時直接說明', async () => {
+  const t = await reportText({ experiment_id: 11, state: 'running', attribution_days: 7, comparable: true, diff_pp_matured: -4.5, compare_ready_at: null,
+    variants: { a: V({ reply_users: 40, matured_users: 30, ctr_matured: 30 }), b: V({ reply_users: 41, matured_users: 31, ctr_matured: 25.5 }) } });
+  assert.match(t.verdict, /目前A 版比 B 版高 4\.5 個百分點/);
+  assert.match(t.verdict, /A 版 30 人、B 版 31 人/);
+  assert.match(t.verdict, /越可能只是巧合/);
+  const none = await reportText({ experiment_id: 11, state: 'running', attribution_days: 7, comparable: false, diff_pp_matured: null,
+    variants: { a: V({}), b: V({}) } });
+  assert.match(none.verdict, /還沒有人收到這個測試的回覆/);
+});
+
+test('報表資料：回傳最快可比較時間（兩版都需要有人滿觀察期）', async () => {
+  const q = async () => ({ rows: [{ triggers: 3, assigned_users: 3, replies_ok: 3, reply_users: 3, matured_users: 0, matured_clickers: 0, next_mature_at: '2026-10-17T06:00:00Z' }] });
+  const rep = await ke.experimentReport(q, exp());
+  assert.equal(rep.comparable, false);
+  assert.equal(rep.compare_ready_at, '2026-10-17T06:00:00Z');
+  assert.equal(rep.variants.a.next_mature_at, '2026-10-17T06:00:00Z');
+});
+
+test('可比較時間：空版本不能被當成已成熟，兩版都能預期成熟才提供日期',async()=>{
+ const later='2026-10-20T02:00:00Z',earlier='2026-10-18T02:00:00Z';
+ const empty={reply_users:0,matured_users:0,next_mature_at:null};
+ const pending={reply_users:1,matured_users:0,next_mature_at:later};
+ const mature={reply_users:1,matured_users:1,matured_clickers:0,next_mature_at:null};
+ for(const [a,b,expected] of [[empty,pending,null],[pending,empty,null],[empty,empty,null],[mature,pending,later],[pending,mature,later],[{...pending,next_mature_at:earlier},pending,later],[mature,mature,null]]){
+  const rep=await ke.experimentReport(async(s,p)=>({rows:[p[1]==='a'?a:b]}),exp());assert.equal(rep.compare_ready_at,expected);
+ }
+});
+test('報表文字：指出無成功回覆的版本，不顯示不成立的比較日期',async()=>{
+ for(const side of ['a','b']){
+  const variants={a:V({reply_users:1}),b:V({reply_users:1})};variants[side]=V({});
+  const t=await reportText({experiment_id:11,state:'running',attribution_days:1,comparable:false,compare_ready_at:null,variants});
+  assert.match(t.verdict,new RegExp(side.toUpperCase()+' 版尚未成功回覆'));assert.match(t.verdict,/目前無法預估/);assert.doesNotMatch(t.verdict,/最快/);
+ }
+});
+
+test('觀察期：新測試預設 1 天，可選 3／7 天，其他值擋下；寫進資料庫的是所選天數', async () => {
+  const state = { templates: { 1: { id: 1, name: 'STAGING A', message_config: CFG_A }, 2: { id: 2, name: 'STAGING B', message_config: CFG_B } }, updates: [] };
+  const call = adminRoutes(state);
+  const base = { name: 'STAGING', a_template_id: 1, b_template_id: 2, duration_days: 7 };
+  const dflt = await call(CREATE, { params: { ruleId: '7' }, body: base });
+  assert.equal(dflt.body.ok, true, JSON.stringify(dflt.body));
+  assert.equal(state.inserted[14], 1, '沒帶觀察期 → 預設 1 天');
+  const three = await call(CREATE, { params: { ruleId: '7' }, body: Object.assign({}, base, { attribution_days: 3 }) });
+  assert.equal(three.body.ok, true);
+  assert.equal(state.inserted[14], 3);
+  const bad = await call(CREATE, { params: { ruleId: '7' }, body: Object.assign({}, base, { attribution_days: 2 }) });
+  assert.equal(bad.statusCode, 400);
+  assert.equal(bad.body.error, 'bad_attribution');
+  const src = require('fs').readFileSync(require('path').join(REPO, 'src/routes/adminKeywordExperiments.js'), 'utf8');
+  assert.doesNotMatch(src, /\$12,7,\$13/, '不再寫死 7 天');
+});
+
+test('建立畫面：觀察期下拉預設「1 天（建議）」，選 3 天會送出 3', async () => {
+  const { dom, doc, posts } = await openKeywordPage((url) => {
+    if (url === '/admin/keyword-replies/api/list') return LIST(null);
+    if (url === '/admin/keyword-replies/api/7/experiments') return { ok: true, experiments: [], report: null };
+    if (url === '/admin/keyword-replies/api/experiments/compare') return { ok: true, comparison: { differs: ['圖片'], onlyImages: true },
+      summaries: { a: summarizeConfig(CFG_A, {}), b: summarizeConfig(CFG_B, {}) }, targets: { a: [], b: [] } };
+    return { ok: true, experiment: { id: 21 }, warnings: [] };
+  });
+  doc.querySelector('.kr-ab-btn').click();
+  await wait(30);
+  const sel = doc.getElementById('kr-ab-attribution');
+  assert.equal(sel.value, '1');
+  assert.match(sel.options[sel.selectedIndex].textContent, /1 天（建議）/);
+  sel.value = '3';
+  doc.getElementById('kr-ab-name').value = 'x';
+  doc.getElementById('kr-ab-a').value = '1'; doc.getElementById('kr-ab-b').value = '2';
+  doc.getElementById('kr-ab-compare').click();
+  await wait(30);
+  doc.getElementById('kr-ab-start-btn').click();
+  await wait(30);
+  assert.equal(posts.find(p => p.url === '/admin/keyword-replies/api/7/experiments').body.attribution_days, 3);
+  dom.window.close();
 });

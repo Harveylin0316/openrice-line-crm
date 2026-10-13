@@ -208,7 +208,9 @@ async function experimentReport(query, exp, now = new Date()) {
          (SELECT COUNT(*) FROM c)::int AS target_clicks,
          (SELECT COUNT(DISTINCT line_user_id) FROM c)::int AS clickers,
          (SELECT COUNT(*) FROM a WHERE matured)::int AS matured_users,
-         (SELECT COUNT(DISTINCT c.line_user_id) FROM c JOIN a USING (line_user_id) WHERE a.matured)::int AS matured_clickers`,
+         (SELECT COUNT(DISTINCT c.line_user_id) FROM c JOIN a USING (line_user_id) WHERE a.matured)::int AS matured_clickers,
+         -- 還在觀察中的人裡，最早滿觀察期的時間（畫面上告訴管理員「最快何時可以開始比較」）
+         (SELECT MIN(first_success_at) + ($3::int * INTERVAL '1 day') FROM a WHERE first_success_at IS NOT NULL AND NOT matured) AS next_mature_at`,
       [exp.id, v, exp.attribution_days || 7, now.toISOString(), prim]
     );
     const r = rows[0] || {};
@@ -227,7 +229,8 @@ async function experimentReport(query, exp, now = new Date()) {
       ctr_observing: trackable ? rate(r.clickers || 0, r.reply_users || 0) : null,
       matured_users: r.matured_users || 0,
       matured_clickers: trackable ? (r.matured_clickers || 0) : null,
-      ctr_matured: trackable ? rate(r.matured_clickers || 0, r.matured_users || 0) : null
+      ctr_matured: trackable ? rate(r.matured_clickers || 0, r.matured_users || 0) : null,
+      next_mature_at: r.next_mature_at || null
     };
   }
   const A = out.variants.a;
@@ -235,6 +238,11 @@ async function experimentReport(query, exp, now = new Date()) {
   // 任一版不可比較 → 不給差距，避免「另一版比較好」的錯誤印象
   out.comparable = A.trackable && B.trackable && A.ctr_matured != null && B.ctr_matured != null;
   out.diff_pp_matured = out.comparable ? Math.round((B.ctr_matured - A.ctr_matured) * 10) / 10 : null;
+  // 兩版都至少要有一人滿觀察期才能比；還不能比時，告訴畫面最快什麼時候會有（兩版都需要）
+  const later = (x, y) => (!x ? y : !y ? x : (new Date(x) > new Date(y) ? x : y));
+  const predictable = [A, B].every(v => v.trackable && (v.matured_users > 0 || (v.reply_users > 0 && v.next_mature_at && Number.isFinite(new Date(v.next_mature_at).getTime()))));
+  out.compare_ready_at = out.comparable || !predictable ? null
+    : later(A.matured_users ? null : A.next_mature_at, B.matured_users ? null : B.next_mature_at) || null;
   return out;
 }
 

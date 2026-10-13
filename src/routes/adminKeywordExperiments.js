@@ -122,6 +122,11 @@ function registerAdminKeywordExperimentRoutes(app, deps) {
       if (endAt.getTime() - startAt.getTime() > ke.MAX_DURATION_DAYS * DAY_MS) return jsonErr(res, 400, 'too_long', '測試最長 90 天');
       if (endAt <= now) return jsonErr(res, 400, 'end_in_past', '結束時間已經過了');
       const fallback = body.fallback_variant === 'b' ? 'b' : 'a';
+      // 每人觀察期：關鍵字回覆是客人主動詢問、立即收到，正式站資料顯示首次點擊都在 11 小時內
+      // （95% 在 1 小時內）→ 預設 1 天；可選 3／7 天。已建立的測試維持原本的設定。
+      const ATTRIBUTION_CHOICES = [1, 3, 7];
+      const attributionDays = body.attribution_days == null || body.attribution_days === '' ? 1 : Number(body.attribution_days);
+      if (!ATTRIBUTION_CHOICES.includes(attributionDays)) return jsonErr(res, 400, 'bad_attribution', '觀察期只能選 1、3 或 7 天');
       const prepared = await prepareVariants(req, body.a_template_id, body.b_template_id);
       if (prepared.error) return jsonErr(res, 400, 'invalid_variants', prepared.error);
       // 主要點擊目標：預設各版全部可追蹤連結；只能選快照裡真的有的
@@ -152,12 +157,12 @@ function registerAdminKeywordExperimentRoutes(app, deps) {
            INSERT INTO keyword_reply_experiments
              (rule_id, name, status, variant_a_template_id, variant_b_template_id, variant_a_name, variant_b_name,
               variant_a_config, variant_b_config, targets, start_at, end_at, fallback_variant, attribution_days, change_log, created_by)
-           SELECT $1,$2,'running',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,7,$13,$14
+           SELECT $1,$2,'running',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$15,$13,$14
              FROM (SELECT count(*) FROM expired) AS expiry_barrier
            RETURNING *`,
           [ruleId, name, prepared.a.id, prepared.b.id, prepared.a.name, prepared.b.name,
             JSON.stringify(prepared.a.message_config), JSON.stringify(prepared.b.message_config), JSON.stringify(targets),
-            startAt.toISOString(), endAt.toISOString(), fallback, JSON.stringify(log), adminName(req)]
+            startAt.toISOString(), endAt.toISOString(), fallback, JSON.stringify(log), adminName(req), attributionDays]
         ));
       } catch (e) {
         if (e && e.code === '23505') return jsonErr(res, 409, 'experiment_open', '這條規則已經有進行中或暫停中的測試，請先結束它');
