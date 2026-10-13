@@ -318,7 +318,7 @@ test('領券成效畫面：期間在開始記錄前顯示「未記錄」；部�
   assert.equal(find('顯示序號')[1].indexOf('24'), 0, '有領取的人照實顯示');
   assert.deepEqual(find('複製序號').slice(1), ['未記錄', '未記錄', '未記錄'], '期間整段在開始記錄前：未記錄，不是 0');
   assert.match(find('複製序號')[0], /2026-10-01 起才開始記錄/);
-  assert.match(doc.getElementById('claim-foot').textContent, /其中 24 人沒有「開啟畫面」紀錄（2026-09-17 起才開始記錄），以第一次領取的時間當作開啟時間/);
+  assert.match(doc.getElementById('claim-foot').textContent, /有 24 人的首次開啟時間為推估：領取前沒有「開啟畫面」紀錄（2026-09-17 起才開始記錄），以第一次領取的時間當作開啟時間/);
   dom.window.close();
   const partial = Object.assign({}, funnel, { range: { from: '2026-09-25', to: '2026-10-05' } });
   const p2 = await openPlayers('claim', {
@@ -330,4 +330,39 @@ test('領券成效畫面：期間在開始記錄前顯示「未記錄」；部�
   assert.notEqual(copy2[1], '未記錄', '期間跨過開始記錄日：照顯示數字');
   assert.match(copy2[0], /2026-10-01 起才開始記錄/);
   p2.dom.window.close();
+});
+
+test('領券成效：9月 cohort 的10月觀察期有效點擊不得被藏成未記錄', async () => {
+  const base={range:{from:'2026-09-30',to:'2026-09-30'},window_days:7,cutoff:'2026-09-01',window_choices:[1,7],tracking:{copy_since:'2026-10-01',redeem_since:'2026-10-01'},
+    observation:{from:'2026-09-30T04:00:00Z',to_exclusive:'2026-10-07T04:00:00Z'},
+    all:{opened:1,matured:1,cohort_total:1,shown:1,copied:1,redeemed:1,copied_rate:100,redeemed_rate:100},existing:{},new:{},unknown:{}};
+  for(const f of [base,{...base,all:{...base.all,copied:0,redeemed:0}},{...base,observation:null},{...base,observation:{from:'2026-09-20T00:00:00Z',to_exclusive:'2026-09-27T00:00:00Z'}}]){
+    const {dom,doc}=await openPlayers('claim',{testers:{ok:true,testers:[]},players:{ok:true,players:[],overview:{},claim_funnel:f}});
+    const rows=[...doc.querySelectorAll('#claim-table tbody tr')];
+    for(const title of ['複製序號','前往兌換']){
+      const tr=rows.find(r=>r.firstChild.textContent.startsWith(title));assert.notEqual(tr.children[1].textContent.trim(),'未記錄');assert.match(tr.firstChild.textContent,/部分觀察期未記錄/);assert.doesNotMatch(tr.children[1].textContent,/%/);
+    }
+    dom.window.close();
+  }
+});
+
+test('領券成效：推估來源看最早enter而非任一enter，觀察窗只合併已成熟群組', async () => {
+  const {loadClaimFunnel}=require('../src/core/claimFunnel');let sql='';
+  const f=await loadClaimFunnel(async s=>{
+    if(/AS enter_since/.test(s))return {rows:[{}]};sql=s;
+    return {rows:[{seg:'existing',opened:1,matured:1,inferred_open:1,observation_start:new Date('2020-09-01T04:00:00Z'),observation_end:new Date('2020-09-08T04:00:00Z')},
+      {seg:'new',opened:1,matured:1,observation_start:'2020-09-30T04:00:00Z',observation_end:'2020-10-07T04:00:00Z'},
+      {seg:'unknown',cohort_total:1,opened:0,matured:0,observation_start:null,observation_end:null}]};
+  },7);
+  assert.match(sql,/COALESCE\(MIN\(at\) FILTER \(WHERE is_enter\) = MIN\(at\), false\)/);assert.doesNotMatch(sql,/BOOL_OR\(is_enter\)/);
+  assert.match(sql,/MIN\(opened_at\) FILTER \(WHERE matured\)/);assert.match(sql,/MAX\(window_end\) FILTER \(WHERE matured\)/);
+  assert.equal(f.all.inferred_open,1);assert.deepEqual(f.observation,{from:'2020-09-01T04:00:00.000Z',to_exclusive:'2020-10-07T04:00:00.000Z'});
+});
+
+test('領券成效：觀察窗結束恰為追蹤起始午夜，屬未記錄；之後進入則顯示0', async () => {
+  const base={range:{from:'2026-09-24',to:'2026-09-24'},window_days:7,cutoff:'2026-09-01',tracking:{copy_since:'2026-10-01'},all:{opened:1,copied:0},existing:{},new:{},unknown:{}};
+  for(const [observation,expected] of [[{from:'2026-09-23T16:00:00Z',to_exclusive:'2026-09-30T16:00:00Z'},'未記錄'],[{from:'2026-09-30T16:00:00Z',to_exclusive:'2026-10-07T16:00:00Z'},'0']]){
+    const {dom,doc}=await openPlayers('claim',{testers:{ok:true,testers:[]},players:{ok:true,players:[],overview:{},claim_funnel:{...base,observation}}});
+    const tr=[...doc.querySelectorAll('#claim-table tbody tr')].find(r=>r.firstChild.textContent.startsWith('複製序號'));assert.equal(tr.children[1].textContent.trim(),expected);dom.window.close();
+  }
 });

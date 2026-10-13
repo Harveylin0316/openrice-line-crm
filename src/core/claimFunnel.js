@@ -67,9 +67,10 @@ async function loadClaimFunnel(query, activityId, opts = {}) {
   const cutoff = /^\d{4}-\d{2}-\d{2}$/.test(String(opts.cutoff || '')) ? String(opts.cutoff) : DEFAULT_CUTOFF;
   const { rows } = await query(
     `WITH first_open AS (
-       -- 開啟畫面：有 enter 紀錄就用；「開啟紀錄」是 9/17 才開始記的，之前的人沒有 enter，
-       -- 但有領取（activity_plays）就一定開過畫面 → 以第一次領取時間當作開啟時間（has_enter=false，畫面上會註明）
-       SELECT line_user_id, MIN(at) AS opened_at, BOOL_OR(is_enter) AS has_enter
+       -- Mark the source of the earliest time, not whether any later enter exists.
+       -- Equal timestamps prefer the directly observed enter.
+       SELECT line_user_id, MIN(at) AS opened_at,
+              COALESCE(MIN(at) FILTER (WHERE is_enter) = MIN(at), false) AS has_enter
          FROM (
            SELECT line_user_id, created_at AS at, true AS is_enter
              FROM activity_user_events
@@ -134,7 +135,9 @@ async function loadClaimFunnel(query, activityId, opts = {}) {
             COUNT(*) FILTER (WHERE matured AND shown AND copied)::int AS copied,
             COUNT(*) FILTER (WHERE matured AND shown AND redeemed)::int AS redeemed,
             COUNT(*) FILTER (WHERE matured)::int AS matured,
-            COUNT(*) FILTER (WHERE matured AND NOT has_enter)::int AS inferred_open
+            COUNT(*) FILTER (WHERE matured AND NOT has_enter)::int AS inferred_open,
+            MIN(opened_at) FILTER (WHERE matured) AS observation_start,
+            MAX(window_end) FILTER (WHERE matured) AS observation_end
        FROM tagged
       GROUP BY seg`,
     [Number(activityId), from, to, windowDays, cutoff]
@@ -161,12 +164,19 @@ async function loadClaimFunnel(query, activityId, opts = {}) {
     acc[k] = Number(by.existing[k] || 0) + Number(by.new[k] || 0) + Number(by.unknown[k] || 0);
     return acc;
   }, {});
+  const starts = rows.map(r => r.observation_start).filter(Boolean).map(v => new Date(v).getTime()).filter(Number.isFinite);
+  const ends = rows.map(r => r.observation_end).filter(Boolean).map(v => new Date(v).getTime()).filter(Number.isFinite);
+  const observation = starts.length && ends.length ? {
+    from: new Date(Math.min(...starts)).toISOString(),
+    to_exclusive: new Date(Math.max(...ends)).toISOString()
+  } : null;
   return {
     range: { from, to },
     window_days: windowDays,
     window_choices: WINDOW_CHOICES,
     cutoff,
     tracking,
+    observation,
     all: stepsWithRates(all),
     existing: stepsWithRates(by.existing),
     new: stepsWithRates(by.new),

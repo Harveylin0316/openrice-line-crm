@@ -1,5 +1,12 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-13 PR46 review 補修（同事 AI 必讀）
+
+- 首次開啟仍取最早enter／非draw_win領取；has_enter改為「最早時間是否有直接enter」，不是「後來曾出現enter」。領取早於enter算inferred，時間相同優先直接enter；頁尾標示已滿觀察期中首次時間為推估的人數。
+- 回傳已滿觀察期cohort的 observation.from／to_exclusive（UTC完整時間），UI按這段實際觀察窗與台灣追蹤日期比較，不能用首次開啟日篩選結束日去藏後續有效點擊。觀察期可能延伸到篩選結束日後；正數永不被metadata藏成未記錄，部分觀察期明確註記並不顯示不完整轉換率。
+- 沒有metadata的舊API／fixture才用日期範圍＋window_days保守上界，不變更成熟條件／去重／步驟有效窗。沒有migration／資料回填／活動執行邏輯改動。
+- 回歸 test/activity-metrics-testers-claim.test.js；真PG `CRM_QA_ISOLATED=1 node scripts/qa/claim-funnel-check.cjs` 只localhost55439專用暫存DB。另CRM_QA_BROWSER=1啟用Playwright與本機3122真EJS，1440／390px虛構資料，沒有真人推播。回滾PR46程式即可，無SQLrollback。
+
 ## 2026-10-12 回訪郵件編輯器與雲端範本
 
 - 第4步逐封編輯改為郵件 envelope、主旨、大內文區與即時純文字預覽，沿既有儲存／Outlook reserve／人工確認。mailto 不支援 HTML，隱藏該模式無效 preheader 與舊 HTML iframe；不宣稱有字型、圖片、開信追蹤。
