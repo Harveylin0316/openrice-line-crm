@@ -45,6 +45,7 @@ function stepsWithRates(r) {
     copied,
     redeemed,
     matured: Number(r.matured || 0),
+    inferred_open: Number(r.inferred_open || 0),
     // 對開啟（整體轉換）與對上一步（步驟轉換）
     shown_rate: pct(shown, opened),
     copied_rate: pct(copied, opened),
@@ -66,13 +67,23 @@ async function loadClaimFunnel(query, activityId, opts = {}) {
   const cutoff = /^\d{4}-\d{2}-\d{2}$/.test(String(opts.cutoff || '')) ? String(opts.cutoff) : DEFAULT_CUTOFF;
   const { rows } = await query(
     `WITH first_open AS (
-       SELECT line_user_id, MIN(created_at) AS opened_at
-         FROM activity_user_events
-        WHERE activity_id = $1 AND event_name = 'enter' AND line_user_id IS NOT NULL
+       -- 開啟畫面：有 enter 紀錄就用；「開啟紀錄」是 9/17 才開始記的，之前的人沒有 enter，
+       -- 但有領取（activity_plays）就一定開過畫面 → 以第一次領取時間當作開啟時間（has_enter=false，畫面上會註明）
+       SELECT line_user_id, MIN(at) AS opened_at, BOOL_OR(is_enter) AS has_enter
+         FROM (
+           SELECT line_user_id, created_at AS at, true AS is_enter
+             FROM activity_user_events
+            WHERE activity_id = $1 AND event_name = 'enter' AND line_user_id IS NOT NULL
+           UNION ALL
+           SELECT line_user_id, played_at AS at, false AS is_enter
+             FROM activity_plays
+            WHERE activity_id = $1 AND line_user_id IS NOT NULL
+              AND COALESCE(prize_snapshot->>'kind', '') <> 'draw_win'
+         ) x
         GROUP BY line_user_id
      ),
      cohort AS (
-       SELECT fo.line_user_id, fo.opened_at,
+       SELECT fo.line_user_id, fo.opened_at, fo.has_enter,
               fo.opened_at + ($4::int * INTERVAL '1 day') AS window_end
          FROM first_open fo
         WHERE ($2::date IS NULL OR fo.opened_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Taipei'))
@@ -122,12 +133,28 @@ async function loadClaimFunnel(query, activityId, opts = {}) {
             COUNT(*) FILTER (WHERE matured AND tried AND NOT shown)::int AS out_of_stock,
             COUNT(*) FILTER (WHERE matured AND shown AND copied)::int AS copied,
             COUNT(*) FILTER (WHERE matured AND shown AND redeemed)::int AS redeemed,
-            COUNT(*) FILTER (WHERE matured)::int AS matured
+            COUNT(*) FILTER (WHERE matured)::int AS matured,
+            COUNT(*) FILTER (WHERE matured AND NOT has_enter)::int AS inferred_open
        FROM tagged
       GROUP BY seg`,
     [Number(activityId), from, to, windowDays, cutoff]
   );
-  const zero = { cohort_total: 0, opened: 0, shown: 0, out_of_stock: 0, copied: 0, redeemed: 0, matured: 0 };
+  const zero = { cohort_total: 0, opened: 0, shown: 0, out_of_stock: 0, copied: 0, redeemed: 0, matured: 0, inferred_open: 0 };
+  // 各步驟從哪一天開始有紀錄（全系統第一筆）：選的期間在這之前，該步驟顯示「未記錄」而不是 0
+  let tracking = null;
+  try {
+    const t = (await query(
+      `SELECT
+         (SELECT to_char(MIN(created_at) AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD') FROM activity_user_events WHERE event_name = 'enter') AS enter_since,
+         (SELECT to_char(MIN(created_at) AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD') FROM activity_user_events WHERE event_name = 'copy_code') AS copy_since,
+         (SELECT to_char(MIN(created_at) AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD') FROM activity_user_events WHERE event_name = 'redeem_click') AS redeem_event_since,
+         (SELECT to_char(MIN((properties->>'redeem_clicked_at')::timestamptz) AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD')
+            FROM activity_plays WHERE properties ? 'redeem_clicked_at') AS redeem_prop_since`
+    )).rows[0] || {};
+    const minDate = (a, b) => (!a ? (b || null) : !b ? a : (a < b ? a : b));
+    tracking = { enter_since: t.enter_since || null, copy_since: t.copy_since || null,
+      redeem_since: minDate(t.redeem_event_since, t.redeem_prop_since) };
+  } catch (e) { /* 查不到就不標示 */ }
   const by = { existing: { ...zero }, new: { ...zero }, unknown: { ...zero } };
   rows.forEach(r => { if (by[r.seg]) by[r.seg] = r; });
   const all = Object.keys(zero).reduce((acc, k) => {
@@ -139,6 +166,7 @@ async function loadClaimFunnel(query, activityId, opts = {}) {
     window_days: windowDays,
     window_choices: WINDOW_CHOICES,
     cutoff,
+    tracking,
     all: stepsWithRates(all),
     existing: stepsWithRates(by.existing),
     new: stepsWithRates(by.new),

@@ -763,7 +763,19 @@
       });
 
       // ---- 領券成效（同一批人、固定觀察期、不重複人數；拆既有好友／新好友）----
-      function claimCell(seg, key, withRate) {
+      // 選的期間整段都在該步驟開始記錄之前 →「未記錄」；部分在之前 → 照顯示並在步驟旁註明
+      function trackState(f, key) {
+        if (!f.tracking) return 'ok';   // 沒有記錄起始日資訊時照常顯示數字，不亂標「未記錄」
+        var since = { copied: f.tracking && f.tracking.copy_since, redeemed: f.tracking && f.tracking.redeem_since }[key];
+        if (key !== 'copied' && key !== 'redeemed') return 'ok';
+        if (!since) return 'none';
+        var to = f.range && f.range.to, from = f.range && f.range.from;
+        if (to && to < since) return 'none';
+        if (!from || from < since) return 'partial';
+        return 'ok';
+      }
+      function claimCell(seg, key, withRate, state) {
+        if (state === 'none') return '<td class="muted" title="這段期間還沒開始記錄這個步驟">未記錄</td>';
         var n = seg ? Number(seg[key] || 0) : 0;
         var rateKey = { shown: 'shown_rate', copied: 'copied_rate', redeemed: 'redeemed_rate' }[key];
         var rate = withRate && rateKey && seg && seg[rateKey] != null ? '<small>' + seg[rateKey] + '%</small>' : '';
@@ -782,11 +794,15 @@
           ['redeemed', '前往兌換', 'cl_redeem', true, ''],
           ['out_of_stock', '序號發完', 'cl_oos', false, 'sub']
         ];
+        var sinceOf = { copied: f.tracking && f.tracking.copy_since, redeemed: f.tracking && f.tracking.redeem_since };
         table.innerHTML = '<thead><tr><th>步驟</th>' + cols.map(function (c) {
           return '<th>' + (c[2] ? '<span data-metric="' + c[2] + '">' + c[1] + '</span>' : c[1]) + '</th>';
         }).join('') + '</tr></thead><tbody>' + rows.map(function (r) {
-          return '<tr' + (r[4] ? ' class="' + r[4] + '"' : '') + '><td><span data-metric="' + r[2] + '">' + r[1] + '</span></td>' +
-            cols.map(function (c) { return claimCell(f[c[0]], r[0], r[3]); }).join('') + '</tr>';
+          var st = trackState(f, r[0]);
+          var note = st === 'partial' && sinceOf[r[0]] ? ' <small class="muted">（' + esc(sinceOf[r[0]]) + ' 起才開始記錄）</small>'
+            : st === 'none' ? ' <small class="muted">（' + (sinceOf[r[0]] ? esc(sinceOf[r[0]]) + ' 起才開始記錄' : '尚未有紀錄') + '）</small>' : '';
+          return '<tr' + (r[4] ? ' class="' + r[4] + '"' : '') + '><td><span data-metric="' + r[2] + '">' + r[1] + '</span>' + note + '</td>' +
+            cols.map(function (c) { return claimCell(f[c[0]], r[0], r[3], st); }).join('') + '</tr>';
         }).join('') + '</tbody>';
         var all = f.all || {};
         var cohortTotal = Number(all.cohort_total != null ? all.cohort_total : all.opened || 0);
@@ -794,7 +810,10 @@
         var immature = Math.max(0, cohortTotal - matured);
         foot.innerHTML = '本批共 ' + fmt(cohortTotal) + ' 人；已滿觀察期 ' + fmt(matured) + ' 人' +
           (immature ? '，另有 ' + fmt(immature) + ' 人<span data-metric="cl_immature">觀察期未滿</span>' : '') +
-          '。百分比只用已滿觀察期的人計算，為<span data-metric="cl_rate">對開啟 %</span>。既有好友＝' + esc(f.cutoff) + ' 前加入。';
+          '。百分比只用已滿觀察期的人計算，為<span data-metric="cl_rate">對開啟 %</span>。既有好友＝' + esc(f.cutoff) + ' 前加入。' +
+          (Number(all.inferred_open || 0) ? '<br>其中 ' + fmt(all.inferred_open) + ' 人沒有「開啟畫面」紀錄' +
+            (f.tracking && f.tracking.enter_since ? '（' + esc(f.tracking.enter_since) + ' 起才開始記錄）' : '') +
+            '，以第一次領取的時間當作開啟時間。' : '');
       }
       if (isClaim) {
         document.getElementById('cf-window').addEventListener('change', function () { load(); });

@@ -122,7 +122,9 @@ test('領券成效只用已滿觀察期的 cohort 計算步驟與轉換率', asy
   const { loadClaimFunnel } = require('../src/core/claimFunnel');
   let sql = '';
   const result = await loadClaimFunnel(async (statement) => {
-    sql = String(statement).replace(/\s+/g, ' ');
+    const s = String(statement).replace(/\s+/g, ' ');
+    if (!/AS opened/.test(s)) return { rows: [{}] };   // 另一支查「各步驟開始記錄日」的查詢
+    sql = s;
     return { rows: [{
       seg: 'new', cohort_total: 10, opened: 7, shown: 6,
       out_of_stock: 0, copied: 4, redeemed: 2, matured: 7
@@ -275,4 +277,57 @@ test('近期群發成效：每列帶 LINE 通知預覽文字（卡片 altText、
   const route = fs.readFileSync(path.join(REPO, 'src/routes/adminAttribution.js'), 'utf8');
   assert.match(route, /notification_text: identity\.notificationText/);
   assert.match(view, /b\.notification_text && b\.notification_text !== b\.label/);
+});
+
+test('領券成效：9/17 前沒有開啟紀錄的人，以第一次領取時間當作開啟；回傳各步驟開始記錄的日期', async () => {
+  const { loadClaimFunnel } = require('../src/core/claimFunnel');
+  const sqls = [];
+  const result = await loadClaimFunnel(async (statement) => {
+    const s = String(statement).replace(/\s+/g, ' ');
+    sqls.push(s);
+    if (/AS enter_since/.test(s)) return { rows: [{ enter_since: '2026-09-17', copy_since: '2026-10-01', redeem_event_since: '2026-10-02', redeem_prop_since: '2026-10-01' }] };
+    return { rows: [{ seg: 'existing', cohort_total: 24, opened: 24, shown: 24, out_of_stock: 0, copied: 0, redeemed: 0, matured: 24, inferred_open: 24 }] };
+  }, 7, { from: '2026-08-31', to: '2026-09-06', windowDays: 1 });
+  const funnelSql = sqls.find(s => /AS opened/.test(s));
+  assert.match(funnelSql, /UNION ALL SELECT line_user_id, played_at AS at, false AS is_enter FROM activity_plays/, '有領取就算開過畫面');
+  assert.match(funnelSql, /AS inferred_open/);
+  assert.equal(result.all.opened, 24);
+  assert.equal(result.all.shown, 24);
+  assert.equal(result.all.inferred_open, 24);
+  assert.deepEqual(result.tracking, { enter_since: '2026-09-17', copy_since: '2026-10-01', redeem_since: '2026-10-01' });
+  // 查記錄起始日失敗：不標示（tracking=null），數字照常
+  const r2 = await loadClaimFunnel(async (statement) => {
+    if (/AS enter_since/.test(String(statement))) throw new Error('db');
+    return { rows: [] };
+  }, 7, {});
+  assert.equal(r2.tracking, null);
+});
+
+test('領券成效畫面：期間在開始記錄前顯示「未記錄」；部分期間註明起始日；註明以領取時間推算開啟', async () => {
+  const funnel = { range: { from: '2026-08-31', to: '2026-09-06' }, window_days: 1, window_choices: [1, 3, 7, 14, 30], cutoff: '2026-09-01',
+    tracking: { enter_since: '2026-09-17', copy_since: '2026-10-01', redeem_since: '2026-10-01' },
+    all: { cohort_total: 24, opened: 24, shown: 24, out_of_stock: 0, copied: 0, redeemed: 0, matured: 24, inferred_open: 24, shown_rate: 100, copied_rate: 0, redeemed_rate: 0 },
+    existing: { cohort_total: 2, opened: 2, shown: 2, copied: 0, redeemed: 0, matured: 2, shown_rate: 100 },
+    new: { cohort_total: 22, opened: 22, shown: 22, copied: 0, redeemed: 0, matured: 22, shown_rate: 100 }, unknown: { opened: 0 } };
+  const { dom, doc } = await openPlayers('claim', {
+    testers: { ok: true, testers: [] },
+    players: { ok: true, players: [], overview: {}, funnel: null, grants: null, play_distribution: [], claim_funnel: funnel }
+  });
+  const rows = [...doc.querySelectorAll('#claim-table tbody tr')].map(tr => [...tr.children].map(td => td.textContent.trim()));
+  const find = (k) => rows.find(r => r[0].indexOf(k) === 0);
+  assert.equal(find('顯示序號')[1].indexOf('24'), 0, '有領取的人照實顯示');
+  assert.deepEqual(find('複製序號').slice(1), ['未記錄', '未記錄', '未記錄'], '期間整段在開始記錄前：未記錄，不是 0');
+  assert.match(find('複製序號')[0], /2026-10-01 起才開始記錄/);
+  assert.match(doc.getElementById('claim-foot').textContent, /其中 24 人沒有「開啟畫面」紀錄（2026-09-17 起才開始記錄），以第一次領取的時間當作開啟時間/);
+  dom.window.close();
+  const partial = Object.assign({}, funnel, { range: { from: '2026-09-25', to: '2026-10-05' } });
+  const p2 = await openPlayers('claim', {
+    testers: { ok: true, testers: [] },
+    players: { ok: true, players: [], overview: {}, funnel: null, grants: null, play_distribution: [], claim_funnel: partial }
+  });
+  const rows2 = [...p2.doc.querySelectorAll('#claim-table tbody tr')].map(tr => [...tr.children].map(td => td.textContent.trim()));
+  const copy2 = rows2.find(r => r[0].indexOf('複製序號') === 0);
+  assert.notEqual(copy2[1], '未記錄', '期間跨過開始記錄日：照顯示數字');
+  assert.match(copy2[0], /2026-10-01 起才開始記錄/);
+  p2.dom.window.close();
 });

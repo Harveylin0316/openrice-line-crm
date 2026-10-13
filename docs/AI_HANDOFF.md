@@ -689,6 +689,15 @@ LINE imagemap 只規定 `baseSize.width = 1040`、高度依比例。上傳不再
   LINE 官方帳號後台的加入好友歡迎訊息仍需在 LINE 後台手動關閉。
 回歸測試 `test/richmenu-buttons-and-welcome-source.test.js`（9 項，舊程式 8 項失敗）。
 
+#### 領券成效：開啟紀錄前的期間不再全是 0；未記錄步驟標示「未記錄」（2026-10-13）
+
+「開啟畫面」事件（enter）9/17 才開始記錄、copy_code／redeem_click 10 月初才開始。以前 cohort 只用 enter 建立，
+選 9/17 以前的期間整張表都是 0（例：借電券 8/31–9/6 上方 24 位玩家，領券成效全 0）。
+- `claimFunnel.first_open` 改為 enter 與 activity_plays（排除 draw_win）取最早時間；沒有 enter 的人以第一次領取時間當開啟（`inferred_open`）。
+- 回傳 `tracking`（全系統第一筆 enter／copy_code／redeem_click 的台灣日期）；畫面上期間整段早於起始日顯示「未記錄」，跨過起始日則照數字並註明「M/D 起才開始記錄」；查詢失敗 tracking=null 時不標示。
+- 頁尾註明「其中 N 人沒有開啟畫面紀錄，以第一次領取時間當開啟時間」。已用真 PostgreSQL 驗證。
+另：訊息成效「收到人數」定義補上依每人實際送出時間、只算 LINE 明確接受、排除失敗／不確定／略過／處理中／測試。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
