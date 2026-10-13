@@ -196,3 +196,11 @@ test('載入期間提交反向日期不會使原本有效查詢永遠停在載�
   assert.match(doc.getElementById('mp-status').textContent,/開始日期不能晚於結束日期/);
   dom.window.close();
 });
+
+test('收到人數的定義寫清楚：依每個人實際送出時間、只算 LINE 明確接受、排除失敗／不確定／略過／處理中／測試', () => {
+  const v = fs.readFileSync(path.join(REPO, 'views/admin_message_performance.ejs'), 'utf8');
+  const i = v.indexOf('<dt>收到人數</dt>');
+  const def = v.slice(i, v.indexOf('</dd>', i));
+  ['每個人實際被送出的時間', 'LINE 明確回覆「已接受」', '不重複人數', '發送失敗', '結果不確定', '被略過', '處理中', '測試訊息', '不代表對方已讀'].forEach(k => assert.ok(def.includes(k), '定義要有：' + k));
+  assert.match(v, /一批跨兩天才送完，人數會分在兩天/);
+});

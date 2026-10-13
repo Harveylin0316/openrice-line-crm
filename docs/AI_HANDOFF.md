@@ -1,5 +1,12 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-13 PR46 review 補修（同事 AI 必讀）
+
+- 首次開啟仍取最早enter／非draw_win領取；has_enter改為「最早時間是否有直接enter」，不是「後來曾出現enter」。領取早於enter算inferred，時間相同優先直接enter；頁尾標示已滿觀察期中首次時間為推估的人數。
+- 回傳已滿觀察期cohort的 observation.from／to_exclusive（UTC完整時間），UI按這段實際觀察窗與台灣追蹤日期比較，不能用首次開啟日篩選結束日去藏後續有效點擊。觀察期可能延伸到篩選結束日後；正數永不被metadata藏成未記錄，部分觀察期明確註記並不顯示不完整轉換率。
+- 沒有metadata的舊API／fixture才用日期範圍＋window_days保守上界，不變更成熟條件／去重／步驟有效窗。沒有migration／資料回填／活動執行邏輯改動。
+- 回歸 test/activity-metrics-testers-claim.test.js；真PG `CRM_QA_ISOLATED=1 node scripts/qa/claim-funnel-check.cjs` 只localhost55439專用暫存DB。另CRM_QA_BROWSER=1啟用Playwright與本機3122真EJS，1440／390px虛構資料，沒有真人推播。回滾PR46程式即可，無SQLrollback。
+
 ## 2026-10-12 回訪郵件編輯器與雲端範本
 
 - 第4步逐封編輯改為郵件 envelope、主旨、大內文區與即時純文字預覽，沿既有儲存／Outlook reserve／人工確認。mailto 不支援 HTML，隱藏該模式無效 preheader 與舊 HTML iframe；不宣稱有字型、圖片、開信追蹤。
@@ -688,6 +695,15 @@ LINE imagemap 只規定 `baseSize.width = 1040`、高度依比例。上傳不再
   `triggerFollow` 先查來源與流程再決定是否 `claimFollow`；任何一步失敗都退回照發通用歡迎。歡迎頁列出被取代的來源。
   LINE 官方帳號後台的加入好友歡迎訊息仍需在 LINE 後台手動關閉。
 回歸測試 `test/richmenu-buttons-and-welcome-source.test.js`（9 項，舊程式 8 項失敗）。
+
+#### 領券成效：開啟紀錄前的期間不再全是 0；未記錄步驟標示「未記錄」（2026-10-13）
+
+「開啟畫面」事件（enter）9/17 才開始記錄、copy_code／redeem_click 10 月初才開始。以前 cohort 只用 enter 建立，
+選 9/17 以前的期間整張表都是 0（例：借電券 8/31–9/6 上方 24 位玩家，領券成效全 0）。
+- `claimFunnel.first_open` 改為 enter 與 activity_plays（排除 draw_win）取最早時間；沒有 enter 的人以第一次領取時間當開啟（`inferred_open`）。
+- 回傳 `tracking`（全系統第一筆 enter／copy_code／redeem_click 的台灣日期）；畫面上期間整段早於起始日顯示「未記錄」，跨過起始日則照數字並註明「M/D 起才開始記錄」；查詢失敗 tracking=null 時不標示。
+- 頁尾註明「其中 N 人沒有開啟畫面紀錄，以第一次領取時間當開啟時間」。已用真 PostgreSQL 驗證。
+另：訊息成效「收到人數」定義補上依每人實際送出時間、只算 LINE 明確接受、排除失敗／不確定／略過／處理中／測試。
 
 ### 數據與歸因
 
