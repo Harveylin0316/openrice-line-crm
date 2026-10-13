@@ -164,16 +164,35 @@
           ['目標點擊次數', A.target_clicks, B.target_clicks],
           ['目標點擊人數（不重複）', A.clickers, B.clickers]
         ].map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + num(r[1]) + '</td><td>' + num(r[2]) + '</td></tr>'; }).join('');
-        rows += '<tr><th>點擊率（觀察中）</th><td>' + pctCell(A.ctr_observing, A.trackable, A.reply_users) + '</td><td>' + pctCell(B.ctr_observing, B.trackable, B.reply_users) + '</td></tr>';
-        rows += '<tr><th>已完成觀察人數</th><td>' + num(A.matured_users) + '</td><td>' + num(B.matured_users) + '</td></tr>';
-        rows += '<tr class="kr-ab-key"><th>點擊率（已完成觀察）</th><td>' + pctCell(A.ctr_matured, A.trackable, A.matured_users) + '</td><td>' + pctCell(B.ctr_matured, B.trackable, B.matured_users) + '</td></tr>';
-        var diff = rep.comparable
-          ? 'B − A：' + (rep.diff_pp_matured > 0 ? '+' : '') + rep.diff_pp_matured + ' 個百分點（已完成觀察）'
-          : '目前無法比較：' + (!A.trackable || !B.trackable ? '有一版沒有可追蹤的點擊目標' : '已完成觀察的人數還不夠');
+        var days = rep.attribution_days || 7;
+        rows += '<tr><th>點擊率（含未滿 ' + days + ' 天的人）</th><td>' + pctCell(A.ctr_observing, A.trackable, A.reply_users) + '</td><td>' + pctCell(B.ctr_observing, B.trackable, B.reply_users) + '</td></tr>';
+        rows += '<tr><th>已滿 ' + days + ' 天的人數</th><td>' + num(A.matured_users) + '</td><td>' + num(B.matured_users) + '</td></tr>';
+        rows += '<tr class="kr-ab-key"><th>點擊率（已滿 ' + days + ' 天，正式比較用）</th><td>' + pctCell(A.ctr_matured, A.trackable, A.matured_users) + '</td><td>' + pctCell(B.ctr_matured, B.trackable, B.matured_users) + '</td></tr>';
+        // 比較結果：白話說明能不能比、為什麼還不能、最快何時可以
+        var verdict;
+        if (!A.trackable || !B.trackable) {
+          var noTrack = !A.trackable && !B.trackable ? 'A、B 兩版' : (!A.trackable ? 'A 版' : 'B 版');
+          verdict = '<b>無法比較點擊率：</b>' + noTrack + '的訊息裡沒有可追蹤的連結，所以算不出點擊率。可以比較兩版的收到人數，但無法判斷哪一版比較多人點。';
+        } else if (rep.comparable) {
+          var d = rep.diff_pp_matured;
+          var lead = d > 0 ? 'B 版比 A 版高 ' + d + ' 個百分點' : d < 0 ? 'A 版比 B 版高 ' + (-d) + ' 個百分點' : '兩版點擊率一樣';
+          verdict = '<b>目前' + lead + '</b>（只算已滿 ' + days + ' 天的人：A 版 ' + num(A.matured_users) + ' 人、B 版 ' + num(B.matured_users) + ' 人）。' +
+            '人數越少，差距越可能只是巧合，建議兩版各累積到較多人再下結論。';
+        } else if (!Number(A.reply_users || 0) && !Number(B.reply_users || 0)) {
+          verdict = '<b>還不能比較：</b>還沒有人收到這個測試的回覆。';
+        } else {
+          verdict = '<b>還不能比較：</b>每個人要從第一次收到回覆起滿 ' + days + ' 天，才算進正式比較。目前已滿 ' + days + ' 天的人：A 版 ' +
+            num(A.matured_users) + ' 人、B 版 ' + num(B.matured_users) + ' 人（兩版都至少要有 1 人）。' +
+            (rep.compare_ready_at ? '最快 <b>' + esc(twTime(rep.compare_ready_at)) + '</b> 起可以開始比較。' : '');
+        }
         return '<div class="table-wrap"><table class="kr-ab-table"><thead><tr><th></th><th>A 版｜' + esc(A.name || '') + '</th><th>B 版｜' + esc(B.name || '') + '</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-          '<p class="kr-ab-diff">' + esc(diff) + '</p>' +
-          '<p class="muted kr-ab-note">點擊率＝觀察期（每人第一次成功回覆起 ' + rep.attribution_days + ' 天）內點過主要目標的不重複人數 ÷ 成功回覆人數。正式比較請看「已完成觀察」。' +
-          '只計算在 LINE App 內打開、且點擊者就是收件人的點擊。系統不會自動判定勝出，請依原始人數與比率人工決定。</p>';
+          '<p class="kr-ab-diff">' + verdict + '</p>' +
+          '<ul class="muted kr-ab-note">' +
+            '<li><b>點擊率</b>：每個人第一次收到回覆後 ' + days + ' 天內，有點「主要點擊目標」連結的人數 ÷ 收到回覆的人數；同一人點多次只算一次。</li>' +
+            '<li><b>為什麼要等 ' + days + ' 天</b>：剛收到的人還來不及點，先算進去會讓點擊率偏低，所以正式比較只用已滿 ' + days + ' 天的人（表格黃底那一列）。</li>' +
+            '<li><b>哪些點擊會算</b>：收件人本人在 LINE App 裡點開的才算；轉傳給別人點、在電腦版開啟的不算。</li>' +
+            '<li><b>系統不會自動選出勝出版本</b>，請看兩版的人數和點擊率自行判斷。</li>' +
+          '</ul>';
       }
       function renderExperiment(exp, rep, open) {
         var actions = '';
@@ -584,8 +603,9 @@
       .kr-ab-table th:first-child, .kr-ab-table thead th { text-align: left; }
       .kr-ab-table thead th { font-size: 12px; color: #374151; white-space: normal; }
       .kr-ab-key th, .kr-ab-key td { font-weight: 800; background: #FFFBEB; }
-      .kr-ab-diff { font-weight: 700; margin: 10px 0 4px; font-size: 13px; }
-      .kr-ab-note { font-size: 12px; line-height: 1.6; margin: 4px 0 0; }
+      .kr-ab-diff { font-weight: 400; margin: 10px 0 6px; font-size: 13.5px; line-height: 1.7; color: #111827; }
+      .kr-ab-note { font-size: 12px; line-height: 1.6; margin: 4px 0 0; padding-left: 18px; }
+      .kr-ab-note li { margin: 2px 0; }
       .kr-ab-log { margin-top: 10px; font-size: 12px; }
       .kr-ab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 14px; margin-bottom: 10px; }
       .kr-ab-chips { display: flex; gap: 6px; flex-wrap: wrap; }
