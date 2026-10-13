@@ -180,6 +180,8 @@
             '人數越少，差距越可能只是巧合，建議兩版各累積到較多人再下結論。';
         } else if (!Number(A.reply_users || 0) && !Number(B.reply_users || 0)) {
           verdict = '<b>還不能比較：</b>還沒有人收到這個測試的回覆。';
+        } else if (!Number(A.reply_users || 0) || !Number(B.reply_users || 0)) {
+          verdict = '<b>還不能比較：</b>' + (!Number(A.reply_users || 0) ? 'A 版' : 'B 版') + '尚未成功回覆給任何人，目前無法預估可以比較的時間。兩版都需要有人成功收到回覆，並各滿 ' + days + ' 天觀察期。';
         } else {
           verdict = '<b>還不能比較：</b>每個人要從第一次收到回覆起滿 ' + days + ' 天，才算進正式比較。目前已滿 ' + days + ' 天的人：A 版 ' +
             num(A.matured_users) + ' 人、B 版 ' + num(B.matured_users) + ' 人（兩版都至少要有 1 人）。' +

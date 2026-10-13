@@ -730,6 +730,23 @@ test('報表資料：回傳最快可比較時間（兩版都需要有人滿觀�
   assert.equal(rep.variants.a.next_mature_at, '2026-10-17T06:00:00Z');
 });
 
+test('可比較時間：空版本不能被當成已成熟，兩版都能預期成熟才提供日期',async()=>{
+ const later='2026-10-20T02:00:00Z',earlier='2026-10-18T02:00:00Z';
+ const empty={reply_users:0,matured_users:0,next_mature_at:null};
+ const pending={reply_users:1,matured_users:0,next_mature_at:later};
+ const mature={reply_users:1,matured_users:1,matured_clickers:0,next_mature_at:null};
+ for(const [a,b,expected] of [[empty,pending,null],[pending,empty,null],[empty,empty,null],[mature,pending,later],[pending,mature,later],[{...pending,next_mature_at:earlier},pending,later],[mature,mature,null]]){
+  const rep=await ke.experimentReport(async(s,p)=>({rows:[p[1]==='a'?a:b]}),exp());assert.equal(rep.compare_ready_at,expected);
+ }
+});
+test('報表文字：指出無成功回覆的版本，不顯示不成立的比較日期',async()=>{
+ for(const side of ['a','b']){
+  const variants={a:V({reply_users:1}),b:V({reply_users:1})};variants[side]=V({});
+  const t=await reportText({experiment_id:11,state:'running',attribution_days:1,comparable:false,compare_ready_at:null,variants});
+  assert.match(t.verdict,new RegExp(side.toUpperCase()+' 版尚未成功回覆'));assert.match(t.verdict,/目前無法預估/);assert.doesNotMatch(t.verdict,/最快/);
+ }
+});
+
 test('觀察期：新測試預設 1 天，可選 3／7 天，其他值擋下；寫進資料庫的是所選天數', async () => {
   const state = { templates: { 1: { id: 1, name: 'STAGING A', message_config: CFG_A }, 2: { id: 2, name: 'STAGING B', message_config: CFG_B } }, updates: [] };
   const call = adminRoutes(state);

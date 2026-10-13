@@ -240,7 +240,8 @@ async function experimentReport(query, exp, now = new Date()) {
   out.diff_pp_matured = out.comparable ? Math.round((B.ctr_matured - A.ctr_matured) * 10) / 10 : null;
   // 兩版都至少要有一人滿觀察期才能比；還不能比時，告訴畫面最快什麼時候會有（兩版都需要）
   const later = (x, y) => (!x ? y : !y ? x : (new Date(x) > new Date(y) ? x : y));
-  out.compare_ready_at = out.comparable ? null
+  const predictable = [A, B].every(v => v.trackable && (v.matured_users > 0 || (v.reply_users > 0 && v.next_mature_at && Number.isFinite(new Date(v.next_mature_at).getTime()))));
+  out.compare_ready_at = out.comparable || !predictable ? null
     : later(A.matured_users ? null : A.next_mature_at, B.matured_users ? null : B.next_mature_at) || null;
   return out;
 }
