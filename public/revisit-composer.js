@@ -15,7 +15,7 @@
     if(!subject||!body)return;
     root.classList.add('rv-mail-editor');
     var envelope=doc.createElement('div');envelope.className='rv-mail-envelope';
-    var from=doc.createElement('p');from.textContent='寄件人　sales@openrice.com.tw（請在 Outlook 確認帳號）';
+    var from=doc.createElement('p');from.textContent='寄件人　sales@openrice.com.tw（請在 Spark／Outlook 確認帳號）';
     var to=doc.createElement('p');to.textContent='收件人　'+(row.recipient_name?row.recipient_name+' <'+row.recipient_email+'>':row.recipient_email);
     envelope.append(from,to);subject.closest('label').before(envelope);
     body.rows=12;body.placeholder='像寫 Email 一樣，在這裡輸入內文…';
@@ -24,13 +24,13 @@
     preheader.closest('label').hidden=true; // mailto does not support HTML preheaders.
     var oldPreview=root.querySelector('iframe.rv-preview');if(oldPreview)oldPreview.hidden=true;
     var live=doc.createElement('section');live.className='rv-mail-live';
-    var heading=doc.createElement('h4');heading.textContent='Outlook 草稿內容預覽';
+    var heading=doc.createElement('h4');heading.textContent='客人會收到的純文字內容';
     var preview=doc.createElement('pre');preview.setAttribute('aria-live','polite');live.append(heading,preview);root.append(live);
     function update(){preview.textContent=subject.value.trim()+'\n\n'+(row.recipient_name?String(row.recipient_name).trim().slice(0,120)+'，你好':'你好')+'\n\n'+body.value.trim()+'\n\n查看餐廳並訂位：'+cta.value.trim()+'\n\n取消訂閱：[開啟草稿時自動加入這位客人的退訂連結]';}
     [subject,body,cta].forEach(function(el){el.addEventListener('input',update);});update();
     if(!opts.editable)return;
-    var bar=doc.createElement('section');bar.className='rv-template-bar';
-    bar.innerHTML='<h4>我的郵件範本</h4><p>範本只保存主旨與內文，不保存收件人、訂位連結或寄送狀態。套用只改這封，按「儲存這封」才生效。</p><div class="rv-template-row"><select aria-label="選擇郵件範本"></select><button type="button" class="rv-btn rv-secondary" data-apply>套用範本</button></div><label class="rv-confirm"><input type="checkbox" data-replace><span>我同意以範本取代這封尚未儲存的主旨與內文</span></label><div class="rv-template-row"><input aria-label="新範本名稱" maxlength="80" placeholder="範本名稱，例如：一般回訪 10 月版"><button type="button" class="rv-btn rv-secondary" data-save>另存為新範本</button></div><p class="rv-template-msg" role="status"></p>';
+    var bar=doc.createElement('details');bar.className='rv-template-bar';
+    bar.innerHTML='<summary>套用或管理郵件範本</summary><p>範本只保存主旨與內文，不保存收件人、訂位連結或寄送狀態。套用只改這封，按「儲存這封」才生效。</p><div class="rv-template-row"><select aria-label="選擇郵件範本"></select><button type="button" class="rv-btn rv-secondary" data-apply>套用範本</button></div><label class="rv-confirm"><input type="checkbox" data-replace><span>我同意以範本取代這封尚未儲存的主旨與內文</span></label><div class="rv-template-row"><input aria-label="新範本名稱" maxlength="80" placeholder="範本名稱，例如：一般回訪 10 月版"><button type="button" class="rv-btn rv-secondary" data-save>另存為新範本</button></div><p class="rv-template-msg" role="status"></p>';
     envelope.before(bar);
     var select=bar.querySelector('select'),name=bar.querySelector('input[aria-label]'),msg=bar.querySelector('[role=status]'),apply=bar.querySelector('[data-apply]'),save=bar.querySelector('[data-save]'),check=bar.querySelector('[data-replace]');
     var templates=defaults.slice(),busy=false;
@@ -44,7 +44,7 @@
       var template=templates.find(function(t){return String(t.id)===select.value;});if(!template)return;
       var content={subject:expand(template.subject,row),body:expand(template.body_text,row)};
       if(content.subject.length>200||content.body.length>4000){msg.textContent='代入姓名／餐廳後內容過長，請先縮短範本。';return;}
-      subject.value=content.subject;body.value=content.body;preheader.value=template.preheader||'';check.checked=false;update();
+      subject.value=content.subject;body.value=content.body;preheader.value=template.preheader||'';check.checked=false;update();body.dispatchEvent(new Event('input',{bubbles:true}));
       msg.textContent='已套用到這封，訂位連結不變；請檢查優惠與日期，再按「儲存這封」。';
     });
     save.addEventListener('click',function(){
