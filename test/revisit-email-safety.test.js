@@ -28,7 +28,7 @@ test('回訪 Email 頁面可渲染且瀏覽器程式碼語法正確', async () =
   const html = await ejs.renderFile(path.join(REPO, 'views/admin_revisit_email.ejs'), {
     title: '訂位客回訪 Email', bodyClass: 'admin-shell', user: 'Hen', isAdmin: true, isOwner: true
   }, { views: [path.join(REPO, 'views')] });
-  assert.match(html, /你只要完成 4 步/);
+  assert.match(html, /回訪寄送工作台/);
   assert.match(html, /同步這段期間的訂位/);
   assert.match(html, /訂位成效報表資料更新至/);
   assert.match(html, /暫時無法取得最新更新日期/);
@@ -48,7 +48,7 @@ test('回訪 Email 頁面可渲染且瀏覽器程式碼語法正確', async () =
   assert.match(html, /api\/provider\/verify/);
   assert.match(html, /永遠不要再寄/);
   assert.match(html, /寄件備份有這封：標記為公司信箱已接受/);
-  assert.match(html, /不代表客人的信箱已收件/);
+  assert.match(html, /不代表客人已收件/);
   assert.match(html, /公司信箱已接受/);
   assert.match(html, /寄送結果不確定/);
   assert.match(html, /我確認公司可以使用這批 Email 寄送回訪信/);

@@ -24,13 +24,13 @@ if(process.env.CRM_QA_ISOLATED!=='1')throw Error('Isolated local QA required');
   const {chromium}=require('playwright');browser=await chromium.launch({headless:true,...(process.env.CRM_QA_BROWSER_CHANNEL?{channel:process.env.CRM_QA_BROWSER_CHANNEL}:{})});
   for(const width of [1440,390]){
    const page=await browser.newPage({viewport:{width,height:1100}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
-   await page.goto('http://127.0.0.1:3121/admin/revisit-email');await page.getByRole('button',{name:'檢查並寄送',exact:true}).click();await page.locator('[data-save]').waitFor();
+   await page.goto('http://127.0.0.1:3121/admin/revisit-email');await page.getByRole('button',{name:'檢查並寄送',exact:true}).click();await page.getByText('套用或管理郵件範本',{exact:true}).click();await page.locator('[data-save]').waitFor();
    assert.equal(await page.locator('#rv-edit-preheader').isVisible(),false);
    await page.getByLabel('新範本名稱').fill('QA 範本 '+width);await page.locator('[data-save]').click();await page.getByText('已儲存新範本，換電腦也能使用。',{exact:false}).waitFor();
    await page.locator('#rv-edit-body').fill('未儲存的新內文');await page.locator('[data-open="2"]').click();assert.equal(await page.locator('#rv-edit-body').inputValue(),'未儲存的新內文');
-   await page.getByRole('button',{name:'放棄未儲存內容並切換'}).click();await page.getByLabel('選擇郵件範本').locator('option').filter({hasText:'QA 範本 '+width}).waitFor({state:'attached'});await page.getByLabel('選擇郵件範本').selectOption({label:(await page.locator('select[aria-label="選擇郵件範本"] option').allTextContents()).find(x=>x.startsWith('QA 範本 '+width))});
+   await page.getByRole('button',{name:'放棄未儲存內容並切換'}).click();await page.getByText('套用或管理郵件範本',{exact:true}).click();await page.getByLabel('選擇郵件範本').locator('option').filter({hasText:'QA 範本 '+width}).waitFor({state:'attached'});await page.getByLabel('選擇郵件範本').selectOption({label:(await page.locator('select[aria-label="選擇郵件範本"] option').allTextContents()).find(x=>x.startsWith('QA 範本 '+width))});
    await page.locator('[data-replace]').check();await page.locator('[data-apply]').click();assert.equal(await page.locator('#rv-edit-body').inputValue(),'謝謝測試客人2到虛構餐廳2用餐。');assert.equal(await page.locator('#rv-edit-cta').inputValue(),'https://example.com/book/2');
-   await page.locator('#rv-save-copy').click();await page.getByText('已儲存；直接寄送功能需重新測試。也可以使用 Outlook 開啟草稿。',{exact:true}).waitFor();
+   await page.locator('#rv-save-copy').click();await page.getByText('已儲存；可準備郵件草稿。若使用本機直接寄送，需重新寄測試信。',{exact:true}).waitFor();
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.deepEqual(errors,[]);
    await page.locator('#rv-editor').screenshot({path:'/tmp/revisit-composer-'+width+'.png'});
    await page.reload();await page.getByRole('button',{name:'檢查並寄送',exact:true}).click();await page.getByLabel('選擇郵件範本').locator('option').filter({hasText:'QA 範本 '+width}).waitFor({state:'attached'});
