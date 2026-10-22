@@ -17,7 +17,7 @@ function route() {
   const sqls = [];
   const app = ['get', 'post', 'delete', 'put'].reduce((o, m) => { o[m] = (p, ...h) => { routes[m.toUpperCase() + ' ' + p] = h; }; return o; }, {});
   registerAdminKeywordRepliesRoutes(app, {
-    query: async (sql, params) => { sqls.push({ sql: String(sql), params }); return /ORDER BY created_at ASC LIMIT 1/.test(sql) ? { rows: [{ created_at: '2026-08-01T00:00:00Z' }] } : { rows: [] }; },
+    query: async (sql, params) => { sqls.push({ sql: String(sql), params }); return /MIN\(COALESCE/.test(sql) ? { rows: [{ created_at: '2026-08-01T00:00:00Z' }] } : { rows: [] }; },
     authCore: { requireAdmin: (_q, _s, n) => n() }
   });
   const call = async (query) => { const r = { code: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(c) { this.code = c; return this; }, json(b) { this.body = b; return this; } }; await routes['GET /admin/keyword-replies/api/stats'].at(-1)({ query }, r); return r; };
@@ -32,7 +32,7 @@ test('紀錄 API：依台灣時間的期間查 webhook 紀錄；只算命中規�
   const main = sqls.find(s => /AS triggers/.test(s.sql));
   assert.match(main.sql, /FROM line_webhook_events/);
   assert.match(main.sql, /substring\(detail from 'rule#\(\[0-9\]\+\)'\)/);
-  assert.deepEqual(main.params.slice(0, 3), ['2026-10-12T00:00:00+08:00', '2026-10-18T00:00:00+08:00',
+  assert.deepEqual(main.params.slice(0, 3), ['2026-10-12T00:00:00+08:00', '2026-10-19T00:00:00+08:00',
     ['keyword_replied', 'keyword_fallback_replied', 'keyword_reply_failed', 'keyword_fallback_reply_failed']]);
   assert.ok(sqls.some(s => /to_char\(at AT TIME ZONE 'Asia\/Taipei', 'HH24'\)/.test(s.sql)), '一天中各時段依台灣時間分組');
   assert.equal(ok.body.first_record_at, '2026-08-01T00:00:00Z');
@@ -66,9 +66,9 @@ test('規則清單：預設近 7 天（台灣日期）顯示期間觸發次數�
   const { dom, doc, calls } = await openPage(() => ({ ok: true, totals: [{ rule_id: 7, triggers: 41, replied: 40, failed: 1, people: 33 }], first_record_at: '2026-08-01T00:00:00Z' }));
   assert.ok(calls.includes('/admin/keyword-replies/api/stats?from=' + shift(t, -6) + '&to=' + t));
   const cells = [...doc.querySelectorAll('#kr-tbody tr')].map(tr => tr.children[4].textContent.replace(/\s+/g, ''));
-  assert.equal(cells[0], '41成功40・失敗1・33人累計520');
+  assert.equal(cells[0], '41成功40・未確認成功1・33人累計520');
   assert.equal(cells[1], '0累計90', '期間內沒觸發顯示 0');
-  assert.match(doc.getElementById('kr-range-status').textContent, /觸發紀錄從 2026\/8\/1 起才有/);
+  assert.match(doc.getElementById('kr-range-status').textContent, /最早可查紀錄：2026\/8\/1/);
   assert.match(doc.querySelector('.kr-table thead').textContent, /期間觸發次數/);
   dom.window.close();
 });
@@ -107,4 +107,41 @@ test('紀錄面板：每天補齊 0、一天中各時段 24 格；切換統計�
   assert.match(doc.getElementById('kr-stats-defs').textContent, /同一人傳 3 次算 3 次/);
   assert.match(doc.getElementById('kr-stats-defs').textContent, /台灣時間/);
   dom.window.close();
+});
+
+
+test('拒絕不存在的日期與陣列日期，避免正規化後查錯區間', async () => {
+ const {call}=route();
+ for(const from of ['2026-02-30',['2026-10-12']]) assert.equal((await call({from,to:'2026-10-18'})).code,400);
+});
+test('舊日期回應不可覆蓋新日期；錯誤清空數字與圖表摘要', async () => {
+ let resolveOld, n=0;
+ const {dom,doc}=await openPage(()=>{ if(++n===1)return new Promise(r=>resolveOld=r); return {ok:true,totals:[{rule_id:7,triggers:8,replied:8,people:2}]}; });
+ doc.querySelector('[data-kr-range="today"]').click(); await wait(20);
+ resolveOld({ok:true,totals:[{rule_id:7,triggers:999,replied:999,people:9}]}); await wait(20);
+ assert.doesNotMatch(doc.querySelector('#kr-tbody').textContent,/999/);
+ dom.window.fetch=async()=>{throw Error('offline')};
+ doc.querySelector('[data-kr-range="yesterday"]').click(); await wait(20);
+ assert.doesNotMatch(doc.querySelector('#kr-tbody tr').children[4].textContent,/成功/);
+ assert.match(doc.querySelector('#kr-tbody tr').children[4].textContent,/—/);
+ dom.window.close();
+});
+
+test('圖表切換規則忽略舊回應；網路失敗清空摘要', async () => {
+ let pending;
+ const {dom,doc}=await openPage(u=>{
+  if(!u.includes('rule_id='))return {ok:true,totals:[]};
+  if(u.includes('rule_id=7'))return new Promise(r=>pending=r);
+  return {ok:true,totals:[{rule_id:8,triggers:2,replied:2,people:1}],series:[]};
+ });
+ doc.querySelector('.kr-stats-btn[data-id="7"]').click();await wait(10);
+ doc.querySelector('.kr-stats-btn[data-id="8"]').click();await wait(10);
+ pending({ok:true,totals:[{rule_id:7,triggers:999,replied:999,people:1}],series:[{bucket:twToday(),triggers:999,people:1}]});await wait(10);
+ assert.match(doc.querySelector('#kr-stats-sum').textContent,/2 次觸發/);
+ assert.doesNotMatch(doc.querySelector('#kr-stats-bars').textContent,/999/);
+ dom.window.fetch=async()=>{throw Error('offline')};
+ doc.querySelector('[data-kr-gran="hour"]').click();await wait(10);
+ assert.equal(doc.querySelector('#kr-stats-sum').textContent,'');
+ assert.match(doc.querySelector('#kr-stats-bars').textContent,/讀取失敗/);
+ dom.window.close();
 });
