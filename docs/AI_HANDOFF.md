@@ -726,6 +726,15 @@ LINE imagemap 只規定 `baseSize.width = 1040`、高度依比例。上傳不再
 沒有 1～3 天才點的情況。建立測試時可選觀察期 1／3／7 天（`attribution_days`，預設 1，其他值 400 `bad_attribution`），
 已建立的測試維持原值。報表文字依各測試的天數顯示。樣本仍小且含內部測試，日後若點擊延遲變長可改選 3 或 7 天。
 
+#### 關鍵字回覆：依期間的觸發紀錄（2026-10-22）
+
+關鍵字回覆頁「規則清單」加期間篩選（今天／昨天／近 7 天（預設）／近 30 天／自訂，台灣時間含起訖），每條規則顯示期間觸發次數、
+成功／失敗、不重複人數與累計（原 hit_count）。每列「紀錄」開面板：每天（補齊 0）／每小時（最多 7 天）／一天中各時段（合計 24 格）。
+資料來源 `line_webhook_events`（每次命中都寫一筆，detail 含 `rule#<id>`），`GET /admin/keyword-replies/api/stats?from&to&rule_id&granularity`；
+只算 keyword_replied／keyword_fallback_replied／keyword_reply_failed／keyword_fallback_reply_failed（重送 keyword_ab_duplicate_event、沒命中不算），
+時間用 event_timestamp；以 created_at 索引先縮小範圍。頁面顯示紀錄起始日。已用真 PostgreSQL 驗證台灣午夜邊界。
+回歸測試 `test/keyword-reply-stats.test.js`。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`
