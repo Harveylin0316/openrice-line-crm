@@ -726,6 +726,17 @@ LINE imagemap 只規定 `baseSize.width = 1040`、高度依比例。上傳不再
 沒有 1～3 天才點的情況。建立測試時可選觀察期 1／3／7 天（`attribution_days`，預設 1，其他值 400 `bad_attribution`），
 已建立的測試維持原值。報表文字依各測試的天數顯示。樣本仍小且含內部測試，日後若點擊延遲變長可改選 3 或 7 天。
 
+#### 關鍵字回覆：依期間的觸發紀錄（2026-10-22）
+
+關鍵字回覆頁「規則清單」加期間篩選（今天／昨天／近 7 天（預設）／近 30 天／自訂，台灣時間含起訖），每條規則顯示期間觸發次數、
+成功／失敗、不重複人數與累計（原 hit_count）。每列「紀錄」開面板：每天（補齊 0）／每小時（最多 7 天）／一天中各時段（合計 24 格）。
+資料來源 `line_webhook_events`（僅已保存且 detail 可辨識 `rule#<id>` 的處理結果），`GET /admin/keyword-replies/api/stats?from&to&rule_id&granularity`；
+只算 keyword_replied／keyword_fallback_replied／keyword_reply_failed／keyword_fallback_reply_failed（重送 keyword_ab_duplicate_event、沒命中不算），
+時間用 event_timestamp（缺少時回退 created_at），以台北起日／次日零點半開區間篩選；不限制處理延遲天數。依 webhookEventId／message.id 去重，同事件優先保留已接受結果；兩種編號都缺時只能按 log ID，歷史資料不保證完整。頁面顯示最早可查事件日。已用真 PostgreSQL 驗證台灣午夜邊界。
+回歸測試 `test/keyword-reply-stats.test.js`。2026-10-22 review 補修：嚴格日期驗證、列表與圖表請求競態保護、載入／錯誤清除舊數字；手機規則列改為可直接操作「紀錄」的卡片排版。
+既有 failed log 同時包含結果不明與測試跳過，UI 改稱「未確認成功」，不假稱確定失敗。成功不代表已讀／送達；未完成、無規則編號的例外與未保存紀錄不計入，不做歷史回填。
+真 PostgreSQL 回歸：`CRM_QA_ISOLATED=1 node scripts/qa/keyword-range-review.cjs`，只使用 localhost55439 暫存資料庫；加 CRM_QA_SERVE=1 開啟本機3109唯讀合成資料頁。固定Staging驗收使用停用的「STAGING 日期篩選驗收 20261022」，未發送訊息、無migration。
+
 ### 數據與歸因
 
 - 洞察／報告：`/admin/insight`、`/admin/reports`

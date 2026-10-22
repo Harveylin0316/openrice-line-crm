@@ -43,6 +43,85 @@ function registerAdminKeywordRepliesRoutes(app, deps) {
   });
 
   // 列表（一次帶回規則 + 訊息庫下拉選項，前端不用打兩支）
+  /**
+   * 關鍵字回覆紀錄（依期間）：資料來自 line_webhook_events —— 已保存且可辨識規則的處理結果，
+   * detail 內含「rule#<編號>」、result 為回覆結果。時間用客人傳訊息的時間（event_timestamp），台灣時區、含起訖日。
+   *   觸發次數：命中規則的次數（每次都算）；成功回覆：LINE 接受回覆；未確認成功另計（包含拒絕、結果不明與跳過）；不重複人數：期間內觸發過的不同客人。
+   *   依事件 ID 去重；缺 ID 時以訊息 ID、最後以 log ID 區分，不宣稱無 ID 的歷史紀錄可完整去重。
+   * granularity：day（每天）、hour（每小時，最多 7 天）、hour_of_day（一天中各時段合計）。
+   */
+  const KR_RESULTS = ['keyword_replied', 'keyword_fallback_replied', 'keyword_reply_failed', 'keyword_fallback_reply_failed'];
+  app.get('/admin/keyword-replies/api/stats', requireAdmin, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    const from = typeof req.query.from === 'string' ? req.query.from : '';
+    const to = typeof req.query.to === 'string' ? req.query.to : '';
+    if (!ymd.test(from) || !ymd.test(to) || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to)) || new Date(from).toISOString().slice(0,10) !== from || new Date(to).toISOString().slice(0,10) !== to) {
+      return res.status(400).json({ ok: false, error: '日期格式要是 YYYY-MM-DD' });
+    }
+    if (from > to) return res.status(400).json({ ok: false, error: '開始日期不能晚於結束日期' });
+    const spanDays = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+    if (spanDays > 366) return res.status(400).json({ ok: false, error: '期間最長 366 天' });
+    const ruleId = req.query.rule_id ? Number(req.query.rule_id) : null;
+    if (req.query.rule_id && !(Number.isSafeInteger(ruleId) && ruleId > 0)) return res.status(400).json({ ok: false, error: '規則編號不正確' });
+    const gran = ['day', 'hour', 'hour_of_day'].includes(String(req.query.granularity)) ? String(req.query.granularity) : 'day';
+    if (gran === 'hour' && spanDays > 7) return res.status(400).json({ ok: false, error: '「每小時」最多看 7 天，請縮短期間或改看「每天」' });
+    const end = new Date(Date.parse(to) + 86400000).toISOString().slice(0,10);
+    const params = [from + 'T00:00:00+08:00', end + 'T00:00:00+08:00', KR_RESULTS];
+    const base = `
+      WITH ev AS (
+        SELECT NULLIF(substring(detail from 'rule#([0-9]+)'), '')::int AS rule_id,
+               id, created_at, result, line_user_id, COALESCE(event_timestamp, created_at) AS at,
+               COALESCE(NULLIF(raw_event->>'webhookEventId',''),
+                 CASE WHEN NULLIF(raw_event->'message'->>'id','') IS NOT NULL
+                 THEN 'message:' || COALESCE(line_user_id,'') || ':' || (raw_event->'message'->>'id') END,
+                 'log:' || id::text) AS event_key
+          FROM line_webhook_events
+         WHERE event_type = 'message' AND result = ANY($3::text[])
+           AND COALESCE(event_timestamp, created_at) >= $1::timestamptz
+           AND COALESCE(event_timestamp, created_at) < $2::timestamptz
+      ), r AS (
+        SELECT DISTINCT ON (rule_id, event_key) * FROM ev
+         WHERE rule_id IS NOT NULL
+         ORDER BY rule_id, event_key,
+           (result IN ('keyword_replied','keyword_fallback_replied')) DESC, created_at DESC, id DESC
+      )`;
+    try {
+      const totals = (await query(base + `
+        SELECT rule_id,
+               COUNT(*)::int AS triggers,
+               COUNT(*) FILTER (WHERE result IN ('keyword_replied', 'keyword_fallback_replied'))::int AS replied,
+               COUNT(*) FILTER (WHERE result IN ('keyword_reply_failed', 'keyword_fallback_reply_failed'))::int AS failed,
+               COUNT(DISTINCT line_user_id)::int AS people
+          FROM r GROUP BY rule_id`, params)).rows;
+      let series = null;
+      if (ruleId || req.query.series === 'all') {
+        const bucket = gran === 'hour_of_day'
+          ? `to_char(at AT TIME ZONE 'Asia/Taipei', 'HH24')`
+          : gran === 'hour' ? `to_char(at AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD HH24')`
+          : `to_char(at AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD')`;
+        series = (await query(base + `
+          SELECT ${bucket} AS bucket,
+                 COUNT(*)::int AS triggers,
+                 COUNT(*) FILTER (WHERE result IN ('keyword_replied', 'keyword_fallback_replied'))::int AS replied,
+                 COUNT(DISTINCT line_user_id)::int AS people
+            FROM r WHERE ($4::int IS NULL OR rule_id = $4)
+           GROUP BY 1 ORDER BY 1`, params.concat([ruleId]))).rows;
+      }
+      let firstRecordAt = null;
+      try {
+        firstRecordAt = (await query(
+          `SELECT MIN(COALESCE(event_timestamp, created_at)) AS created_at FROM line_webhook_events
+            WHERE event_type = 'message' AND result = ANY($1::text[])
+            AND substring(detail from 'rule#([0-9]+)') IS NOT NULL`, [KR_RESULTS])).rows[0]?.created_at || null;
+      } catch (e) { firstRecordAt = null; }
+      return res.json({ ok: true, range: { from, to }, granularity: gran, totals, series, first_record_at: firstRecordAt });
+    } catch (err) {
+      console.error('keyword stats failed:', err && err.message);
+      return res.status(503).json({ ok: false, error: '紀錄暫時無法讀取' });
+    }
+  });
+
   app.get('/admin/keyword-replies/api/list', requireAdmin, async (_req, res) => {
     try {
       const rules = await query(

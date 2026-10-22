@@ -18,6 +18,19 @@
 
     <section class="card">
       <h2 style="margin:0 0 10px;">規則清單</h2>
+      <div class="kr-range" id="kr-range">
+        <span class="kr-range-label">觸發紀錄期間（台灣時間）</span>
+        <div class="kr-range-chips">
+          <button type="button" data-kr-range="today">今天</button>
+          <button type="button" data-kr-range="yesterday">昨天</button>
+          <button type="button" data-kr-range="7d" class="on">近 7 天</button>
+          <button type="button" data-kr-range="30d">近 30 天</button>
+          <button type="button" data-kr-range="custom">自訂</button>
+        </div>
+        <div class="kr-range-dates"><input type="date" id="kr-from" aria-label="開始日期"> ～ <input type="date" id="kr-to" aria-label="結束日期"><button type="button" id="kr-range-apply">套用</button></div>
+        <span class="muted kr-range-status" id="kr-range-status"></span>
+        <small class="muted">僅統計已保存且可辨識規則的紀錄；歷史資料不保證完整。「未確認成功」包含失敗、結果不明與測試跳過。</small>
+      </div>
       <div class="table-wrap">
         <table class="kr-table">
           <thead>
@@ -26,7 +39,7 @@
               <th>比對方式</th>
               <th>回覆訊息</th>
               <th style="text-align:center;">啟用</th>
-              <th style="text-align:right;">命中次數</th>
+              <th style="text-align:right;" title="所選期間已保存且可辨識規則的觸發紀錄次數">期間觸發次數</th>
               <th></th>
             </tr>
           </thead>
@@ -35,6 +48,31 @@
           </tbody>
         </table>
       </div>
+    </section>
+
+    <!-- 觸發紀錄：點規則列的「紀錄」打開 -->
+    <section class="card kr-stats-card" id="kr-stats-card" hidden>
+      <div class="kr-ab-head">
+        <div>
+          <h2 style="margin:0;">觸發紀錄</h2>
+          <div class="muted" style="font-size:12px;margin-top:4px;" id="kr-stats-rule"></div>
+        </div>
+        <button type="button" class="kr-secondary-btn" id="kr-stats-close">關閉</button>
+      </div>
+      <div class="kr-range-chips" role="group" aria-label="統計方式" style="margin-bottom:10px;">
+        <button type="button" data-kr-gran="day" class="on">每天</button>
+        <button type="button" data-kr-gran="hour">每小時</button>
+        <button type="button" data-kr-gran="hour_of_day">一天中各時段（合計）</button>
+      </div>
+      <div class="kr-stats-sum" id="kr-stats-sum"></div>
+      <div class="kr-bars" id="kr-stats-bars"></div>
+      <ul class="muted kr-stats-note" id="kr-stats-defs">
+        <li><b>觸發次數</b>：已保存且可辨識規則的觸發紀錄，同一人傳 3 次算 3 次；不含未完成處理或無法辨識規則的異常紀錄。</li>
+        <li><b>成功回覆</b>：紀錄顯示 LINE 接受回覆的次數，不代表送達或已讀。「未確認成功」包含失敗、結果不明或測試跳過，不能全部當作確定失敗。</li>
+        <li><b>不重複人數</b>：所選期間有觸發紀錄且有識別資料的不同客人數。</li>
+        <li><b>時間</b>：客人傳訊息的時間（台灣時間，含起訖日）。「一天中各時段」是把期間內每天同一個小時加總，用來看客人通常幾點詢問。</li>
+        <li>依事件或訊息編號去除重送；歷史紀錄若兩種編號都缺少，無法完整去重。未命中一般規則但有兜底回覆，會計入兜底；沒有回覆規則的訊息不算。</li>
+      </ul>
     </section>
 
     <!-- A/B 測試面板：點規則列的「A/B 測試」打開 -->
@@ -379,6 +417,122 @@
       }
       $('kr-ab-close').addEventListener('click', function () { ++abGeneration; abCompared = null; $('kr-ab-card').hidden = true; abRuleId = null; });
 
+      // ================= 觸發紀錄（依期間） =================
+      var krRange = { key: '7d', from: '', to: '' };
+      var krTotals = {};
+      var krStatsRule = null;
+      var krGran = 'day';
+      var totalsRequest=0, seriesRequest=0;
+      function twToday() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
+      function shiftDay(ymd, d) { var x = new Date(ymd + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + d); return x.toISOString().slice(0, 10); }
+      function rangeFor(key) {
+        var t = twToday();
+        if (key === 'today') return [t, t];
+        if (key === 'yesterday') return [shiftDay(t, -1), shiftDay(t, -1)];
+        if (key === '30d') return [shiftDay(t, -29), t];
+        return [shiftDay(t, -6), t];
+      }
+      function setRangeKey(key) {
+        krRange.key = key;
+        document.querySelectorAll('[data-kr-range]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-kr-range') === key); });
+      }
+      function periodCell(r) {
+        var t = krTotals[r.id];
+        var main = t ? t.triggers : (krRange.loaded ? 0 : krRange.failed ? '—' : '…');
+        var sub = t && (t.failed || t.people) ? '<div class="muted" style="font-size:11px;">成功 ' + t.replied + (t.failed ? '・未確認成功 ' + t.failed : '') + '・' + t.people + ' 人</div>' : '';
+        return '<b>' + main + '</b>' + sub + '<div class="muted" style="font-size:11px;">累計 ' + (r.hit_count || 0) + '</div>';
+      }
+      function loadTotals() {
+        var f = $('kr-from').value, t = $('kr-to').value;
+        if (!f || !t) { $('kr-range-status').textContent = '請選擇開始與結束日期'; return; }
+        if (f > t) { $('kr-range-status').textContent = '開始日期不能晚於結束日期'; return; }
+        var request=++totalsRequest; ++seriesRequest;
+        krRange.from = f; krRange.to = t; krRange.loaded = false; krRange.failed=false; krTotals={};
+        render(allRules); $('kr-stats-sum').innerHTML=''; $('kr-stats-bars').innerHTML='';
+        $('kr-range-status').textContent = '載入中…';
+        fetch('/admin/keyword-replies/api/stats?from=' + f + '&to=' + t)
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if(request!==totalsRequest)return;
+            if (!d.ok) throw new Error(d.error || '讀取失敗');
+            krTotals = {};
+            (d.totals || []).forEach(function (x) { krTotals[x.rule_id] = x; });
+            krRange.loaded = true;
+            var first = d.first_record_at ? new Date(d.first_record_at).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' }) : null;
+            $('kr-range-status').textContent = f + ' ～ ' + t + (first ? '（最早可查紀錄：' + first + '；不保證歷史完整）' : '');
+            render(allRules);
+            if (krStatsRule) loadSeries();
+          })
+          .catch(function (error) { if(request!==totalsRequest)return; krTotals={}; krRange.failed=true; render(allRules); $('kr-range-status').textContent = error.message || '讀取失敗'; });
+      }
+      function openStats(ruleId) {
+        krStatsRule = ruleId;
+        var rule = allRules.filter(function (r) { return r.id === ruleId; })[0] || {};
+        $('kr-stats-rule').textContent = '規則：' + (rule.match_type === 'fallback' ? '兜底（沒命中任何關鍵字時）' : (rule.keywords || '')) + '｜回覆：' + (rule.template_name || '（未設定）');
+        $('kr-stats-card').hidden = false;
+        $('kr-stats-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        loadSeries();
+      }
+      function bucketLabel(b) {
+        if (krGran === 'hour_of_day') return b + ':00';
+        if (krGran === 'hour') return b.slice(5, 10).replace('-', '/') + ' ' + b.slice(11) + ':00';
+        return b.slice(5).replace('-', '/');
+      }
+      function fillBuckets(series) {
+        var map = {};
+        series.forEach(function (s) { map[s.bucket] = s; });
+        var keys = [];
+        if (krGran === 'hour_of_day') { for (var h = 0; h < 24; h++) keys.push((h < 10 ? '0' : '') + h); }
+        else if (krGran === 'day') { for (var d = krRange.from; d <= krRange.to; d = shiftDay(d, 1)) keys.push(d); }
+        else { for (var dd = krRange.from; dd <= krRange.to; dd = shiftDay(dd, 1)) { for (var hh = 0; hh < 24; hh++) keys.push(dd + ' ' + (hh < 10 ? '0' : '') + hh); } }
+        return keys.map(function (k) { return map[k] || { bucket: k, triggers: 0, replied: 0, people: 0 }; });
+      }
+      function loadSeries() {
+        var request=++seriesRequest;
+        $('kr-stats-sum').innerHTML='';
+        if (!krStatsRule || !krRange.loaded) { $('kr-stats-bars').textContent='請先成功套用日期'; return; }
+        var box = $('kr-stats-bars');
+        box.innerHTML = '<div class="muted">載入中…</div>';
+        fetch('/admin/keyword-replies/api/stats?from=' + krRange.from + '&to=' + krRange.to + '&rule_id=' + krStatsRule + '&granularity=' + krGran)
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if(request!==seriesRequest)return;
+            if (!d.ok) { box.innerHTML = '<div class="kr-ab-warn">' + esc(d.error || '讀取失敗') + '</div>'; $('kr-stats-sum').innerHTML = ''; return; }
+            var t = (d.totals || []).filter(function (x) { return x.rule_id === krStatsRule; })[0] || { triggers: 0, replied: 0, failed: 0, people: 0 };
+            $('kr-stats-sum').innerHTML = '<span><b>' + t.triggers + '</b> 次觸發</span><span><b>' + t.replied + '</b> 次成功回覆</span>' +
+              (t.failed ? '<span><b>' + t.failed + '</b> 次未確認成功</span>' : '') + '<span><b>' + t.people + '</b> 位不重複客人</span>' +
+              '<span class="muted">' + esc(krRange.from) + ' ～ ' + esc(krRange.to) + '</span>';
+            var rows = fillBuckets(d.series || []);
+            var max = rows.reduce(function (m, s) { return Math.max(m, s.triggers); }, 0) || 1;
+            box.innerHTML = rows.map(function (s) {
+              return '<div class="kr-bar-row' + (s.triggers ? '' : ' zero') + '"><span class="kr-bar-label">' + esc(bucketLabel(s.bucket)) + '</span>' +
+                '<span class="kr-bar-track"><span class="kr-bar" style="width:' + Math.round(s.triggers / max * 100) + '%"></span></span>' +
+                '<span class="kr-bar-num">' + s.triggers + (s.triggers ? '<small>（' + s.people + ' 人）</small>' : '') + '</span></div>';
+            }).join('');
+          })
+          .catch(function () { if(request!==seriesRequest)return; $('kr-stats-sum').innerHTML=''; box.innerHTML = '<div class="kr-ab-warn">讀取失敗</div>'; });
+      }
+      document.querySelectorAll('[data-kr-range]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var key = b.getAttribute('data-kr-range');
+          setRangeKey(key);
+          if (key === 'custom') { $('kr-from').focus(); return; }
+          var r = rangeFor(key); $('kr-from').value = r[0]; $('kr-to').value = r[1];
+          loadTotals();
+        });
+      });
+      ['kr-from', 'kr-to'].forEach(function (id) { $(id).addEventListener('change', function () { setRangeKey('custom'); }); });
+      $('kr-range-apply').addEventListener('click', loadTotals);
+      document.querySelectorAll('[data-kr-gran]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          krGran = b.getAttribute('data-kr-gran');
+          document.querySelectorAll('[data-kr-gran]').forEach(function (x) { x.classList.toggle('on', x === b); });
+          loadSeries();
+        });
+      });
+      $('kr-stats-close').addEventListener('click', function () { ++seriesRequest; $('kr-stats-card').hidden = true; krStatsRule = null; });
+      (function initRange() { var r = rangeFor('7d'); $('kr-from').value = r[0]; $('kr-to').value = r[1]; })();
+
       function matchTypeLabel(t) {
         if (t === 'fallback') return '兜底';
         return t === 'exact' ? '完全相同' : '包含';
@@ -397,6 +551,7 @@
             abEnabled = resp.ab_enabled !== false;
             fillTemplateOptions();
             render(allRules);
+            loadTotals();
           })
           .catch(function () {
             $('kr-tbody').innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:18px 0;">載入失敗</td></tr>';
@@ -434,9 +589,10 @@
             '<td>' + matchTypeLabel(r.match_type) + '</td>' +
             '<td>' + tplName + '</td>' +
             '<td style="text-align:center;"><input type="checkbox" class="kr-toggle" data-id="' + r.id + '"' + (r.is_active ? ' checked' : '') + ' /></td>' +
-            '<td style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums;">' + (r.hit_count || 0) + '</td>' +
+            '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + periodCell(r) + '</td>' +
             '<td style="white-space:nowrap;">' +
               '<button type="button" class="kr-link-btn kr-edit-btn" data-id="' + r.id + '">編輯</button>' +
+              '<button type="button" class="kr-link-btn kr-stats-btn" data-id="' + r.id + '">紀錄</button>' +
               (abEnabled && r.match_type !== 'fallback'
                 ? '<button type="button" class="kr-link-btn kr-ab-btn" data-id="' + r.id + '">A/B 測試' +
                     (r.ab && (r.ab.state === 'running' || r.ab.state === 'paused' || r.ab.state === 'scheduled')
@@ -448,6 +604,9 @@
           '</tr>';
         }).join('');
 
+        tbody.querySelectorAll('.kr-stats-btn').forEach(function (b) {
+          b.addEventListener('click', function () { openStats(Number(b.getAttribute('data-id'))); });
+        });
         tbody.querySelectorAll('.kr-ab-btn').forEach(function (b) {
           b.addEventListener('click', function () { openAb(Number(b.getAttribute('data-id'))); });
         });
@@ -590,6 +749,40 @@
 
       .table-wrap { overflow-x: auto; }
       .kr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      .kr-range { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 12px; font-size: 12px; }
+      .kr-range-label { color: #6B7280; }
+      .kr-range-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .kr-range-chips button, .kr-range-dates button { font: inherit; font-size: 13px; padding: 5px 12px; border: 1px solid #E5E7EB; border-radius: 999px; background: #fff; cursor: pointer; color: #374151; }
+      .kr-range-chips button.on { background: #FCC726; border-color: #E8B400; font-weight: 700; color: #111827; }
+      .kr-range-dates { display: flex; gap: 6px; align-items: center; color: #6B7280; flex-wrap: wrap; }
+      .kr-range-dates input { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid #E5E7EB; border-radius: 6px; max-width: 100%; }
+      .kr-range-dates button { border-radius: 8px; }
+      .kr-range-status { font-size: 12px; }
+      .kr-stats-card[hidden] { display: none; }
+      @media(max-width:600px) {
+        .kr-table thead { display:none; }
+        .kr-table, .kr-table tbody { display:block; width:100%; }
+        .kr-table tbody tr { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; padding:14px 0; border-bottom:1px solid #e5e7eb; }
+        .kr-table tbody td { display:block; padding:4px!important; border:0!important; min-width:0; overflow-wrap:anywhere; text-align:left!important; }
+        .kr-table tbody td:first-child, .kr-table tbody td:nth-child(5), .kr-table tbody td:last-child { grid-column:1 / -1; }
+        .kr-table tbody td:last-child { white-space:normal!important; display:flex; flex-wrap:wrap; gap:6px; }
+        .kr-table tbody td:nth-child(2)::before { content:'比對方式：'; color:#6b7280; }
+        .kr-table tbody td:nth-child(3)::before { content:'回覆訊息：'; color:#6b7280; }
+        .kr-table tbody td:nth-child(4)::before { content:'啟用：'; color:#6b7280; }
+        .kr-table tbody td:nth-child(5)::before { content:'期間觸發：'; color:#6b7280; }
+      }
+
+      .kr-stats-note { font-size: 12px; line-height: 1.6; margin: 4px 0 0; padding-left: 18px; }
+      .kr-stats-note li { margin: 2px 0; }
+      .kr-stats-sum { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; margin-bottom: 10px; }
+      .kr-stats-sum b { font-size: 18px; }
+      .kr-bars { display: grid; gap: 3px; margin-bottom: 10px; max-height: 520px; overflow-y: auto; }
+      .kr-bar-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 92px; gap: 8px; align-items: center; font-size: 12px; }
+      .kr-bar-row.zero { color: #9CA3AF; }
+      .kr-bar-track { height: 12px; background: #F3F4F6; border-radius: 6px; overflow: hidden; }
+      .kr-bar { display: block; height: 100%; background: #FCC726; border-radius: 6px; }
+      .kr-bar-num { text-align: right; font-variant-numeric: tabular-nums; }
+      .kr-bar-num small { color: #6B7280; margin-left: 2px; }
       .kr-ab-card[hidden], #kr-ab-custom[hidden], #kr-ab-week-warn[hidden] { display: none; }
       .kr-ab-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
       .kr-ab-head > button { flex-shrink: 0; white-space: nowrap; }
