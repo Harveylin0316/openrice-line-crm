@@ -1,5 +1,14 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-10-27 Functions 免費額度減量（待發布驗收）
+
+- 保留 Legacy Free，不改付費方案。flow、broadcast、richmenu 排程改用 `netlify/lib/schedulerDispatch.js` 在同 invocation 內呼叫既有 Express/serverless adapter；只允許六個固定排程路徑，保留 POST、來源、secret 驗證、route 鎖及送出語意，不自動重試。
+- flow 每分鐘同步啟動原 webhook inbox 備援並 await 兩者；備援獨立 schedule 移除，但 receiver 即時喚醒與背景 worker 不變。兩工作共用函式時限，必須在雲端確認冷啟動／執行時間有餘裕；異常不因其中一項失敗而重送另一項。
+- broadcast 每5分鐘、richmenu 每5分鐘（原4分鐘偏移）與流程每分鐘精度保留。richmenu 四項仍依序執行，非2xx如實回失敗。三個排程 bundle 加入與 server 一致的 pg/ejs、views/public。
+- 31天理論固定基線（不含月榜、worker喚醒、使用者、其他站）196,416 → 62,496次，約-68.2%。這是架構估算，不是已量到的帳務節省，也不保證團隊全部用量低於125K；每月1日重置後須觀察實際用量。
+- `test/scheduler-budget.test.js` 使用真 Express/serverless-http adapter及實際活動排程 route＋合成query，無正式DB、LINE或Email。回歸621/621、設定相符的esbuild打包及資產檢查通過；保留缺secret、認證、失敗不重試及兩工作隔離。退役獨立備援入口保留secret驗證，匿名403，不因移除schedule而開放公用喚醒。
+- Netlify團隊目前usage_exceeded，固定Staging/production均503，尚未雲端打包執行／真排程驗收。不得自動發布main；Staging→main PR交Hen確認。回滾本次程式及toml（需同時恢復獨立webhook排程），不刪inbox或重放事件。
+
 ## 2026-10-21 回訪寄送工作台體驗
 
 - 回訪首頁新增未完成批次入口，先找待核對，再找待處理。僅依 API 回傳最近12批提供入口，不宣稱涵蓋全部歷史。工作台新增當批進度、姓名／Email／餐廳搜尋、狀態篩選、下一封未完成；保留全部／其他（失敗、取消等），不把草稿保留當已寄出。
