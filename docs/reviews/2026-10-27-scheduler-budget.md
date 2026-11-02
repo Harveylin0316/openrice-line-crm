@@ -1,5 +1,12 @@
 # Functions 固定排程用量減量
 
+## 2026-11-02 恢復後接續驗收
+
+- Hen同意依建議完成減量驗證與發布，保留原活動、排程頻率及免費方案。
+- 固定Staging已恢復。唯讀確認crm_staging無enrollment、broadcast、rich menu及webhook inbox待處理工作，僅一份draft flow；沒有LINE access token，正式資料不作測試。
+- 本提交用正常staging Git部署補做雲端驗收；尚未完成的結果不得提前標通過。用量提醒與其他網站盤點分開驗證，不把理論基線當實際帳務用量。
+- 嘗試Netlify createSiteBuild指定staging時，CLI實際重建原main8d2fb21（deploy6ae82aa07d0b6d74194dc3b1）；已核對沒有程式版本改變。後續只以Git分支部署，不再使用該API觸發分支建置。
+
 ## 範圍與推估
 
 保留舊免費方案，無migration、憑證、正式資料變更或真人發送。呼叫原排程route時不再經外部HTTP，保留原認證與冪等。每分鐘flow與inbox備援共用一次喚醒；broadcast與richmenu保持獨立timer與原頻率，避免較重工作共用同一個30秒時限。
