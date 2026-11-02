@@ -8,6 +8,16 @@
 - 嘗試Netlify createSiteBuild指定staging時，CLI實際重建原main8d2fb21（deploy6ae82aa07d0b6d74194dc3b1）；已核對沒有程式版本改變。後續只以Git分支部署，不再使用該API觸發分支建置。
 - Staging原本沒有SCHEDULED_RUNNER_SECRET，補上僅branch:staging的獨立隨機值，保留production值／scope，未加入LINE金鑰。每次站內dispatch只記路徑、狀態碼與耗時，不記憑證、訊息或收件人，供雲端時限驗收。
 
+### 固定Staging雲端驗證完成
+
+- 程式11d46ba，branch deploy6ae82ca1d096244bc8fc5680 ready；黃色STAGING橫幅、health appEnv=staging／safePreview=true／LINE token=false、health/db200、退役rescue匿名403。
+- Netlify控制台明確scope=branch:staging手動Run now：flow＋inbox分項皆200，總713ms（含冷啟動；較早版本818ms）；broadcast空工作200、813ms；richmenu／tag／activity／dynamic-list四route皆200、總714ms。無正式route手動執行、無真人發送。Staging排程平台顯示Manual，沒有多加一套自動cron消耗。
+- 622/622本機回歸與GitHub CI通過。測試庫前置唯讀只有draft flow，無執行中工作。
+- 截圖位於Hen共用workspace outputs/netlify-recovery-20261102/staging-{flow,richmenu,broadcast}-budget.png。此為空工作驗收，不宣稱滿載時限／送信E2E；正式部署後觀察自然排程log，不手動重跑結果不明工作。
+- 本月平台快照（11/2約14:22–14:26台灣，資料有延遲）：CRM6793／125000、29分鐘／100小時；map1443／125000、47分鐘／100小時；團隊bandwidth詳細66.8MB／100GB（頂部0與詳細不符，以詳細為準）、build約2分鐘／300。32站基本狀態已列，maps-reservable與park-lf原disabled未擅改；未逐站查所有function用量。
+- 每日09:15台灣、本機Codex heartbeat「檢查 Netlify 額度風險」（id netlify）已啟用並回讀；只在新跨70／85／95%實際或期末預估、停站／讀不到資料時通知，平時安靜。依賴電腦及app執行／Netlify登入，非24h雲端保證。只讀，不自動停活動或升級。
+- Hen已於本輪「照你建議」核准此減量發布。沿原PR50合併；正式版本與自然排程結果另於共享發布紀錄保存，未部署前不稱實際節省68.2%。
+
 ## 範圍與推估
 
 保留舊免費方案，無migration、憑證、正式資料變更或真人發送。呼叫原排程route時不再經外部HTTP，保留原認證與冪等。每分鐘flow與inbox備援共用一次喚醒；broadcast與richmenu保持獨立timer與原頻率，避免較重工作共用同一個30秒時限。

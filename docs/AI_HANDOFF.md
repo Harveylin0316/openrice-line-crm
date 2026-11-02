@@ -2,6 +2,8 @@
 
 ## 2026-10-27 Functions 免費額度減量（待發布驗收）
 
+2026-11-02補驗：固定Staging已部署11d46ba，黃色橫幅／health／DB／無LINE金鑰確認，Netlify控制台branch:staging實跑流程＋inbox皆200（約0.71秒）、群發空工作200（約0.81秒）、richmenu四route皆200（合計約0.71秒）。622/622本機回歸與CI通過；只驗空工作、不能拿此耗時當正式大量發送容量保證。獨立staging scheduler secret僅設branch:staging，正式值未修改。dispatch及minute wrapper只記路徑／狀態／耗時，不記訊息或憑證。Hen本輪同意依建議發布，仍以staging→main PR50及Git自動部署，實際正式deploy需看發布紀錄。
+
 - 保留 Legacy Free，不改付費方案。flow、broadcast、richmenu 排程改用 `netlify/lib/schedulerDispatch.js` 在同 invocation 內呼叫既有 Express/serverless adapter；只允許六個固定排程路徑，保留 POST、來源、secret 驗證、route 鎖及送出語意，不自動重試。
 - flow 每分鐘同步啟動原 webhook inbox 備援並 await 兩者；備援獨立 schedule 移除，但 receiver 即時喚醒與背景 worker 不變。兩工作共用函式時限，必須在雲端確認冷啟動／執行時間有餘裕；異常不因其中一項失敗而重送另一項。
 - broadcast 每5分鐘、richmenu 每5分鐘（原4分鐘偏移）與流程每分鐘精度保留。richmenu 四項仍依序執行，非2xx如實回失敗。三個排程 bundle 加入與 server 一致的 pg/ejs、views/public。
