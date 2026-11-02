@@ -7,7 +7,7 @@ function equal(a, b) {
 function signature(body, secret) { return crypto.createHmac('sha256', secret).update(body).digest('base64'); }
 
 // Only acknowledge after the atomic insert succeeds. Duplicate deliveries never reset state.
-function createReceiver({ query, channelSecret, wake = async () => {} }) {
+function createReceiver({ query, channelSecret, wake = async () => {}, missionCaptureEnabled = false }) {
   return async event => {
     if (event.httpMethod !== 'POST') return { statusCode:405, body:'' };
     if (!channelSecret) return { statusCode:503, body:'' };
@@ -20,7 +20,9 @@ function createReceiver({ query, channelSecret, wake = async () => {} }) {
     if (!Array.isArray(payload.events) || payload.events.length > 1000 || payload.events.some(e => !e || typeof e.webhookEventId !== 'string' || !e.webhookEventId || e.webhookEventId.length > 200)) return { statusCode:400, body:'' };
     if (!payload.events.length) return { statusCode:200, body:'{}' };
     try {
-      await query(`INSERT INTO line_webhook_inbox(event_id,payload)
+      if (missionCaptureEnabled) {
+        await require('./orMissionFollow').persistWithMissionCapture(query, payload.events, payload.destination);
+      } else await query(`INSERT INTO line_webhook_inbox(event_id,payload)
         SELECT x->>'webhookEventId',jsonb_build_object('destination',$2::text,'events',jsonb_build_array(x))
         FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS items(x,ord)
         ORDER BY ord ON CONFLICT(event_id) DO NOTHING`, [JSON.stringify(payload.events), payload.destination || null]);

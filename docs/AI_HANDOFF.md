@@ -1,5 +1,9 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-11-02 OR 關注任務第一階段（未正式啟用）
+
+詳見 docs/OR_MISSION_FOLLOW.md。簽章驗證後以同一 SQL 保存 inbox 與 follow 通知待辦；事件去重，不推論新好友／OR 會員／獎勵。僅 staging+safe preview+capture flag 可啟用，public migration 拒絕。crm_staging 已新增隔離表及 RLS，未改正式表。固定香港 staging GET 客戶端沒有公開路由／排程／自動呼叫，送出旗標保持 0；2xx 不是任務成功，結果不明不自動重試。未呼叫真實香港 API，未完成真人端到端驗收；待確認認證、成功契約、任務級冪等、既有好友補查與正式 API。不得據此宣稱已完成任務或已派 Miles。
+
 ## 2026-10-27 Functions 免費額度減量（待發布驗收）
 
 2026-11-02補驗：固定Staging已部署11d46ba，黃色橫幅／health／DB／無LINE金鑰確認，Netlify控制台branch:staging實跑流程＋inbox皆200（約0.71秒）、群發空工作200（約0.81秒）、richmenu四route皆200（合計約0.71秒）。622/622本機回歸與CI通過；只驗空工作、不能拿此耗時當正式大量發送容量保證。獨立staging scheduler secret僅設branch:staging，正式值未修改。dispatch及minute wrapper只記路徑／狀態／耗時，不記訊息或憑證。Hen本輪同意依建議發布，仍以staging→main PR50及Git自動部署，實際正式deploy需看發布紀錄。
