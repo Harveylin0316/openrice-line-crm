@@ -6,6 +6,7 @@
 - 固定Staging已恢復。唯讀確認crm_staging無enrollment、broadcast、rich menu及webhook inbox待處理工作，僅一份draft flow；沒有LINE access token，正式資料不作測試。
 - 本提交用正常staging Git部署補做雲端驗收；尚未完成的結果不得提前標通過。用量提醒與其他網站盤點分開驗證，不把理論基線當實際帳務用量。
 - 嘗試Netlify createSiteBuild指定staging時，CLI實際重建原main8d2fb21（deploy6ae82aa07d0b6d74194dc3b1）；已核對沒有程式版本改變。後續只以Git分支部署，不再使用該API觸發分支建置。
+- Staging原本沒有SCHEDULED_RUNNER_SECRET，補上僅branch:staging的獨立隨機值，保留production值／scope，未加入LINE金鑰。每次站內dispatch只記路徑、狀態碼與耗時，不記憑證、訊息或收件人，供雲端時限驗收。
 
 ## 範圍與推估
 

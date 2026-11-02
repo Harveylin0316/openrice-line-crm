@@ -30,6 +30,18 @@ test('missing config and unapproved paths never load the application', async () 
   await assert.rejects(createDispatch(never, env)('/admin/broadcast/send'), /unsupported/);
 });
 
+test('cloud scheduler diagnostics contain only route, status and elapsed time', async () => {
+  const logs = [];
+  const response = { statusCode: 200, body: 'private-recipient-and-payload' };
+  const run = createDispatch(() => async () => response, env, line => logs.push(line));
+  assert.equal(await run('/admin/flows/run', 'private-source'), response);
+  const record = JSON.parse(logs[0]);
+  assert.deepEqual(Object.keys(record).sort(), ['duration_ms', 'event', 'path', 'status']);
+  assert.equal(record.status, 200);
+  assert.ok(record.duration_ms >= 0);
+  assert.doesNotMatch(logs[0], /private-|synthetic-scheduler-secret/);
+});
+
 test('retired standalone rescue endpoint rejects anonymous requests before DB access', async () => {
   const { handler } = require('../netlify/functions/scheduled-line-webhook-runner');
   assert.equal((await handler()).statusCode, 403);
