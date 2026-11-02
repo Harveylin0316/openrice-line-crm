@@ -15,18 +15,21 @@ const { dispatch } = require('../lib/schedulerDispatch');
 
 // Preserve minute precision. Rescue runs independently of flow errors, and both
 // are awaited. Neither failure triggers a blind retry of the other job.
-function createMinuteRunner(runFlow, rescue) {
+function createMinuteRunner(runFlow, rescue, log = console.info) {
   return async () => {
+    const started = Date.now();
     const results = await Promise.allSettled([
       Promise.resolve().then(runFlow), Promise.resolve().then(rescue)
     ]);
     const failed = results.some(r => r.status === 'rejected' || r.value?.statusCode >= 400);
+    const statuses = {
+      flow: results[0].status === 'fulfilled' ? results[0].value.statusCode : 'failed',
+      inbox: results[1].status === 'fulfilled' ? results[1].value.statusCode : 'failed'
+    };
+    log(JSON.stringify({ event: 'scheduler_minute', ...statuses, duration_ms: Date.now() - started }));
     return {
       statusCode: failed ? 500 : 200,
-      body: JSON.stringify({
-        flow: results[0].status === 'fulfilled' ? results[0].value.statusCode : 'failed',
-        inbox: results[1].status === 'fulfilled' ? results[1].value.statusCode : 'failed'
-      })
+      body: JSON.stringify(statuses)
     };
   };
 }

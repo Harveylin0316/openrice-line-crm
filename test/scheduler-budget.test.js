@@ -70,9 +70,12 @@ test('dispatcher retains actual activity scheduler route auth and behavior', asy
 
 test('minute runner awaits inbox and flow and isolates failures without retries', async () => {
   let flow = 0, inbox = 0;
-  const run = createMinuteRunner(async () => { flow++; throw Error('private-payload'); }, async () => { inbox++; return { statusCode: 200 }; });
+  const logs = [];
+  const run = createMinuteRunner(async () => { flow++; throw Error('private-payload'); }, async () => { inbox++; return { statusCode: 200 }; }, line => logs.push(line));
   const r = await run(); assert.equal(r.statusCode, 500);
   assert.equal(flow, 1); assert.equal(inbox, 1); assert.doesNotMatch(r.body, /private-payload/);
+  assert.doesNotMatch(logs[0], /private-payload/);
+  assert.equal(JSON.parse(logs[0]).inbox, 200);
   const reverse = await createMinuteRunner(async () => ({ statusCode: 200 }), async () => { throw Error('private-db'); })();
   assert.equal(reverse.statusCode, 500); assert.doesNotMatch(reverse.body, /private-db/);
   let done = false;
