@@ -4,6 +4,7 @@
   const $ = (id) => document.getElementById(id);
   const form = $('mp-filters');
   const tbody = $('mp-tbody');
+  const experimentBody = $('mp-experiment-tbody');
   const status = $('mp-status');
   let rows = [];
   let loadState = 'loading';
@@ -57,7 +58,9 @@
   function render() {
     if (loadState !== 'ready') return;
     const q = $('mp-q').value.trim();
-    const list = rows.filter((r) => matches(r, q));
+    const matched = rows.filter((r) => matches(r, q));
+    const list = matched.filter(r => r.basis !== 'experiment');
+    const experiments = matched.filter(r => r.basis === 'experiment');
     const t = list.reduce((a, r) => {
       a.msgs += 1; a.people += r.people;
       if (r.tracked) { a.tp += r.people; a.clickers += r.clickers || 0; }
@@ -69,11 +72,7 @@
       '<div class="mp-kpi"><b>' + num(t.people) + '</b><span>收到人數（合計）</span></div>' +
       '<div class="mp-kpi"><b>' + num(t.clickers) + '</b><span>點擊人數（合計）</span></div>' +
       '<div class="mp-kpi"><b>' + totalRate + '</b><span>合計點擊率</span></div>';
-    if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="mp-muted">' + (rows.length ? '沒有符合搜尋的訊息。' : '這段期間沒有送出的訊息。') + '</td></tr>';
-      return;
-    }
-    tbody.innerHTML = list.map((r, i) => {
+    function renderRows(items) { return items.map((r) => {
       const main = '<tr class="mp-row" data-i="' + rows.indexOf(r) + '"><td><div class="mp-msg">' + thumb(r.thumb, r.typeLabel) +
         '<div><span class="mp-tag mp-tag-' + esc(r.type) + '">' + esc(r.typeLabel) + '</span><span class="mp-name">' + esc(r.title) + '</span>' +
         '<div class="mp-meta">' + esc(r.context) + (r.notification && r.notification !== r.title ? '｜通知：' + esc(r.notification) : '') + '</div></div></div></td>' +
@@ -82,7 +81,10 @@
         '<div><span class="mp-name">' + esc(v.title) + '</span>' + (v.notification ? '<div class="mp-meta">' + esc(v.notification) + '</div>' : '') + '</div></div></td>' +
         '<td class="mp-col-time"></td><td class="n">' + num(v.people) + '</td><td class="n">' + clickersCell(v) + '</td><td class="n">' + rateCell(v) + '</td></tr>').join('');
       return main + subs;
-    }).join('');
+    }).join(''); }
+    tbody.innerHTML = renderRows(list) || '<tr><td colspan="5" class="mp-muted">' + (q ? '沒有符合搜尋的訊息。' : '這段期間沒有已記錄的訊息；完整 A/B 實驗另列於下方。') + '</td></tr>';
+    experimentBody.innerHTML = renderRows(experiments);
+    $('mp-experiments').hidden = !experiments.length;
   }
 
   async function openDetail(tr) {
@@ -92,7 +94,7 @@
     while (after.nextElementSibling && after.nextElementSibling.classList.contains('mp-sub')) after = after.nextElementSibling;
     const open = after.nextElementSibling;
     if (open && open.classList.contains('mp-detail')) { open.remove(); return; }
-    tbody.querySelectorAll('.mp-detail').forEach((d) => d.remove());
+    document.querySelectorAll('.mp-detail').forEach((d) => d.remove());
     const row = document.createElement('tr');
     row.className = 'mp-detail';
     row.innerHTML = '<td colspan="5"><div class="mp-detail-box">載入中…</div></td>';
@@ -131,6 +133,8 @@
     status.textContent = '';
     loadState = 'loading';
     rows = [];
+    experimentBody.innerHTML = '';
+    $('mp-experiments').hidden = true;
     $('mp-kpis').textContent = '載入中…';
     tbody.innerHTML = '<tr><td colspan="5" class="mp-muted">載入中…</td></tr>';
     const params = new URLSearchParams({ from, to });
@@ -170,10 +174,10 @@
   $('mp-source').addEventListener('change', load);
   $('mp-q').addEventListener('input', render);
   form.addEventListener('submit', (e) => { e.preventDefault(); load(); });
-  tbody.addEventListener('click', (e) => {
+  [tbody, experimentBody].forEach(body => body.addEventListener('click', (e) => {
     const tr = e.target.closest('tr.mp-row');
     if (tr && !e.target.closest('a')) openDetail(tr);
-  });
+  }));
 
   // 手機上「指標定義」預設收起（佔太多畫面），點一下就能展開；電腦維持展開
   try { if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) $('mp-defs').open = false; } catch (e) { /* ignore */ }

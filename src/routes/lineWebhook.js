@@ -292,10 +292,11 @@ function createLineWebhookHandler({
     }
     const origin = getKeywordReplyOrigin();
     if (decision.mode === 'fallback') {
-      // 暫停／結束後：用快照的固定版本、不追蹤、不進實驗（舊的關鍵字追蹤會對到「現在」的素材，所以不能套）
-      const built = buildLineMessages(keywordExperiments.variantConfig(exp, decision.variant), { heroImageBaseUrl: origin });
+      // 固定快照走一般訊息 execution；不再納入實驗，但仍能記送出與驗證點擊。
+      const frozenConfig = keywordExperiments.variantConfig(exp, decision.variant);
+      const built = buildLineMessages(frozenConfig, { heroImageBaseUrl: origin });
       if (!built.ok) return { sent: await replyKeywordTemplate(rule, event.replyToken, event?.source?.userId || null, event), label: ' ab#' + exp.id + ':fallback_invalid' };
-      const ok = await linePush.replyLineMessages(event.replyToken, built.messages, { lineUserId: event?.source?.userId || null, pushType: 'keyword_reply' });
+      const ok = await replyKeywordTemplate(rule, event.replyToken, lineUserId, event, frozenConfig);
       return { sent: ok, label: ' ab#' + exp.id + ':fallback_' + decision.variant };
     }
     // 實驗中：分組 → 佔一筆回覆紀錄（同一 webhook 事件只會成功一次）→ 組訊息 → 回覆 → 記結果
@@ -320,9 +321,9 @@ function createLineWebhookHandler({
     return { sent: status === 'accepted', label: ' ab#' + exp.id + ':' + variant + ':' + status };
   }
 
-  async function replyKeywordTemplate(rule, replyToken, lineUserId, event = {}) {
+  async function replyKeywordTemplate(rule, replyToken, lineUserId, event = {}, frozenConfig = null) {
     if (!linePush || typeof linePush.replyLineMessages !== 'function') return false;
-    const rs = await pool.query(
+    const rs = frozenConfig ? { rowCount: 1, rows: [{ message_config: frozenConfig }] } : await pool.query(
       'SELECT message_config FROM admin_message_templates WHERE id = $1',
       [rule.message_template_id]
     );
@@ -351,7 +352,8 @@ function createLineWebhookHandler({
     const liffId = process.env.GAMES_LIFF_ID || process.env.WHEEL_LIFF_ID || process.env.LIFF_ID || '';
     let useCfg = cfg;
     try {
-      useCfg = withMessageTracking(cfg, { source: 'keyword', refId: String(rule.id), liffId }) || cfg;
+      // 無 execution 表的舊環境不能把固定快照包成反查「目前素材」的舊跳板。
+      useCfg = frozenConfig ? cfg : (withMessageTracking(cfg, { source: 'keyword', refId: String(rule.id), liffId }) || cfg);
     } catch (e) { console.error('keyword reply tracking wrap failed:', e && e.message); useCfg = cfg; }
     const built = buildLineMessages(useCfg, { heroImageBaseUrl: getKeywordReplyOrigin() });
     if (!built.ok) return false;
