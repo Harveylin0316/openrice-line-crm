@@ -268,7 +268,8 @@ function createMessagePerformanceList({ query }) {
       .concat(await keywordExperimentRows(f, origin));
     all.sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
     const rows = all.slice(0, MAX_ROWS);
-    return { rows, truncated: all.length > MAX_ROWS, range: { from: f.from, to: f.to }, totals: sumRows(rows) };
+    // 完整實驗另列，不能混入所選送出期間的合計。
+    return { rows, truncated: all.length > MAX_ROWS, range: { from: f.from, to: f.to }, totals: sumRows(rows.filter(r => r.basis !== 'experiment')) };
   }
 
   /** 點一列：各連結點擊（次數與人數） */

@@ -43,6 +43,25 @@ async function openPage(url, opts = {}) {
   return { dom, w, doc: w.document, calls };
 }
 
+test('完整關鍵字實驗另列，不混入期間合計，搜尋與明細仍可操作', async () => {
+  const experiment = { ...ROWS[0], key: 'keyword_ab:11', type: 'keyword', typeLabel: '關鍵字回覆', basis: 'experiment', experimentId: 11, title: '完整實驗', people: 246, clickers: 60, variants: [] };
+  const { dom, doc, w, calls } = await openPage(undefined, { list: { ok: true, rows: [...ROWS, experiment] } });
+  assert.equal(doc.querySelectorAll('#mp-tbody .mp-row').length, 3);
+  assert.equal(doc.querySelectorAll('#mp-experiment-tbody .mp-row').length, 1);
+  assert.equal(doc.getElementById('mp-experiments').hidden, false);
+  assert.match(doc.getElementById('mp-kpis').textContent, /5收到人數（合計）/);
+  assert.doesNotMatch(doc.getElementById('mp-kpis').textContent, /251/);
+  doc.querySelector('#mp-experiment-tbody .mp-row').click();
+  await wait(20);
+  assert.match(calls.at(-1), /type=keyword_ab/);
+  assert.ok(doc.querySelector('#mp-experiment-tbody .mp-detail'));
+  const q = doc.getElementById('mp-q'); q.value = '完整實驗'; q.dispatchEvent(new w.Event('input'));
+  assert.equal(doc.querySelectorAll('#mp-tbody .mp-row').length, 0);
+  assert.match(doc.getElementById('mp-kpis').textContent, /0收到人數（合計）/);
+  assert.equal(doc.getElementById('mp-experiments').hidden, false);
+  dom.window.close();
+});
+
 test('預設近 30 天（台灣日期）、類型下拉有歡迎訊息、指標定義寫在頁面上', async () => {
   const { dom, doc, calls } = await openPage();
   const t = twToday();

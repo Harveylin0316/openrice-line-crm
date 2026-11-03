@@ -5,7 +5,9 @@ const assert = require('node:assert/strict');
 const { Pool } = require('pg');
 const { createMessagePerformanceList } = require('../../src/core/messagePerformanceList');
 if (process.env.CRM_QA_ISOLATED !== '1') throw Error('Requires CRM_QA_ISOLATED=1');
-const conn = {host:'127.0.0.1',port:55439,user:'postgres',password:'STAGING-local-only'};
+const conn = process.env.CRM_QA_NATIVE_PG === '1'
+ ? {host:'/tmp',port:5432,user:require('node:os').userInfo().username}
+ : {host:'127.0.0.1',port:55439,user:'postgres',password:'STAGING-local-only'};
 async function main() {
  const admin = new Pool({...conn,database:'postgres'});
  const database = 'crm_report_qa_' + Date.now();
@@ -50,6 +52,12 @@ async function main() {
  (1,'a','STAGING-unassigned',0,'2026-10-08T03:00Z');`);
  const service = createMessagePerformanceList({query});
  const day={from:'2026-10-08',to:'2026-10-08'};
+ await check('whole experiment remains available but never inflates selected-period totals',async()=>{
+  const result=await service.list(day);
+  assert.equal(result.rows.find(r=>r.basis==='experiment').people,2);
+  assert.equal(result.totals.people,2, 'one broadcast recipient + one welcome recipient, not experiment users');
+  assert.equal((await service.list({...day,source:'keyword'})).totals.people,0);
+ });
  await check('broadcast scheduled across days uses recipient send time, not creation',async()=>{
   assert.equal((await service.list({...day,source:'broadcast'})).rows[0]?.people,1);
   assert.equal((await service.list({source:'broadcast',from:'2026-10-07',to:'2026-10-07'})).rows.length,0);

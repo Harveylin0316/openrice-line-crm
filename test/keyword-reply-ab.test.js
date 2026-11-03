@@ -205,11 +205,26 @@ test('Reply API 結果：2xx＝成功、4xx＝失敗、逾時／網路中斷＝�
 });
 
 // ---------------------------------------------------------------- webhook 整合
-function webhookHarness({ experiment = exp(), assignVariant = 'b', replyStatus = 'accepted', lookupFails = false, realSender = false } = {}) {
-  const state = { assignments: new Map(), deliveries: [], finished: [], replies: [], hit: 0, events: new Set() };
+function webhookHarness({ experiment = exp(), assignVariant = 'b', replyStatus = 'accepted', lookupFails = false, realSender = false, executionStore = false } = {}) {
+  const state = { assignments: new Map(), deliveries: [], finished: [], replies: [], hit: 0, events: new Set(), executions: [] };
   const pool = {
     query: async (sql, p = []) => {
       const s = String(sql).replace(/\s+/g, ' ');
+      if (s.includes("to_regclass('crm_message_executions')")) return { rows: [{ table_name: executionStore ? 'crm_message_executions' : null }] };
+      if (s.includes('INSERT INTO crm_message_executions')) {
+        if (state.executions.some(e => e.source_event_id === p[3] && e.recipient_key === p[4])) return { rows: [] };
+        const e = { id: state.executions.length + 1, code: p[0], source_event_id: p[3], recipient_key: p[4], message_snapshot: JSON.parse(p[5]), status: 'pending' };
+        state.executions.push(e); return { rows: [e] };
+      }
+      if (s.includes('SELECT * FROM crm_message_executions WHERE source_type=')) return { rows: state.executions.filter(e => e.source_event_id === p[2] && e.recipient_key === p[3]) };
+      if (s.includes('UPDATE crm_message_executions')) {
+        const e = state.executions.find(x => x.id === p[0]);
+        if (!e) return { rows: [] };
+        if (s.includes('SET targets=')) e.targets = JSON.parse(p[1]);
+        else if (s.includes("SET status='sending'")) { if (e.status !== 'pending') return { rows: [] }; e.status = 'sending'; }
+        else e.status = p[1];
+        return { rows: [e] };
+      }
       if (s.includes('FROM admin_keyword_replies') && s.includes('match_type')) return { rowCount: 1, rows: [{ id: 7, keywords: '透過 OpenRice 訂位', match_type: 'exact', message_template_id: 8 }] };
       if (s.includes('SELECT message_config FROM admin_message_templates')) return { rowCount: 1, rows: [{ message_config: { mode: 'sequence', items: [{ type: 'text', text: 'STAGING 原本回覆' }] } }] };
       if (s.includes('FROM keyword_reply_experiments WHERE rule_id')) {
@@ -253,6 +268,33 @@ function webhookHarness({ experiment = exp(), assignVariant = 'b', replyStatus =
 const textEvent = (eventId, userId = U('b'), sourceType = 'user') => ({
   type: 'message', webhookEventId: eventId, replyToken: 'REPLY_' + eventId,
   source: Object.assign({ type: sourceType }, userId ? { userId } : {}), message: { type: 'text', text: '透過 OpenRice 訂位' }
+});
+
+test('固定回覆：暫停與到期均記一般訊息成效，保存快照並防止事件重送', async () => {
+  const prev = process.env.GAMES_LIFF_ID;
+  process.env.GAMES_LIFF_ID = 'L-FALLBACK';
+  try {
+    for (const config of [{ status: 'paused' }, { end_at: new Date(Date.now() - 1000).toISOString() }]) {
+      const h = webhookHarness({ executionStore: true, experiment: exp({ ...config, fallback_variant: 'b' }) });
+      await Promise.all(Array.from({ length: 5 }, () => h.send([textEvent('FROZEN-1')])));
+      assert.equal(h.state.replies.length, 1);
+      assert.equal(h.state.deliveries.length, 0);
+      assert.equal(h.state.assignments.size, 0);
+      assert.equal(h.state.executions.length, 1);
+      assert.equal(h.state.executions[0].status, 'accepted');
+      assert.deepEqual(h.state.executions[0].message_snapshot, CFG_B);
+      assert.equal(h.state.replies[0].messages[1].contents.hero.url, 'https://img.example/b.jpg');
+      assert.match(h.state.replies[0].messages[1].contents.footer.contents[0].action.uri, /\/t\/e\//);
+      assert.equal(h.state.replies[0].path, 'detailed');
+    }
+    const h = webhookHarness({ executionStore: true, replyStatus: 'uncertain', experiment: exp({ status: 'paused' }) });
+    await h.send([textEvent('UNCERTAIN-1')]);
+    await h.send([textEvent('UNCERTAIN-1')]);
+    assert.equal(h.state.executions[0].status, 'uncertain');
+    assert.equal(h.state.replies.length, 1, '結果不確定也不能重送');
+  } finally {
+    if (prev === undefined) delete process.env.GAMES_LIFF_ID; else process.env.GAMES_LIFF_ID = prev;
+  }
 });
 
 test('webhook A/B with the real sender preserves text+imagemap and only replies once on event redelivery', async () => {

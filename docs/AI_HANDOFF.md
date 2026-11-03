@@ -1,5 +1,12 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-11-03 數據清查修正
+
+- 關鍵字 A/B 暫停或結束後的固定版本，改用一般 `crm_message_executions` 發送流程，保存實驗的固定內容快照、事件防重及 LINE 回覆結果，並以 execution 身分驗證連結追蹤；不重新分組、不寫回舊實驗。無 execution 表的舊環境保留原本未追蹤快照回覆，不套用反查目前素材的舊連結。結果不確定時不得自動重送。
+- 訊息成效的完整關鍵字 A/B 實驗另列，明確說明與日期重疊但數字是完整實驗；前端 KPI 與 API totals 均排除此類列，不改實驗觀察期或勝負算法。歷史缺追蹤無法還原，不補造資料或重發訊息。
+- 本輪不更動遊玩／邀請／獎項資格、庫存、正式 schema 或香港任務通知開關。OR 任務仍只允許隔離 staging capture，不自動通知香港。
+- QA：固定回覆五個併發同事件只送一次、快照 B 不被目前素材取代、uncertain 不重送；EJS／DOM 驗證實驗分區、搜尋、明細與合計。隔離 PG 報表腳本可設 CRM_QA_NATIVE_PG=1 使用本機 /tmp:5432，仍要求 CRM_QA_ISOLATED=1 並僅建立／清除專屬 QA 資料庫。
+
 ## 2026-11-02 OR 關注任務第一階段（未正式啟用）
 
 詳見 docs/OR_MISSION_FOLLOW.md。簽章驗證後以同一 SQL 保存 inbox 與 follow 通知待辦；事件去重，不推論新好友／OR 會員／獎勵。僅 staging+safe preview+capture flag 可啟用，public migration 拒絕。crm_staging 已新增隔離表及 RLS，未改正式表。固定香港 staging GET 客戶端沒有公開路由／排程／自動呼叫，送出旗標保持 0；2xx 不是任務成功，結果不明不自動重試。未呼叫真實香港 API，未完成真人端到端驗收；待確認認證、成功契約、任務級冪等、既有好友補查與正式 API。不得據此宣稱已完成任務或已派 Miles。
