@@ -1302,5 +1302,7 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 - 公司Spark pk15605（10:05收件）本次為error_status_code=503、1次，與先前request_timeout不同。正式Edge日誌UTC02:03:31.998顯示handoff503、1203ms，確認碰到1200ms自訂等待上限；同段worker有processed1／uncertain0完成，但缺逐事件關聯，不能斷言每筆皆無影響。匿名空body worker探測曾202耗2.598秒，handler因無授權退出、無DB副作用。
 - 原Edge self-fetch移除：驗簽時讀request.clone()，保留原method/body/header，透過context.next重建原POST，靜態rewrite直接指向背景function；不是提前假回200或waitUntil／fire-and-forget。空events仍直接驗簽200，大於96KiB另送原receiver入庫。先前return URL候選未通過非空事件入庫驗收，未發布正式。
 - Worker新增原始LINE簽章授權入口，保留internal scheduler授權；合法body仍需createReceiver再次驗簽及await入庫才drain。未驗簽不得碰DB/app。未改secret／RLS／schema，背景function本來即公開，但現在可由LINE簽章安全直送。
-- Edge新的line_webhook_edge_routed只是路由紀錄，不代表平台接受或業務完成。LINE收到的是平台原生轉交回應，不以程式自行設定成功碼掩蓋失敗；實際回應與非空入庫須在固定staging實測。
+- Edge新的line_webhook_native_accept記錄平台實際回應及入口耗時；202代表平台接收，不代表業務完成。LINE收到的是平台原生轉交回應，不以程式自行設定成功碼掩蓋失敗；實際回應與非空入庫須在固定staging實測。
 - 回滾本輪Edge與worker授權變更會回到PR53版本，可能再次遇到1200ms交接503；保留inbox資料，不重放uncertain，不關閉LINE錯誤通知。
+
+- 固定Staging非空事件QA-native-next-20261105-796ec9da-1/-2已透過平台202、原始LINE簽章進入crm_staging inbox並done；重送-1沒有第二列。使用既有測試簽章、無LINE發送token，未改憑證／正式資料。首個Mac外部探測含連線2.739秒，不能據此保證LINE永不再逾時，後續看native_accept的伺服器耗時。先前return URL候選的QA-large待處理亦需在測試站處理完成後檢查。
