@@ -64,3 +64,9 @@
   from = "/*"
   to = "/.netlify/functions/server"
   status = 200
+
+# Edge validates LINE signatures before managed background acceptance.
+# Existing exact receiver rewrite remains as the large-batch fallback.
+[[edge_functions]]
+  function = "line-webhook"
+  path = "/webhooks/line"

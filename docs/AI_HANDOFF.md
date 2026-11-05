@@ -1277,3 +1277,11 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 - 普通 A/B 與 Campaign Testing 都可在測試發送區選版本；最終 cfg 由選定版本取得。正式批次仍保存 message_config／variant_b_message_config；sender 依收件人 variant 建立訊息，追蹤跳板按該版本快照反查原 URL，保留 UTM。
 - 已合併的來源 ID 安全修正保留（HTML attribute escaping、legacy 編號驗證），本次擴充至非卡片段落的來源 metadata 與 source_item_index（0～4）驗證；無 migration。
 - 測試涵蓋同圖不同 action URL、六種 slot 類型、A 改動不覆蓋 B、測試發送選 B、正式批次快照、追蹤 URL 反查、實際 shared sender 的 HTTP payload（mock fetch，沒有對真人發送）。
+
+## 2026-11-05 webhook冷啟動逾時修正（待發布）
+- `/webhooks/line` 新增Netlify Edge入口，WebCrypto驗原始bytes與事件格式，不載入Express或PostgreSQL；空events直接驗證回200。正常事件只在同部署Netlify背景worker回202（平台持久接收）後回200，非一般fire-and-forget，也不是已完成處理的宣稱。
+- 背景worker新增帶原始簽章body的收件模式：先await現有inbox原子去重入庫，DB失敗throw交平台重試，再沿既有drain+await業務處理。資料庫與推播在背景invocation結束前完成。既有無body喚醒及minute救援維持。
+- Edge只轉送同站production/branch/preview `.netlify.app` origin，避免preview叫到production；用既有Functions scope LINE_CHANNEL_SECRET與SCHEDULED_RUNNER_SECRET，不新增權限／DB／資源／帳單方案。超96KiB合法body沿舊receiver收件（背景payload信封上限），不是丟棄。
+- 202代表Netlify持久接收，若背景DB持續不可用至平台重試耗盡仍可能失敗，須觀察inbox與Function logs。未承諾永久零錯誤。未驗簽、平台非202、網路結果不明均不回成功。LINE重送由event_id去重。
+- 正式未發布；需固定staging驗收及PR/CODEOWNER批准。回滾Edge宣告與worker改動即可回既有receiver；不刪inbox、不重放done/uncertain、不發送真人測試訊息。
+- 官方參考：https://developers.line.biz/en/docs/messaging-api/receiving-messages/ 、https://docs.netlify.com/build/functions/background-functions/ 、https://docs.netlify.com/build/edge-functions/api/ 。
