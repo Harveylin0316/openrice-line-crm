@@ -1285,3 +1285,15 @@ LINE 群發在測試推播、建立正式批次與每次執行批次前，都會
 - 202代表Netlify持久接收，若背景DB持續不可用至平台重試耗盡仍可能失敗，須觀察inbox與Function logs。未承諾永久零錯誤。未驗簽、平台非202、網路結果不明均不回成功。LINE重送由event_id去重。
 - 正式未發布；需固定staging驗收及PR/CODEOWNER批准。回滾Edge宣告與worker改動即可回既有receiver；不刪inbox、不重放done/uncertain、不發送真人測試訊息。
 - 官方參考：https://developers.line.biz/en/docs/messaging-api/receiving-messages/ 、https://docs.netlify.com/build/functions/background-functions/ 、https://docs.netlify.com/build/edge-functions/api/ 。
+
+## 2026-11-05 webhook背景處理可靠性補強
+
+- 前節Edge修正已由Hen核准，PR52／main b5b53965，production deploy6aebdeb81c1fb6e2c09d65b3；簽章空事件200、偽造401。以下為第二輪優化，發布狀態另見實際PR與部署紀錄。
+- 收件HTTP fallback維持500ms連線／650ms查詢／600ms statement限制；已接受的背景worker另用3000ms連線／6000ms查詢／5000ms statement，pool仍max1，不改DB／RLS／憑證。
+- `line_webhook_inbox_active_user`原本已避免同user同時processing；重疊snapshot仍可能讓領件SQL遇23505而中止worker。`createClaim`只針對該constraint的已rollback領件語句重讀，最多3次；其他錯誤直接失敗，不重試業務處理／發送。不加全域鎖或正常領件的額外DB round-trip；不同user仍可並行。
+- 一輪45秒耗盡，即使未處理滿20筆也立即喚醒下一輪；不改結果不明uncertain禁止盲目重送規則。worker記錄本輪處理數／待確認數／時間／是否耗盡，不記payload、replyToken或userId。
+- `fetchOaProfile`補充暱稱／照片最多等待2秒（含body讀取），失敗回null，核心事件繼續；未變更好友／獎勵資格驗證。
+- wake在staging/safe preview只能使用該部署DEPLOY_URL或DEPLOY_PRIME_URL，缺少則失敗，禁止退回全域正式URL；拒絕redirect。production沿用URL。每分鐘救援沿既有pending/processing索引讀最早等待時間，等待30秒或疑似中斷時寫結構化warning；不是外部告警、沒有新增cron或推播。
+- QA：`test/line-webhook-reliability.test.js`、既有edge/inbox回歸；`CRM_QA_ISOLATED=1 node scripts/qa/webhook-claim-reliability-check.cjs`僅127.0.0.1:55439、建立專用QA DB後清除。可重現舊領件被唯一索引拒絕、新領件恢復、5 workers／12事件同user串行不同user並行、1秒DB慢查詢前景逾時與背景通過。沒有production資料重放或真人發送。
+- 回滾本輪程式即可（保留PR52的Edge入口），沒有schema rollback或資料清除。
+- 舊版reply與未指定timeout的push也補預設8秒請求上限（含body）；保留呼叫端指定timeout、既有失敗回傳／紀錄與retryKey，不加入發送重試。詳細reply原本已有8秒限制，保持不變。這是避免單一LINE API卡住整輪，不把逾時當成未送達。

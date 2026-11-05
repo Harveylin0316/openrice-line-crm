@@ -37,9 +37,9 @@ test('background persists signed handoff before draining; DB failure throws for 
  const vm=require('node:vm'),fs=require('node:fs');const inbox=require('../src/core/lineWebhookInbox');
  const code=fs.readFileSync('netlify/functions/line-webhook-worker-background.js','utf8');
  async function run(fail){let saved=false,drained=false;const exports={};
- vm.runInNewContext(code,{exports,Buffer,process:{env:{SCHEDULED_RUNNER_SECRET:scheduler,LINE_CHANNEL_SECRET:secret}},
+ vm.runInNewContext(code,{exports,Buffer,console:{info(){}},process:{env:{SCHEDULED_RUNNER_SECRET:scheduler,LINE_CHANNEL_SECRET:secret}},
  require:p=>{if(p.endsWith('lineWebhookInbox'))return {...inbox,createDrain:()=>async()=>{assert.equal(saved,true);drained=true;return {processed:0};}};
- if(p.endsWith('lineWebhookInboxRuntime'))return {query:async()=>{if(fail)throw Error('DB unavailable');saved=true;},wake:async()=>{}};
+ if(p.endsWith('lineWebhookInboxRuntime'))return {createRuntime:()=>({query:async()=>{if(fail)throw Error('DB unavailable');saved=true;},wake:async()=>{}})};
  if(p.endsWith('orMissionFollow'))return {stagingCaptureEnabled:()=>false};throw Error('unexpected require '+p);}});
  const task=exports.handler({body:raw,headers:{'x-scheduler-secret':scheduler,'x-line-signature':sig(raw)}});
  if(fail){await assert.rejects(task,/line_handoff_persist_failed/);assert.equal(drained,false);}else{await task;assert.equal(drained,true);}}

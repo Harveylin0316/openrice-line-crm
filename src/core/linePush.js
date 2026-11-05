@@ -101,7 +101,7 @@ function createLinePushService({ query, lineChannelAccessToken }) {
     try {
       const response = await fetch('https://api.line.me/v2/bot/message/push', {
         method: 'POST',
-        ...(extra.timeoutMs ? {signal:AbortSignal.timeout(extra.timeoutMs)} : {}),
+        signal: AbortSignal.timeout(Number(extra.timeoutMs) > 0 ? Number(extra.timeoutMs) : 8000),
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${lineChannelAccessToken}`,
@@ -219,6 +219,7 @@ function createLinePushService({ query, lineChannelAccessToken }) {
     try {
       const response = await fetch('https://api.line.me/v2/bot/message/reply', {
         method: 'POST',
+        signal: AbortSignal.timeout(Number(extra.timeoutMs) > 0 ? Number(extra.timeoutMs) : 8000),
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${lineChannelAccessToken}`

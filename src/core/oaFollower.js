@@ -71,7 +71,8 @@ async function fetchOaProfile(lineUserId) {
   if (!token || !uid) return null;
   try {
     const resp = await fetch('https://api.line.me/v2/bot/profile/' + encodeURIComponent(uid), {
-      headers: { Authorization: 'Bearer ' + token }
+      headers: { Authorization: 'Bearer ' + token },
+      signal: AbortSignal.timeout(2000)
     });
     if (!resp.ok) return null;
     const j = await resp.json().catch(() => null);
@@ -82,7 +83,9 @@ async function fetchOaProfile(lineUserId) {
       statusMessage: j.statusMessage || null
     };
   } catch (e) {
-    console.error('fetchOaProfile error:', e && e.message);
+    // Profile enrichment is optional; never block replies indefinitely or log
+    // a fetch exception containing a user-specific request URL.
+    console.error('fetchOaProfile unavailable');
     return null;
   }
 }

@@ -1,6 +1,7 @@
 const {equal,signature,createDrain,createReceiver} = require('../../src/core/lineWebhookInbox');
-const {query,wake} = require('../../src/core/lineWebhookInboxRuntime');
+const {query,claim,wake} = require('../../src/core/lineWebhookInboxRuntime').createRuntime({worker:true});
 exports.handler = async event => {
+  const started = Date.now();
   const headers = Object.fromEntries(Object.entries(event.headers || {}).map(([k,v])=>[k.toLowerCase(),v]));
   if (!equal(headers['x-scheduler-secret'],process.env.SCHEDULED_RUNNER_SECRET) || !process.env.LINE_CHANNEL_SECRET) return;
   // Edge handoff carries the original signed body. Netlify already persisted
@@ -13,7 +14,7 @@ exports.handler = async event => {
     if (received.statusCode !== 200) throw new Error('line_handoff_persist_failed');
   }
   // Lazy load the full app only inside the accepted, authenticated background invocation.
-  const drain = createDrain({query,processEvent:async payload => {
+  const drain = createDrain({query,claim,processEvent:async payload => {
     const app = require('../../server');
     const body = Buffer.from(JSON.stringify(payload));
     let status = 200;
@@ -22,5 +23,9 @@ exports.handler = async event => {
     return status >= 200 && status < 300;
   }});
   const result = await drain();
-  if (result.processed === 20) await wake(3000);
+  console.info(JSON.stringify({event:'line_webhook_worker_finished',processed:result.processed,
+    uncertain:result.uncertain,duration_ms:Date.now()-started,budget_exhausted:result.budgetExhausted}));
+  // A slow batch can exhaust its budget before hitting 20 events. Continue now
+  // rather than leaving the rest to the minute rescue (reply tokens expire).
+  if (result.processed === 20 || result.budgetExhausted) await wake(3000);
 };
