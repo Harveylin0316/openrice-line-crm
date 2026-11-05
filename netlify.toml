@@ -46,7 +46,7 @@
 
 [[redirects]]
   from = "/webhooks/line"
-  to = "/.netlify/functions/line-webhook-receiver"
+  to = "/.netlify/functions/line-webhook-worker-background"
   status = 200
   force = true
 
