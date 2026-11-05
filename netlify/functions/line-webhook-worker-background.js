@@ -3,7 +3,13 @@ const {query,claim,wake} = require('../../src/core/lineWebhookInboxRuntime').cre
 exports.handler = async event => {
   const started = Date.now();
   const headers = Object.fromEntries(Object.entries(event.headers || {}).map(([k,v])=>[k.toLowerCase(),v]));
-  if (!equal(headers['x-scheduler-secret'],process.env.SCHEDULED_RUNNER_SECRET) || !process.env.LINE_CHANNEL_SECRET) return;
+  if (!process.env.LINE_CHANNEL_SECRET) return;
+  const internal = equal(headers['x-scheduler-secret'],process.env.SCHEDULED_RUNNER_SECRET);
+  // Native rewrite preserves LINE's original signature instead of forwarding
+  // an internal credential. Only authenticated requests may reach DB/app code.
+  const raw = event.body ? Buffer.from(event.body,event.isBase64Encoded ? 'base64' : 'utf8') : null;
+  const signed = raw && raw.length <= 256*1024 && equal(signature(raw,process.env.LINE_CHANNEL_SECRET),headers['x-line-signature']);
+  if (!internal && !signed) return;
   // Edge handoff carries the original signed body. Netlify already persisted
   // this invocation before returning 202; a DB failure must throw so its managed
   // retry can persist it later. Never acknowledge a dropped in-memory promise.

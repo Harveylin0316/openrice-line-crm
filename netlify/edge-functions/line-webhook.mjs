@@ -1,6 +1,6 @@
-// Keep LINE's deadline independent of Lambda cold start / PostgreSQL startup.
-// Acknowledge only after Netlify accepts a durable background invocation.
-export function createEdgeReceiver({ env, fetcher = fetch, cryptoApi = crypto, log = console.info }) {
+// Validate at the edge, then let Netlify route directly to its background queue.
+// No second HTTP round-trip or application-imposed queue-acceptance timeout.
+export function createEdgeReceiver({ env, cryptoApi = crypto, log = console.info }) {
   return async (request, context) => {
     const started = Date.now();
     const reply = status => new Response(status === 200 ? '{}' : '', { status,
@@ -9,7 +9,7 @@ export function createEdgeReceiver({ env, fetcher = fetch, cryptoApi = crypto, l
     const secret = env('LINE_CHANNEL_SECRET');
     const workerSecret = env('SCHEDULED_RUNNER_SECRET');
     if (!secret || !workerSecret) return reply(503);
-    const raw = new Uint8Array(await request.arrayBuffer());
+    const raw = new Uint8Array(await request.clone().arrayBuffer());
     if (raw.length > 256 * 1024) return reply(413);
     const signed = request.headers.get('x-line-signature') || '';
     let sig;
@@ -28,21 +28,12 @@ export function createEdgeReceiver({ env, fetcher = fetch, cryptoApi = crypto, l
     const name = context.site?.name;
     if (!name || origin.protocol !== 'https:' || !(
       origin.hostname === `${name}.netlify.app` || origin.hostname.endsWith(`--${name}.netlify.app`))) return reply(503);
-    try {
-      const result = await fetcher(new URL('/.netlify/functions/line-webhook-worker-background',origin),{
-        method:'POST',redirect:'error',headers:{'content-type':'application/json',
-          'x-scheduler-secret':workerSecret,'x-line-signature':signed},
-        body:raw,signal:AbortSignal.timeout(1200)
-      });
-      // A lost/ambiguous acceptance returns failure. LINE redelivery is safe:
-      // existing inbox event IDs prevent a second execution.
-      const status = result.status === 202 ? 200 : 503;
-      log(JSON.stringify({event:'line_webhook_edge_handoff',status,duration_ms:Date.now()-started,count:payload.events.length}));
-      return reply(status);
-    } catch {
-      log(JSON.stringify({event:'line_webhook_edge_handoff',status:503,duration_ms:Date.now()-started}));
-      return reply(503);
-    }
+    // Returning a same-site URL invokes Netlify's native rewrite. The original
+    // request body is unread (validation used a clone), so method, bytes and
+    // LINE signature reach the background function unchanged. The platform's
+    // own accepted response is delivered directly to LINE, without self-fetch.
+    log(JSON.stringify({event:'line_webhook_edge_routed',duration_ms:Date.now()-started,count:payload.events.length}));
+    return new URL('/.netlify/functions/line-webhook-worker-background',origin);
   };
 }
 export default (request,context) => createEdgeReceiver({env:key=>Netlify.env.get(key)})(request,context);
