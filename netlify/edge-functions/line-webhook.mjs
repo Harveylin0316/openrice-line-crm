@@ -1,6 +1,6 @@
 // Validate at the edge, then let Netlify route directly to its background queue.
 // No second HTTP round-trip or application-imposed queue-acceptance timeout.
-export function createEdgeReceiver({ env, cryptoApi = crypto, log = console.info }) {
+export function createEdgeReceiver({ env, fetcher = fetch, cryptoApi = crypto, log = console.info }) {
   return async (request, context) => {
     const started = Date.now();
     const reply = status => new Response(status === 200 ? '{}' : '', { status,
@@ -23,17 +23,18 @@ export function createEdgeReceiver({ env, cryptoApi = crypto, log = console.info
     if (!payload.events.length) return reply(200);
     // Larger batches retain the previous DB-before-ack receiver, avoiding the
     // background invocation's 256KB envelope limit (base64 + Lambda headers).
-    if (raw.length > 96 * 1024) return context.next(new Request(request,{body:raw}));
+    if (raw.length > 96 * 1024) return fetcher(new URL('/.netlify/functions/line-webhook-receiver',request.url),{
+      method:'POST',redirect:'error',headers:{'content-type':'application/json','x-line-signature':signed},body:raw,
+      signal:AbortSignal.timeout(1800)
+    });
     const origin = new URL(request.url);
     const name = context.site?.name;
     if (!name || origin.protocol !== 'https:' || !(
       origin.hostname === `${name}.netlify.app` || origin.hostname.endsWith(`--${name}.netlify.app`))) return reply(503);
-    // Returning a same-site URL invokes Netlify's native rewrite. The original
-    // request body is unread (validation used a clone), so method, bytes and
-    // LINE signature reach the background function unchanged. The platform's
-    // own accepted response is delivered directly to LINE, without self-fetch.
+    // Continue the original POST through the static native background rewrite.
+    // Returning a URL instead would issue a new request and can lose its body.
     log(JSON.stringify({event:'line_webhook_edge_routed',duration_ms:Date.now()-started,count:payload.events.length}));
-    return new URL('/.netlify/functions/line-webhook-worker-background',origin);
+    return context.next(new Request(request,{body:raw}));
   };
 }
 export default (request,context) => createEdgeReceiver({env:key=>Netlify.env.get(key)})(request,context);
