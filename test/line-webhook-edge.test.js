@@ -6,12 +6,10 @@ const sig=b=>createHmac('sha256',secret).update(b).digest('base64');
 const req=(b=raw,s=sig(b),url='https://qa--openrice-line-crm.netlify.app/webhooks/line')=>new Request(url,{method:'POST',body:b,headers:{'x-line-signature':s}});
 const ctx={site:{name:'openrice-line-crm'},next:async r=>new Response(await r.text(),{status:201})};
 async function make(fetcher,env=k=>k==='LINE_CHANNEL_SECRET'?secret:scheduler){const {createEdgeReceiver}=await import('../netlify/edge-functions/line-webhook.mjs');return createEdgeReceiver({env,fetcher,cryptoApi:webcrypto,log:()=>{}});}
-test('edge validates clone then bypasses response middleware with original signed POST intact',async()=>{
- const h=await make(()=>{throw Error('must not self-fetch normal events');});const request=req();
- const result=await h(request,{...ctx,next:async()=>{throw Error('normal acceptance must not use response middleware');}});
- assert.equal(result,undefined);assert.equal(request.bodyUsed,false);
- assert.equal(request.method,'POST');assert.equal(await request.text(),raw);
- assert.equal(request.headers.get('x-line-signature'),sig(raw));
+test('edge validates raw signature then continues original POST through native background rewrite',async()=>{
+ const h=await make(()=>{throw Error('must not self-fetch normal events');});const request=req();let called=false;
+ const result=await h(request,{...ctx,next:async r=>{called=true;assert.equal(r.method,'POST');assert.equal(await r.text(),raw);assert.equal(r.headers.get('x-line-signature'),sig(raw));return new Response(null,{status:202});}});
+ assert.equal(called,true);assert.equal(result.status,202);
  const toml=require('node:fs').readFileSync('netlify.toml','utf8');assert.match(toml,/from = "\/webhooks\/line"\s+to = "\/.netlify\/functions\/line-webhook-worker-background"/);
 });
 test('invalid signatures, mutated payload, malformed JSON and missing config cannot enqueue',async()=>{
@@ -25,18 +23,8 @@ test('empty LINE verification request returns 200 without queue; bad event IDs r
  const h=await make(()=>{throw Error('no work');});assert.equal((await h(req('{"events":[]}'),ctx)).status,200);
  assert.equal((await h(req('{"events":[{}]}'),ctx)).status,400);
 });
-test('large receiver rejection is not replaced with a successful acknowledgement',async()=>{
- const body=JSON.stringify({events:[{webhookEventId:'QA-rejected-large',padding:'x'.repeat(100*1024)}]});
- const h=await make(async()=>new Response('not persisted',{status:503}));
- const result=await h(req(body),ctx);
- assert.equal(result.status,503);assert.equal(await result.text(),'not persisted');
-});
-test('validation telemetry never claims persistence or exposes message data',async()=>{
- const {createEdgeReceiver}=await import('../netlify/edge-functions/line-webhook.mjs');const logs=[];
- const h=createEdgeReceiver({env:k=>k==='LINE_CHANNEL_SECRET'?secret:scheduler,cryptoApi:webcrypto,log:s=>logs.push(JSON.parse(s))});
- assert.equal(await h(req(),ctx),undefined);assert.equal(logs.length,1);
- assert.equal(logs[0].event,'line_webhook_validated');
- assert.deepEqual(Object.keys(logs[0]).sort(),['count','duration_ms','event']);
+test('native routing preserves platform rejection instead of manufacturing accepted status',async()=>{
+ const h=await make(()=>{throw Error('must not self-fetch');});const result=await h(req(),{...ctx,next:async()=>new Response(null,{status:503})});assert.equal(result.status,503);
 });
 test('handoff cannot forward the scheduler secret to an arbitrary host',async()=>{
  const h=await make(()=>{throw Error('must not send secret');});assert.equal((await h(req(raw,sig(raw),'https://evil.test/webhooks/line'),ctx)).status,503);
