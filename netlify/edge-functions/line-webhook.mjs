@@ -31,12 +31,15 @@ export function createEdgeReceiver({ env, fetcher = fetch, cryptoApi = crypto, l
       method:'POST',redirect:'error',headers:{'content-type':'application/json','x-line-signature':signed},body:raw,
       signal:AbortSignal.timeout(1800)
     });
-    // Continue the original POST through the static native background rewrite.
-    // Returning a URL instead would issue a new request and can lose its body.
-    const response = await context.next(new Request(request,{body:raw}));
-    log(JSON.stringify({event:'line_webhook_native_accept',status:response.status,
+    // We read only a clone, so the original signed POST is still unread.
+    // Let the native request chain apply the existing background rewrite.
+    // context.next() is response middleware and introduces an avoidable
+    // origin round-trip; we do not inspect/transform a background 202 body.
+    // This is NOT an acknowledgement: Netlify still has to accept the task
+    // before its native 202 (or failure) reaches LINE.
+    log(JSON.stringify({event:'line_webhook_validated',
       duration_ms:Date.now()-started,count:payload.events.length}));
-    return response;
+    return;
   };
 }
 export default (request,context) => createEdgeReceiver({env:key=>Netlify.env.get(key)})(request,context);

@@ -1,5 +1,13 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-11-06 Webhook 原生路由候選（尚未正式發布）
+
+- LINE Console已由Hen核准開啟Webhook redelivery，錯誤統計與原URL保留。重送是補收保障，不消除2秒逾時、不保證歷史事件補發或送達。
+- 固定staging原路徑合成比較曾2.888秒，背景function直接入口三筆0.456–0.868秒；都是本機到staging的有限樣本，不當LINE正式延遲分布。回應內容0bytes，標頭至結束0ms，不支持response body卡住的假設。
+- Edge維持原始bytes驗簽、格式檢查、空事件200及大型body原receiver fallback。一般合法事件只讀request.clone()，原Request仍未消耗，驗證後return undefined讓平台以既有靜態rewrite原生接受背景工作，不再以context.next包裝回應。無提前回200／202、無waitUntil；驗簽通過不代表持久化，平台仍決定202或失敗。
+- 日誌改line_webhook_validated只記驗簽階段耗時／件數，不假稱已入庫。背景worker、DB／去重／發送語意不改。需固定staging驗證非空POST原文／入庫done／同eventId去重與延遲，再依發布規則交Hen核准；不據本機單元測試就宣稱已修好。
+- 官方依據：https://docs.netlify.com/build/edge-functions/api/#nextoptions 。回滾本輪Edge改動即可恢復PR54路徑，不刪inbox或重送uncertain。
+
 ## 2026-11-03 數據清查修正
 
 - 關鍵字 A/B 暫停或結束後的固定版本，改用一般 `crm_message_executions` 發送流程，保存實驗的固定內容快照、事件防重及 LINE 回覆結果，並以 execution 身分驗證連結追蹤；不重新分組、不寫回舊實驗。無 execution 表的舊環境保留原本未追蹤快照回覆，不套用反查目前素材的舊連結。結果不確定時不得自動重送。
