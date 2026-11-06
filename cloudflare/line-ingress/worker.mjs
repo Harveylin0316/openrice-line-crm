@@ -22,9 +22,9 @@ async function verified(cryptoApi,secret,raw,signed){
  const key=await cryptoApi.subtle.importKey('raw',new TextEncoder().encode(secret),{name:'HMAC',hash:'SHA-256'},false,['verify']);
  return cryptoApi.subtle.verify('HMAC',key,sig,raw);
 }
-export function createIngress({fetcher=fetch,cryptoApi=globalThis.crypto,log=console.info}={}){
+export function createIngress({fetcher=(...args)=>fetch(...args),cryptoApi=globalThis.crypto,log=console.info}={}){
  const reply=status=>new Response(status===200?'{}':'',{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
- async function post(env,path,raw,signed){return fetcher(target(env,path),{method:'POST',redirect:'error',headers:{'content-type':'application/json','x-line-signature':signed},body:raw,signal:AbortSignal.timeout(8000)});}
+ async function post(env,path,raw,signed){return fetcher(target(env,path),{method:'POST',redirect:'manual',headers:{'content-type':'application/json','x-line-signature':signed},body:raw,signal:AbortSignal.timeout(8000)});}
  return {
   async fetch(request,env){
    const path=new URL(request.url).pathname;
@@ -52,19 +52,19 @@ export function createIngress({fetcher=fetch,cryptoApi=globalThis.crypto,log=con
   },
   async queue(batch,env){
    for(const message of batch.messages){
-    let accepted=false;
+    let accepted=false;let stage='envelope';
     try{
      const e=message.body;
      if(e?.version!==1)throw Error('bad_envelope');
-     const raw=decode(e.raw);
+     const raw=decode(e.raw);stage='signature';
      if(!await verified(cryptoApi,env.LINE_CHANNEL_SECRET,raw,e.signature))throw Error('bad_signature');
-     const r=await post(env,'line-webhook-worker-background',raw,e.signature);
+     stage='relay';const r=await post(env,'line-webhook-worker-background',raw,e.signature);stage='http_'+r.status;
      // A 202 means Netlify durably accepted the invocation, not LINE delivery.
      // Unknown/failed transport is safe to re-deliver: DB event_id dedupes it.
      accepted=r.status===202;
-    }catch{}
+    }catch{stage+='_'+'transport_error';}
     if(accepted)message.ack();
-    else{message.retry({delaySeconds:Math.min(300,5*2**Math.min(message.attempts||1,6))});log(JSON.stringify({event:'line_ingress_relay_deferred'}));}
+    else{message.retry({delaySeconds:Math.min(300,5*2**Math.min(message.attempts||1,6))});log(JSON.stringify({event:'line_ingress_relay_deferred',stage}));}
    }
   },
  };

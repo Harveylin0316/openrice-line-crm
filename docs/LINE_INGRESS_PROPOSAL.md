@@ -1,4 +1,4 @@
-# LINE收件入口候選：Cloudflare Queue（未部署、未切換）
+# LINE收件入口候選：Cloudflare Queue（隔離QA已部署；正式未切換）
 
 11/6已由Hen核准開啟LINE Webhook redelivery。告警保持開啟，不能把重送當成消除逾時。
 
@@ -12,7 +12,11 @@
 
 Cloudflare官方Free含10,000 Queue operations/日，無資料傳出費；一般小訊息成功一輪約3operations，重送／大訊息／DLQ另外計算，與同帳號其他Queues共用。須查實際方案與用量，未升級付費或承諾永不超額。
 
-目前Wrangler OAuth缺queues:write。先完成本機合成測試與dry-run，尚未新增資源、複製正式secret或接收真實LINE資料。需Hen核准此具體範圍，再以最小新增scope授權；隔離QA完整入庫／去重／耗時驗證通過後，正式程式仍依staging→main發布規則及Hen核准執行，最後才能切換LINE URL。不得先改正式URL賭成功。
+Hen已核准Queues OAuth及隔離QA；帳號具queues:write，已建立openrice-line-ingress-qa及其DLQ、QA Worker，僅複製與正式不同的staging簽章secret。正式secret未複製，LINE正式URL未切換。正式仍須依staging→main及Hen核准執行。
+
+11/6真實雲端測試：先暫停QA consumer，10次簽章假事件均200、0.506–0.691秒，CRM零列；恢復後發現Cloudflare不支援redirect:error，資料保留重試。修為manual（不跟轉址）後，新10次全部200、0.507–0.671秒，9個唯一事件皆done，重複ID僅一列；最慢事件時間至入庫1.269秒。先前故障批次也在重試補入中；回覆token可能過期，不能把保留資料當成真人回覆成功。全部使用未知假事件、沒有LINE發送token，無真人訊息。原始測試於outputs/crm-webhook-alert-20261106/queue-live-qa.json。
+
+Cloudflare runtime不支援redirect:error是本次雲端QA發現的相容性問題；manual僅接受202，3xx不跟隨且retry。錯誤日誌只保留固定stage代碼，不記錄錯誤原文／事件內容。
 
 部署初始設定ENABLED=0；QA只能轉固定staging，production只能轉固定正式host。回滾：LINE URL改回原Netlify（redelivery保持開），停止新入口後先排空queue，不purge或丟棄未交付事件。既有DB／活動／憑證不重設。
 
