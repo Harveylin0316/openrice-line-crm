@@ -1,5 +1,11 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-11-06 LINE入口後續候選（未部署）
+
+- Hen核准後Webhook redelivery已在Console開啟並reload確認；原URL／錯誤統計不變。
+- 省略context.next的staging候選ff8d0a6雲端仍有4.160秒、直接背景入口3.162秒，未證明改善；已以019dcee revert測試站，不發布正式。
+- 新方案僅本機候選，詳[LINE收件入口提案](LINE_INGRESS_PROPOSAL.md)。Cloudflare先驗簽並await Queue持久化，後送既有Netlify，CRM／DB／發送不搬移。Wrangler目前缺queues:write，尚未建資源、複製正式secret或切LINE URL；需Hen核准資料與權限範圍及隔離雲端驗證，不可把本機測試當根治。
+
 ## 2026-11-03 數據清查修正
 
 - 關鍵字 A/B 暫停或結束後的固定版本，改用一般 `crm_message_executions` 發送流程，保存實驗的固定內容快照、事件防重及 LINE 回覆結果，並以 execution 身分驗證連結追蹤；不重新分組、不寫回舊實驗。無 execution 表的舊環境保留原本未追蹤快照回覆，不套用反查目前素材的舊連結。結果不確定時不得自動重送。
