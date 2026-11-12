@@ -62,6 +62,8 @@ test('使用者以選單、分頁、按鈕名稱操作，試算仍送出正確�
     url: 'https://crm.example/admin/recipient-lists',
     pretendToBeVisual: true,
     beforeParse(window) {
+      // 頁面用 <script src="/audience-builder.js"> 載入共用的條件編輯器；JSDOM 不下載外部檔案，這裡先載入
+      window.eval(require('fs').readFileSync(require('path').join(__dirname, '../public/audience-builder.js'), 'utf8'));
       window.alert = () => {};
       window.confirm = () => true;
       window.fetch = async (url, options = {}) => {

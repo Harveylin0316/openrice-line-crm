@@ -100,6 +100,20 @@
         <p class="muted" id="fl-limit-help">例如填 2，選「每天重新計算」，代表同一人每天最多進入這條流程 2 次。留空就是不限次數。</p>
       </div>
       <input type="checkbox" id="fl-reenroll" hidden />
+      <details class="fl-entry" id="fl-entry">
+        <summary><b>進入條件</b><span class="muted">（選填）</span><span class="fl-entry-sum" id="fl-entry-sum">不限，觸發的人都會進入</span></summary>
+        <p class="muted fl-entry-help">觸發後，只有<b>符合這些條件的 CRM 會員</b>才會進入流程，條件和「名單」相同，可以混用 AND／OR。例如：加入日期在 11/13 之後、排除收過群發 #N 的人。</p>
+        <label class="fl-entry-op">條件間關係
+          <select id="fl-entry-op"><option value="and">全部符合（AND）</option><option value="or">任一符合（OR）</option></select>
+        </label>
+        <div id="fl-entry-conds"></div>
+        <div class="fl-entry-actions">
+          <button type="button" class="fl-secondary-btn" id="fl-entry-add">＋ 新增條件</button>
+          <button type="button" class="fl-secondary-btn" id="fl-entry-add-group">＋ 新增條件組（混用 AND／OR）</button>
+          <button type="button" class="fl-secondary-btn" id="fl-entry-preview">試算目前符合人數</button>
+          <span class="muted" id="fl-entry-result"></span>
+        </div>
+      </details>
 
       <div class="fl-section-title">2. 依序做這些事</div>
       <div id="fl-steps"></div>
@@ -110,6 +124,7 @@
         <button type="button" class="fl-add-btn" data-add="add_tag">＋ 貼標籤</button>
         <button type="button" class="fl-add-btn" data-add="remove_tag">＋ 移除標籤</button>
         <button type="button" class="fl-add-btn" data-add="branch">＋ 條件分支</button>
+        <button type="button" class="fl-add-btn" data-add="ab_split">＋ A/B 分組</button>
       </div>
 
       <div class="fl-section-title">3. 啟用前先試走一遍（乾跑測試）</div>
@@ -122,6 +137,13 @@
         </div>
         <div id="fl-dryrun-status" class="muted" style="font-size:13px;"></div>
         <div id="fl-dryrun-report"></div>
+      <div class="fl-export" id="fl-export" hidden>
+        <b>匯出派送紀錄</b>
+        <span class="muted">依實際送出時間（台灣時間）</span>
+        <input type="date" id="fl-export-from" aria-label="開始日期"> ～ <input type="date" id="fl-export-to" aria-label="結束日期">
+        <button type="button" class="fl-secondary-btn" id="fl-export-btn">下載 CSV</button>
+        <p class="muted">每一列是一次送出：送出時間、LINE 名稱、版本（A/B 分組）、訊息、LINE 是否接受、有無點擊。不含測試發送。流程會持續派送，請選擇要看的期間。</p>
+      </div>
       </div>
 
       <div class="fl-actions">
@@ -161,6 +183,25 @@
       .fl-field span{font-weight:600;}
       .fl-field input,.fl-field select{padding:9px 11px;border:1px solid #e5e7eb;border-radius:7px;font-size:14px;font-family:inherit;}
       .fl-check{display:flex;align-items:center;gap:8px;font-size:13px;color:#374151;margin:6px 0 4px;}
+      .fl-entry{max-width:760px;margin-top:12px;border:1px solid #E5E7EB;border-radius:10px;padding:8px 12px;background:#fff;}
+      .fl-entry summary{cursor:pointer;font-size:14px;}
+      .fl-entry-sum{margin-left:8px;font-size:12px;color:#92400E;background:#FEF3C7;border-radius:999px;padding:1px 10px;}
+      .fl-entry-help{font-size:12px;line-height:1.6;margin:8px 0;}
+      .fl-entry-op{display:inline-flex;gap:6px;align-items:center;font-size:13px;margin-bottom:6px;}
+      .fl-entry-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;}
+      .fl-entry .aud-condition{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0;}
+      .fl-entry .aud-condition select,.fl-entry .aud-condition input{font:inherit;font-size:13px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;max-width:100%;}
+      .fl-entry .aud-remove{border:1px solid #FCA5A5;color:#B91C1C;background:#fff;border-radius:6px;cursor:pointer;}
+      .fl-entry .aud-group{border:1px dashed #F59E0B;background:#FFFBEB;border-radius:10px;padding:8px 10px;margin:6px 0;}
+      .fl-entry .aud-group-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;margin-bottom:6px;}
+      .fl-entry .aud-group-add{font:inherit;font-size:12px;border:1px solid #E5E7EB;background:#fff;border-radius:8px;padding:4px 10px;cursor:pointer;}
+      .fl-ab-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;font-size:13px;}
+      .fl-ab-note{font-size:12px;line-height:1.6;margin:0 0 8px;}
+      .fl-branch-col .lbl.ab{color:#1D4ED8;}
+      .fl-export{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;max-width:760px;margin-top:14px;padding:10px 12px;border:1px solid #E5E7EB;border-radius:10px;font-size:13px;}
+      .fl-export input{font:inherit;font-size:13px;padding:4px 6px;border:1px solid #E5E7EB;border-radius:6px;}
+      .fl-export p{flex-basis:100%;margin:0;font-size:12px;line-height:1.6;}
+      .fl-export[hidden]{display:none;}
       .fl-limit-card{display:grid;grid-template-columns:minmax(180px,260px) minmax(180px,260px);gap:12px;max-width:560px;padding:14px;border:1px solid #fde68a;background:#fffbeb;border-radius:10px;margin-top:12px;}
       .fl-limit-card p{grid-column:1/-1;margin:0;font-size:12px;line-height:1.6;}
       .fl-rm-buttons{max-width:520px;border:1px solid #e5e7eb;border-radius:9px;padding:10px 12px;margin:-4px 0 10px;background:#f9fafb;}
@@ -180,6 +221,8 @@
       .fl-inline select,.fl-inline input{padding:7px 9px;border:1px solid #e5e7eb;border-radius:6px;font-size:14px;font-family:inherit;}
       .fl-inline input[type=number]{width:80px;}
       .fl-branch-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px;}
+      .fl-branch-cols:has(> :nth-child(3)){grid-template-columns:1fr 1fr 1fr;}
+      @media (max-width:720px){.fl-branch-cols,.fl-branch-cols:has(> :nth-child(3)){grid-template-columns:1fr;}}
       .fl-branch-col{border:1px solid #e5e7eb;border-radius:8px;padding:10px;background:#f9fafb;}
       .fl-branch-col .lbl{font-size:12px;font-weight:700;margin-bottom:8px;}
       .fl-branch-col .lbl.yes{color:#15803d;}
@@ -187,7 +230,7 @@
       .fl-sub-add{margin-top:6px;display:flex;gap:6px;}
       .fl-sub-add button{font-size:12px;padding:4px 8px;border:1px dashed #d1d5db;background:#fff;border-radius:6px;cursor:pointer;color:#6b7280;}
       .fl-actions{margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;display:flex;align-items:center;gap:12px;}
-      .fl-add-row{display:flex;gap:8px;margin-top:6px;}
+      .fl-add-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;}
       .fl-add-btn{padding:8px 14px;border:1px dashed #d1d5db;background:#fff;border-radius:8px;cursor:pointer;font-size:13px;color:#374151;}
       .fl-add-btn:hover{border-color:#1f2937;color:#1f2937;}
       .fl-ex-head{margin-bottom:14px;}
@@ -215,12 +258,23 @@
       @media (max-width:720px){.fl-ex-grid{grid-template-columns:1fr;}.fl-limit-card{grid-template-columns:1fr;}.fl-limit-card p{grid-column:auto;}.fl-campaign-link-row{grid-template-columns:1fr auto;}.fl-campaign-link-row span{grid-column:1/-1;}.fl-campaign-link-row input{min-width:0;}}
     </style>
 
+    <script src="/audience-builder.js?v=20261112"></script>
     <script>
       (function(){
         var $=function(id){return document.getElementById(id);};
         function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
         function fmt(ts){if(!ts)return'';var d=new Date(ts);return isNaN(d.getTime())?'':d.toLocaleString('sv-SE',{timeZone:'Asia/Taipei'}).slice(0,16);}
-        var OPT={messages:[],lists:[],writableLists:[],activities:[],events:[],richMenus:[],tags:[]};
+        var OPT={messages:[],lists:[],writableLists:[],activities:[],events:[],richMenus:[],tags:[],abBroadcasts:[]};
+        // 進入條件：與名單共用條件編輯器（/audience-builder.js），資料清單沿用名單庫的 catalog
+        var audCatalog={tags:[],activities:[],menus:[],broadcasts:[],booking_sources:[]};
+        fetch('/admin/recipient-lists/api/catalog').then(function(r){return r.json();}).then(function(d){if(d&&d.ok)audCatalog=d;}).catch(function(){});
+        // A/B 分組可沿用的群發：做過 A/B 或 Campaign Testing 的 LINE 群發（含是否有 C 版）
+        fetch('/admin/broadcast/exclusion-sources').then(function(r){return r.json();}).then(function(d){if(d&&d.ok)OPT.abBroadcasts=d.sources||[];if(typeof renderSteps==='function'&&flow&&flow.steps&&flow.steps.some(function(s){return s.type==='ab_split';}))renderSteps();}).catch(function(){});
+        var entryBuilder=null;
+        function entrySummary(){
+          var n=entryBuilder?entryBuilder.count():0;
+          $('fl-entry-sum').textContent=n?('已設定 '+n+' 個條件'):'不限，觸發的人都會進入';
+        }
         var flow={name:'',re_enroll:false,trigger:{type:'follow',config:{}},steps:[]};
         var editingId=null;
         var initialSnapshot='';
@@ -366,14 +420,35 @@
             initialSnapshot=JSON.stringify(collectFlow());
           }
         }
+        function renderEntry(){
+          // 共用條件編輯器沒載入（網路問題）時，只隱藏進入條件，不影響流程其他設定
+          if(!window.AudienceBuilder){$('fl-entry').hidden=true;return;}
+          if(!entryBuilder)entryBuilder=window.AudienceBuilder.create({container:$('fl-entry-conds'),getCatalog:function(){return audCatalog;},onChange:entrySummary});
+          var ec=flow.trigger&&flow.trigger.config&&flow.trigger.config.entry_conditions;
+          $('fl-entry-op').value=ec&&ec.operator==='or'?'or':'and';
+          var n=entryBuilder.load(ec);
+          $('fl-entry').open=n>0;
+          $('fl-entry-result').textContent='';
+          entrySummary();
+        }
+        function renderExport(){
+          $('fl-export').hidden=!editingId;
+          if(!editingId)return;
+          var t=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+          var d=new Date(t+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-6);
+          if(!$('fl-export-from').value)$('fl-export-from').value=d.toISOString().slice(0,10);
+          if(!$('fl-export-to').value)$('fl-export-to').value=t;
+        }
         function renderEditor(){
+          renderExport();
           $('fl-name').value=flow.name||'';
           $('fl-reenroll').checked=!!flow.re_enroll;
           $('fl-trigger-type').value=flow.trigger.type||'follow';
           renderTrigger();
           renderUserLimit();
+          renderEntry();
           renderSteps();
-        }
+          }
 
         function renderUserLimit(){
           var c=(flow.trigger&&flow.trigger.config)||{};var lim=c.user_limit;
@@ -541,6 +616,8 @@
           var maxEl=$('fl-user-limit');var winEl=$('fl-user-limit-window');
           var maxRaw=maxEl&&!maxEl.disabled?String(maxEl.value||'').trim():'1';
           if(maxRaw)c.user_limit={max:Number(maxRaw),window:(winEl&&winEl.value)||'lifetime'};
+          if(entryBuilder&&entryBuilder.count()){c.entry_conditions=entryBuilder.definition($('fl-entry-op').value);}
+          else if(!entryBuilder&&flow.trigger.config&&flow.trigger.config.entry_conditions){c.entry_conditions=flow.trigger.config.entry_conditions;}
           flow.trigger.config=c;
         }
 
@@ -596,6 +673,24 @@
             else if(step.type==='wait')h+=waitStepHtml(step,i+'');
             else if(step.type==='add_to_list')h+=addToListStepHtml(step,i+'');
             else if(step.type==='add_tag'||step.type==='remove_tag')h+=tagStepHtml(step,i+'');
+            else if(step.type==='ab_split'){
+              var bc=(OPT.abBroadcasts||[]).find(function(b){return String(b.id)===String(step.broadcast_id);});
+              var showC=step.mode==='broadcast'&&bc&&bc.has_c;
+              h+='<div class="fl-ab-head"><span class="fl-step-tag" style="background:#1D4ED8;">A/B 分組</span>'+
+                '<select data-field="ab_mode" data-path="'+i+'"><option value="broadcast"'+(step.mode==='broadcast'?' selected':'')+'>沿用群發的版本</option><option value="random"'+(step.mode!=='broadcast'?' selected':'')+'>直接隨機（A、B 各 50%）</option></select>'+
+                (step.mode==='broadcast'?'<select data-field="ab_broadcast" data-path="'+i+'"><option value="">選一個做過 A/B 的群發</option>'+(OPT.abBroadcasts||[]).map(function(b){
+                  return '<option value="'+b.id+'"'+(String(b.id)===String(step.broadcast_id)?' selected':'')+'>#'+b.id+'｜'+esc(String(b.title||'').slice(0,30))+(b.kind==='campaign'?'（Campaign）':'')+'</option>';}).join('')+'</select>':'')+
+                '</div><p class="muted fl-ab-note">'+(step.mode==='broadcast'
+                  ? '在這次群發<b>收到 A 版的人走 A、收到 B 版的人走 B</b>'+(showC?'、收到 C 版的人走 C':'')+'；沒收過這次群發的人（含保留名單、送失敗）固定分到 A／B 各 50%。同一人永遠同一版。'
+                  : '依每個人固定分組：A、B 各 50%，同一人永遠同一版，重複觸發也不換版。')+'</p>';
+              h+='<div class="fl-branch-cols">';
+              (showC?['a','b','c']:['a','b']).forEach(function(k){
+                h+='<div class="fl-branch-col"><div class="lbl ab">'+k.toUpperCase()+' 版 → 做</div>';
+                (step[k]||[]).forEach(function(s,j){h+='<div class="fl-step" style="margin-bottom:6px;">'+subStepInner(s,i+'.'+k+'.'+j)+'<div class="fl-step-ops" style="margin-top:6px;"><button data-rm-sub="'+i+'.'+k+'.'+j+'">移除</button></div></div>';});
+                h+='<div class="fl-sub-add"><button data-add-sub="'+i+'.'+k+'.send">＋發訊息</button><button data-add-sub="'+i+'.'+k+'.wait">＋等待</button></div></div>';
+              });
+              h+='</div>';
+            }
             else if(step.type==='branch'){
               h+=branchCondHtml(step.condition,i+'');
               h+='<div class="fl-branch-cols">';
@@ -617,6 +712,7 @@
           box.querySelectorAll('[data-rm-sub]').forEach(function(b){b.addEventListener('click',function(){syncSteps();var p=b.getAttribute('data-rm-sub').split('.');flow.steps[Number(p[0])][p[1]].splice(Number(p[2]),1);renderSteps();});});
           box.querySelectorAll('[data-add-sub]').forEach(function(b){b.addEventListener('click',function(){syncSteps();var p=b.getAttribute('data-add-sub').split('.');var st=flow.steps[Number(p[0])];if(!st[p[1]])st[p[1]]=[];st[p[1]].push(p[2]==='send'?{type:'send',message_id:null}:{type:'wait',amount:1,unit:'days'});renderSteps();});});
           box.querySelectorAll('[data-field="cond_type"]').forEach(function(s){s.addEventListener('change',function(){syncSteps();var i=Number(s.getAttribute('data-path'));flow.steps[i].condition={type:s.value};renderSteps();});});
+          box.querySelectorAll('[data-field="ab_mode"],[data-field="ab_broadcast"]').forEach(function(s){s.addEventListener('change',function(){syncSteps();renderSteps();});});
           box.querySelectorAll('[data-new-list]').forEach(function(b){b.addEventListener('click',function(){
             var name=window.prompt('新名單名稱');if(!name||!name.trim())return;
             syncSteps();var path=b.getAttribute('data-new-list');
@@ -644,6 +740,8 @@
             else if(field==='cond_type'){target.condition=target.condition||{};target.condition.type=el.value;}
             else if(field==='cond_event'){target.condition=target.condition||{};target.condition.type='event';target.condition.event_name=el.value;}
             else if(field==='cond_activity'){target.condition=target.condition||{};target.condition.type='played';target.condition.activity_id=Number(el.value)||null;}
+            else if(field==='ab_mode'){target.mode=el.value==='broadcast'?'broadcast':'random';if(target.mode!=='broadcast')target.broadcast_id=null;}
+            else if(field==='ab_broadcast'){target.broadcast_id=Number(el.value)||null;}
           });
         }
 
@@ -657,8 +755,26 @@
             else if(t==='add_tag')flow.steps.push({type:'add_tag',tag_id:null,ttl_days:null});
             else if(t==='remove_tag')flow.steps.push({type:'remove_tag',tag_id:null});
             else if(t==='branch')flow.steps.push({type:'branch',condition:{type:'clicked'},yes:[],no:[]});
+            else if(t==='ab_split')flow.steps.push({type:'ab_split',mode:'broadcast',broadcast_id:null,a:[{type:'wait',amount:1,unit:'days'},{type:'send',message_id:null}],b:[{type:'wait',amount:1,unit:'days'},{type:'send',message_id:null}],c:[]});
             renderSteps();
           });
+        });
+
+        $('fl-entry-add').addEventListener('click',function(){entryBuilder.addCondition();});
+        $('fl-entry-add-group').addEventListener('click',function(){entryBuilder.addGroup();});
+        $('fl-entry-preview').addEventListener('click',function(){
+          if(!entryBuilder||!entryBuilder.count()){$('fl-entry-result').textContent='還沒有設定條件';return;}
+          $('fl-entry-result').textContent='試算中…';
+          fetch('/admin/recipient-lists/api/dynamic/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({definition:entryBuilder.definition($('fl-entry-op').value)})})
+            .then(function(r){return r.json();}).then(function(d){$('fl-entry-result').textContent=d.ok?('目前符合 '+d.total+' 人（實際以觸發當下判斷）'):('試算失敗：'+(d.detail||d.error));})
+            .catch(function(e){$('fl-entry-result').textContent='試算失敗：'+e.message;});
+        });
+        $('fl-entry-op').addEventListener('change',entrySummary);
+        $('fl-export-btn').addEventListener('click',function(){
+          var f=$('fl-export-from').value,t=$('fl-export-to').value;
+          if(!f||!t){alert('請選擇開始與結束日期');return;}
+          if(f>t){alert('開始日期不能晚於結束日期');return;}
+          window.location.href='/admin/flows/api/'+editingId+'/sends.csv?from='+f+'&to='+t;
         });
 
         function collectFlow(){
@@ -695,7 +811,7 @@
             }).catch(function(e){$('fl-save').disabled=false;$('fl-save-activate').disabled=false;$('fl-save-status').textContent='錯誤：'+e.message;});
         }
         function errMsg(code){
-          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息、加入名單或標籤）',branch_must_be_last:'條件分支必須是流程的最後一步',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',add_to_list_needs_list:'加入名單步驟請選一個名單',add_to_list_requires_static_list:'自動化只能加入靜態名單；動態名單會依條件自動更新',add_to_list_not_found:'找不到要加入的名單，請重新選擇',tag_action_needs_tag:'貼上／移除標籤步驟請選標籤',list_join_needs_list:'請選名單',rich_menu_tap_needs_menu:'請選一個已發布的圖文選單',rich_menu_tap_needs_button:'請至少勾選一顆按鈕，或改選「任一功能按鈕」',campaign_open_needs_name:'請填活動名稱',campaign_open_needs_url:'請選 CRM 活動，或填入正確的 HTTPS 活動網址',campaign_flow_use_pause:'這個流程已有對外入口網址，請改用暫停，避免舊網址失效',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',invalid_user_trigger_limit:'每人觸發次數請填 1 到 1000',flow_has_no_steps:'流程至少要有一個步驟才能啟用',follow_source_invalid:'來源代號只能用英數字、底線、減號（不能填中文或空格），最多 40 字'};
+          var m={name_required:'請填名稱',need_at_least_one_step:'至少要有一個步驟',need_at_least_one_action:'至少要有一個動作（發訊息、加入名單或標籤）',branch_must_be_last:'條件分支／A/B 分組必須是流程的最後一步，而且只能有一個',ab_split_needs_broadcast:'A/B 分組請選要沿用的群發',ab_split_needs_both_paths:'A/B 分組的 A、B 兩條路線都要有步驟',invalid_entry_conditions:'進入條件有誤',branch_sub_only_send_wait:'分支內只能放發訊息或等待',send_needs_message:'發訊息步驟請選一則訊息',add_to_list_needs_list:'加入名單步驟請選一個名單',add_to_list_requires_static_list:'自動化只能加入靜態名單；動態名單會依條件自動更新',add_to_list_not_found:'找不到要加入的名單，請重新選擇',tag_action_needs_tag:'貼上／移除標籤步驟請選標籤',list_join_needs_list:'請選名單',rich_menu_tap_needs_menu:'請選一個已發布的圖文選單',rich_menu_tap_needs_button:'請至少勾選一顆按鈕，或改選「任一功能按鈕」',campaign_open_needs_name:'請填活動名稱',campaign_open_needs_url:'請選 CRM 活動，或填入正確的 HTTPS 活動網址',campaign_flow_use_pause:'這個流程已有對外入口網址，請改用暫停，避免舊網址失效',event_needs_name:'請選事件',schedule_needs_hour:'請填時間',inactivity_needs_days:'請填沉睡天數（至少 7 天）',invalid_user_trigger_limit:'每人觸發次數請填 1 到 1000',flow_has_no_steps:'流程至少要有一個步驟才能啟用',follow_source_invalid:'來源代號只能用英數字、底線、減號（不能填中文或空格），最多 40 字'};
           return m[code]||code||'';
         }
         function isDirty(){return !$('fl-editor').hidden&&initialSnapshot!==JSON.stringify(collectFlow());}

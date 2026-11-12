@@ -1041,6 +1041,13 @@ function registerAdminRichMenuRoutes(app, deps) {
     try {
       const id = Number(req.query.id);
       if (!id) return jsonErr(res, 400, 'bad_id');
+      // 期間（選填）：依點擊時間，台灣時間含起訖日；不帶就是全部期間
+      const ymd = /^\d{4}-\d{2}-\d{2}$/;
+      const from = String(req.query.from || ''), to = String(req.query.to || '');
+      const ranged = !!(from || to);
+      if (ranged && (!ymd.test(from) || !ymd.test(to) || from > to)) return jsonErr(res, 400, 'bad_range');
+      const rangeSql = ranged ? ` AND created_at >= $2::timestamptz AND created_at < $3::timestamptz + interval '1 day'` : '';
+      const rangeParams = ranged ? [from + 'T00:00:00+08:00', to + 'T00:00:00+08:00'] : [];
       const { rows } = await query(
         `SELECT tab, cell, kind, label,
                 COUNT(*)::int AS taps,
@@ -1048,9 +1055,9 @@ function registerAdminRichMenuRoutes(app, deps) {
                 COUNT(DISTINCT line_user_id) FILTER (WHERE line_user_id IS NOT NULL)::int AS people,
                 -- 有記到是誰點的那幾次：開啟網址的按鍵只有開了「記錄是誰點的」才會有
                 COUNT(*) FILTER (WHERE line_user_id IS NOT NULL)::int AS identified_taps
-           FROM rich_menu_taps WHERE menu_id=$1
-          GROUP BY tab, cell, kind, label
-          ORDER BY tab, cell NULLS LAST`, [id]);
+           FROM rich_menu_taps WHERE menu_id=$1${rangeSql}
+           GROUP BY tab, cell, kind, label
+           ORDER BY tab, cell NULLS LAST`, [id].concat(rangeParams));
       // 選單上的每一顆按鍵（以已發布的設定為準），讓沒人點過的按鍵也列出來顯示 0
       let buttons = [];
       let duplicates = [];
@@ -1059,7 +1066,7 @@ function registerAdminRichMenuRoutes(app, deps) {
         const cfg = m && (m.published_config || m.config);
         if (cfg) ({ buttons, duplicates } = listMenuButtons(cfg));
       } catch (e) { /* 拿不到設定就只顯示有點擊的列 */ }
-      res.json({ ok: true, stats: rows, buttons, duplicates });
+      res.json({ ok: true, stats: rows, buttons, duplicates, range: ranged ? { from, to } : null });
     } catch (err) {
       console.error('richmenu stats error:', err && err.message);
       jsonErr(res, 500, 'stats_failed', { detail: String(err && err.message || '').slice(0, 200) });
