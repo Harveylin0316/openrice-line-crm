@@ -52,6 +52,8 @@ test('名單庫條件選單有「訂位來源」，選了之後出現來源下�
   const dom = new JSDOM(html, {
     runScripts: 'dangerously', url: 'https://example.test/admin/recipient-lists',
     beforeParse(window) {
+      // 頁面用 <script src="/audience-builder.js"> 載入共用的條件編輯器；JSDOM 不下載外部檔案，這裡先載入
+      window.eval(require('fs').readFileSync(require('path').join(__dirname, '../public/audience-builder.js'), 'utf8'));
       window.fetch = async (u, opts) => {
         if (String(u).includes('/api/catalog')) {
           return { json: async () => ({ ok: true, tags: [], activities: [], menus: [], broadcasts: [], booking_sources: [{ id: 'openrice', name: '透過 OpenRice（80 人回答）' }, { id: 'google', name: '透過 Google（120 人回答）' }] }) };

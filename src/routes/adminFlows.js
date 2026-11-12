@@ -17,7 +17,9 @@
  *
  * 步驟樹 ←→ 節點：
  *   steps: [ {type:'send',message_id} | {type:'wait',amount,unit}
- *            | {type:'branch',condition,yes:[...],no:[...]} ]
+ *            | {type:'branch',condition,yes:[...],no:[...]}
+ *            | {type:'ab_split',mode:'broadcast'|'random',broadcast_id,a:[...],b:[...],c:[...]} ]
+ *   trigger.config.entry_conditions：進入條件（名單條件，可含條件組）
  *   分支限制在主序列，yes/no 內只放 send/wait（中版，員工好懂）。
  */
 
@@ -28,6 +30,7 @@ function publicOriginForFlow() {
   return String(process.env.LINE_PUSH_PUBLIC_BASE_URL || process.env.URL || process.env.PUBLIC_SITE_URL || '').replace(/\/+$/, '');
 }
 const { normalizeTabs } = require('../core/lineRichMenu');
+const { cleanDefinition: cleanAudienceDefinition } = require('../core/audienceSegments');
 const { verifyLiffIdToken, channelIdFromLiffId } = require('../core/liffAuth');
 
 const CAMPAIGN_SOURCES = ['richmenu', 'broadcast', 'welcome', 'other'];
@@ -269,6 +272,9 @@ function registerAdminFlowsRoutes(app, deps) {
             ttl_days: step.type === 'add_tag' && Number(step.ttl_days) > 0 ? Math.min(3650, Number(step.ttl_days)) : null };
         } else if (step.type === 'branch') {
           node.config = { condition: step.condition || {} };
+        } else if (step.type === 'ab_split') {
+          node.config = { mode: step.mode === 'broadcast' ? 'broadcast' : 'random',
+            broadcast_id: step.mode === 'broadcast' ? Number(step.broadcast_id) || null : null, c_key: null };
         } else {
           continue;
         }
@@ -279,6 +285,14 @@ function registerAdminFlowsRoutes(app, deps) {
           node.branch_true_key = build(step.yes);
           node.branch_false_key = build(step.no);
           prev = null; // 分支為主序列終點
+          break;
+        }
+        if (step.type === 'ab_split') {
+          // A 走 branch_true_key、B 走 branch_false_key、C 存在 config.c_key（不需資料庫變更）
+          node.branch_true_key = build(step.a);
+          node.branch_false_key = build(step.b);
+          node.config.c_key = Array.isArray(step.c) && step.c.length ? build(step.c) : null;
+          prev = null;
           break;
         }
         prev = node;
@@ -323,6 +337,11 @@ function registerAdminFlowsRoutes(app, deps) {
             no: walk(n.branch_false_key)
           });
           key = null;
+        } else if (n.type === 'ab_split') {
+          const c = n.config || {};
+          steps.push({ type: 'ab_split', mode: c.mode === 'broadcast' ? 'broadcast' : 'random', broadcast_id: c.broadcast_id || null,
+            a: walk(n.branch_true_key), b: walk(n.branch_false_key), c: c.c_key ? walk(c.c_key) : [] });
+          key = null;
         } else {
           key = n.next_key;
         }
@@ -340,6 +359,13 @@ function registerAdminFlowsRoutes(app, deps) {
     if (!FLOW_TRIGGER_TYPES.includes(tType)) return { ok: false, error: 'invalid_trigger_type' };
     const tCfg = trigger.config || {};
     if (Object.prototype.hasOwnProperty.call(tCfg, 'managed_welcome')) return {ok:false,error:'welcome_use_settings'};
+    // 進入條件：與名單同一套（可混用 AND／OR）；空的就不設定
+    if (tCfg.entry_conditions && Array.isArray(tCfg.entry_conditions.conditions) && tCfg.entry_conditions.conditions.length) {
+      try { tCfg.entry_conditions = cleanAudienceDefinition(tCfg.entry_conditions); }
+      catch (e) { return { ok: false, error: 'invalid_entry_conditions', detail: e.message }; }
+    } else {
+      delete tCfg.entry_conditions;
+    }
     const rawUserLimit = tCfg.user_limit;
     if (rawUserLimit && typeof rawUserLimit === 'object' && rawUserLimit.max !== '' && rawUserLimit.max != null) {
       const max = Math.round(Number(rawUserLimit.max));
@@ -434,17 +460,25 @@ function registerAdminFlowsRoutes(app, deps) {
     if (steps.length === 0) return { ok: false, error: 'need_at_least_one_step' };
     // 至少要有一個動作（發訊息 或 加入名單）
     function hasAction(list) {
-      return (list || []).some(s => ['send','add_to_list','add_tag','remove_tag'].includes(s.type) || (s.type === 'branch' && (hasAction(s.yes) || hasAction(s.no))));
+      return (list || []).some(s => ['send','add_to_list','add_tag','remove_tag'].includes(s.type) ||
+        (s.type === 'branch' && (hasAction(s.yes) || hasAction(s.no))) ||
+        (s.type === 'ab_split' && (hasAction(s.a) || hasAction(s.b) || hasAction(s.c))));
     }
     if (!hasAction(steps)) return { ok: false, error: 'need_at_least_one_action' };
     // branch 只能是主序列最後一步（flattenSteps 遇 branch 會 break，後面的步驟會被丟棄）
-    const branchIdx = steps.findIndex(s => s && s.type === 'branch');
+    const branchIdx = steps.findIndex(s => s && (s.type === 'branch' || s.type === 'ab_split'));
     if (branchIdx !== -1 && branchIdx !== steps.length - 1) return { ok: false, error: 'branch_must_be_last' };
+    if (steps.filter(s => s && (s.type === 'branch' || s.type === 'ab_split')).length > 1) return { ok: false, error: 'branch_must_be_last' };
     // branch 的 yes/no 內只允許 send/wait（與 flatten/unflatten 假設一致）
     for (const s of steps) {
+      const subOk = list => (list || []).every(x => x && (x.type === 'send' || x.type === 'wait'));
       if (s && s.type === 'branch') {
-        const subOk = list => (list || []).every(x => x && (x.type === 'send' || x.type === 'wait'));
         if (!subOk(s.yes) || !subOk(s.no)) return { ok: false, error: 'branch_sub_only_send_wait' };
+      }
+      if (s && s.type === 'ab_split') {
+        if (!subOk(s.a) || !subOk(s.b) || !subOk(s.c)) return { ok: false, error: 'branch_sub_only_send_wait' };
+        if (s.mode === 'broadcast' && !(Number(s.broadcast_id) > 0)) return { ok: false, error: 'ab_split_needs_broadcast' };
+        if (!(s.a || []).length || !(s.b || []).length) return { ok: false, error: 'ab_split_needs_both_paths' };
       }
     }
     // 所有 send 步驟（含 branch 內）都必須綁訊息，否則執行時會靜默跳過
@@ -454,6 +488,7 @@ function registerAdminFlowsRoutes(app, deps) {
         if (!s) return;
         if (s.type === 'send') { if (!(Number(s.message_id) > 0)) sendMissing = true; }
         else if (s.type === 'branch') { eachSend(s.yes); eachSend(s.no); }
+        else if (s.type === 'ab_split') { eachSend(s.a); eachSend(s.b); eachSend(s.c); }
       });
     })(steps);
     if (sendMissing) return { ok: false, error: 'send_needs_message' };
@@ -671,6 +706,52 @@ function registerAdminFlowsRoutes(app, deps) {
   });
 
   // ---------- 單一 ----------
+  /**
+   * 匯出流程派送紀錄（CSV）：依「實際送出時間」（台灣時間，含起訖日）篩選，與訊息成效同一口徑。
+   * 欄位：送出時間、LINE 名稱、LINE User ID、版本（A/B 分組；沒有分組顯示「—」）、訊息、LINE 結果、原因、有無點擊。
+   * 有無點擊：經 LINE 驗證點擊者就是收件人才算；訊息沒有可追蹤連結顯示「—」。不含測試發送。
+   */
+  app.get('/admin/flows/api/:id/sends.csv', requireAdmin, async (req, res) => {
+    const flowId = Number(req.params.id);
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    const from = String(req.query.from || ''), to = String(req.query.to || '');
+    if (!(flowId > 0)) return res.status(400).json({ ok: false, error: 'bad_id' });
+    if (!ymd.test(from) || !ymd.test(to) || from > to) return res.status(400).json({ ok: false, error: '日期格式要是 YYYY-MM-DD，且開始不能晚於結束' });
+    if ((Date.parse(to) - Date.parse(from)) / 86400000 > 366) return res.status(400).json({ ok: false, error: '期間最長 366 天' });
+    try {
+      const { describeSnapshot } = require('../core/messagePerformanceList');
+      const rs = await query(
+        `SELECT e.started_at, e.recipient_key, e.variant, e.status, e.reason, e.message_snapshot,
+                (e.targets <> '[]'::jsonb) AS tracked,
+                EXISTS (SELECT 1 FROM crm_message_clicks k WHERE k.execution_id = e.id AND k.verified_identity = e.recipient_key) AS clicked,
+                COALESCE(u.line_display_name, u.username, '') AS display_name
+           FROM crm_message_executions e
+           LEFT JOIN users u ON u.line_user_id = e.recipient_key
+          WHERE e.source_type = 'automation' AND e.source_id = $1 AND NOT e.test_only
+            AND e.started_at >= $2::timestamptz AND e.started_at < $3::timestamptz + INTERVAL '1 day'
+          ORDER BY e.started_at ASC, e.id ASC
+          LIMIT 50000`,
+        [flowId, from + 'T00:00:00+08:00', to + 'T00:00:00+08:00']);
+      const statusLabel = { accepted: 'LINE 已接受', rejected: 'LINE 拒絕', uncertain: '結果不確定', sending: '發送中', pending: '待發送', skipped: '略過' };
+      const cell = (v) => { const s = v == null ? '' : String(v); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+      const tw = (d) => d ? new Date(d).toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }) : '';
+      const lines = [['送出時間（台灣）', 'LINE 名稱', 'LINE User ID', '版本', '訊息', 'LINE 結果', '原因', '有無點擊']];
+      for (const r of rs.rows) {
+        let title = '';
+        try { title = describeSnapshot(r.message_snapshot, '').title || ''; } catch (e) { title = ''; }
+        lines.push([tw(r.started_at), r.display_name, r.recipient_key, r.variant ? String(r.variant).toUpperCase() + ' 版' : '—', title,
+          statusLabel[r.status] || r.status, r.reason || '', r.tracked ? (r.clicked ? '有' : '無') : '—']);
+      }
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="flow-${flowId}-sends-${from}_${to}.csv"`);
+      res.setHeader('Cache-Control', 'no-store');
+      return res.send('\ufeff' + lines.map(l => l.map(cell).join(',')).join('\r\n'));
+    } catch (err) {
+      console.error('flow sends export failed:', err && err.message);
+      return res.status(503).json({ ok: false, error: '派送紀錄暫時無法匯出' });
+    }
+  });
+
   app.get('/admin/flows/api/:id', requireAdmin, async (req, res) => {
     const idStr = String(req.params.id || '').trim();
     if (!isPosInt(idStr)) return jsonErr(res, 400, 'invalid_id');

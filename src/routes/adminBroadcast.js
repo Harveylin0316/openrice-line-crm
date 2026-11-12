@@ -1344,7 +1344,8 @@ function registerAdminBroadcastRoutes(app, deps) {
     try {
       const result = await query(
         `SELECT b.id, b.created_at, b.status, b.is_ab_test, b.message_config, b.variant_b_message_config, b.audience_config, b.channel,
-                (SELECT COUNT(*) FILTER (WHERE r.variant IN ('a', 'b', 'c'))::int FROM admin_broadcast_recipients r WHERE r.broadcast_id = b.id) AS test_count
+                (SELECT COUNT(*) FILTER (WHERE r.variant IN ('a', 'b', 'c'))::int FROM admin_broadcast_recipients r WHERE r.broadcast_id = b.id) AS test_count,
+                EXISTS (SELECT 1 FROM admin_broadcast_recipients r WHERE r.broadcast_id = b.id AND r.variant = 'c') AS has_c
            FROM admin_broadcasts b
           WHERE COALESCE(b.channel, 'line') = 'line'
             AND (b.is_ab_test OR b.audience_config->'experiment'->>'enabled' = 'true')
@@ -1361,7 +1362,8 @@ function registerAdminBroadcastRoutes(app, deps) {
           title: identity.title || '',
           notification: identity.notificationText || '',
           kind: isCampaign ? 'campaign' : 'ab',
-          test_count: Number(row.test_count || 0)
+          test_count: Number(row.test_count || 0),
+          has_c: !!row.has_c
         };
       });
       return res.json({ ok: true, sources });
