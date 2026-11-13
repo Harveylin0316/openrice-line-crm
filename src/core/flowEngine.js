@@ -10,7 +10,8 @@
  *   wait   { amount, unit: minutes|hours|days }          等待
  *   branch { condition: {...} } + branch_true/false_key  條件分支
  *   ab_split { mode:'broadcast'|'random', broadcast_id, c_key } + branch_true_key(A)／branch_false_key(B)
- *            A/B 分組：沿用指定群發的版本（沒收過→固定 50/50）或直接固定 50/50；同一人永遠同一版，
+ *            A/B 分組：沿用指定群發的版本（確認沒收過→固定 50/50；查詢失敗→重試，不分組不發送）
+ *            或直接固定 50/50；同一人永遠同一版，
  *            分到的版本存在 enrollment.context.ab_variant，並寫進該次發送的執行紀錄（variant）。
  *   end                                                  結束
  *
@@ -954,7 +955,12 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
             ORDER BY id DESC LIMIT 1`, [Number(config.broadcast_id), en.line_user_id]);
         const v = rs.rows[0] && rs.rows[0].variant;
         if (v === 'a' || v === 'b' || (v === 'c' && config.c_key)) { variant = v; source = 'broadcast'; }
-      } catch (err) { console.error('ab_split broadcast lookup failed:', err && err.message); }
+      } catch (err) {
+        // 查詢失敗 ≠ 沒收過群發：不能改用 50/50（會讓收到 A 版的人被分到 B 版並存下來）。
+        // 丟暫時性錯誤 → 不分組、不寫入、不發送，由 processEnrollment 的 catch 排重試；恢復後沿用真正的版本。
+        console.error('ab_split broadcast lookup failed:', err && err.message);
+        throw new FlowTransientError('ab_split_broadcast_lookup_failed');
+      }
     }
     if (!variant) variant = stableHalf(en.flow_id, en.line_user_id);
     en.context = Object.assign({}, en.context || {}, { ab_variant: variant, ab_source: source,
