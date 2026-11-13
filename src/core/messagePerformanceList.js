@@ -114,7 +114,8 @@ function createMessagePerformanceList({ query }) {
               COALESCE(SUM(c.clicks) FILTER (WHERE e.status = 'accepted'), 0)::int AS clicks,
               COALESCE(BOOL_OR(e.targets <> '[]'::jsonb AND COALESCE((e.targets->0->>'tracked')::boolean, false))
                        FILTER (WHERE e.status = 'accepted'), false) AS tracked,
-              (ARRAY_AGG(e.message_snapshot ORDER BY e.id DESC))[1] AS snapshot
+              (ARRAY_AGG(e.message_snapshot ORDER BY e.id DESC))[1] AS snapshot,
+              ARRAY_REMOVE(ARRAY_AGG(DISTINCT e.variant), NULL) AS variants_seen
          FROM crm_message_executions e
          LEFT JOIN LATERAL (
            SELECT COUNT(*)::int AS clicks FROM crm_message_clicks k
@@ -132,8 +133,14 @@ function createMessagePerformanceList({ query }) {
     const ruleIds = [...new Set(rows.filter(r => r.source_type === 'keyword').map(r => Number(r.source_id)))];
     const flows = {};
     const rules = {};
+    const abByFlow = {};
     if (flowIds.length) {
       try { (await query('SELECT id, name FROM admin_flows WHERE id = ANY($1::bigint[])', [flowIds])).rows.forEach(x => { flows[Number(x.id)] = x.name; }); } catch (e) { /* 名稱查不到就用編號 */ }
+      // A/B 分組步驟：標示沿用哪一次群發
+      try {
+        (await query(`SELECT flow_id, config FROM admin_flow_nodes WHERE type = 'ab_split' AND flow_id = ANY($1::bigint[])`, [flowIds]))
+          .rows.forEach(x => { abByFlow[Number(x.flow_id)] = x.config || {}; });
+      } catch (e) { /* 舊資料沒有 A/B 步驟 */ }
     }
     if (ruleIds.length) {
       try { (await query('SELECT id, keywords FROM admin_keyword_replies WHERE id = ANY($1::int[])', [ruleIds])).rows.forEach(x => { rules[Number(x.id)] = x.keywords; }); } catch (e) { /* 同上 */ }
@@ -141,8 +148,12 @@ function createMessagePerformanceList({ query }) {
     return rows.map(r => {
       const d = describeSnapshot(r.snapshot, origin);
       const id = Number(r.source_id);
+      const seen = Array.isArray(r.variants_seen) ? r.variants_seen.filter(Boolean).map(v => String(v).toUpperCase()).sort() : [];
+      const ab = r.source_type === 'automation' && abByFlow[id];
+      const abLabel = seen.length ? '｜A/B 分組：' + seen.join('、') + ' 版' +
+        (ab && ab.mode === 'broadcast' && ab.broadcast_id ? '（沿用群發 #' + ab.broadcast_id + '）' : ab ? '（隨機 50/50）' : '') : '';
       const context = r.source_type === 'welcome' ? '加入好友時自動送出'
-        : r.source_type === 'automation' ? '流程「' + (flows[id] || '#' + id) + '」'
+        : r.source_type === 'automation' ? '流程「' + (flows[id] || '#' + id) + '」' + abLabel
         : r.source_type === 'keyword' ? '關鍵字「' + (rules[id] || '#' + id) + '」' : '';
       const link = r.source_type === 'welcome' ? '/admin/welcome-messages'
         : r.source_type === 'automation' ? '/admin/flows/' + id
@@ -150,7 +161,7 @@ function createMessagePerformanceList({ query }) {
       return Object.assign({
         key: [r.source_type, id, r.revision].join(':'),
         type: r.source_type, typeLabel: TYPE_LABEL[r.source_type], sourceId: id, revision: String(r.revision),
-        title: d.title || '（沒有文字內容的訊息）', notification: d.notification, thumb: d.thumb, format: d.format,
+        title: d.title || '（沒有文字內容的訊息）', notification: d.notification, thumb: d.thumb, format: d.format, abVariants: seen,
         context, link, basis: 'verified', firstAt: r.first_at, lastAt: r.last_at, variants: []
       }, baseRow({ sends: r.sends, people: r.people, clickers: r.clickers, clicks: r.clicks, tracked: r.tracked,
         rejected: r.rejected, uncertain: r.uncertain, skipped: r.skipped, pending: r.pending }));

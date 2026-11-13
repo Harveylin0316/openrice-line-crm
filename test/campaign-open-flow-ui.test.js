@@ -21,6 +21,7 @@ test('後台可選活動，儲存後直接取得三種渠道網址與來源統�
   const dom = new JSDOM(html, {
     runScripts: 'dangerously', url: 'https://crm.example/admin/flows',
     beforeParse(w) {
+      w.eval(require('fs').readFileSync(require('path').join(__dirname, '../public/audience-builder.js'), 'utf8'));
       w.confirm = () => true;
       w.alert = () => {};
       w.HTMLElement.prototype.scrollIntoView = () => {};

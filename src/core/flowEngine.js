@@ -9,7 +9,14 @@
  *   send   { message_id }                                發訊息庫某則訊息
  *   wait   { amount, unit: minutes|hours|days }          等待
  *   branch { condition: {...} } + branch_true/false_key  條件分支
+ *   ab_split { mode:'broadcast'|'random', broadcast_id, c_key } + branch_true_key(A)／branch_false_key(B)
+ *            A/B 分組：沿用指定群發的版本（確認沒收過→固定 50/50；查詢失敗→重試，不分組不發送）
+ *            或直接固定 50/50；同一人永遠同一版，
+ *            分到的版本存在 enrollment.context.ab_variant，並寫進該次發送的執行紀錄（variant）。
  *   end                                                  結束
+ *
+ * 進入條件（任何觸發皆可）：trigger_config.entry_conditions = 名單條件（audienceSegments，可含條件組），
+ *   不符合者不會進入流程。
  *
  * 觸發型別：
  *   follow     有人加好友
@@ -131,6 +138,18 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     if (!luid) return { enrolled: false, reason: 'no_user' };
     const entry = await getEntryNode(flow.id);
     if (!entry) return { enrolled: false, reason: 'no_entry_node' };
+    // 進入條件：與名單同一套條件（可混用 AND／OR）。只對 CRM 會員判斷；查詢失敗時不放行，避免誤發。
+    const entryCond = flow.trigger_config && flow.trigger_config.entry_conditions;
+    if (entryCond && Array.isArray(entryCond.conditions) && entryCond.conditions.length) {
+      try {
+        const { filterAudienceLineUserIds } = require('./audienceSegments');
+        const hit = await filterAudienceLineUserIds(query, entryCond, [luid]);
+        if (!hit.lineUserIds.includes(luid)) return { enrolled: false, reason: 'entry_conditions_not_met' };
+      } catch (err) {
+        console.error('flow entry conditions failed:', flow.id, err && err.message);
+        return { enrolled: false, reason: 'entry_conditions_error' };
+      }
+    }
 
     // 圖文選單採「最後一次點擊重新計時」：同一流程已有尚未發出任何訊息的 active
     // enrollment 時，不另開一份，而是原子地把它拉回入口並以本次點擊時間重算。
@@ -829,7 +848,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     if (!built.ok) throw new FlowConfigError('message_build_failed:' + (built.error || ''));
     if (opts.enrollmentId && opts.flowId) {
       if (executionAvailable) {
-        const claim = existingExecution ? {claimed:false,execution:existingExecution} : await executionStore.claim({query},{sourceType:'automation',sourceId:Number(opts.flowId),sourceEventId:opts.enrollmentId+':'+messageId+':'+opts.nodeKey,recipientKey:lineUserId,messageSnapshot:cfg});
+        const claim = existingExecution ? {claimed:false,execution:existingExecution} : await executionStore.claim({query},{sourceType:'automation',sourceId:Number(opts.flowId),sourceEventId:opts.enrollmentId+':'+messageId+':'+opts.nodeKey,recipientKey:lineUserId,messageSnapshot:cfg,variant:opts.variant||null});
         if (!claim.claimed) {
           if (claim.execution?.status === 'accepted') return true;
           if (claim.execution?.status === 'rejected' && claim.execution.reason === 'line_rate_limited') {
@@ -914,6 +933,43 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
     return false;
   }
 
+  /**
+   * A/B 分組：同一人永遠同一版（第一次分到後存進 enrollment.context，重試或下一輪都沿用）。
+   * 沿用群發：只看 LINE 確實接受（status='sent'）的版本；收到 C 版但流程沒有 C 路線、
+   * 或沒收過這次群發（含保留名單、送失敗）→ 固定 50/50。
+   */
+  function stableHalf(flowId, lineUserId) {
+    const h = require('node:crypto').createHash('sha256').update('flow-ab:' + flowId + ':' + lineUserId).digest();
+    return (h[0] & 1) === 0 ? 'a' : 'b';
+  }
+  async function resolveAbVariant(config, en) {
+    const prior = en.context && en.context.ab_variant;
+    if (prior === 'a' || prior === 'b' || (prior === 'c' && config && config.c_key)) return prior;
+    let variant = null;
+    let source = 'random';
+    if (config && config.mode === 'broadcast' && Number(config.broadcast_id) > 0) {
+      try {
+        const rs = await query(
+          `SELECT variant FROM admin_broadcast_recipients
+            WHERE broadcast_id = $1 AND line_user_id = $2 AND status = 'sent' AND variant IN ('a','b','c')
+            ORDER BY id DESC LIMIT 1`, [Number(config.broadcast_id), en.line_user_id]);
+        const v = rs.rows[0] && rs.rows[0].variant;
+        if (v === 'a' || v === 'b' || (v === 'c' && config.c_key)) { variant = v; source = 'broadcast'; }
+      } catch (err) {
+        // 查詢失敗 ≠ 沒收過群發：不能改用 50/50（會讓收到 A 版的人被分到 B 版並存下來）。
+        // 丟暫時性錯誤 → 不分組、不寫入、不發送，由 processEnrollment 的 catch 排重試；恢復後沿用真正的版本。
+        console.error('ab_split broadcast lookup failed:', err && err.message);
+        throw new FlowTransientError('ab_split_broadcast_lookup_failed');
+      }
+    }
+    if (!variant) variant = stableHalf(en.flow_id, en.line_user_id);
+    en.context = Object.assign({}, en.context || {}, { ab_variant: variant, ab_source: source,
+      ab_broadcast_id: config && config.mode === 'broadcast' ? Number(config.broadcast_id) || null : null });
+    await query(`UPDATE admin_flow_enrollments SET context = COALESCE(context, '{}'::jsonb) || $2::jsonb, updated_at = now() WHERE id = $1`,
+      [en.id, JSON.stringify({ ab_variant: variant, ab_source: source, ab_broadcast_id: en.context.ab_broadcast_id })]);
+    return variant;
+  }
+
   // ---------- 處理單一 enrollment ----------
   async function processEnrollment(en) {
     try {
@@ -952,7 +1008,7 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
           const msgId = node.config && node.config.message_id;
           // 推播失敗（暫時性）→ 丟 FlowTransientError，由 catch 排重試退避、不前進節點。
           // 訊息設定錯誤 → sendMessage 內丟 FlowConfigError，由 catch 直接標 failed。
-          const sent = await sendMessage(en.line_user_id, en.user_id, msgId, { enrollmentId: en.id, nodeKey: node.node_key, executionId: en.context?.executionId, flowId: en.flow_id });
+          const sent = await sendMessage(en.line_user_id, en.user_id, msgId, { enrollmentId: en.id, nodeKey: node.node_key, executionId: en.context?.executionId, flowId: en.flow_id, variant: en.context?.ab_variant || null });
           if (!sent) throw new FlowTransientError('line_push_failed');
           lastMsgId = msgId || lastMsgId;
           lastSentAt = new Date();
@@ -1003,6 +1059,11 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
         if (node.type === 'branch') {
           const yes = await evalBranch(node.config, en, lastSentAt);
           nodeKey = yes ? node.branch_true_key : node.branch_false_key;
+          continue;
+        }
+        if (node.type === 'ab_split') {
+          const variant = await resolveAbVariant(node.config, en);
+          nodeKey = variant === 'a' ? node.branch_true_key : variant === 'b' ? node.branch_false_key : (node.config && node.config.c_key) || null;
           continue;
         }
         return finish(en.id, 'done', lastMsgId, lastSentAt);
@@ -1194,6 +1255,12 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
         const name = tr.rows[0] && tr.rows[0].name || '（未指定標籤）';
         push(node.type, '（正式運行會' + (node.type === 'add_tag' ? '貼上' : '移除') + '標籤：' + name + '；乾跑不會修改。）');
         nodeKey = node.next_key || null;
+        continue;
+      }
+      if (node.type === 'ab_split') {
+        push('ab_split', '（這是 A/B 分組。乾跑測試固定走 A 版給你看；正式運行會依' +
+          (node.config && node.config.mode === 'broadcast' ? '群發 #' + node.config.broadcast_id + ' 收到的版本（沒收過則固定 50/50）' : '固定 50/50') + '分組。）');
+        nodeKey = node.branch_true_key || node.branch_false_key || null;
         continue;
       }
       if (node.type === 'branch') {

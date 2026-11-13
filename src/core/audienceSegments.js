@@ -37,13 +37,31 @@ function cleanDefinition(raw) {
   const input = raw && typeof raw === 'object' ? raw : {};
   const operator = String(input.operator || 'and').toLowerCase() === 'or' ? 'or' : 'and';
   const source = Array.isArray(input.conditions) ? input.conditions.slice(0, MAX_CONDITIONS) : [];
-  const conditions = source.map(cleanCondition).filter(Boolean);
+  const conditions = source.map(c => cleanCondition(c, 0)).filter(Boolean);
   if (!conditions.length) throw new Error('至少要設定一個受眾條件');
   return { version: 1, operator, conditions };
 }
 
-function cleanCondition(raw) {
+/**
+ * 條件組（混用 AND／OR）：{ type:'group', mode, operator:'and'|'or', conditions:[...] }
+ * 例：是好友 AND（點過 A OR 點過 B）。只支援一層（組內不能再放組），組內規則與最外層相同：
+ * 「包含」依組的 AND／OR 串接，「排除」一律以 AND NOT 加上。
+ */
+function cleanGroup(raw) {
+  const mode = String(raw.mode || 'include').toLowerCase() === 'exclude' ? 'exclude' : 'include';
+  const operator = String(raw.operator || 'or').toLowerCase() === 'and' ? 'and' : 'or';
+  const source = Array.isArray(raw.conditions) ? raw.conditions.slice(0, MAX_CONDITIONS) : [];
+  const conditions = source.map(c => cleanCondition(c, 1)).filter(Boolean);
+  if (!conditions.length) throw new Error('條件組裡至少要有一個條件');
+  return { type: 'group', mode, operator, conditions };
+}
+
+function cleanCondition(raw, depth = 0) {
   if (!raw || typeof raw !== 'object') return null;
+  if (String(raw.type || '') === 'group') {
+    if (depth > 0) throw new Error('條件組裡不能再放條件組');
+    return cleanGroup(raw);
+  }
   const type = String(raw.type || '').trim();
   const mode = String(raw.mode || 'include').toLowerCase() === 'exclude' ? 'exclude' : 'include';
   const value = raw.value;
@@ -99,7 +117,8 @@ function compileAudience(definition, options = {}) {
   const clean = cleanDefinition(definition);
   const params = [];
   const add = value => { params.push(value); return '$' + params.length; };
-  const clauses = clean.conditions.map(c => {
+  function clauseOf(c) {
+    if (c.type === 'group') return { mode: c.mode, sql: combine(c.conditions, c.operator) };
     let sql;
     switch (c.type) {
       case 'joined_after': sql = `(u.created_at AT TIME ZONE 'Asia/Taipei')::date >= ${add(c.value)}::date`; break;
@@ -165,11 +184,16 @@ function compileAudience(definition, options = {}) {
       default: throw new Error('不支援的受眾條件');
     }
     return { mode: c.mode, sql };
-  });
-  const included = clauses.filter(c => c.mode === 'include').map(c => `(${c.sql})`);
-  const excluded = clauses.filter(c => c.mode === 'exclude').map(c => `NOT (${c.sql})`);
-  const includeSql = included.length ? `(${included.join(clean.operator === 'or' ? ' OR ' : ' AND ')})` : 'TRUE';
-  const allSql = [includeSql, ...excluded].join(' AND ');
+  }
+  // 「包含」依 AND／OR 串接；「排除」一律 AND NOT（最外層與條件組相同）
+  function combine(list, operator) {
+    const clauses = list.map(clauseOf);
+    const included = clauses.filter(c => c.mode === 'include').map(c => `(${c.sql})`);
+    const excluded = clauses.filter(c => c.mode === 'exclude').map(c => `NOT (${c.sql})`);
+    const includeSql = included.length ? `(${included.join(operator === 'or' ? ' OR ' : ' AND ')})` : 'TRUE';
+    return [includeSql, ...excluded].join(' AND ');
+  }
+  const allSql = combine(clean.conditions, clean.operator);
   const scope = cleanScopeLineUserIds(options.scopeLineUserIds);
   const scopeSql = scope ? `\n             AND u.line_user_id = ANY(${add(scope.values)}::text[])` : '';
   return {
