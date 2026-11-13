@@ -20,7 +20,7 @@
  *            | {type:'branch',condition,yes:[...],no:[...]}
  *            | {type:'ab_split',mode:'broadcast'|'random',broadcast_id,a:[...],b:[...],c:[...]} ]
  *   trigger.config.entry_conditions：進入條件（名單條件，可含條件組）
- *   分支限制在主序列，yes/no 內只放 send/wait（中版，員工好懂）。
+ *   分支限制在主序列，yes/no 內可放 send/wait/add_tag/remove_tag。
  */
 
 const { recordRestaurantClick } = require('../core/restaurantLinkParse');
@@ -446,14 +446,24 @@ function registerAdminFlowsRoutes(app, deps) {
     }
     if (tType === 'schedule') {
       if (!Number.isFinite(Number(tCfg.hour))) return { ok: false, error: 'schedule_needs_hour' };
-      // 正規化：對齊 */5 cron、避開 23:56-23:59 死區、夾正範圍
-      tCfg.hour = Math.min(23, Math.max(0, Math.round(Number(tCfg.hour))));
-      const mm = Number.isFinite(Number(tCfg.minute)) ? Number(tCfg.minute) : 0;
-      tCfg.minute = Math.min(55, Math.max(0, Math.round(mm / 5) * 5));
-      if (tCfg.freq === 'monthly') tCfg.dom = Math.min(31, Math.max(1, Math.round(Number(tCfg.dom) || 1)));
-      if (tCfg.freq === 'weekly') {
-        const dow = Number(tCfg.dow);
-        tCfg.dow = Number.isFinite(dow) ? ((Math.round(dow) % 7) + 7) % 7 : 1;
+      const hour=Number(tCfg.hour), minute=tCfg.minute==null?0:Number(tCfg.minute);
+      if(!Number.isInteger(hour)||hour<0||hour>23||!Number.isInteger(minute)||minute<0||minute>59)
+        return {ok:false,error:'schedule_invalid_time'};
+      tCfg.hour=hour;tCfg.minute=minute;
+      if(!['daily','weekly','monthly'].includes(tCfg.freq||'daily'))return {ok:false,error:'schedule_invalid_frequency'};
+      if(tCfg.start_date){
+        const date=tCfg.start_date;
+        if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)
+          return {ok:false,error:'schedule_invalid_date'};
+        tCfg.dow=new Date(date+'T00:00:00Z').getUTCDay();
+        tCfg.dom=Number(date.slice(8,10));
+      } else {
+        delete tCfg.start_date;
+        if (tCfg.freq === 'monthly') tCfg.dom = Math.min(31, Math.max(1, Math.round(Number(tCfg.dom) || 1)));
+        if (tCfg.freq === 'weekly') {
+          const dow = Number(tCfg.dow);
+          tCfg.dow = Number.isFinite(dow) ? ((Math.round(dow) % 7) + 7) % 7 : 1;
+        }
       }
     }
     const steps = Array.isArray(body.steps) ? body.steps : [];
@@ -469,9 +479,9 @@ function registerAdminFlowsRoutes(app, deps) {
     const branchIdx = steps.findIndex(s => s && (s.type === 'branch' || s.type === 'ab_split'));
     if (branchIdx !== -1 && branchIdx !== steps.length - 1) return { ok: false, error: 'branch_must_be_last' };
     if (steps.filter(s => s && (s.type === 'branch' || s.type === 'ab_split')).length > 1) return { ok: false, error: 'branch_must_be_last' };
-    // branch 的 yes/no 內只允許 send/wait（與 flatten/unflatten 假設一致）
+    // branch 的 yes/no 內允許發送、等待與貼標／移除標籤，不允許再巢狀分支
     for (const s of steps) {
-      const subOk = list => (list || []).every(x => x && (x.type === 'send' || x.type === 'wait'));
+      const subOk = list => (list || []).every(x => x && ['send','wait','add_tag','remove_tag'].includes(x.type));
       if (s && s.type === 'branch') {
         if (!subOk(s.yes) || !subOk(s.no)) return { ok: false, error: 'branch_sub_only_send_wait' };
       }
@@ -496,7 +506,7 @@ function registerAdminFlowsRoutes(app, deps) {
     if (steps.some(s => s && s.type === 'add_to_list' && !(Number(s.list_id) > 0))) {
       return { ok: false, error: 'add_to_list_needs_list' };
     }
-    if (steps.some(s => s && (s.type === 'add_tag' || s.type === 'remove_tag') && !(Number(s.tag_id) > 0))) {
+    if (allTagSteps(steps).some(s => !['number','string'].includes(typeof s.tag_id) || !/^\d+$/.test(String(s.tag_id)) || !Number.isSafeInteger(Number(s.tag_id)) || Number(s.tag_id) <= 0)) {
       return { ok: false, error: 'tag_action_needs_tag' };
     }
     // 有設定週期上限，或上限大於一次時，必須允許前一輪結束後再進入；
@@ -508,7 +518,19 @@ function registerAdminFlowsRoutes(app, deps) {
     return { ok: true, name, trigger: { type: tType, config: tCfg }, steps, re_enroll: reEnroll };
   }
 
+  function allTagSteps(steps) {
+    return (steps || []).flatMap(s => !s ? [] : ['add_tag','remove_tag'].includes(s.type) ? [s]
+      : s.type === 'ab_split' ? [...allTagSteps(s.a),...allTagSteps(s.b),...allTagSteps(s.c)]
+      : s.type === 'branch' ? [...allTagSteps(s.yes),...allTagSteps(s.no)] : []);
+  }
+
   async function validateWritableLists(steps) {
+    const tagIds = [...new Set(allTagSteps(steps).map(s => Number(s.tag_id)))];
+    if (tagIds.length) {
+      let tags;try{tags = await query('SELECT id FROM user_tags WHERE id = ANY($1::bigint[])', [tagIds]);}catch(_){return {ok:false,error:'tag_lookup_unavailable'};}
+      if (tags.rows.length !== tagIds.length) return {ok:false,error:'tag_action_not_found'};
+    }
+
     const ids = [...new Set((steps || [])
       .filter((step) => step && step.type === 'add_to_list')
       .map((step) => Number(step.list_id))
@@ -605,6 +627,19 @@ function registerAdminFlowsRoutes(app, deps) {
   });
 
   // 在流程編輯器內直接建立空白靜態名單，避免為了一個步驟來回切頁。
+  app.post('/admin/flows/api/tags', requireAdmin, async (req, res) => {
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    if (!name || name.length > 30) return jsonErr(res,400,'invalid_tag_name',{detail:'標籤名稱需為 1～30 字'});
+    try {
+      const result = await query(`INSERT INTO user_tags (name,color,created_by) VALUES ($1,'#FBC02D',$2)
+        ON CONFLICT (name) DO NOTHING RETURNING id,name,color`,[name,req.authUser?.un || 'admin']);
+      const existing = !result.rows.length;
+      const tag = result.rows[0] || (await query('SELECT id,name,color FROM user_tags WHERE name=$1',[name])).rows[0];
+      if (!tag) return jsonErr(res,409,'tag_changed',{detail:'標籤已變更，請重試'});
+      return res.json({ok:true,tag,existing});
+    } catch (_) { return jsonErr(res,503,'tag_create_failed',{detail:'無法建立標籤，請稍後重試'}); }
+  });
+
   app.post('/admin/flows/api/lists', requireAdmin, async (req, res) => {
     try {
       const name = String((req.body || {}).name || '').trim().slice(0, 200);
@@ -789,11 +824,14 @@ function registerAdminFlowsRoutes(app, deps) {
   app.post('/admin/flows/api', requireAdmin, async (req, res) => {
     const v = validateFlow(req.body || {});
     if (!v.ok) return jsonErr(res, 400, v.error);
+    if (v.trigger.type==='schedule' && v.trigger.config.start_date &&
+        Date.parse(v.trigger.config.start_date+'T'+String(v.trigger.config.hour).padStart(2,'0')+':'+String(v.trigger.config.minute).padStart(2,'0')+':00+08:00')<=Date.now())
+      return jsonErr(res,400,'schedule_start_in_past');
     const writable = await validateWritableLists(v.steps);
     if (!writable.ok) return jsonErr(res, 400, writable.error, {
       detail: writable.error === 'add_to_list_requires_static_list'
         ? '自動化只能直接加入靜態名單；動態名單會依條件自動重建。'
-        : '找不到要加入的名單，請重新選擇。'
+        : writable.error === 'tag_action_not_found' ? '標籤已移除，請重新選擇。' : '找不到要加入的名單，請重新選擇。'
     });
     const client = await pool.connect();
     try {
@@ -822,11 +860,22 @@ function registerAdminFlowsRoutes(app, deps) {
     if (!isPosInt(idStr)) return jsonErr(res, 400, 'invalid_id');
     const v = validateFlow(req.body || {});
     if (!v.ok) return jsonErr(res, 400, v.error);
+    if(v.trigger.type==='schedule' && v.trigger.config.start_date){
+      const c=v.trigger.config;
+      const at=Date.parse(c.start_date+'T'+String(c.hour).padStart(2,'0')+':'+String(c.minute).padStart(2,'0')+':00+08:00');
+      if(at<=Date.now()){
+        try{
+          const old=(await query('SELECT trigger_config FROM admin_flows WHERE id=$1',[Number(idStr)])).rows[0]?.trigger_config || {};
+          if(old.start_date!==c.start_date || Number(old.hour)!==c.hour || Number(old.minute)!==c.minute)
+            return jsonErr(res,400,'schedule_start_in_past');
+        }catch(_){return jsonErr(res,503,'schedule_unavailable');}
+      }
+    }
     const writable = await validateWritableLists(v.steps);
     if (!writable.ok) return jsonErr(res, 400, writable.error, {
       detail: writable.error === 'add_to_list_requires_static_list'
         ? '自動化只能直接加入靜態名單；動態名單會依條件自動重建。'
-        : '找不到要加入的名單，請重新選擇。'
+        : writable.error === 'tag_action_not_found' ? '標籤已移除，請重新選擇。' : '找不到要加入的名單，請重新選擇。'
     });
     const client = await pool.connect();
     try {
