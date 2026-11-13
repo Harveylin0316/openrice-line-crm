@@ -1,0 +1,22 @@
+{
+  "name": "openrice-line-ingress-qa",
+  "main": "worker.mjs",
+  "account_id": "a74934f0fbc3b775b135be2a10ea9997",
+  "compatibility_date": "2026-11-06",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "vars": {
+    "MODE": "qa",
+    "ENABLED": "0",
+    "NETLIFY_ORIGIN": "https://staging--openrice-line-crm.netlify.app"
+  },
+  "queues": {
+    "producers": [{ "binding": "LINE_QUEUE", "queue": "openrice-line-ingress-qa" }],
+    "consumers": [{
+      "queue": "openrice-line-ingress-qa", "max_batch_size": 1,
+      "max_batch_timeout": 0, "max_concurrency": 1,
+      "max_retries": 100, "dead_letter_queue": "openrice-line-ingress-qa-dlq"
+    }]
+  }
+}

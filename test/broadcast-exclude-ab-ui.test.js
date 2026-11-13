@@ -117,7 +117,7 @@ test('伺服器：可排除的批次清單帶訊息名稱、類型與測試人�
   await routes['GET /admin/broadcast/exclusion-sources'].at(-1)({}, res);
   assert.equal(res.body.ok, true);
   assert.deepEqual(Object.assign({}, res.body.sources[0], { title: Boolean(res.body.sources[0].title) }),
-    { id: 90, created_at: '2026-10-01T04:00:00Z', status: 'done', title: true, notification: '中秋限定', kind: 'campaign', test_count: 640 });
+    { id: 90, created_at: '2026-10-01T04:00:00Z', status: 'done', title: true, notification: '中秋限定', kind: 'campaign', test_count: 640, has_c: false });
 });
 
 test('沒有任何 A/B 群發時：說清楚什麼樣的群發會出現在這裡；摘要標籤不浮動壓住說明', async () => {

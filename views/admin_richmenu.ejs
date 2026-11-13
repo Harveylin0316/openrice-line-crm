@@ -254,10 +254,18 @@
           <h3 style="margin:0;">這個選單的成效</h3>
           <button type="button" class="rm-x" id="rm-stats-close">×</button>
         </div>
+        <div class="rm-stats-range" id="rm-stats-range">
+          <span class="muted">期間（台灣時間）</span>
+          <button type="button" data-rm-range="all" class="on">全部期間</button>
+          <button type="button" data-rm-range="7d">近 7 天</button>
+          <button type="button" data-rm-range="30d">近 30 天</button>
+          <button type="button" data-rm-range="custom">自訂</button>
+          <span class="rm-stats-dates"><input type="date" id="rm-stats-from" aria-label="開始日期"> ～ <input type="date" id="rm-stats-to" aria-label="結束日期"><button type="button" id="rm-stats-apply">套用</button></span>
+        </div>
         <div id="rm-stats-body"><p class="muted">載入中…</p></div>
         <p class="muted" style="font-size:12px;margin-top:10px;line-height:1.7;">
           「開啟網址」記在按下去的當下；「發送文字」是比對訊息內容（手動打一樣的字也會算進來）。<br>
-          「總點擊」「近 7 天」是點擊次數（同一人點多次會重複算）；「不重複人數」同一人只算一次。<br>
+          「總點擊」「近 7 天」是點擊次數（同一人點多次會重複算）；「不重複人數」同一人只算一次。選了期間時，只算點擊時間落在期間內的紀錄。<br>
           開啟網址的按鍵，有勾「記錄是誰點的」才算得出人數，沒勾的只有次數（顯示「—」）；同一人 60 秒內連點只算一次。</p>
       </div>
     </div>
@@ -320,6 +328,12 @@
       .rm-actmode{display:flex;gap:6px;margin-bottom:8px;}
       .rm-actbtn{flex:1;padding:8px 4px;border:1.5px solid #ECECEE;background:#fff;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;color:#6B7280;}
       .rm-actbtn.on{border-color:#1f2937;color:#1f2937;background:#fff;}
+    .rm-stats-range{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px;font-size:12px;}
+    .rm-stats-range button{font:inherit;font-size:12px;padding:4px 10px;border:1px solid #E5E7EB;border-radius:999px;background:#fff;cursor:pointer;color:#374151;}
+    .rm-stats-range button.on{background:#FCC726;border-color:#E8B400;font-weight:700;color:#111827;}
+    .rm-stats-dates{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;}
+    .rm-stats-dates input{font:inherit;font-size:12px;padding:3px 5px;border:1px solid #E5E7EB;border-radius:6px;}
+    .rm-stats-dates button{border-radius:8px;}
     .rm-stat-warn{background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.6;margin-bottom:8px;}
     .rm-stat-zero td{color:#9CA3AF;}
     .rm-stat-merged td{color:#B45309;font-size:12.5px;}
@@ -989,11 +1003,32 @@
       });
 
       // ── 成效視窗 ───────────────────────────────────────────
+      var statsMenuId=null, statsRange={key:'all',from:'',to:''};
+      function statsTwToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
+      function statsShift(ymd,n){var x=new Date(ymd+'T00:00:00Z');x.setUTCDate(x.getUTCDate()+n);return x.toISOString().slice(0,10);}
+      function markStatsRange(key){statsRange.key=key;document.querySelectorAll('[data-rm-range]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-rm-range')===key);});}
+      document.querySelectorAll('[data-rm-range]').forEach(function(b){b.addEventListener('click',function(){
+        var key=b.getAttribute('data-rm-range');markStatsRange(key);
+        if(key==='custom'){$('rm-stats-from').focus();return;}
+        var t=statsTwToday();
+        if(key==='all'){statsRange.from='';statsRange.to='';$('rm-stats-from').value='';$('rm-stats-to').value='';}
+        else{statsRange.from=statsShift(t,key==='7d'?-6:-29);statsRange.to=t;$('rm-stats-from').value=statsRange.from;$('rm-stats-to').value=t;}
+        if(statsMenuId)openStats(statsMenuId);
+      });});
+      ['rm-stats-from','rm-stats-to'].forEach(function(idv){$(idv).addEventListener('change',function(){markStatsRange('custom');});});
+      $('rm-stats-apply').addEventListener('click',function(){
+        var f=$('rm-stats-from').value,t=$('rm-stats-to').value;
+        if(!f||!t){$('rm-stats-body').innerHTML='<p class="muted">請選擇開始與結束日期</p>';return;}
+        if(f>t){$('rm-stats-body').innerHTML='<p class="muted">開始日期不能晚於結束日期</p>';return;}
+        markStatsRange('custom');statsRange.from=f;statsRange.to=t;if(statsMenuId)openStats(statsMenuId);
+      });
       function openStats(id){
         var m=menuById(id); if(!m)return;
+        statsMenuId=id;
         $('rm-stats-body').innerHTML='<p class="muted">載入中…</p>';
         $('rm-stats-modal').hidden=false;
-        fetch('/admin/richmenu/api/stats?id='+id).then(function(r){return r.json();}).then(function(d){
+        var q='/admin/richmenu/api/stats?id='+id+(statsRange.from&&statsRange.to?('&from='+statsRange.from+'&to='+statsRange.to):'');
+        fetch(q).then(function(r){return r.json();}).then(function(d){
           if(!d||!d.ok){$('rm-stats-body').innerHTML='<p class="muted">載入失敗</p>';return;}
           // 回傳缺欄位時要當成「沒有資料」，不能直接讀 .length——
           // 那會在 Promise 鏈裡拋錯，畫面上什麼都不會說
@@ -1044,19 +1079,19 @@
               '要分開統計，請把它們的發送文字改成不同，再重新發布。</div>';
           }).join('');
           $('rm-stats-body').innerHTML=warn+'<table class="rm-stat-table"><thead><tr>'+
-            '<th>按鍵</th><th>類型</th><th style="text-align:right;">總點擊</th><th style="text-align:right;">近 7 天</th><th style="text-align:right;">不重複人數</th></tr></thead><tbody>'+
+            '<th>按鍵</th><th>類型</th><th style="text-align:right;">'+(d.range?'期間點擊':'總點擊')+'</th>'+(d.range?'':'<th style="text-align:right;">近 7 天</th>')+'<th style="text-align:right;">不重複人數</th></tr></thead><tbody>'+
             rows.map(function(r){
               var into=r.zero?mergedInto(r):null;
               if(into)return '<tr class="rm-stat-merged"><td>'+esc(cellName(r))+'</td><td>'+(kindName[r.kind]||esc(r.kind))+'</td>'+
-                '<td colspan="3" style="text-align:right;">合併記在「'+esc(into)+'」</td></tr>';
+                '<td colspan="'+(d.range?2:3)+'" style="text-align:right;">合併記在「'+esc(into)+'」</td></tr>';
               return '<tr'+(r.zero?' class="rm-stat-zero"':'')+'><td>'+esc(cellName(r))+'</td><td>'+(kindName[r.kind]||esc(r.kind))+'</td>'+
                 '<td style="text-align:right;font-weight:700;">'+r.taps+'</td>'+
-                '<td style="text-align:right;">'+r.taps_7d+'</td>'+
+                (d.range?'':'<td style="text-align:right;">'+r.taps_7d+'</td>')+
                 '<td style="text-align:right;">'+peopleCell(r)+'</td></tr>';
             }).join('')+'</tbody></table>';
         });
       }
-      $('rm-stats-close').addEventListener('click',function(){$('rm-stats-modal').hidden=true;});
+      $('rm-stats-close').addEventListener('click',function(){$('rm-stats-modal').hidden=true;statsMenuId=null;});
 
       // ── 範本庫 ─────────────────────────────────────────────
       $('rm-new').addEventListener('click',function(){

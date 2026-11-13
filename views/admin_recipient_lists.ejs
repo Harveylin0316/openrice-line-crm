@@ -92,6 +92,7 @@
             </div>
             <div id="aud-conditions"></div>
             <button type="button" class="rl-secondary-btn" id="aud-add">＋ 新增條件</button>
+            <button type="button" class="rl-secondary-btn" id="aud-add-group" title="例如：是好友，且（點過 A 或 點過 B）">＋ 新增條件組（混用 AND／OR）</button>
             <button type="button" class="rl-secondary-btn" id="aud-preview">試算人數</button>
             <div id="aud-preview-result" class="aud-preview-result">請先新增條件</div>
             <p class="muted" style="font-size:12px;">排除已發送／測試／轉換可指定既有群發。轉換目前以可驗證的 CTA 點擊為準；一般訂位尚未能與 LINE ID 完整串接時，不會假算。</p>
@@ -111,6 +112,7 @@
       </div>
     </div>
 
+    <script src="/audience-builder.js?v=20261112"></script>
     <script>
     (function () {
       var $ = function (id) { return document.getElementById(id); };
@@ -326,10 +328,8 @@
         switchType();
         $('aud-operator').value = list.definition && list.definition.operator === 'or' ? 'or' : 'and';
         $('aud-auto').checked = list.auto_refresh !== false;
-        $('aud-conditions').innerHTML = '';
-        var conditions = list.definition && Array.isArray(list.definition.conditions) ? list.definition.conditions : [];
-        conditions.forEach(function (condition) { addCondition(condition); });
-        if (!conditions.length) addCondition();
+        var loaded = audBuilder.load(list.definition);
+        if (!loaded) addCondition();
         modal.hidden = false;
         setNewListStep(1);
         previewDynamicAudience();
@@ -379,127 +379,15 @@
       document.querySelectorAll('input[name="nl-type"]').forEach(function (el) { el.addEventListener('change', switchType); });
       $('static-filter-enabled').addEventListener('change', switchType);
 
-      var conditionLabels = {
-        joined_after:'加入日期在此日之後', joined_before:'加入日期在此日之前', is_friend:'目前仍是好友',
-        is_blocked:'目前已封鎖', tag:'會員標籤', rich_menu:'點過指定圖文選單', rich_menu_button:'點過指定圖文選單按鈕', liff_event:'LIFF 指定行為',
-        activity:'玩過指定活動', activity_enter:'進入指定活動', activity_start:'開始指定活動', activity_complete:'完成指定活動', activity_share:'分享指定活動', successful_invite:'指定活動成功邀請', invite_count:'全部活動成功邀請合計至少幾人', reward_status:'獎勵狀態',
-        follow_event:'曾加入好友', block_event:'曾封鎖', unblock_event:'封鎖後曾重新加入',
-        line_login:'已有 LINE Login 身分', app_registration:'完成活動手機登記（非 OpenRice App 註冊）', booking_confirmed:'已確認金豬食堂訂位', booking_cancelled:'已取消／申請取消金豬食堂訂位',
-        booking_source:'訂位來源（問卷最新回答）', booking_source_answered:'回答過訂位來源問卷',
-        broadcast_sent:'指定群發已發送', broadcast_delivered:'指定群發已送達（Email）', broadcast_opened:'指定群發已開啟', broadcast_clicked:'指定群發已點擊', broadcast_tested:'指定群發已進測試組', broadcast_converted:'指定群發已轉換（CTA 點擊）'
-      };
-      function options(items) { return (items || []).map(function (x) { return '<option value="' + x.id + '">' + esc(x.name || ('#' + x.id)) + '</option>'; }).join(''); }
-      function richMenuButtonInput() {
-        return '<div class="aud-richmenu-picker">' +
-          '<select class="aud-rm-menu" aria-label="選擇圖文選單"><option value="">先選圖文選單</option>' + options(catalog.menus) + '</select>' +
-          '<select class="aud-rm-tab" aria-label="選擇分頁" disabled><option value="">再選分頁</option></select>' +
-          '<select class="aud-rm-button" aria-label="選擇按鈕" disabled><option value="">最後選按鈕</option></select>' +
-          '<input class="aud-value" type="hidden" value="" />' +
-          '<span class="muted aud-rm-hint">依序選擇，不需要查編號。</span>' +
-        '</div>';
-      }
-      function setupRichMenuButtonPicker(row, initialValue) {
-        var picker = row.querySelector('.aud-richmenu-picker');
-        if (!picker) return;
-        var menuSelect = picker.querySelector('.aud-rm-menu');
-        var tabSelect = picker.querySelector('.aud-rm-tab');
-        var buttonSelect = picker.querySelector('.aud-rm-button');
-        var valueInput = picker.querySelector('.aud-value');
-        var hint = picker.querySelector('.aud-rm-hint');
-        var match = /^([0-9]+):([0-9]+):([0-9]+)$/.exec(String(initialValue || ''));
-
-        function selectedMenu() {
-          return (catalog.menus || []).find(function (menu) { return String(menu.id) === menuSelect.value; });
-        }
-        function syncValue() {
-          if (menuSelect.value !== '' && tabSelect.value !== '' && buttonSelect.value !== '') {
-            valueInput.value = menuSelect.value + ':' + tabSelect.value + ':' + buttonSelect.value;
-            var menu = selectedMenu();
-            var tab = menu && (menu.tabs || []).find(function (item) { return String(item.index) === tabSelect.value; });
-            var button = tab && (tab.buttons || []).find(function (item) { return String(item.index) === buttonSelect.value; });
-            hint.textContent = '已選：' + (menu ? menu.name : '') + ' › ' + (tab ? tab.label : '') + ' › ' + (button ? button.label : '');
-          } else {
-            valueInput.value = '';
-            hint.textContent = '依序選擇，不需要查編號。';
-          }
-        }
-        function fillButtons(preferred) {
-          var menu = selectedMenu();
-          var tab = menu && (menu.tabs || []).find(function (item) { return String(item.index) === tabSelect.value; });
-          var buttons = tab && tab.buttons || [];
-          buttonSelect.innerHTML = '<option value="">最後選按鈕</option>' + buttons.map(function (button) {
-            return '<option value="' + button.index + '">' + esc(button.label) + '</option>';
-          }).join('');
-          buttonSelect.disabled = !buttons.length;
-          if (preferred != null && buttons.some(function (button) { return String(button.index) === String(preferred); })) {
-            buttonSelect.value = String(preferred);
-          }
-          syncValue();
-        }
-        function fillTabs(preferredTab, preferredButton) {
-          var menu = selectedMenu();
-          var tabs = menu && menu.tabs || [];
-          tabSelect.innerHTML = '<option value="">再選分頁</option>' + tabs.map(function (tab) {
-            return '<option value="' + tab.index + '">' + esc(tab.label) + '</option>';
-          }).join('');
-          tabSelect.disabled = !tabs.length;
-          if (preferredTab != null && tabs.some(function (tab) { return String(tab.index) === String(preferredTab); })) {
-            tabSelect.value = String(preferredTab);
-          } else if (tabs.length === 1) {
-            tabSelect.value = String(tabs[0].index);
-          }
-          fillButtons(preferredButton);
-        }
-
-        menuSelect.addEventListener('change', function () { fillTabs(null, null); scheduleAudiencePreview(); });
-        tabSelect.addEventListener('change', function () { fillButtons(null); scheduleAudiencePreview(); });
-        buttonSelect.addEventListener('change', function () { syncValue(); scheduleAudiencePreview(); });
-        if (match) {
-          menuSelect.value = match[1];
-          fillTabs(match[2], match[3]);
-        } else {
-          syncValue();
-        }
-      }
-      function valueInput(type, value) {
-        if (type === 'is_friend' || type === 'is_blocked' || type === 'line_login' || type === 'app_registration' || type === 'follow_event' || type === 'block_event' || type === 'unblock_event' || type === 'booking_confirmed' || type === 'booking_cancelled' || type === 'booking_source_answered') return '<span class="muted aud-no-value">不需設定</span>';
-        if (type === 'booking_source') return '<select class="aud-value">' + options(catalog.booking_sources) + '</select>';
-        if (type === 'joined_after' || type === 'joined_before') return '<input class="aud-value" type="date" value="' + esc(value || '') + '" />';
-        if (type === 'tag') return '<select class="aud-value">' + options(catalog.tags) + '</select>';
-        if (type === 'activity' || type.indexOf('activity_') === 0 || type === 'successful_invite') return '<select class="aud-value">' + options(catalog.activities) + '</select>';
-        if (type === 'rich_menu') return '<select class="aud-value">' + options(catalog.menus) + '</select>';
-        if (type === 'rich_menu_button') return richMenuButtonInput();
-        if (type.indexOf('broadcast_') === 0) return '<select class="aud-value">' + options(catalog.broadcasts) + '</select>';
-        if (type === 'reward_status') return '<select class="aud-value"><option value="obtained">獲得過</option><option value="unclaimed">有尚未兌換的獎項</option><option value="claimed">有已兌換的獎項</option></select>';
-        if (type === 'invite_count') return '<input class="aud-value" type="number" min="1" max="10000" value="' + esc(value || '1') + '" />';
-        return '<input class="aud-value" type="text" maxlength="80" placeholder="例：app_open 或 map_booking_click" value="' + esc(value || '') + '" />';
-      }
-      function addCondition(initial) {
-        initial = initial || { mode:'include', type:'is_friend', value:null };
-        var row = document.createElement('div'); row.className = 'aud-condition';
-        var typeOpts = Object.keys(conditionLabels).map(function (k) { return '<option value="' + k + '"' + (k === initial.type ? ' selected' : '') + '>' + conditionLabels[k] + '</option>'; }).join('');
-        row.innerHTML = '<select class="aud-mode"><option value="include">包含</option><option value="exclude">排除</option></select>' +
-          '<select class="aud-type">' + typeOpts + '</select><span class="aud-value-wrap">' + valueInput(initial.type, initial.value) + '</span>' +
-          '<button type="button" class="aud-remove" aria-label="移除條件">×</button>';
-        row.querySelector('.aud-mode').value = initial.mode || 'include';
-        row.querySelector('.aud-type').addEventListener('change', function () {
-          row.querySelector('.aud-value-wrap').innerHTML = valueInput(this.value, null);
-          if (this.value === 'rich_menu_button') setupRichMenuButtonPicker(row, null);
-          scheduleAudiencePreview();
-        });
-        row.querySelector('.aud-remove').addEventListener('click', function () { row.remove(); scheduleAudiencePreview(); });
-        $('aud-conditions').appendChild(row);
-        if (initial.type === 'rich_menu_button') setupRichMenuButtonPicker(row, initial.value);
-        var valueEl = row.querySelector('.aud-value');
-        if (valueEl && initial.value != null && initial.type !== 'rich_menu_button') valueEl.value = String(initial.value);
-        scheduleAudiencePreview();
-      }
-      function audienceDefinition() {
-        return { operator:$('aud-operator').value, conditions:Array.from(document.querySelectorAll('.aud-condition')).map(function (row) {
-          var input = row.querySelector('.aud-value');
-          return { mode:row.querySelector('.aud-mode').value, type:row.querySelector('.aud-type').value, value:input ? input.value : null };
-        }) };
-      }
+      // 條件編輯器：與自動化流程「進入條件」共用 /audience-builder.js（支援條件組：混用 AND／OR）
+      var audBuilder = window.AudienceBuilder.create({
+        container: $('aud-conditions'),
+        getCatalog: function () { return catalog; },
+        onChange: function () { scheduleAudiencePreview(); }
+      });
+      var conditionLabels = window.AudienceBuilder.LABELS;
+      function addCondition(initial) { return audBuilder.addCondition(initial); }
+      function audienceDefinition() { return audBuilder.definition($('aud-operator').value); }
       var previewTimer = null, previewSeq = 0;
       function previewDynamicAudience() {
         var staticScoped = typeValue() === 'static';
@@ -529,6 +417,7 @@
         previewTimer = setTimeout(previewDynamicAudience, 350);
       }
       $('aud-add').addEventListener('click', function () { addCondition(); });
+      $('aud-add-group').addEventListener('click', function () { audBuilder.addGroup(); });
       $('aud-preview').addEventListener('click', previewDynamicAudience);
       $('aud-operator').addEventListener('change', scheduleAudiencePreview);
       $('aud-conditions').addEventListener('change', scheduleAudiencePreview);
@@ -587,6 +476,7 @@
       .rl-primary-btn:hover { background: #f5b800; }
       .rl-primary-btn:disabled { opacity: 0.6; cursor: not-allowed; }
       #static-inputs[hidden], #static-filter-toggle[hidden], #dynamic-inputs[hidden], #aud-auto-wrap[hidden] { display: none !important; }
+      .aud-group{border:1px dashed #F59E0B;background:#FFFBEB;border-radius:10px;padding:8px 10px;margin:6px 0}.aud-group-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;margin-bottom:6px}.aud-group-body .aud-condition{margin-left:12px}.aud-group-add{font:inherit;font-size:12px;border:1px solid #E5E7EB;background:#fff;border-radius:8px;padding:4px 10px;cursor:pointer;margin-left:12px}.aud-group-remove{margin-left:auto}
       .aud-type-switch,.aud-builder-head{display:flex;gap:18px;align-items:center;flex-wrap:wrap}.aud-type-switch label{font-weight:500}.aud-builder-head{justify-content:space-between;margin-bottom:10px}.aud-condition{display:grid;grid-template-columns:92px minmax(190px,1fr) minmax(220px,1.2fr) 36px;gap:8px;margin:8px 0}.aud-condition select,.aud-condition input,.aud-builder-head select{width:100%;padding:9px;border:1px solid #d1d5db;border-radius:8px;background:#fff}.aud-richmenu-picker{display:grid;grid-template-columns:1fr;gap:6px}.aud-richmenu-picker select:disabled{background:#f9fafb;color:#9ca3af}.aud-rm-hint{font-size:11px;line-height:1.4}.aud-remove{border:0;background:#fff1f2;color:#be123c;border-radius:8px;font-size:20px;cursor:pointer}.aud-no-value{display:block;padding:10px}.aud-preview-result{display:inline-block;margin-left:10px;padding:8px 10px;border-radius:8px;background:#fffbeb}.aud-kind{display:inline-block;margin-top:5px;padding:2px 7px;border-radius:999px;font-size:11px;background:#f3f4f6;color:#4b5563}.aud-kind.dynamic{background:#ecfdf5;color:#047857}@media(max-width:700px){.aud-condition{grid-template-columns:1fr}.aud-remove{height:36px}}
       .aud-static-filter-label { display: flex; align-items: center; gap: 8px; font-weight: 600; color: #374151; }
       .aud-scope-note { padding: 9px 11px; border-radius: 8px; background: #fffbeb; color: #6b4f00; font-size: 12px; }

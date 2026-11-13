@@ -1,5 +1,11 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-11-06 LINE入口後續候選（未部署）
+
+- Hen核准後Webhook redelivery已在Console開啟並reload確認；原URL／錯誤統計不變。
+- 省略context.next的staging候選ff8d0a6雲端仍有4.160秒、直接背景入口3.162秒，未證明改善；已以019dcee revert測試站，不發布正式。
+- 新方案僅本機候選，詳[LINE收件入口提案](LINE_INGRESS_PROPOSAL.md)。Cloudflare先驗簽並await Queue持久化，後送既有Netlify，CRM／DB／發送不搬移。Wrangler目前缺queues:write，尚未建資源、複製正式secret或切LINE URL；需Hen核准資料與權限範圍及隔離雲端驗證，不可把本機測試當根治。
+
 ## 2026-11-03 數據清查修正
 
 - 關鍵字 A/B 暫停或結束後的固定版本，改用一般 `crm_message_executions` 發送流程，保存實驗的固定內容快照、事件防重及 LINE 回覆結果，並以 execution 身分驗證連結追蹤；不重新分組、不寫回舊實驗。無 execution 表的舊環境保留原本未追蹤快照回覆，不套用反查目前素材的舊連結。結果不確定時不得自動重送。
@@ -758,6 +764,21 @@ LINE imagemap 只規定 `baseSize.width = 1040`、高度依比例。上傳不再
 回歸測試 `test/keyword-reply-stats.test.js`。2026-10-22 review 補修：嚴格日期驗證、列表與圖表請求競態保護、載入／錯誤清除舊數字；手機規則列改為可直接操作「紀錄」的卡片排版。
 既有 failed log 同時包含結果不明與測試跳過，UI 改稱「未確認成功」，不假稱確定失敗。成功不代表已讀／送達；未完成、無規則編號的例外與未保存紀錄不計入，不做歷史回填。
 真 PostgreSQL 回歸：`CRM_QA_ISOLATED=1 node scripts/qa/keyword-range-review.cjs`，只使用 localhost55439 暫存資料庫；加 CRM_QA_SERVE=1 開啟本機3109唯讀合成資料頁。固定Staging驗收使用停用的「STAGING 日期篩選驗收 20261022」，未發送訊息、無migration。
+
+#### 自動化 A/B 分組、進入條件、派送紀錄匯出；條件組；圖文選單成效期間（2026-11-12）
+
+- 流程步驟 `ab_split`：`{mode:'broadcast'|'random', broadcast_id}`，A 走 branch_true_key、B 走 branch_false_key、C 存在 config.c_key
+  （不需資料庫變更）。沿用群發：只看 admin_broadcast_recipients status='sent' 的版本；收到 C 但沒有 C 路線、沒收過（含保留名單、送失敗）
+  → sha256('flow-ab:'+flowId+':'+lineUserId) 固定 50/50。分到的版本存 enrollment.context.ab_variant（重試、重入沿用），並寫進
+  crm_message_executions.variant。必須是主序列最後一步、路線內只能放發訊息／等待（與 branch 相同）。
+- 進入條件：trigger_config.entry_conditions，與名單同一套（audienceSegments.cleanDefinition）；enrollUser 以 filterAudienceLineUserIds 判斷，
+  不符合 → entry_conditions_not_met；查詢失敗 → entry_conditions_error（不放行）。只對 CRM 會員判斷。
+- 匯出：`GET /admin/flows/api/:id/sends.csv?from&to`，依 started_at（台灣時間含起訖），不含測試發送；欄位含版本、LINE 結果、有無點擊。
+- 條件組：條件可為 `{type:'group', mode, operator, conditions:[...]}`，只支援一層。條件編輯器抽成 `public/audience-builder.js`，
+  名單庫與流程進入條件共用（保留原 class 名稱）。
+- 圖文選單成效 `GET /admin/richmenu/api/stats?id&from&to`：選了期間只算期間內點擊、隱藏「近 7 天」欄。
+- 訊息成效：流程 A/B 各版一列，context 標示「A/B 分組：A 版（沿用群發 #N）」；`/admin/broadcast/exclusion-sources` 多回傳 has_c。
+已用真 PostgreSQL 驗證分組、重入同版、進入條件、匯出與條件組。回歸測試 `test/flow-ab-entry-export.test.js`。
 
 ### 數據與歸因
 
