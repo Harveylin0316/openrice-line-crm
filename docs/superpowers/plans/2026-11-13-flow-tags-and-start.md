@@ -33,6 +33,8 @@
 - [x] Preserve legacy defaults, run locks/idempotency and paused behavior.
 
 ## Task 3: Review and release
-- [ ] Full npm ci/test/diff checks; desktop390 UI and isolated database QA.
-- [ ] Update AI_HANDOFF and Hen review (title/evidence/rollback, Hen unchecked).
-- [ ] Commit/pull-rebase/push staging; verify fixed staging, no main deployment.
+- [x] Full npm ci/test/diff checks; desktop390 UI and isolated database QA.
+- [x] Update AI_HANDOFF and Hen review (title/evidence/rollback, Hen unchecked).
+- [x] Commit/pull-rebase/push staging; verify fixed staging, no main deployment.
+
+Fixed staging migration applied by administrator; draft create/update/reopen and desktop/390px verified. Engine execution verified in isolated PostgreSQL only; no cloud cron or actual sends. Hen review pending.

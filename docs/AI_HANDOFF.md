@@ -1,5 +1,13 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-11-13 固定 Staging migration 後驗收通過
+
+- 管理者回報 crm_staging CHECK 已套用且驗證通過，正式未變更。固定站草稿「STAGING 20261113 首次時間與分組貼標驗收」新增／更新／重新整理後開啟成功。
+- 2050-11-15 10:32、weekly；A 標籤 ID 1／7 天、B ID 2／14 天完整保留。同名新增沿用 ID 1；A 路徑新增 remove_tag 後手機更新與重開亦成功。草稿未啟用，0 進行中／0 累計。
+- 桌機 1920/1905、手機 390/375（innerWidth/scrollWidth），編輯器無右側溢出，console error 0；新證據為 docs/reviews/assets/2026-11-13/flow-*-verified.png，早先 blocker 圖保留供歷史追查。
+- 分支執行證據仍為隔離 PostgreSQL 測試，沒有在雲端啟動排程／乾跑／真人貼標或發送；雲端 cron 到時與 LINE 實收未驗。正式 CHECK 未查驗，Hen 發布前需確認相容；Staging 專用 SQL 不會更新 public。
+- 完整 Hen 文件已更新，可交 review，Hen 核准保持空白。先前「待套用」段落為歷史狀態，以本節為準。
+
 ## 2026-11-13 Staging 流程節點 CHECK 相容修正（待雲端套用）
 
 - 管理者唯讀查驗確認：crm_staging.admin_flow_nodes_type_check 僅允許 send/wait/branch/end/add_to_list，目前僅 1 筆 send。缺 ab_split/add_tag/remove_tag 是固定站草稿保存失敗原因。

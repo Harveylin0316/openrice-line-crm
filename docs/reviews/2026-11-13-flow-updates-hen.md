@@ -1,6 +1,6 @@
 PR title：feat: 自動化流程支援首次啟動時間、流程內新增標籤與 A/B 分組貼標
 
-目前狀態：程式已推送 staging（eee2ce1），固定測試站驗收未通過：已補僅限 crm_staging 的 CHECK migration 與 rollback，隔離 SQL／儲存／重載／執行驗證通過，待管理者套用固定站後重驗。不可核准正式上線。
+目前狀態：功能 eee2ce1、Staging migration b7d5c9c 已推送。管理者確認 migration 已套用並回讀驗證；固定測試站草稿新增／更新／重開、桌機與 390px 操作已通過，可交 Hen review。未發布正式；雲端排程到時執行及 LINE 實收不在本次已驗範圍。
 
 ## 這次要做什麼
 
@@ -15,7 +15,7 @@ PR title：feat: 自動化流程支援首次啟動時間、流程內新增標籤
 ## 風險與資料
 
 - [x] 不會修改正式資料或 schema
-- [x] 若有 migration，已附上 migration、影響評估與 rollback SQL（已附 Staging 專用 migration／rollback，待套用與固定站重驗）
+- [x] 若有 migration，已附上 migration、影響評估與 rollback SQL（已附 Staging 專用 migration／rollback，管理者已套用並回讀，固定站保存／重開已通過）
 - [x] 沒有將 token、密碼、LINE User ID、Email 或電話寫入 commit
 - [x] 不會誤觸群發、抽獎、邀請、排程或其他 production 寫入（驗收只保存 Staging 草稿，不啟用／乾跑／手動推進）
 
@@ -26,8 +26,8 @@ PR title：feat: 自動化流程支援首次啟動時間、流程內新增標籤
 - [x] `npm ci --include=dev`
 - [x] `npm test`
 - [x] `git diff --check origin/main...HEAD`
-- [ ] 已在固定 Staging 站實際走過受影響用戶路徑
-- [ ] UI 改動已驗證桌機與 390px 手機畫面、console 無錯誤
+- [x] 已在固定 Staging 站實際走過受影響用戶路徑
+- [x] UI 改動已驗證桌機與 390px 手機畫面、console 無錯誤
 
 測試結果：
 
@@ -38,10 +38,13 @@ npm test：674 tests / 674 pass / 0 fail / 0 skipped
 非同步新增時保留其他編輯、刪除步驟後舊回應、首次日期／分鐘、跨午夜期別。
 固定 Staging：新版日期、分鐘、A/B 標籤選擇器已呈現。
 流程內成功建立 STAGING_20261113_A / B，兩分支可分別選用。
-但儲存回傳 create_failed：違反 admin_flow_nodes_type_check。
-重新載入確認沒有新增草稿，交易已回滾。儲存／重載驗收未通過。
+migration 後草稿新增成功，重新整理並開啟仍保留：
+2050-11-15 10:32／每週；A 標籤 ID 1、7 天；B 標籤 ID 2、14 天。
+同名新增沿用 ID 1，沒有重複建立；B 設定不被覆蓋。
+390px 新增 A 路徑 remove_tag、更新儲存及重新開啟成功。
+流程保持草稿，0 進行中／0 累計。
 390px：innerWidth=390、scrollWidth=375；編輯器元素未超出右邊界。
-console 捕捉無 error，但 API 已明確回報儲存失敗，不能據此判定功能通過。
+桌機 innerWidth=1920、scrollWidth=1905；console 捕捉 error 0。
 真人發送／實際等待排程到時：未執行；未驗證 LINE 實收。
 ```
 
@@ -49,13 +52,13 @@ console 捕捉無 error，但 API 已明確回報儲存失敗，不能據此判�
 
 固定 Staging：https://staging--openrice-line-crm.netlify.app/admin/flows
 
-![桌機：儲存被 CHECK constraint 擋下](assets/2026-11-13/flow-desktop-blocker.png)
+![桌機：保存後重開的 A/B 分組](https://raw.githubusercontent.com/Harveylin0316/openrice-line-crm/staging/docs/reviews/assets/2026-11-13/flow-desktop-verified.png)
 
-![390px：日期與 A/B 分支編輯](assets/2026-11-13/flow-mobile.png)
+![390px：保存後重開的日期與分支](https://raw.githubusercontent.com/Harveylin0316/openrice-line-crm/staging/docs/reviews/assets/2026-11-13/flow-mobile-verified.png)
 
-### 尚待處理
+### 資料庫影響與驗證界線
 
-管理者已確認原 CHECK 只允許 send、wait、branch、end、add_to_list；現有資料僅 1 筆 send。請在隔離 Staging 執行 [migration](../../scripts/staging/20261113-flow-node-types.sql)，將三個既有程式支援的類型 ab_split/add_tag/remove_tag 納入。
+管理者已確認原 CHECK 只允許 send、wait、branch、end、add_to_list；現有資料僅 1 筆 send。管理者已在隔離 Staging 執行 [migration](https://github.com/Harveylin0316/openrice-line-crm/blob/staging/scripts/staging/20261113-flow-node-types.sql)，將 ab_split/add_tag/remove_tag 納入；回讀驗證通過，隨後固定站保存與重開成功。
 
 影響：只改 crm_staging 的節點 CHECK，短暫鎖表，鎖等待最多 5 秒、statement 最多 30 秒；不改資料列、public、RLS 或權限。腳本需具備該表 owner 權限，不新增應用程式權限。執行失敗時 ROLLBACK；成功後末尾查驗應有八種類型及 convalidated=true。
 
@@ -68,11 +71,13 @@ PASS actual route save/reopen preserves schedule and tags; engine A/B executes i
 PASS rollback refuses incompatible data atomically; safe rollback repeatable, legacy data retained
 ```
 
-固定站尚未套用，未重驗保存／重載。執行分支測試使用隔離虛構用戶，未對雲端真實用戶貼標或發訊息。
+固定站已驗草稿保存／更新／重載，未啟動排程或乾跑。分支實際執行使用隔離 PostgreSQL 虛構用戶驗證，未對雲端真實用戶貼標或發訊息。沒有驗證雲端 cron 到時觸發或 LINE 實收，不能把草稿 UI 驗證當成這兩項驗收。
+
+正式發布前需由 Hen 查驗正式 admin_flow_nodes 的 CHECK 是否已支援三個類型；本次 SQL 明確只改 crm_staging，不會隨程式合併自動修改正式限制。若正式缺少，須另提供經 Hen 核准的正式 migration／rollback，完成後才能發布使用。
 
 ## 如何回滾
 
-在 staging 對功能 commit `eee2ce1` 執行 git revert，通過測試後正常推送 staging。Staging CHECK 可用 [rollback SQL](../../scripts/staging/20261113-flow-node-types-rollback.sql) 恢復原五類；若新類型節點仍存在會拒絕，不能刪資料強行回滾。若將來發布正式，須由 Hen 核准並循既有發布流程回滾，不直接 push main。回滾前先暫停依賴本次首次日期或分支標籤的新流程，避免舊版忽略首次日期；本次驗收草稿保持未啟用。新增的共用標籤不隨程式回滾刪除。
+在 staging 對功能 commit `eee2ce1` 執行 git revert，通過測試後正常推送 staging。Staging CHECK 可用 [rollback SQL](https://github.com/Harveylin0316/openrice-line-crm/blob/staging/scripts/staging/20261113-flow-node-types-rollback.sql) 恢復原五類；若新類型節點仍存在會拒絕，不能刪資料強行回滾。若將來發布正式，須由 Hen 核准並循既有發布流程回滾，不直接 push main。回滾前先暫停依賴本次首次日期或分支標籤的新流程，避免舊版忽略首次日期；本次驗收草稿保持未啟用。新增的共用標籤不隨程式回滾刪除。
 
 ## Hen 核准
 
