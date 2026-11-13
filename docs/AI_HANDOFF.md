@@ -1,5 +1,14 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-11-13 Staging 流程節點 CHECK 相容修正（待雲端套用）
+
+- 管理者唯讀查驗確認：crm_staging.admin_flow_nodes_type_check 僅允許 send/wait/branch/end/add_to_list，目前僅 1 筆 send。缺 ab_split/add_tag/remove_tag 是固定站草稿保存失敗原因。
+- 專用 migration：scripts/staging/20261113-flow-node-types.sql；只鎖定並更新 crm_staging.admin_flow_nodes 的同名 CHECK，原五類加三類，交易內立即驗證既有列，5 秒鎖等待與 30 秒 statement timeout。無欄位、資料列、RLS／權限或 public schema 改動；不放入會自動發布正式 schema 的通用 migration。
+- 專用 rollback：scripts/staging/20261113-flow-node-types-rollback.sql。新類型節點仍存在時拒絕回滾；不刪資料、不靜默轉型。需要先暫停並依正常操作處理依賴流程；錯誤時執行 ROLLBACK 釋放當前交易。
+- scripts/qa/flow-node-migration-check.cjs 用隔離記憶體 PostgreSQL（PGlite）重現舊 CHECK 拒絕三類，再驗證 migration 可重複、八類允許／未知拒絕、public 不變、實際 route 保存／重載、實際 engine 分支獨立貼標與重複執行、rollback 有資料時安全拒絕及空新類型時成功。
+- 測試環境依賴位於 /private/tmp/crm-flow-db-qa（npm install --prefix /private/tmp/crm-flow-db-qa --no-audit --no-fund @electric-sql/pglite），執行 NODE_PATH=/private/tmp/crm-flow-db-qa/node_modules node scripts/qa/flow-node-migration-check.cjs。不使用 dotenv 或外部連線，不發送訊息。
+- 尚未套用固定 Staging：工作區沒有可用管理連線，已提供檔案請管理者套用。不可把隔離測試等同固定站驗收通過。待管理者回覆已套用後，繼續驗證草稿儲存／重開；不得啟動真人流程。
+
 ## 2026-11-13 自動化流程首次時間與分組貼標（Staging 驗收中）
 
 - 定時流程沿用 trigger_config，新增可選 start_date（YYYY-MM-DD、台灣時間），hour/minute 精確至分鐘。指定首次日期後，依每天／每週／每月重複；週／月錨點來自首次日期，短月沿用月底規則。舊流程不填日期仍照原排程。新設首次時間不得在過去，編輯既有流程可保留原先已過的時間。
@@ -779,7 +788,7 @@ LINE imagemap 只規定 `baseSize.width = 1040`、高度依比例。上傳不再
 - 流程步驟 `ab_split`：`{mode:'broadcast'|'random', broadcast_id}`，A 走 branch_true_key、B 走 branch_false_key、C 存在 config.c_key
   （不需資料庫變更）。沿用群發：只看 admin_broadcast_recipients status='sent' 的版本；收到 C 但沒有 C 路線、沒收過（含保留名單、送失敗）
   → sha256('flow-ab:'+flowId+':'+lineUserId) 固定 50/50。分到的版本存 enrollment.context.ab_variant（重試、重入沿用），並寫進
-  crm_message_executions.variant。必須是主序列最後一步、路線內只能放發訊息／等待（與 branch 相同）。
+  crm_message_executions.variant。必須是主序列最後一步、路線內可放發訊息／等待／貼標／移除標籤（與 branch 相同）。
 - 進入條件：trigger_config.entry_conditions，與名單同一套（audienceSegments.cleanDefinition）；enrollUser 以 filterAudienceLineUserIds 判斷，
   不符合 → entry_conditions_not_met；查詢失敗 → entry_conditions_error（不放行）。只對 CRM 會員判斷。
 - 匯出：`GET /admin/flows/api/:id/sends.csv?from&to`，依 started_at（台灣時間含起訖），不含測試發送；欄位含版本、LINE 結果、有無點擊。

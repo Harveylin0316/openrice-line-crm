@@ -1,6 +1,6 @@
 PR title：feat: 自動化流程支援首次啟動時間、流程內新增標籤與 A/B 分組貼標
 
-目前狀態：程式已推送 staging（eee2ce1），固定測試站驗收未通過：保存 A/B 草稿被資料庫 CHECK constraint 擋下，不可核准正式上線。
+目前狀態：程式已推送 staging（eee2ce1），固定測試站驗收未通過：已補僅限 crm_staging 的 CHECK migration 與 rollback，隔離 SQL／儲存／重載／執行驗證通過，待管理者套用固定站後重驗。不可核准正式上線。
 
 ## 這次要做什麼
 
@@ -15,7 +15,7 @@ PR title：feat: 自動化流程支援首次啟動時間、流程內新增標籤
 ## 風險與資料
 
 - [x] 不會修改正式資料或 schema
-- [ ] 若有 migration，已附上 migration、影響評估與 rollback SQL（程式未改 schema；Staging constraint 相容問題待查，尚未提供／套用 migration）
+- [x] 若有 migration，已附上 migration、影響評估與 rollback SQL（已附 Staging 專用 migration／rollback，待套用與固定站重驗）
 - [x] 沒有將 token、密碼、LINE User ID、Email 或電話寫入 commit
 - [x] 不會誤觸群發、抽獎、邀請、排程或其他 production 寫入（驗收只保存 Staging 草稿，不啟用／乾跑／手動推進）
 
@@ -55,11 +55,24 @@ console 捕捉無 error，但 API 已明確回報儲存失敗，不能據此判�
 
 ### 尚待處理
 
-請有資料庫權限的同事在隔離測試資料庫執行 `scripts/staging/inspect-flow-node-types.sql`（唯讀），提供 constraint definition 結果。此工作區沒有可用資料庫連線或管理工具，因此尚未確認 constraint 究竟拒絕 ab_split、add_tag 或其他類型；不得憑錯誤訊息猜測並放寬正式限制。取得定義後補精確 migration／rollback，再驗證保存、重載與獨立貼標。
+管理者已確認原 CHECK 只允許 send、wait、branch、end、add_to_list；現有資料僅 1 筆 send。請在隔離 Staging 執行 [migration](../../scripts/staging/20261113-flow-node-types.sql)，將三個既有程式支援的類型 ab_split/add_tag/remove_tag 納入。
+
+影響：只改 crm_staging 的節點 CHECK，短暫鎖表，鎖等待最多 5 秒、statement 最多 30 秒；不改資料列、public、RLS 或權限。腳本需具備該表 owner 權限，不新增應用程式權限。執行失敗時 ROLLBACK；成功後末尾查驗應有八種類型及 convalidated=true。
+
+隔離 PGlite SQL QA（非雲端）：
+
+```text
+PASS legacy constraint reproduces rejection of all three types
+PASS idempotent migration, eight allowed types, unknown rejected, public unchanged
+PASS actual route save/reopen preserves schedule and tags; engine A/B executes independently on repeat
+PASS rollback refuses incompatible data atomically; safe rollback repeatable, legacy data retained
+```
+
+固定站尚未套用，未重驗保存／重載。執行分支測試使用隔離虛構用戶，未對雲端真實用戶貼標或發訊息。
 
 ## 如何回滾
 
-在 staging 對功能 commit `eee2ce1` 執行 git revert，通過測試後正常推送 staging。無 schema 變更，無 rollback SQL。若將來發布正式，須由 Hen 核准並循既有發布流程回滾，不直接 push main。回滾前先暫停依賴本次首次日期或分支標籤的新流程，避免舊版忽略首次日期；本次驗收草稿保持未啟用。新增的共用標籤不隨程式回滾刪除。
+在 staging 對功能 commit `eee2ce1` 執行 git revert，通過測試後正常推送 staging。Staging CHECK 可用 [rollback SQL](../../scripts/staging/20261113-flow-node-types-rollback.sql) 恢復原五類；若新類型節點仍存在會拒絕，不能刪資料強行回滾。若將來發布正式，須由 Hen 核准並循既有發布流程回滾，不直接 push main。回滾前先暫停依賴本次首次日期或分支標籤的新流程，避免舊版忽略首次日期；本次驗收草稿保持未啟用。新增的共用標籤不隨程式回滾刪除。
 
 ## Hen 核准
 
