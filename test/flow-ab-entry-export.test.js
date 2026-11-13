@@ -200,3 +200,35 @@ test('流程編輯器：有「A/B 分組」與「進入條件」；名單與流�
   assert.equal(dom.window.document.querySelectorAll('.aud-group').length, 1, '讀回時還原條件組');
   dom.window.close();
 });
+
+test('A/B 分組：查詢群發版本失敗時不改用 50/50、不寫入分組、不發送，排重試；恢復後沿用真正的版本', async () => {
+  const node = { node_key: 'n1', type: 'ab_split', config: { mode: 'broadcast', broadcast_id: 90, c_key: null }, branch_true_key: 'A', branch_false_key: 'B' };
+  let failLookup = true;
+  const writes = [];
+  const reached = [];
+  const query = async (sql, p) => {
+    const s = String(sql);
+    if (/FROM admin_flow_nodes WHERE flow_id = \$1 AND node_key = \$2/.test(s)) {
+      if (p[1] === 'n1') return { rows: [node], rowCount: 1 };
+      reached.push(p[1]); return { rows: [{ node_key: p[1], type: 'end' }], rowCount: 1 };
+    }
+    if (/FROM admin_broadcast_recipients/.test(s)) {
+      if (failLookup) throw new Error('connection terminated');
+      return { rows: [{ variant: 'a' }], rowCount: 1 };
+    }
+    if (/UPDATE admin_flow_enrollments/.test(s)) writes.push({ sql: s.replace(/\s+/g, ' '), p });
+    return { rows: [], rowCount: 0 };
+  };
+  const engine = createFlowEngine({ query, pool: {}, linePush: {}, buildLineMessages: () => ({ ok: true, messages: [] }) });
+  const en = { id: 1, flow_id: 7, line_user_id: U('a'), current_node_key: 'n1', retry_count: 0, context: {} };
+  await engine._processEnrollment(Object.assign({}, en));
+  assert.deepEqual(reached, [], '查詢失敗：A、B 路線都沒走');
+  assert.equal(writes.some(w => /context = COALESCE\(context/.test(w.sql)), false, '查詢失敗：沒有寫入分組結果');
+  const retry = writes.find(w => /SET retry_count = \$2, last_error = \$3, next_run_at = \$4/.test(w.sql));
+  assert.ok(retry, '排重試');
+  assert.equal(retry.p[2], 'ab_split_broadcast_lookup_failed');
+  failLookup = false; writes.length = 0;
+  await engine._processEnrollment(Object.assign({}, en, { retry_count: 1 }));
+  assert.deepEqual(reached, ['A'], '恢復後沿用群發收到的 A 版');
+  assert.equal(JSON.parse(writes.find(w => /context = COALESCE\(context/.test(w.sql)).p[1]).ab_variant, 'a');
+});
