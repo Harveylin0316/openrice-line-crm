@@ -7,7 +7,7 @@
 - A/B/C 與條件分支支援 add_tag/remove_tag，沿用現有圖結構、user_tags/user_tag_members 與已保存的 ab_variant。只執行所屬分支；不自動清除使用者之前已有的其他標籤。
 - 編輯器可即時新增並選用標籤（POST /admin/flows/api/tags、管理員權限）。同名沿用原標籤，不覆蓋顏色；非正整數或不存在的標籤不能儲存。新增標籤立即存入共用素材，不因流程尚未儲存而消失。
 - 非同步新增以流程／步驟物件身分檢查，刪除或替換步驟後的舊回應不會改到新步驟；等待時保留其他編輯，未完成新增前阻止儲存。
-- 無 schema/migration、環境變數或正式站變更。新增組裝／重載／分支執行／UI 競態與時區分鐘邊界回歸。npm ci --include=dev 完成，npm test 674/674 通過。固定 Staging 桌機與 390px 驗收尚待完成；未對真人發送或啟動驗收流程。
+- 無 schema/migration、環境變數或正式站變更。新增組裝／重載／分支執行／UI 競態與時區分鐘邊界回歸。npm ci --include=dev 完成，npm test 674/674 通過。固定 Staging 已呈現新版，內嵌建立 A/B 測試標籤成功；但保存 A/B 草稿違反 admin_flow_nodes_type_check，重新載入確認沒有保存成功。尚未取得 CHECK 原定義，不猜測或修改 schema；先請管理者執行 scripts/staging/inspect-flow-node-types.sql 唯讀查驗，再補 migration/rollback。390px 無水平溢出。未對真人發送或啟動驗收流程。詳 docs/reviews/2026-11-13-flow-updates-hen.md。
 
 ## 2026-11-06 LINE入口後續候選（未部署）
 
