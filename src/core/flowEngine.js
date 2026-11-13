@@ -609,13 +609,18 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
   }
   function schedulePeriodKeyIfDue(cfg, now) {
     if (!cfg) return null;
-    const tp = taipeiParts(now);
+    let tp = taipeiParts(now);
     const hour = Number.isFinite(Number(cfg.hour)) ? Number(cfg.hour) : 11;
     const minute = Number.isFinite(Number(cfg.minute)) ? Number(cfg.minute) : 30;
-    // 到點判斷：當下台北時間 >= 排程時間，且在 30 分鐘窗口內（保留部署延遲的容錯）
     const schedMinutes = hour * 60 + minute;
-    const nowMinutes = tp.hour * 60 + tp.minute;
-    if (nowMinutes < schedMinutes || nowMinutes >= schedMinutes + 30) return null;
+    let elapsed = tp.hour * 60 + tp.minute - schedMinutes;
+    // Preserve the previous day's period when the 30-minute retry window crosses midnight.
+    if(elapsed<0 && elapsed+1440<30){
+      tp=taipeiParts(new Date(now.getTime()-86400000));elapsed+=1440;
+    }
+    if(elapsed<0||elapsed>=30)return null;
+    const dayKey=tp.y+'-'+String(tp.m).padStart(2,'0')+'-'+String(tp.day).padStart(2,'0');
+    if(cfg.start_date && dayKey<cfg.start_date)return null;
     const freq = cfg.freq || 'daily';
     if (freq === 'daily') {
       return 'D' + tp.y + '-' + String(tp.m).padStart(2, '0') + '-' + String(tp.day).padStart(2, '0');
