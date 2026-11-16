@@ -1,3 +1,4 @@
+const { buildDraftFromBroadcast } = require('../core/broadcastDraft');
 const { signAudiencePreview, verifyAudiencePreview, sampleRecipients } = require('../core/broadcastAudienceExclusions');
 /**
  * 後台「群發訊息」功能 routes
@@ -1377,6 +1378,63 @@ function registerAdminBroadcastRoutes(app, deps) {
       const source = await loadBroadcast(Number(req.params.id));
       return res.json({ok:true,...buildFollowupConfig(source,String(req.query.variant || ''))});
     } catch(err) { return safeJsonError(res,400,err.message); }
+  });
+
+  // ---------- 4b. 排程退回草稿 ----------
+  // 排程還沒開始送：停止這次排程（不會送出），把所有設定帶回群發頁重新編輯、預覽、設定時間。
+  // 用 status='scheduled' 原子轉換，和排程器搶同一筆時只有一邊會成功，不會一邊送一邊退回。
+  app.post('/admin/broadcast/:id(\\d+)/return-to-draft', requireAdmin, async (req, res) => {
+    const broadcastId = Number(req.params.id);
+    const by = (req.authUser && (req.authUser.un || req.authUser.username)) || 'admin';
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      const upd = await client.query(
+        `UPDATE admin_broadcasts
+         SET status = 'cancelled', finished_at = NOW(), updated_at = NOW(),
+             audience_config = audience_config || jsonb_build_object(
+               'returnedToDraft', jsonb_build_object('at', NOW(), 'by', $2::text))
+         WHERE id = $1 AND status = 'scheduled'
+         RETURNING *`,
+        [broadcastId, by]
+      );
+      if (upd.rowCount === 0) {
+        await client.query('ROLLBACK');
+        const cur = await query('SELECT status FROM admin_broadcasts WHERE id = $1', [broadcastId]);
+        if (!cur.rowCount) return safeJsonError(res, 404, 'broadcast_not_found');
+        const started = ['running', 'done', 'awaiting_winner', 'winner_released'].includes(cur.rows[0].status);
+        return safeJsonError(res, 409, 'not_scheduled', {
+          status: cur.rows[0].status,
+          detail: started ? '這個批次已經開始發送，無法退回草稿。' : '這個批次已不是排程中，無法退回草稿。'
+        });
+      }
+      await client.query(
+        `UPDATE admin_broadcast_recipients
+         SET status = 'cancelled', error = COALESCE(error, 'returned_to_draft')
+         WHERE broadcast_id = $1 AND status IN ('pending', 'sending', 'waiting_winner')`,
+        [broadcastId]
+      );
+      await client.query('COMMIT');
+      return res.json({ ok: true, draft: buildDraftFromBroadcast(upd.rows[0]) });
+    } catch (err) {
+      if (client) { try { await client.query('ROLLBACK'); } catch (_) {} }
+      console.error('broadcast return-to-draft error:', err.message);
+      return safeJsonError(res, 500, 'return_to_draft_failed');
+    } finally {
+      if (client) client.release();
+    }
+  });
+
+  // 群發頁 ?restore=<id> 帶回設定用（唯讀）
+  app.get('/admin/broadcast/:id(\\d+)/draft-config', requireAdmin, async (req, res) => {
+    try {
+      const row = await loadBroadcast(Number(req.params.id));
+      if (!row) return safeJsonError(res, 404, 'broadcast_not_found');
+      return res.json({ ok: true, draft: buildDraftFromBroadcast(row) });
+    } catch (err) {
+      return safeJsonError(res, 500, 'draft_config_failed');
+    }
   });
 
   // ---------- 5. create batch ----------
