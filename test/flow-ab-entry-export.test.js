@@ -63,7 +63,7 @@ test('儲存 A/B 分組：A＝branch_true、B＝branch_false、C 存在 config.c
   const errOf = async (step, extra) => (await run(saveHarness().routes['POST /admin/flows/api'], { body: { name: 'x', trigger: { type: 'follow', config: {} }, steps: [].concat(extra || [], step) } })).body.error;
   assert.equal(await errOf(abStep({ broadcast_id: null })), 'ab_split_needs_broadcast');
   assert.equal(await errOf(abStep({ b: [] })), 'ab_split_needs_both_paths');
-  assert.equal(await errOf(abStep({ a: [{ type: 'add_tag', tag_id: 1 }] })), 'branch_sub_only_send_wait');
+  assert.equal(await errOf(abStep({ a: [{ type: 'ab_split' }] })), 'branch_sub_only_send_wait');
   assert.equal(await errOf([abStep(), { type: 'send', message_id: 1 }]), 'branch_must_be_last');
   assert.equal(await errOf(abStep({ mode: 'random', broadcast_id: null })), undefined, '隨機模式不需要群發');
 });
