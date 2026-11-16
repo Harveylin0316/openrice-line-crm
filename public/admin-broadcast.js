@@ -3900,6 +3900,7 @@
         name: selectedOption ? String(selectedOption.text || '').trim() : ''
       };
     }
+    else if (state.restoredMessageSource) createBody.message_source = state.restoredMessageSource;
     if (createBody.channel === 'email') {
       createBody.email_subject = ($('email-subject') && $('email-subject').value || '').trim();
       createBody.email_from_name = ($('email-from-name') && $('email-from-name').value || '').trim();
@@ -5308,5 +5309,150 @@
         $('audience-status').textContent='已帶入原批次版本與排除名單。請選擇這次的動態受眾並重新預覽；不會自動送出。';
         updateSendButton(); saveDraft();
       }).catch(function(e){alert('後續群發載入失敗：'+e.message);});
+  }
+  // ------------------------------------------------------------------
+  // 排程退回草稿：/admin/broadcast?restore=<批次編號>
+  //   把原本排程的訊息、A/B、受眾條件、抽樣、派送遊玩、Email、排程時間全部帶回表單；
+  //   收件人要重新預覽（依當下資料重新計算），不會自動送出。
+  // ------------------------------------------------------------------
+  function setField(id, value) {
+    var el = $(id);
+    if (!el) return;
+    el.value = value == null ? '' : String(value);
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function restoreVariant(key, cfg) {
+    if (!cfg) return;
+    if (state.mode === 'imagemap') {
+      state.imVariants[key] = { mode: 'sequence', items: [{ type: 'card', message_config: seqClone(cfg) }] };
+      state.seqVariantsEdited[key] = true;
+    } else if (state.mode === 'sequence') {
+      state.seqVariants[key] = seqClone(cfg);
+      state.seqVariantsEdited[key] = JSON.stringify(cfg) !== JSON.stringify(state.sequenceConfig);
+    } else {
+      try { applyLibraryToVariant(key, { message_config: cfg }); } catch (e) { /* 格式不同：保留 A 的複本讓管理者手動改 */ }
+    }
+  }
+  function restoreAudience(c, channel) {
+    c = c || {};
+    if (c.savedListId || channel === 'email') {
+      pendingListPrefill = Number(c.savedListId) || null;
+      var listTab = document.querySelector('.tab-btn[data-audience="saved_list"]');
+      if (listTab) listTab.click();
+    } else if (Array.isArray(c.lineUserIds) && c.lineUserIds.length) {
+      var upTab = document.querySelector('.tab-btn[data-audience="upload"]');
+      if (upTab) upTab.click();
+      setField('upload-list-uids', c.lineUserIds.join('\n'));
+      if ($('upload-list-uids')) $('upload-list-uids').dispatchEvent(new Event('input', { bubbles: true }));
+    } else {
+      var condTab = document.querySelector('.tab-btn[data-audience="conditions"]');
+      if (condTab) condTab.click();
+      if ($('all-members')) { $('all-members').checked = !!c.allMembers; $('all-members').dispatchEvent(new Event('change')); }
+      if (c.joinedFromDate || c.joinedToDate) {
+        setField('joined-within', 'custom');
+        setField('joined-from-date', c.joinedFromDate || '');
+        setField('joined-to-date', c.joinedToDate || '');
+      } else {
+        setField('joined-within', c.joinedWithinDays || '');
+      }
+      setField('activity-participation', c.activityParticipation || '');
+      setField('activity-participation-activity-id', c.activityParticipationActivityId || c.activityReferralActivityId || '');
+      var stages = Array.isArray(c.lifecycleStages) ? c.lifecycleStages : [];
+      $$('input[name="lifecycle_stage"]').forEach(function (el) { el.checked = stages.indexOf(el.value) >= 0; });
+      var prizes = c.prizeFilter && Array.isArray(c.prizeFilter.prizeNames) ? c.prizeFilter.prizeNames : [];
+      $$('input[name="prize_name"]').forEach(function (el) { el.checked = prizes.indexOf(el.value) >= 0; });
+      setField('prize-mode', (c.prizeFilter && c.prizeFilter.mode) || 'any');
+      setField('invite-min', c.activityReferralMin || '');
+      setField('drew-in-campaign', c.drewInCampaign == null ? '' : String(c.drewInCampaign));
+      setField('liff-played-days', c.playedLiffWithinDays || '');
+      setField('liff-booking-days', c.clickedBookingWithinDays || '');
+      setField('liff-inactive-days', c.liffInactiveDays || '');
+      setField('booking-source', c.bookingSource || '');
+      setField('booking-source-answered', c.bookingSourceAnswered == null ? '' : String(c.bookingSourceAnswered));
+    }
+    if ($('exclude-broadcast-ids')) $('exclude-broadcast-ids').value = (c.excludeBroadcastIds || []).join(', ');
+    if (window.__syncExcludeAb) window.__syncExcludeAb();
+  }
+  function restoreFromBroadcast(d) {
+    if (d.channel === 'email') {
+      var emailTab = document.querySelector('.tab-btn[data-channel="email"]');
+      if (emailTab && !emailTab.classList.contains('active')) emailTab.click();
+      if (d.email) {
+        setField('email-subject', d.email.subject);
+        setField('email-from-name', d.email.fromName);
+        setField('email-from-address', d.email.fromAddress);
+      }
+    }
+    // 先關掉測試，套好 A 版後再依原設定開啟，避免 A 版內容被舊草稿的 B／C 污染
+    $('campaign-test-enable').checked = false; updateCampaignTestUI();
+    $('ab-test-enable').checked = false; $('ab-test-enable').dispatchEvent(new Event('change'));
+    state.followupOf = null; state.followupConfig = null;
+    $('bc-message-step').disabled = false; $('followup-snapshot-note').hidden = true;
+    state.seqVariants = { b: null, c: null }; state.imVariants = { b: null, c: null };
+    state.seqVariantsEdited = { b: false, c: false };
+    applyMessageConfigToForm(d.message_config);
+    if (d.followupOf) {
+      state.followupOf = d.followupOf;
+      state.followupConfig = JSON.parse(JSON.stringify(d.message_config));
+      $('bc-message-step').disabled = true; $('followup-snapshot-note').hidden = false;
+    }
+    if (d.experiment) {
+      var ex = d.experiment, al = ex.allocations || {};
+      setField('campaign-variant-count', ex.variantCount);
+      setField('campaign-winner-mode', ex.winnerMode);
+      setField('campaign-observation-hours', ex.observationHours);
+      ['a', 'b', 'c', 'holdout'].forEach(function (k) { if (al[k] != null) setField('campaign-weight-' + k, al[k]); });
+      $('campaign-test-enable').checked = true; updateCampaignTestUI();
+      restoreVariant('b', d.variant_b_message_config);
+      if (ex.variantCount === 3) restoreVariant('c', ex.variantCMessageConfig);
+      syncSeqVariantPanes();
+    } else if (d.is_ab_test) {
+      $('ab-test-enable').checked = true; $('ab-test-enable').dispatchEvent(new Event('change'));
+      restoreVariant('b', d.variant_b_message_config);
+      syncSeqVariantPanes();
+    }
+    restoreAudience(d.conditions, d.channel);
+    var rs = d.recipientSelection || { mode: 'all' };
+    setField('recipient-selection-mode', rs.mode === 'random' ? 'random' : 'all');
+    if (rs.mode === 'random') setField('recipient-selection-count', rs.count || '');
+    var pg = d.playGrant;
+    if ($('pg-enabled')) {
+      $('pg-enabled').checked = !!pg;
+      $('pg-enabled').dispatchEvent(new Event('change'));
+      if (pg) {
+        setField('pg-activity', pg.activityId || '');
+        if ($('pg-plays')) { $('pg-plays').value = pg.plays || ''; $('pg-plays').dispatchEvent(new Event('input')); }
+        var modeEl = document.querySelector('input[name="pg-mode"][value="' + pg.mode + '"]');
+        if (modeEl) { modeEl.checked = true; modeEl.dispatchEvent(new Event('change', { bubbles: true })); }
+      }
+    }
+    var sched = document.querySelector('input[name="send-mode"][value="scheduled"]');
+    if (sched) { sched.checked = true; sched.dispatchEvent(new Event('change')); }
+    if ($('schedule-datetime')) $('schedule-datetime').value = d.scheduledAt || '';
+    state.restoredMessageSource = d.messageSource || null;
+    state.audiencePreviewToken = null; state.audiencePreviewedTotal = null;
+    state.messagePreviewed = false;
+    $('audience-status').textContent = '已帶回 #' + d.broadcastId + ' 的設定。請確認內容、重新預覽收件人' +
+      (d.scheduledAt ? '，確認排程時間後再送出。' : '，原排程時間（' + String(d.originalScheduledAt || '').replace('T', ' ') + '）已過，請重新選時間。');
+    var ds = $('draft-status-time');
+    if (ds) ds.textContent = '已從排程 #' + d.broadcastId + ' 退回草稿';
+    var note = $('restore-notice');
+    if (note) {
+      note.textContent = '已把排程 #' + d.broadcastId + ' 退回草稿：訊息' + (d.is_ab_test || d.experiment ? '（含 A/B 各版本）' : '') +
+        '、收件人條件、排程時間都已帶回。原排程已停止、不會送出。修改後請到「選收件人」重新預覽，' +
+        (d.scheduledAt ? '再確認排程時間（' + d.scheduledAt.replace('T', ' ') + '）送出。' : '原時間已過，請重新選排程時間再送出。');
+      note.hidden = false;
+    }
+    schedulePreview(); updateSendButton(); saveDraft();
+  }
+  var restoreId = new URLSearchParams(window.location.search).get('restore');
+  if (restoreId && /^[1-9]\d*$/.test(restoreId) && !INIT.msgLibMode) {
+    fetch('/admin/broadcast/' + restoreId + '/draft-config')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok || !data.draft) throw new Error((data && data.error) || '載入失敗');
+        restoreFromBroadcast(data.draft);
+      })
+      .catch(function (e) { alert('帶回排程設定失敗：' + e.message); });
   }
 })();

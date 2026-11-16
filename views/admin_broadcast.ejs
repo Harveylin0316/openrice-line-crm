@@ -52,7 +52,7 @@
             <div class="sched-head">
               <div>
                 <h2 style="margin:0;font-size:18px;">排程中的訊息（${scheduled.length}）</h2>
-                <p class="muted" style="margin:4px 0 0;font-size:12px;">尚未發出，可隨時取消。時間到後系統每 5 分鐘檢查一次自動發送。</p>
+                <p class="muted" style="margin:4px 0 0;font-size:12px;">尚未發出，可隨時退回草稿修改或取消。時間到後系統每 5 分鐘檢查一次自動發送。</p>
               </div>
               <a href="/admin/broadcast/history" class="btn" style="font-size:12px;">完整歷史 ›</a>
             </div>
@@ -76,6 +76,7 @@
                   </div>
                   <div class="sched-actions">
                     <a href="/admin/broadcast/${r.id}" class="sched-detail-link">查看</a>
+                    <button type="button" class="sched-draft-btn" data-id="${r.id}">退回草稿</button>
                     <button type="button" class="sched-cancel-btn" data-id="${r.id}">取消</button>
                   </div>
                 </div>`;
@@ -107,6 +108,7 @@
         <div>
           <h1>傳訊息給顧客</h1><p><a href="/admin/message-performance?source=broadcast">查看訊息成效</a> · <a href="/admin/push-logs?status=all&source=admin_broadcast">查看發送紀錄</a></p>
           <p class="page-subtitle">跟著四步完成；畫面一次只顯示目前要處理的事情。</p>
+          <div id="restore-notice" class="restore-notice" role="status" hidden></div>
         </div>
         ${!(typeof msgLibMode !== 'undefined' && msgLibMode) ? '<button type="button" class="bc-full-mode-btn" id="bc-full-mode">顯示完整設定</button>' : ''}
       </div>
@@ -2171,6 +2173,11 @@
         background: #fff;
       }
       .sched-detail-link:hover { background: #f9fafb; }
+      .restore-notice { margin: 10px 0 0; padding: 10px 14px; border: 1px solid #fcd34d; background: #fffbeb; color: #78350f; border-radius: 10px; font-size: 13px; line-height: 1.6; }
+      .restore-notice[hidden] { display: none; }
+      .sched-draft-btn { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid #fcd34d; background: #fffbeb; color: #92400e; border-radius: 6px; cursor: pointer; }
+      .sched-draft-btn:hover:not(:disabled) { background: #fef3c7; }
+      .sched-draft-btn:disabled { opacity: 0.5; cursor: not-allowed; }
       .sched-cancel-btn {
         font-size: 12px;
         color: #dc2626;
@@ -2440,6 +2447,7 @@
     </style>
 
     <script src="/admin-broadcast.js" defer></script>
+    <script src="/broadcast-return-draft.js?v=20261116" defer></script>
     `
   })
 %>
