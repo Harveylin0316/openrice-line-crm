@@ -2088,7 +2088,7 @@ function registerAdminBroadcastRoutes(app, deps) {
           continue;
         }
 
-        // 鎖最多 50 個 pending（FOR UPDATE SKIP LOCKED）
+        // 鎖最多 200 個 LINE 或 50 個 Email pending（FOR UPDATE SKIP LOCKED）
         const client = await pool.connect();
         let claimed = [];
         try {
@@ -2102,7 +2102,7 @@ function registerAdminBroadcastRoutes(app, deps) {
                ORDER BY id ASC LIMIT $2 FOR UPDATE SKIP LOCKED
              )
              RETURNING id, user_id, line_user_id, email, variant`,
-            [bId, 50]
+            [bId, channel === 'line' ? 200 : 50]
           );
           await client.query('COMMIT');
           claimed = claimRs.rows;
@@ -2116,44 +2116,58 @@ function registerAdminBroadcastRoutes(app, deps) {
 
         let okCount = 0, failCount = 0, skipCount = 0;
         let cutoff = false;
-        for (const r of claimed) {
+        const concurrency = channel === 'line' ? 8 : 1;
+        for (let offset = 0; offset < claimed.length; offset += concurrency) {
           if (Date.now() - roundT0 > ROUND_BUDGET_MS) {
-            // 時間到：這筆之後的全部還回 pending，讓下一輪接手
-            const restIds = claimed.slice(claimed.indexOf(r)).map(x => x.id);
+            const restIds = claimed.slice(offset).map(x => x.id);
             await query(
-              `UPDATE admin_broadcast_recipients SET status = 'pending', error = NULL WHERE id = ANY($1::bigint[])`,
+              `UPDATE admin_broadcast_recipients SET status = 'pending', error = NULL
+                WHERE status = 'sending' AND id = ANY($1::bigint[])`,
               [restIds]
-            ).catch(e => console.error('return to pending failed:', e.message));
+            );
             cutoff = true;
             break;
           }
-          const out = await sendOneRecipient(row, r, { origin: cleanOrigin });
-          if (out.result === 'sent') {
-            await query(
-              `UPDATE admin_broadcast_recipients
-               SET status = 'sent', pushed_at = NOW(), error = NULL,
-                   provider_message_id = COALESCE($2, provider_message_id)
-               WHERE id = $1`,
-              [r.id, out.providerMessageId || null]
-            );
-            okCount++;
-            const rowGrant = getPlayGrant(row);
-            if (rowGrant) {
-              await grantPlaysForRecipient(query, { broadcastId: row.id, grant: rowGrant, lineUserId: r.line_user_id })
-                .catch(e => console.error('play grant failed (scheduled):', row.id, r.id, e && e.message));
+          const wave = claimed.slice(offset, offset + concurrency);
+          const outcomes = await Promise.allSettled(wave.map(async r => {
+            const out = await sendOneRecipient(row, r, { origin: cleanOrigin });
+            if (out.result === 'sent') {
+              await query(
+                `UPDATE admin_broadcast_recipients
+                 SET status = 'sent', pushed_at = NOW(), error = NULL,
+                     provider_message_id = COALESCE($2, provider_message_id)
+                 WHERE id = $1`,
+                [r.id, out.providerMessageId || null]
+              );
+              okCount++;
+              const rowGrant = getPlayGrant(row);
+              if (rowGrant) {
+                await grantPlaysForRecipient(query, { broadcastId: row.id, grant: rowGrant, lineUserId: r.line_user_id })
+                  .catch(e => console.error('play grant failed (scheduled):', row.id, r.id, e && e.message));
+              }
+            } else if (out.result === 'skipped') {
+              await query(
+                `UPDATE admin_broadcast_recipients SET status = 'skipped', pushed_at = NOW(), error = $2 WHERE id = $1`,
+                [r.id, String(out.error || 'skipped').slice(0, 200)]
+              );
+              skipCount++;
+            } else {
+              await query(
+                `UPDATE admin_broadcast_recipients SET status = 'failed', pushed_at = NOW(), error = $2 WHERE id = $1`,
+                [r.id, String(out.error || 'failed').slice(0, 200)]
+              );
+              failCount++;
             }
-          } else if (out.result === 'skipped') {
+          }));
+          const rejected = outcomes.find(outcome => outcome.status === 'rejected');
+          if (rejected) {
+            const restIds = claimed.slice(offset + wave.length).map(r => r.id);
             await query(
-              `UPDATE admin_broadcast_recipients SET status = 'skipped', pushed_at = NOW(), error = $2 WHERE id = $1`,
-              [r.id, String(out.error || 'skipped').slice(0, 200)]
+              `UPDATE admin_broadcast_recipients SET status = 'pending', error = NULL
+                WHERE status = 'sending' AND id = ANY($1::bigint[])`,
+              [restIds]
             );
-            skipCount++;
-          } else {
-            await query(
-              `UPDATE admin_broadcast_recipients SET status = 'failed', pushed_at = NOW(), error = $2 WHERE id = $1`,
-              [r.id, String(out.error || 'failed').slice(0, 200)]
-            );
-            failCount++;
+            throw rejected.reason;
           }
         }
 
@@ -2185,7 +2199,7 @@ function registerAdminBroadcastRoutes(app, deps) {
           );
         }
 
-        results.push({ broadcastId: bId, processed: claimed.length, ok: okCount, fail: failCount, skip: skipCount, remaining });
+        results.push({ broadcastId: bId, processed: okCount + failCount + skipCount, ok: okCount, fail: failCount, skip: skipCount, remaining });
         if (cutoff) break; // 時間預算用完，剩下的 broadcasts 下一輪處理
       }
 

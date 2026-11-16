@@ -43,7 +43,7 @@ function trackedMessage() {
  * 模擬 DB：活動、批次、收件人、bonus plays 都存在記憶體，
  * 用 SQL 關鍵字分派，只實作這個功能會碰到的查詢。
  */
-function buildHarness({ activity, pushResults } = {}) {
+function buildHarness({ activity, pushResults, onPush } = {}) {
   pushResults = pushResults || {};
   const db = {
     activity: Object.assign({ id: 9, slug: 'summer', name: '夏日刮刮樂', game_type: 'scratch', status: 'active', base_plays_per_user: 1 }, activity || {}),
@@ -87,6 +87,10 @@ function buildHarness({ activity, pushResults } = {}) {
     if (/SELECT \* FROM admin_broadcasts WHERE id = \$1/.test(c)) {
       const b = db.broadcasts[Number(params[0])];
       return b ? { rows: [b], rowCount: 1 } : { rows: [], rowCount: 0 };
+    }
+    if (/FROM admin_broadcasts WHERE status = 'running'/.test(c)) {
+      const rows = Object.values(db.broadcasts).filter(b => b.status === 'running');
+      return { rows, rowCount: rows.length };
     }
     if (/UPDATE admin_broadcast_recipients SET status = 'sending'/.test(c)) {
       const claimed = db.recipients.filter(r => r.broadcast_id === Number(params[0]) && r.status === 'pending').slice(0, Number(params[1]));
@@ -139,6 +143,7 @@ function buildHarness({ activity, pushResults } = {}) {
       validatePushMessages: async () => ({ ok: true }),
       pushLineMessages: async (to) => {
         calls.pushes.push(to);
+        if (onPush) await onPush();
         const outcome = pushResults && Object.prototype.hasOwnProperty.call(pushResults, to) ? pushResults[to] : true;
         return outcome;
       }
@@ -302,4 +307,32 @@ test('後台頁面、前端與批次詳情都接上派送設定', () => {
   assert.match(detail, /派送遊玩機會/);
   assert.match(editor, /\/admin\/broadcast\?activity_id=/);
   assert.match(editor, /id="ae-base-plays" min="0"/);
+});
+
+test('scheduled LINE broadcast processes more than 50 recipients with bounded parallel sends', async () => {
+  let active = 0;
+  let peak = 0;
+  const ctx = buildHarness({ onPush: async () => {
+    peak = Math.max(peak, ++active);
+    await new Promise(resolve => setImmediate(resolve));
+    active--;
+  } });
+  ctx.db.broadcasts[100] = { id: 100, status: 'running', channel: 'line',
+    message_config: trackedMessage(), audience_config: {} };
+  ctx.db.recipients = Array.from({ length: 200 }, (_, i) => ({
+    id: i + 1, broadcast_id: 100, user_id: i + 1, line_user_id: UID(i + 1), status: 'pending'
+  }));
+  const previous = process.env.SCHEDULED_RUNNER_SECRET;
+  process.env.SCHEDULED_RUNNER_SECRET = 'staging.test';
+  try {
+    const res = await runRoute(ctx.routes['POST /admin/broadcast/run-scheduled'], {});
+    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+    assert.equal(res.body.results[0].processed, 200);
+    assert.equal(ctx.db.recipients.filter(r => r.status === 'sent').length, 200);
+    assert.equal(new Set(ctx.calls.pushes).size, 200);
+    assert.equal(peak, 8);
+  } finally {
+    if (previous === undefined) delete process.env.SCHEDULED_RUNNER_SECRET;
+    else process.env.SCHEDULED_RUNNER_SECRET = previous;
+  }
 });

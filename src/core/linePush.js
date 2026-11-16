@@ -113,7 +113,9 @@ function createLinePushService({ query, lineChannelAccessToken }) {
           messages: normalizedMessages
         })
       });
-      if (!response.ok) {
+      const alreadyAccepted = extra.retryKey && response.status === 409 &&
+        response.headers?.get('x-line-accepted-request-id');
+      if (!response.ok && !alreadyAccepted) {
         const detail = await response.text().catch(() => '');
         console.error('LINE push failed:', response.status, detail);
         await logLinePush({
