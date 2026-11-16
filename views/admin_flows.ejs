@@ -84,6 +84,13 @@
           <option value="schedule">定時（每天/每週/每月）</option>
         </select>
       </div>
+      <section id="fl-click-start" style="margin:12px 0;padding:14px;border:1px solid #eab308;border-radius:10px;background:#fffbeb" hidden>
+        <label class="fl-field" for="tc-accept-from">
+          <strong>開始接受觸發的時間（台灣時間）</strong>
+          <input type="datetime-local" id="tc-accept-from">
+          <small class="muted">留空即於流程啟用後接受觸發。若要點擊後隔一天派送，請在下方加入「等待 1 天」。</small>
+        </label>
+      </section>
       <div id="fl-trigger-config"></div>
       <div class="fl-limit-card" id="fl-limit-card">
         <div class="fl-field" style="margin:0;"><span>同一人最多觸發幾次</span>
@@ -554,9 +561,8 @@
           }else{
             h='<p class="muted" style="font-size:13px;margin:0 0 8px;">任何人加你 LINE 好友時觸發。</p>';
           }
-          if(t!=='schedule'){
-            h+='<label class="fl-field"><span>開始接受觸發的時間（台灣時間）</span><input type="datetime-local" id="tc-accept-from" value="'+esc(c.accept_clicks_from||'')+'"><small class="muted">留空就從啟用時開始。點擊後要等多久，請在流程步驟加入「等待」。</small></label>';
-          }
+          $('fl-click-start').hidden=t==='schedule';
+          $('tc-accept-from').value=t==='schedule'?'':(c.accept_clicks_from||'');
           h+='<label class="fl-field"><span>派送前排除的 LINE 群發批次編號</span><input type="number" min="1" step="1" id="tc-send-exclude" value="'+esc(c.exclude_broadcast_before_send||'')+'"><small class="muted">填群發歷史中的批次 ID（不含 #）。派送時會重新查閱。群發仍在發送時會等待，已發送的人會結束流程。</small></label>';
           box.innerHTML=h;
           if(t==='schedule'){
@@ -565,15 +571,15 @@
             $('tc-aud').addEventListener('change',function(){var w=$('tc-aud-list-wrap');if(w)w.hidden=this.value!=='list';});
           }
           if(t==='rich_menu_tap'){
-            var ms=$('tc-rich-menu');if(ms)ms.addEventListener('change',function(){var lim=flow.trigger.config&&flow.trigger.config.user_limit;flow.trigger.config={menu_id:Number(this.value)||null,match:'any',buttons:[]};if(lim)flow.trigger.config.user_limit=lim;renderTrigger();});
+            var ms=$('tc-rich-menu');if(ms)ms.addEventListener('change',function(){syncTrigger();Object.assign(flow.trigger.config,{menu_id:Number(this.value)||null,match:'any',buttons:[]});renderTrigger();});
             document.querySelectorAll('input[name="tc-rm-match"]').forEach(function(r){r.addEventListener('change',function(){var w=$('tc-rm-buttons');if(w)w.hidden=this.value!=='selected';});});
           }
           if(t==='campaign_open'){
             var cs=$('tc-campaign-activity');if(cs)cs.addEventListener('change',function(){
-              var lim=flow.trigger.config&&flow.trigger.config.user_limit;var next={};
-              if(this.value==='external')next={campaign_name:'',target_url:''};
-              else{var a=OPT.activities.find(function(x){return String(x.id)===String(cs.value);});if(a)next={activity_id:Number(a.id),campaign_name:a.name,target_url:a.target_url};}
-              if(lim)next.user_limit=lim;flow.trigger.config=next;renderTrigger();
+              syncTrigger();var next=Object.assign({},flow.trigger.config);delete next.activity_id;delete next.campaign_name;delete next.target_url;
+              if(this.value==='external')Object.assign(next,{campaign_name:'',target_url:''});
+              else{var a=OPT.activities.find(function(x){return String(x.id)===String(cs.value);});if(a)Object.assign(next,{activity_id:Number(a.id),campaign_name:a.name,target_url:a.target_url});}
+              flow.trigger.config=next;renderTrigger();
             });
             box.querySelectorAll('[data-copy-campaign]').forEach(function(btn){btn.addEventListener('click',function(){
               var src=btn.getAttribute('data-copy-campaign');var val=(flow.tracking_links&&flow.tracking_links[src])||'';
