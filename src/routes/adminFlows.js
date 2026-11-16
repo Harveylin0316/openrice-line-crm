@@ -366,6 +366,20 @@ function registerAdminFlowsRoutes(app, deps) {
     } else {
       delete tCfg.entry_conditions;
     }
+    if (tCfg.accept_clicks_from) {
+      const value = tCfg.accept_clicks_from;
+      const timestamp = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)
+        ? Date.parse(value + ':00+08:00') : NaN;
+      if (tType === 'schedule' || !Number.isFinite(timestamp) ||
+          new Date(timestamp + 28800000).toISOString().slice(0, 16) !== value) {
+        return { ok: false, error: 'invalid_click_start' };
+      }
+    }
+    if (tCfg.exclude_broadcast_before_send != null) {
+      const id = Number(tCfg.exclude_broadcast_before_send);
+      if (!Number.isSafeInteger(id) || id < 1) return { ok: false, error: 'invalid_send_exclusion' };
+      tCfg.exclude_broadcast_before_send = id;
+    }
     const rawUserLimit = tCfg.user_limit;
     if (rawUserLimit && typeof rawUserLimit === 'object' && rawUserLimit.max !== '' && rawUserLimit.max != null) {
       const max = Math.round(Number(rawUserLimit.max));

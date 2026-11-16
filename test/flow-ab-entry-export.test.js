@@ -232,3 +232,31 @@ test('A/B 分組：查詢群發版本失敗時不改用 50/50、不寫入分組�
   assert.deepEqual(reached, ['A'], '恢復後沿用群發收到的 A 版');
   assert.equal(JSON.parse(writes.find(w => /context = COALESCE\(context/.test(w.sql)).p[1]).ab_variant, 'a');
 });
+
+test('派送前重新查群發，未完成延後，已發送結束，查詢錯誤排重試', async () => {
+  const writes = [];
+  let state = { channel: 'line', status: 'running', already_sent: false };
+  const query = async (sql, params) => {
+    if (sql.includes('FROM admin_flow_nodes')) {
+      return { rows: [{ type: 'send', config: { message_id: 3 } }], rowCount: 1 };
+    }
+    if (sql.includes('exclude_broadcast_before_send')) {
+      if (!state) throw Error('database unavailable');
+      return { rows: [state], rowCount: 1 };
+    }
+    writes.push({ sql, params });
+    return { rows: [], rowCount: 0 };
+  };
+  const engine = createFlowEngine({ query, pool: {}, linePush: {
+    pushLineMessages: async () => assert.fail('不可派送')
+  } });
+  const en = { id: 1, flow_id: 7, line_user_id: U('a'), current_node_key: 'send', context: { trigger: 'event' } };
+  await engine._processEnrollment(en);
+  assert.match(writes.pop().sql, /interval '5 minutes'/);
+  state = { channel: 'line', status: 'done', already_sent: true };
+  await engine._processEnrollment(en);
+  assert.equal(writes.pop().params[1], 'done');
+  state = null;
+  await engine._processEnrollment(en);
+  assert.match(writes.pop().sql, /SET retry_count/);
+});
