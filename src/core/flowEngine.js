@@ -136,6 +136,10 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
   async function enrollUser(flow, lineUserId, opts = {}) {
     const luid = String(lineUserId || '').trim();
     if (!luid) return { enrolled: false, reason: 'no_user' };
+    const start = flow.trigger_config?.accept_clicks_from;
+    if (start && Date.now() < Date.parse(start + ':00+08:00')) {
+      return { enrolled: false, reason: 'before_trigger_start' };
+    }
     const entry = await getEntryNode(flow.id);
     if (!entry) return { enrolled: false, reason: 'no_entry_node' };
     // 進入條件：與名單同一套條件（可混用 AND／OR）。只對 CRM 會員判斷；查詢失敗時不放行，避免誤發。
@@ -1006,6 +1010,37 @@ function createFlowEngine({ query, pool, linePush, buildLineMessages }) {
                 `UPDATE admin_flow_enrollments SET current_node_key = $2, next_run_at = $3,
                         last_message_id = $4, last_message_sent_at = $5, updated_at = now() WHERE id = $1`,
                 [en.id, nodeKey, quietUntil.toISOString(), lastMsgId, lastSentAt]
+              );
+              return;
+            }
+          }
+          const exclusion = await query(
+            `SELECT b.status, COALESCE(b.channel, 'line') AS channel,
+                    EXISTS (SELECT 1 FROM admin_broadcast_recipients r
+                             WHERE r.broadcast_id = b.id AND r.line_user_id = $2
+                               AND r.status = 'sent') AS already_sent,
+                    EXISTS (SELECT 1 FROM admin_broadcast_recipients r
+                             WHERE r.broadcast_id = b.id AND r.line_user_id = $2
+                               AND r.status = 'sending') AS in_flight
+               FROM admin_flows f
+               LEFT JOIN admin_broadcasts b
+                 ON b.id::text = f.trigger_config->>'exclude_broadcast_before_send'
+              WHERE f.id = $1 AND f.trigger_config->>'exclude_broadcast_before_send' IS NOT NULL`,
+            [en.flow_id, en.line_user_id]
+          );
+          const broadcast = exclusion.rows[0];
+          if (broadcast) {
+            if (!broadcast.status || broadcast.channel !== 'line') {
+              throw new FlowConfigError('invalid_send_exclusion');
+            }
+            if (broadcast.already_sent) return finish(en.id, 'done', lastMsgId, lastSentAt);
+            if (broadcast.in_flight || !['done', 'cancelled', 'awaiting_winner', 'winner_released'].includes(broadcast.status)) {
+              await query(
+                `UPDATE admin_flow_enrollments
+                    SET current_node_key = $2, next_run_at = now() + interval '5 minutes',
+                        last_message_id = $3, last_message_sent_at = $4, updated_at = now()
+                  WHERE id = $1`,
+                [en.id, nodeKey, lastMsgId, lastSentAt]
               );
               return;
             }
