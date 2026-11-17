@@ -135,6 +135,7 @@
 - 新 Campaign 預設 manual、A/B/保留 20/20/60，比例与觀察小時可改；舊缺 winnerMode 的批次維持 auto。人工與自動釋出都要到期，zero／tie／資料不足不自動選 A；交易列鎖保證只建立一次 Winner 批次並留選擇紀錄。人工模式到期不自動發送。
 - 群發收件人可排除最多 20 個既有 LINE A/B／Campaign 批次的所有 A/B/C 測試對象（包含失敗／待處理），不排除保留組。清單顯示最近 200 批，較舊可輸入 ID；排除後再隨機抽樣。預覽 token 有效 10 分鐘，綁定条件、選取與實際候選人 revision；建立前名單變更須重預覽。現階段候選人整批載入記憶體，大型 pool 需另做容量評估。
 - 原批次 A/B/C 可以建立後續群發：完整 deep clone 該版當時內容，初始鎖定；動態名單重算並排除原測試者。解除鎖定後成為一般群發。原保留組 Winner 與後續動態群發是不同操作；若兩者都要做，操作者仍需核對後續名單避免重覆觸達保留組。
+- 排程中的群發可「退回草稿」：`POST /admin/broadcast/:id/return-to-draft` 只在 `status='scheduled'` 時原子轉成 `cancelled`（與排程器搶同一筆只有一邊成功），收件人標 `returned_to_draft`，`audience_config.returnedToDraft` 記錄人與時間。群發頁 `?restore=<id>` 經 `GET /admin/broadcast/:id/draft-config` 帶回訊息、A/B／Campaign、條件、排除、抽樣、派送遊玩、Email、未過的排程時間；該 API 只接受 `cancelled` 且有 `returnedToDraft` 標記的批次，發送中、已完成、一般取消一律 409。收件人需重新預覽，不自動送出。不改資料表。
 
 ### Migration 與回滾
 

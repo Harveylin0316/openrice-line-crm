@@ -1426,11 +1426,20 @@ function registerAdminBroadcastRoutes(app, deps) {
     }
   });
 
-  // 群發頁 ?restore=<id> 帶回設定用（唯讀）
+  // 群發頁 ?restore=<id> 帶回設定用（唯讀）。
+  // 只接受確實透過「退回草稿」停止的批次：發送中、已發完或一般取消的批次一律拒絕，
+  // 避免畫面顯示「原排程已停止、不會送出」誤導操作者再排一次。
   app.get('/admin/broadcast/:id(\\d+)/draft-config', requireAdmin, async (req, res) => {
     try {
       const row = await loadBroadcast(Number(req.params.id));
       if (!row) return safeJsonError(res, 404, 'broadcast_not_found');
+      const returned = row.audience_config && row.audience_config.returnedToDraft;
+      if (row.status !== 'cancelled' || !returned) {
+        return safeJsonError(res, 409, 'not_returned_to_draft', {
+          status: row.status,
+          detail: '這個批次不是透過「退回草稿」停止的，無法帶回草稿。'
+        });
+      }
       return res.json({ ok: true, draft: buildDraftFromBroadcast(row) });
     } catch (err) {
       return safeJsonError(res, 500, 'draft_config_failed');

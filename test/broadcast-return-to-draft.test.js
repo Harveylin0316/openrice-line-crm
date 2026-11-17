@@ -103,7 +103,48 @@ test('退回草稿 API：只有排程中能退回，收件人一起取消、記�
   assert.match(late.body.detail, /已經開始發送/);
 });
 
-async function openPage(url, draft) {
+test('草稿載入只接受「退回草稿」停止的批次：排程中、發送中、已完成、一般取消、等待勝出都拒絕', async () => {
+  let current;
+  const routes = buildRoutes(async (sql) => {
+    if (/SELECT \* FROM admin_broadcasts WHERE id = \$1/.test(String(sql))) return current ? { rows: [current], rowCount: 1 } : { rows: [], rowCount: 0 };
+    return { rows: [], rowCount: 0 };
+  });
+  const h = routes['GET /admin/broadcast/:id(\\d+)/draft-config'];
+  const returned = { returnedToDraft: { at: '2026-11-17T02:00:00Z', by: 'ice' } };
+  const cases = [
+    ['scheduled', {}], ['running', {}], ['done', {}], ['awaiting_winner', {}], ['winner_released', {}],
+    ['cancelled', {}],                       // 一般取消（沒有退回草稿標記）
+    ['running', returned], ['done', returned] // 標記存在但狀態不是 cancelled 也不行
+  ];
+  for (const [status, extra] of cases) {
+    const base = row();
+    current = Object.assign(base, { status, audience_config: Object.assign({}, base.audience_config, extra) });
+    const res = await run(h, 31);
+    assert.equal(res.statusCode, 409, status + (extra.returnedToDraft ? '（有標記）' : '') + ' 要被拒絕');
+    assert.equal(res.body.error, 'not_returned_to_draft');
+    assert.equal(res.body.draft, undefined, '不能回傳設定');
+  }
+  const ok = row();
+  current = Object.assign(ok, { status: 'cancelled', audience_config: Object.assign({}, ok.audience_config, returned) });
+  const res = await run(h, 31);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.draft.broadcastId, 31);
+  current = null;
+  assert.equal((await run(h, 99)).statusCode, 404);
+});
+
+test('群發頁 ?restore= 遇到非退回草稿的批次：顯示原因，不帶回設定、不顯示「已停止」提示', async () => {
+  const draft = buildDraftFromBroadcast(row());
+  const { dom, doc, alerts } = await openPage('https://crm.example/admin/broadcast?restore=31', draft,
+    { ok: false, error: 'not_returned_to_draft', detail: '這個批次不是透過「退回草稿」停止的，無法帶回草稿。' });
+  assert.equal(alerts.length, 1);
+  assert.match(alerts[0], /不是透過「退回草稿」停止/);
+  assert.equal(doc.getElementById('restore-notice').hidden, true, '不能顯示「原排程已停止、不會送出」');
+  assert.notEqual(doc.getElementById('tpl-title').value, 'A 版標題', '不帶回任何設定');
+  dom.window.close();
+});
+
+async function openPage(url, draft, draftResponse) {
   const html = await ejs.renderFile(path.join(REPO, 'views', 'admin_broadcast.ejs'), {
     title: '群發訊息', bodyClass: 'admin-shell broadcast-shell', user: 'admin', isAdmin: true,
     prizes: [], activities: [], recent: [], hasLineToken: true, gamesLiffId: 'LIFF', prefillActivityId: null,
@@ -112,12 +153,13 @@ async function openPage(url, draft) {
   }, { views: [path.join(REPO, 'views')] });
   const dom = new JSDOM(html, { runScripts: 'outside-only', url, pretendToBeVisual: true });
   const w = dom.window;
-  w.alert = (m) => { throw new Error('unexpected alert: ' + m); };
+  const alerts = [];
+  w.alert = (m) => { if (!draftResponse) throw new Error('unexpected alert: ' + m); alerts.push(String(m)); };
   w.HTMLElement.prototype.scrollIntoView = () => {};
   const calls = [];
   w.fetch = async (u, opts) => {
     calls.push({ u: String(u), method: (opts && opts.method) || 'GET' });
-    if (/\/draft-config$/.test(u)) return { json: async () => ({ ok: true, draft }) };
+    if (/\/draft-config$/.test(u)) return { json: async () => (draftResponse || { ok: true, draft }) };
     if (/\/return-to-draft$/.test(u)) return { json: async () => ({ ok: true, draft }) };
     if (u === '/admin/broadcast/templates') return { json: async () => ({ ok: true, templates: [] }) };
     return { json: async () => ({ ok: true, recipients: [], lists: [], sources: [] }) };
@@ -126,7 +168,7 @@ async function openPage(url, draft) {
   w.eval(fs.readFileSync(path.join(REPO, 'public/admin-broadcast.js'), 'utf8'));
   w.eval(fs.readFileSync(path.join(REPO, 'public/broadcast-return-draft.js'), 'utf8'));
   await wait(60);
-  return { dom, w, doc: w.document, calls };
+  return { dom, w, doc: w.document, calls, alerts };
 }
 
 test('群發頁 ?restore=：A/B 兩版、條件、排除、抽樣、排程時間都帶回，需重新預覽才能送', async () => {

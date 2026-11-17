@@ -5450,7 +5450,7 @@
     fetch('/admin/broadcast/' + restoreId + '/draft-config')
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (!data || !data.ok || !data.draft) throw new Error((data && data.error) || '載入失敗');
+        if (!data || !data.ok || !data.draft) throw new Error((data && (data.detail || data.error)) || '載入失敗');
         restoreFromBroadcast(data.draft);
       })
       .catch(function (e) { alert('帶回排程設定失敗：' + e.message); });
