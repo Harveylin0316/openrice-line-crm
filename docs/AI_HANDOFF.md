@@ -1,5 +1,14 @@
 # OpenRice LINE CRM — AI 完整接手手冊
 
+## 2026-11-17 LIFF 完成後白畫面修正（預設未啟用；手機已確認根因）
+
+- 使用者確認入口與登錄正常，按「完成」後才留下空白視窗。正式活動完成程式為 liff.closeWindow；先前入口白畫面判斷已撤回。2026-11-18 手機證據：完成後留下的空白視窗網址為 openrice-line-crm.netlify.app/r/b/...；直接開 `liff.line.me/<id>?or_bc=...` 完成後可回聊天室。根因確認為 /r/b 轉跳留下的外層 LINE 瀏覽器。
+- 新增 opt-in 群發 LIFF 直達：BROADCAST_DIRECT_LIFF_APPS 指定已安裝 helper 的 LIFF ID→HTTPS endpoint，BROADCAST_DIRECT_LIFF_ENABLED=1 才改新發送。預設關閉；文字／Flex／Imagemap／template 維持原按鈕序號及 g/src。其他 app、一般網址、未帶批次預覽不變。
+- `/tracking/broadcast/liff-hit` 僅 POST，限定活動 Origin、path、LINE 驗證 aud/sub、原收件人 sent／版本／快照目的地；交易鎖 recipient、同按鈕去重，並遵守既有 target_url 唯一索引（不同按鈕同網址只保留首次歸屬），原子更新 first_clicked_at。無 migration，GET 不記；不清理歷史爬蟲紀錄。
+- 活動 HTML 必須配合整合 public/broadcast-direct-liff.js，在 init 後背景記錄；demo／preview 不送，失敗不影響登錄與關閉。工具 scripts/qa/package-dineback-direct-liff.cjs 只產候選，不上傳。不能將帶 production GAS 的候選假稱隔離測試頁。
+- 保留追蹤語意改為「原收件人成功初始化 LIFF」，不可在正在觀察的 A/B 中途啟用。舊 /r/b 連結與其他 flow／keyword 本輪不變、不自動重發。正式 HTML／環境／main 仍需 Hen；上線後仍須以內部測試群發驗證完成回聊天室與點擊記錄。
+- 交付與驗收／回滾詳 docs/reviews/2026-11-17-liff-close-candidate.md。回滾 sender 旗標後須保留 API、allowlist 與 helper 處理已送出的 direct 連結。
+
 ## LINE 群發排程吞吐
 
 - 保留每五分鐘排程及現有七秒開工預算。每輪最多領取 200 位 LINE 收件人，每波最多八筆並行，逐人保存結果。Email 維持原本序列與上限。
