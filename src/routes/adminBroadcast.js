@@ -2312,8 +2312,28 @@ function registerAdminBroadcastRoutes(app, deps) {
         ORDER BY b.scheduled_at ASC NULLS LAST, b.id DESC`
       );
 
+      const runningIds = listRs.rows.filter(row => row.status === 'running').map(row => row.id);
+      const progressById = new Map();
+      const checkedAt = new Date();
+      if (runningIds.length) {
+        const progress = await query(
+          `SELECT broadcast_id,
+                  COUNT(*) FILTER (WHERE status IN ('sent','failed','skipped'))::int AS processed,
+                  COUNT(*) FILTER (WHERE status IN ('pending','sending'))::int AS remaining,
+                  MAX(pushed_at) FILTER (WHERE status = 'sent') AS last_sent,
+                  MAX(pushed_at) FILTER (WHERE status IN ('sent','failed','skipped')) AS last_progress,
+                  COUNT(*) FILTER (WHERE status IN ('sent','failed','skipped')
+                    AND pushed_at >= $2::timestamptz - interval '15 minutes')::int AS recent
+             FROM admin_broadcast_recipients
+            WHERE broadcast_id = ANY($1::bigint[])
+            GROUP BY broadcast_id`, [runningIds, checkedAt]
+        );
+        for (const row of progress.rows) progressById.set(String(row.broadcast_id), row);
+      }
+
       const batches = listRs.rows.map((row) => ({
         ...row,
+        progress: progressById.get(String(row.id)) || null,
         message_identity: getBroadcastMessageIdentity(row)
       }));
       const scheduled = scheduledRs.rows.map((row) => ({
@@ -2327,6 +2347,7 @@ function registerAdminBroadcastRoutes(app, deps) {
         user: (req.authUser && req.authUser.un) || '',
         isAdmin: true,
         batches,
+        progressCheckedAt: checkedAt,
         scheduled,
         page: pageNum,
         totalPages,
