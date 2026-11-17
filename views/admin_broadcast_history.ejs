@@ -102,6 +102,26 @@
                     return d.toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }).slice(0, len);
                   };
                   return batches.map(r => {
+                  const p = r.status === 'running' && r.progress;
+                  let progressText = '';
+                  if (p) {
+                    const now = new Date(progressCheckedAt).getTime();
+                    const last = new Date(p.last_progress || r.started_at || now).getTime();
+                    const oldEnough = now - new Date(r.started_at || now).getTime() >= 900000;
+                    let estimate = '累積足夠紀錄後顯示估計';
+                    if (p.remaining === 0) estimate = '等待系統結案';
+                    else if (now - last >= 900000) estimate = '近 15 分鐘暫無進展';
+                    else if (oldEnough && p.recent > 0) {
+                      const minutes = Math.max(5, 5 * Math.ceil(p.remaining * 3 / p.recent));
+                      estimate = '按近 15 分鐘速度，估計尚需約 ' + minutes + ' 分鐘';
+                    }
+                    progressText = `<div class="muted" style="font-size:12px;margin-top:6px;line-height:1.5;min-width:150px">
+                      已處理 ${p.processed}／${Number(r.recipient_total) || 0} · 剩 ${p.remaining} 人<br>
+                      最近成功送出 ${fmtTW(p.last_sent) || '—'}<br>
+                      ${estimate}<br>
+                      <a href="?page=${Number(page) || 1}">更新進度</a> · ${fmtTW(progressCheckedAt)}
+                    </div>`;
+                  }
                   const ts = fmtTW(r.created_at, 19);
                   const fin = fmtTW(r.finished_at, 19);
                   const sch = fmtTW(r.scheduled_at, 16);
@@ -120,7 +140,7 @@
                     </td>
                     <td>${ts}</td>
                     <td>${(r.admin_username || '').replace(/</g,'&lt;')}</td>
-                    <td><span class="status-pill status-${r.status}">${r.status}</span></td>
+                    <td><span class="status-pill status-${r.status}">${r.status === 'running' ? '發送中' : r.status}</span>${progressText}</td>
                     <td style="font-size:12px;color:#6b7280;font-variant-numeric:tabular-nums;">${sch || '—'}</td>
                     <td>${r.recipient_total}</td>
                     <td>${r.recipient_ok}</td>
