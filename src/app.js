@@ -15,6 +15,7 @@ const { createAdminLoginThrottle } = require('./core/adminLoginThrottle');
 const { registerWebRoutes } = require('./routes/web');
 const { registerLiffRoutes } = require('./routes/liff');
 const { registerAdminBroadcastRoutes } = require('./routes/adminBroadcast');
+const { registerBroadcastDirectLiffRoutes } = require('./routes/broadcastDirectLiff');
 const { registerAdminLeaderboardRoutes } = require('./routes/adminLeaderboard');
 const bookingLeaderboard = require('./core/bookingLeaderboard');
 const { registerAdminMessagesRoutes } = require('./routes/adminMessages');
@@ -562,6 +563,7 @@ registerWebRoutes(app, {
   resolvePublicSiteOrigin
 });
 
+registerBroadcastDirectLiffRoutes(app, { pool });
 registerAdminBroadcastRoutes(app, {
   query,
   pool,

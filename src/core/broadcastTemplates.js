@@ -1,4 +1,5 @@
 const { walkUriActions, listUriButtons } = require('./messageTapTracking');
+const { buildDirectLiffUrl } = require('./broadcastDirectLiff');
 /**
  * 後台「群發訊息」黃色 Flex 模板 builder
  *
@@ -438,6 +439,7 @@ function applyBroadcastClickTracking(messages, { origin, broadcastId, recipientI
   if (!rSeg) return 0;                       // 沒有收件人序號記不到「誰點」，不包
   const suffix = trackingVariantSuffix(variant);
   const found = walkUriActions({ contents: messages }, (item) =>
+    buildDirectLiffUrl(item.uri, { broadcastId, recipientId, buttonIndex: item.index, variant }) ||
     `${base}/r/b/${Number(broadcastId)}${rSeg}/${item.index}${suffix}`, BROADCAST_WALK_OPTS);
   return found.length;
 }
@@ -792,7 +794,8 @@ function buildLineMessages(messageConfig, { heroImageBaseUrl, broadcastId, varia
     tForBuild.ctaLabel
   ) {
     const origin = heroImageBaseUrl.replace(/\/+$/, '');
-    tForBuild.ctaUrl = `${origin}/r/b/${broadcastId}${rSeg}${variantSuffix}`;
+    tForBuild.ctaUrl = buildDirectLiffUrl(tForBuild.ctaUrl, { broadcastId, recipientId, buttonIndex: 0, variant }) ||
+      `${origin}/r/b/${broadcastId}${rSeg}${variantSuffix}`;
   }
 
   const flex = buildYellowFlexFromTemplate(tForBuild, { heroImageUrl, heroIsBrandBar });
