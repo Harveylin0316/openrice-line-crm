@@ -1,3 +1,4 @@
+const {buildDirectLiffExecutionUrl}=require('./broadcastDirectLiff');
 function safeUri(value){try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)&&!u.username&&!u.password;}catch{return false;}}
 function alreadyTracked(uri){return /\/(?:r\/b|rf|t\/(?:m|x|e))\//.test(uri);}
 function collectMessageTargets(messages){
@@ -25,10 +26,15 @@ function wrapExecutionTargets(messages,targets,urlForIndex){
  for(const t of targets.filter(t=>t.kind==='text_url').sort((a,b)=>b.start-a.start)){const m=output[t.slotIndex];m.text=m.text.slice(0,t.start)+urlForIndex(t.index)+m.text.slice(t.end);}
  return output;
 }
-async function prepareExecutionTracking(query,execution,messages,origin){
- const liffId=process.env.GAMES_LIFF_ID||process.env.WHEEL_LIFF_ID||process.env.LIFF_ID;
- const {targets}=collectMessageTargets(messages);targets.forEach(t=>{t.tracked=!!liffId;});await query("UPDATE crm_message_executions SET targets=$2::jsonb WHERE id=$1 AND status='pending'",[execution.id,JSON.stringify(targets)]);
- if(!liffId)return messages;
- return wrapExecutionTargets(messages,targets,i=>'https://liff.line.me/'+encodeURIComponent(liffId)+'/t/e/'+execution.code+'/'+i);
+async function prepareExecutionTracking(query,execution,messages,origin,env=process.env){
+ const liffId=env.GAMES_LIFF_ID||env.WHEEL_LIFF_ID||env.LIFF_ID;
+ const {targets}=collectMessageTargets(messages);
+ // 連到已安裝追蹤程式的活動 LIFF：直接開 LIFF，由活動頁背景回報（/tracking/execution/liff-hit）。
+ // 經 /t/e 中轉頁再開另一個 LIFF，活動頁按「完成」關閉後會留下外層空白視窗。
+ const direct=new Map();
+ targets.forEach(t=>{const url=buildDirectLiffExecutionUrl(t.uri,{code:execution.code,index:t.index},env);if(url){direct.set(t.index,url);t.direct=true;}t.tracked=!!liffId||!!url;});
+ await query("UPDATE crm_message_executions SET targets=$2::jsonb WHERE id=$1 AND status='pending'",[execution.id,JSON.stringify(targets)]);
+ if(!liffId&&!direct.size)return messages;
+ return wrapExecutionTargets(messages,targets.filter(t=>liffId||direct.has(t.index)),i=>direct.get(i)||'https://liff.line.me/'+encodeURIComponent(liffId)+'/t/e/'+execution.code+'/'+i);
 }
 module.exports={collectMessageTargets,wrapExecutionTargets,prepareExecutionTracking,safeUri};

@@ -7,6 +7,7 @@
 - `/tracking/broadcast/liff-hit` 僅 POST，限定活動 Origin、path、LINE 驗證 aud/sub、原收件人 sent／版本／快照目的地；交易鎖 recipient、同按鈕去重，並遵守既有 target_url 唯一索引（不同按鈕同網址只保留首次歸屬），原子更新 first_clicked_at。無 migration，GET 不記；不清理歷史爬蟲紀錄。
 - 活動 HTML 必須配合整合 public/broadcast-direct-liff.js，在 init 後背景記錄；demo／preview 不送，失敗不影響登錄與關閉。工具 scripts/qa/package-dineback-direct-liff.cjs 只產候選，不上傳。不能將帶 production GAS 的候選假稱隔離測試頁。
 - 保留追蹤語意改為「原收件人成功初始化 LIFF」，不可在正在觀察的 A/B 中途啟用。舊 /r/b 連結與其他 flow／keyword 本輪不變、不自動重發。正式 HTML／環境／main 仍需 Hen；上線後仍須以內部測試群發驗證完成回聊天室與點擊記錄。
+- 2026-11-19 擴充到自動化／關鍵字／歡迎訊息（crm_message_executions 路徑）：同一開關與 BROADCAST_DIRECT_LIFF_APPS；連到已設定 LIFF 的按鈕直接開 `liff.line.me/<id>?…&or_ex=<執行代碼>.<連結序號>`，其他網址照舊走 /t/e。活動頁回報 POST `/tracking/execution/liff-hit`：同樣限定 Origin／path、LINE 驗證 sub 必須是 recipient_key、執行 accepted 且非 test_only、該序號目的地就是這個 LIFF；event_key 固定（每人每則每按鈕一次），自動化同時寫 admin_flow_clicks。活動頁需換新版追蹤程式（`scripts/qa/package-dineback-direct-liff.cjs --upgrade`），舊版只認 or_bc：未換時流程直達仍可回聊天室，只是不記點擊。沒有 crm_message_executions 的舊 /rf 路徑不變。
 - 交付與驗收／回滾詳 docs/reviews/2026-11-17-liff-close-candidate.md。回滾 sender 旗標後須保留 API、allowlist 與 helper 處理已送出的 direct 連結。
 
 ## LINE 群發排程吞吐

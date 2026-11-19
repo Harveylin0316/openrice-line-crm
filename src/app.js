@@ -563,7 +563,7 @@ registerWebRoutes(app, {
   resolvePublicSiteOrigin
 });
 
-registerBroadcastDirectLiffRoutes(app, { pool });
+registerBroadcastDirectLiffRoutes(app, { pool, query });
 registerAdminBroadcastRoutes(app, {
   query,
   pool,
